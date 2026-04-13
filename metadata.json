@@ -1,0 +1,5 @@
+{
+  "name": "AI Daily - Stock Analysis & Report",
+  "description": "AI-powered daily stock market analysis and reporting tool with Gemini quota resilience and Feishu integration.",
+  "requestFramePermissions": []
+}

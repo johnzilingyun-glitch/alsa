@@ -17,7 +17,9 @@ const DEEP_TOPOLOGY: DiscussionRound[] = [
   { round: 7, experts: ['Professional Reviewer'], parallel: false, dependsOn: [6] },
   // Targeted revision: Bull & Bear refine arguments after all feedback
   { round: 8, experts: ['Bull Researcher', 'Bear Researcher'], parallel: true, dependsOn: [7] },
-  { round: 9, experts: ['Chief Strategist'], parallel: false, dependsOn: [8] },
+  // Investment Committee — Legendary Personas provide high-level wisdom
+  { round: 9, experts: ['Value Investing Sage', 'Growth Visionary', 'Macro Hedge Titan'], parallel: true, dependsOn: [8] },
+  { round: 10, experts: ['Chief Strategist'], parallel: false, dependsOn: [9] },
 ];
 
 const STANDARD_TOPOLOGY: DiscussionRound[] = [
@@ -28,7 +30,9 @@ const STANDARD_TOPOLOGY: DiscussionRound[] = [
   { round: 3, experts: ['Bull Researcher', 'Bear Researcher'], parallel: true, dependsOn: [2] },
   { round: 4, experts: ['Risk Manager'], parallel: false, dependsOn: [3] },
   { round: 5, experts: ['Professional Reviewer'], parallel: false, dependsOn: [4] },
-  { round: 6, experts: ['Chief Strategist'], parallel: false, dependsOn: [5] },
+  // Investment Committee — Legendary Personas
+  { round: 6, experts: ['Value Investing Sage', 'Growth Visionary', 'Macro Hedge Titan'], parallel: true, dependsOn: [5] },
+  { round: 7, experts: ['Chief Strategist'], parallel: false, dependsOn: [6] },
 ];
 
 const QUICK_TOPOLOGY: DiscussionRound[] = [

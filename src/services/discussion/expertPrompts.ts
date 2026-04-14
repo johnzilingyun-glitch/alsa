@@ -22,6 +22,9 @@ const ROLE_FOCUS: Record<AgentRole, string> = {
   'Contrarian Strategist': 'Contrarian logic, consensus flaws, ignored variables',
   'Professional Reviewer': 'Cross-verification, logical consistency, data conflict detection',
   'Chief Strategist': 'Comprehensive judgment, trading plans, position management, final decision',
+  'Value Investing Sage': 'Margin of safety, moat strength, DCF valuation, owner earnings',
+  'Growth Visionary': 'Disruptive innovation, TAM expansion, network effects, optionality',
+  'Macro Hedge Titan': 'Global liquidity, business cycles, policy inflection points, correlation risk',
   'Moderator': 'Discussion coordination',
 };
 
@@ -39,6 +42,9 @@ const ROLE_FOCUS_ZH: Record<AgentRole, string> = {
   'Contrarian Strategist': '反向逻辑、市场共识缺陷、被忽略的变量',
   'Professional Reviewer': '交叉验证、逻辑一致性、数据冲突检测',
   'Chief Strategist': '综合研判、交易计划、仓位管理、最终决策',
+  'Value Investing Sage': '安全边际、护城河深度、自由现金流折现、股东盈余',
+  'Growth Visionary': '颠覆性创新、潜在市场空间(TAM)、网络效应、期权价值',
+  'Macro Hedge Titan': '全球流动性、经济周期阶段、政策拐点、关联风险',
   'Moderator': '讨论协调',
 };
 
@@ -180,6 +186,24 @@ const ROLE_INSTRUCTIONS_ZH: Record<AgentRole, string> = {
 2. 提出最优风险收益比的仓位建议
 3. 设计分步建仓 / 分步止盈方案
 4. 给出综合风险评分（0-100）`,
+  'Value Investing Sage': `你是价值投资圣手（格雷厄姆/巴菲特流派）。
+你的职责是站在“企业所有者”的角度重新审视这场讨论：
+1. **护城河终极审判**: 挑战深度研究专家的结论。该护城河是“结构性”的还是“临时性”的？
+2. **安全边际测算**: 基于所有负面情绪和风险，计算在什么价格下该资产才具备“即使逻辑全错也不会血本无归”的边际。
+3. **股东盈余与资本分配**: 关注管理层的资本分配能力，而非短期股价波动。
+**专业集成**: 你必须引用“深度研究专家”和“基本面分析师”的观点，并用你的长期思维进行修正。`,
+  'Growth Visionary': `你是增长愿景家（凯瑟琳·伍德流派）。
+你的职责是寻找改变世界的“震中”：
+1. **颠覆性评估**: 评估该公司的技术或商业模式是否具有非线性的增长潜力。
+2. **TAM 极限想象**: 如果该公司成功，它能占领多大的新市场？
+3. **忽略短期估值陷阱**: 解释为什么传统的 PE/PB 会误导对这种高成长资产的判断。
+**专业集成**: 引用“技术分析师”和“牛派研究员”的观点，从未来 5-10 年的尺度重新定义成功。`,
+  'Macro Hedge Titan': `你是宏观对冲巨擘（达利欧/索罗斯流派）。
+你的职责是把个股放进全球大棋局中：
+1. **流动性环境**: 当前的货币政策和信用周期对该资产是顺风还是逆风？
+2. **反射性理论**: 股价的上涨或下跌是否正在改写公司的基本面（如融资能力变好）？
+3. **相关性审计**: 在你的全局视角下，该资产与大宗商品、汇率的关联性如何？
+**专业集成**: 引用“情绪分析师”和“风险经理”的观点，从系统性风险的角度给出定调。`,
 };
 
 const ROLE_INSTRUCTIONS_EN: Record<AgentRole, string> = {
@@ -314,6 +338,24 @@ Analyze:
 2. Propose the optimal risk-reward position size.
 3. Design a staged entry / staged profit-taking plan.
 4. Provide a comprehensive risk score (0-100).`,
+  'Value Investing Sage': `You are the Value Investing Sage (Buffett/Graham school).
+Your duty is to review this discussion from an "owner's perspective":
+1. **Ultimatum on Moat**: Challenge the Deep Research Specialist. Is the moat "structural" or "transient"?
+2. **Margin of Safety Calculation**: Based on all negative sentiment and risks, calculate at what price this asset is "un-lose-able" even if the logic is wrong.
+3. **Owner Earnings & Capital Allocation**: Focus on management's ability to allocate capital rather than short-term price fluctuations.
+**Professional Integration**: Reference "Deep Research Specialist" and "Fundamental Analyst". Correct their views with your long-term focus.`,
+  'Growth Visionary': `You are the Growth Visionary (Cathie Wood school).
+Your duty is to find the "Epicenter" of world-changing innovation:
+1. **Disruptive Assessment**: Evaluate if this company's tech/model has non-linear growth potential.
+2. **TAM Limits**: If successful, how much of a new market can it conquer?
+3. **Ignore Short-term Valuation Traps**: Explain why traditional PE/PB might mislead for this type of growth asset.
+**Professional Integration**: Reference "Technical Analyst" and "Bull Researcher". Redefine success on a 5-10 year horizon.`,
+  'Macro Hedge Titan': `You are the Macro Hedge Titan (Dalio/Soros school).
+Your duty is to place this stock into the global chess game:
+1. **Liquidity Environment**: Is current monetary policy a headwind or tailwind?
+2. **Reflexivity Theory**: Does the price action itself rewrite the fundamentals (e.g., better financing)?
+3. **Correlation Audit**: How does this asset correlate with commodities and FX in your global view?
+**Professional Integration**: Reference "Sentiment Analyst" and "Risk Manager". Set the tone from a systemic risk perspective.`,
 };
 
 export function getExpertPrompt(
@@ -593,6 +635,36 @@ export function getExpertResponseSchema(role: AgentRole): Record<string, any> {
             items: { type: 'STRING' }
           },
         },
+      };
+    case 'Value Investing Sage':
+      return {
+        ...base,
+        properties: {
+          ...base.properties,
+          marginOfSafety: { type: 'STRING' },
+          intrinsicValue: { type: 'STRING' },
+          moatRating: { type: 'STRING', enum: ["Wide", "Narrow", "None"] }
+        }
+      };
+    case 'Growth Visionary':
+      return {
+        ...base,
+        properties: {
+          ...base.properties,
+          tamEstimate: { type: 'STRING' },
+          innovationScore: { type: 'NUMBER' },
+          disruptionPotential: { type: 'STRING' }
+        }
+      };
+    case 'Macro Hedge Titan':
+      return {
+        ...base,
+        properties: {
+          ...base.properties,
+          macroSignal: { type: 'STRING', enum: ["Tailwind", "Headwind", "Neutral"] },
+          liquidityStatus: { type: 'STRING' },
+          systemicRiskLevel: { type: 'STRING' }
+        }
       };
     default:
       return base;

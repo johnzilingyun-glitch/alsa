@@ -219,6 +219,11 @@ export interface StockAnalysis {
     logic: string;
     volatilityRisk: string;
   };
+  legendaryInsights?: {
+    valueSage?: { marginOfSafety: string; intrinsicValue: string; moatRating: string };
+    growthVisionary?: { tamEstimate: string; innovationScore: number; disruptionPotential: string };
+    macroTitan?: { macroSignal: string; liquidityStatus: string; systemicRiskLevel: string };
+  };
   chatHistory?: { id: string; role: "user" | "ai"; content: string }[];
 }
 
@@ -242,6 +247,9 @@ export type AgentRole =
   | "Deep Research Specialist"
   | "Professional Reviewer"
   | "Chief Strategist"
+  | "Value Investing Sage"
+  | "Growth Visionary"
+  | "Macro Hedge Titan"
   | "Moderator";
 
 export interface AgentMessage {
@@ -368,6 +376,11 @@ export interface AgentDiscussion {
     expectedDuration: string;
     keyMilestones: string[];
     exitTriggers: string[];
+  };
+  legendaryInsights?: {
+    valueSage?: { marginOfSafety: string; intrinsicValue: string; moatRating: string };
+    growthVisionary?: { tamEstimate: string; innovationScore: number; disruptionPotential: string };
+    macroTitan?: { macroSignal: string; liquidityStatus: string; systemicRiskLevel: string };
   };
 }
 

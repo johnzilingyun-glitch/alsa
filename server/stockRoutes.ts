@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import YahooFinance from 'yahoo-finance2';
-import { monitor } from './dataSourceHealth';
+import { monitor } from './dataSourceHealth.js';
 import { logDebug, logError } from './stockLogger.js';
 
 const yahooFinance = new YahooFinance();

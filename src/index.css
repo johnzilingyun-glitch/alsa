@@ -1,0 +1,242 @@
+@import "tailwindcss";
+
+/* ─── Google Fonts: Satoshi (body) + Erode (display headings) ──────────── */
+@import url('https://api.fontshare.com/v2/css?f[]=satoshi@400;500;700;900&f[]=erode@400;500;600;700&display=swap');
+
+/* ─── Design Tokens (Impeccable: OKLCH, tinted neutrals, 4pt scale) ──── */
+@theme {
+  /* ── Override Tailwind zinc palette with warm-indigo tinted neutrals ── */
+  /* hue=270, subtle chroma 0.005-0.012 so border-zinc-200, text-zinc-950 etc. 
+     all get the tinted neutral treatment automatically across 300+ usages */
+  --color-zinc-50:  oklch(0.985 0.005 270);
+  --color-zinc-100: oklch(0.96 0.008 270);
+  --color-zinc-200: oklch(0.92 0.008 270);
+  --color-zinc-300: oklch(0.85 0.01 270);
+  --color-zinc-400: oklch(0.65 0.01 270);
+  --color-zinc-500: oklch(0.55 0.012 270);
+  --color-zinc-600: oklch(0.45 0.012 270);
+  --color-zinc-700: oklch(0.37 0.01 270);
+  --color-zinc-800: oklch(0.27 0.01 270);
+  --color-zinc-900: oklch(0.20 0.01 270);
+  --color-zinc-950: oklch(0.14 0.01 270);
+
+  /* ── Override Tailwind shadow scale with tinted layered shadows ── */
+  --shadow-xs:  0 1px 2px oklch(0.15 0.01 270 / 0.04);
+  --shadow-sm:  0 1px 3px oklch(0.15 0.01 270 / 0.06), 0 1px 2px oklch(0.15 0.01 270 / 0.04);
+  --shadow-md:  0 4px 12px oklch(0.15 0.01 270 / 0.06), 0 2px 4px oklch(0.15 0.01 270 / 0.03);
+  --shadow-lg:  0 8px 24px oklch(0.15 0.01 270 / 0.08), 0 4px 8px oklch(0.15 0.01 270 / 0.04);
+  --shadow-xl:  0 16px 48px oklch(0.15 0.01 270 / 0.10), 0 8px 16px oklch(0.15 0.01 270 / 0.05);
+  --shadow-2xl: 0 24px 64px oklch(0.15 0.01 270 / 0.14), 0 12px 24px oklch(0.15 0.01 270 / 0.06);
+
+  /* Brand: warm indigo tint toward hue ~270 */
+  --color-brand-600: oklch(0.45 0.18 270);
+  --color-brand-500: oklch(0.52 0.17 270);
+  --color-brand-400: oklch(0.60 0.14 270);
+  --color-brand-100: oklch(0.95 0.02 270);
+  --color-brand-50:  oklch(0.98 0.008 270);
+
+  /* Semantic surface / text / border tokens (for explicit use) */
+  --color-surface-primary:   oklch(0.985 0.005 270);
+  --color-surface-card:      oklch(0.995 0.003 270);
+  --color-surface-elevated:  oklch(1.0 0.0 270);
+  --color-surface-sunken:    oklch(0.96 0.008 270);
+  --color-border-primary:    oklch(0.90 0.01 270);
+  --color-border-subtle:     oklch(0.93 0.008 270);
+  --color-text-primary:      oklch(0.14 0.01 270);
+  --color-text-secondary:    oklch(0.40 0.015 270);
+  --color-text-muted:        oklch(0.55 0.01 270);
+
+  /* Semantic accents */
+  --color-positive:   oklch(0.55 0.15 155);
+  --color-positive-bg: oklch(0.96 0.03 155);
+  --color-negative:   oklch(0.55 0.16 20);
+  --color-negative-bg: oklch(0.96 0.03 20);
+  --color-warning:    oklch(0.65 0.16 75);
+  --color-warning-bg: oklch(0.96 0.03 75);
+
+  /* Override Tailwind white to very slight tint (impeccable: never pure) */
+  --color-white: oklch(0.995 0.003 270);
+
+  /* Easing: exponential (no bounce!) */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+
+  /* Indigo override stays available */
+  --color-indigo-600: #4f46e5;
+}
+
+/* ─── Base ──────────────────────────────────────────────────────────────── */
+body {
+  font-family: 'Satoshi', system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  background: var(--color-surface-primary);
+  color: var(--color-text-secondary);
+  line-height: 1.6;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: 'Erode', 'Georgia', serif;
+  color: var(--color-text-primary);
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+}
+
+/* ─── Component Library ─────────────────────────────────────────────────── */
+@layer components {
+  /* Card: the universal container. Clean, no nesting. */
+  .premium-card {
+    @apply rounded-2xl border bg-white transition-all;
+    border-color: var(--color-border-subtle);
+    box-shadow: var(--shadow-sm);
+    transition-timing-function: var(--ease-out);
+    transition-duration: 300ms;
+  }
+
+  .premium-card:hover {
+    border-color: var(--color-border-primary);
+    box-shadow: var(--shadow-md);
+  }
+
+  /* Entrance animation for page elements */
+  .animate-premium {
+    animation: fade-up 0.5s var(--ease-out) both;
+  }
+
+  @keyframes fade-up {
+    from {
+      opacity: 0;
+      transform: translateY(12px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  /* Staggered children delay (use as parent class) */
+  .stagger-children > * {
+    animation: fade-up 0.4s var(--ease-out) both;
+  }
+  .stagger-children > *:nth-child(1) { animation-delay: 0ms; }
+  .stagger-children > *:nth-child(2) { animation-delay: 60ms; }
+  .stagger-children > *:nth-child(3) { animation-delay: 120ms; }
+  .stagger-children > *:nth-child(4) { animation-delay: 180ms; }
+  .stagger-children > *:nth-child(5) { animation-delay: 240ms; }
+  .stagger-children > *:nth-child(6) { animation-delay: 300ms; }
+
+  /* Input */
+  .input-premium {
+    @apply w-full rounded-2xl border px-5 py-4 text-sm transition-all duration-300;
+    background: var(--color-surface-card);
+    border-color: var(--color-border-subtle);
+    color: var(--color-text-primary);
+    box-shadow: var(--shadow-xs);
+  }
+  .input-premium::placeholder {
+    color: var(--color-text-muted);
+  }
+  .input-premium:hover {
+    border-color: var(--color-border-primary);
+  }
+  .input-premium:focus {
+    border-color: var(--color-brand-500);
+    outline: none;
+    box-shadow: 0 0 0 3px oklch(0.45 0.18 270 / 0.08);
+  }
+
+  /* Primary button */
+  .btn-primary {
+    @apply rounded-2xl px-6 py-4 text-sm font-bold transition-all duration-300 
+           disabled:opacity-50 disabled:cursor-not-allowed;
+    background: var(--color-brand-600);
+    color: oklch(0.98 0.005 270);
+    box-shadow: var(--shadow-sm);
+    transition-timing-function: var(--ease-out);
+  }
+  .btn-primary:hover:not(:disabled) {
+    background: var(--color-brand-500);
+    box-shadow: var(--shadow-md);
+    transform: translateY(-1px);
+  }
+  .btn-primary:active:not(:disabled) {
+    transform: scale(0.98);
+    box-shadow: var(--shadow-xs);
+  }
+
+  /* Loading pulse (replaces bounce dots) */
+  .loading-pulse {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+  }
+  .loading-pulse > span {
+    display: block;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--color-brand-500);
+    animation: pulse-fade 1.2s var(--ease-in-out) infinite;
+  }
+  .loading-pulse > span:nth-child(2) { animation-delay: 0.15s; }
+  .loading-pulse > span:nth-child(3) { animation-delay: 0.3s; }
+  @keyframes pulse-fade {
+    0%, 100% { opacity: 0.25; transform: scale(0.85); }
+    50%      { opacity: 1; transform: scale(1); }
+  }
+
+  /* Section label */
+  .section-label {
+    font-family: 'Satoshi', sans-serif;
+    font-size: 0.6875rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+    color: var(--color-text-muted);
+  }
+
+  /* Scrollbar */
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 6px;
+  }
+  .custom-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    border-radius: 9999px;
+    background: var(--color-border-primary);
+    transition: background 200ms;
+  }
+  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: var(--color-text-muted);
+  }
+
+  /* Skeleton loading: smooth pulse instead of bouncy */
+  .skeleton {
+    @apply rounded-2xl;
+    background: linear-gradient(
+      90deg,
+      var(--color-surface-sunken) 0%,
+      var(--color-surface-card) 40%,
+      var(--color-surface-sunken) 80%
+    );
+    background-size: 200% 100%;
+    animation: skeleton-shimmer 1.8s var(--ease-in-out) infinite;
+  }
+  @keyframes skeleton-shimmer {
+    0%   { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+  }
+}
+
+/* ─── Reduced Motion ──────────────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  .animate-premium,
+  .stagger-children > * {
+    animation: none;
+  }
+  .skeleton {
+    animation: none;
+  }
+}

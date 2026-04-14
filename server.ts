@@ -4,11 +4,11 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 
-import historyRoutes, { addLogEntry } from './server/historyRoutes';
-import feishuRoutes from './server/feishuRoutes';
-import stockRoutes from './server/stockRoutes';
-import debugRoutes from './server/debugRoutes';
-import { monitor } from './server/dataSourceHealth';
+import historyRoutes, { addLogEntry } from './server/historyRoutes.js';
+import feishuRoutes from './server/feishuRoutes.js';
+import stockRoutes from './server/stockRoutes.js';
+import debugRoutes from './server/debugRoutes.js';
+import { monitor } from './server/dataSourceHealth.js';
 
 dotenv.config();
 
@@ -78,7 +78,10 @@ async function startServer() {
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({
       root: process.cwd(),
-      server: { middlewareMode: true },
+      server: { 
+        middlewareMode: true,
+        hmr: { port: 0 } 
+      },
       appType: 'spa',
     });
     app.use(vite.middlewares);
@@ -93,9 +96,18 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
+  const server = app.listen(PORT, '0.0.0.0', () => {
     console.log(`Server running on http://localhost:${PORT}`);
+    console.log(`GEMINI_API_KEY configured: ${!!process.env.GEMINI_API_KEY}`);
     addLogEntry('server', 'startup', 'active', 'Server started and background tasks initialized');
+  });
+
+  server.on('error', (e: any) => {
+    if (e.code === 'EADDRINUSE') {
+      console.error(`Port ${PORT} is already in use. Please wait or restart the dev server.`);
+    } else {
+      console.error('Server error:', e);
+    }
   });
 }
 

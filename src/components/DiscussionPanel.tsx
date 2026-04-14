@@ -404,9 +404,10 @@ export const DiscussionPanel: React.FC<DiscussionPanelProps> = ({
                                 <div className="text-right">
                                   <span className={cn(
                                     "font-semibold tracking-tighter mr-2",
-                                    row.profitImpact.includes('+') ? "text-emerald-500" : "text-rose-500"
+                                    row.profitImpact?.includes('+') ? "text-emerald-500" : 
+                                    row.profitImpact?.includes('-') ? "text-rose-500" : "text-zinc-500"
                                   )}>
-                                    {row.profitImpact}
+                                    {row.profitImpact || '-'}
                                   </span>
                                   <span className="text-[9px] text-zinc-300 flex items-center gap-0.5 justify-end">
                                     <Clock size={8} /> {row.timeLag}
@@ -428,7 +429,7 @@ export const DiscussionPanel: React.FC<DiscussionPanelProps> = ({
         {/* Messages */}
         <AnimatePresence initial={false}>
           {messages.map((msg, i) => {
-            const msgKey = msg.id ? `msg-id-${msg.id}-${i}` : `msg-idx-${i}-${msg.role}-${msg.timestamp}`;
+            const msgKey = msg.id || `${msg.role}-${msg.timestamp}-${i}`;
             const showRoundDivider = msg.round != null && (i === 0 || messages[i - 1]?.round !== msg.round);
             return (
               <React.Fragment key={`frag-${msgKey}`}>
@@ -520,7 +521,7 @@ export const DiscussionPanel: React.FC<DiscussionPanelProps> = ({
                                   rel="noopener noreferrer"
                                   className="text-xs font-medium text-cyan-600 hover:text-zinc-950 bg-cyan-950/40 border border-cyan-200/50 px-3 py-1.5 rounded-xl transition-colors flex items-center gap-1.5"
                                 >
-                                  {ref.title.length > 30 ? ref.title.substring(0, 30) + '...' : ref.title}
+                                  {ref.title && ref.title.length > 30 ? ref.title.substring(0, 30) + '...' : (ref.title || 'Untitled Source')}
                                   <ExternalLink size={12} />
                                 </a>
                               ))}

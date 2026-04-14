@@ -23,6 +23,9 @@ export function aggregateResults(
   const chiefStrategist = roundResults.get('Chief Strategist');
   const contrarian = roundResults.get('Contrarian Strategist');
   const bearResearcher = roundResults.get('Bear Researcher');
+  const valueSage = roundResults.get('Value Investing Sage');
+  const growthVisionary = roundResults.get('Growth Visionary');
+  const macroTitan = roundResults.get('Macro Hedge Titan');
 
   // Collect controversial points from both contrarian and bear researcher
   const controversialPoints: string[] = [];
@@ -52,6 +55,23 @@ export function aggregateResults(
     expectedValueOutcome: chiefStrategist?.structuredData?.expectedValueOutcome,
     sensitivityMatrix: chiefStrategist?.structuredData?.sensitivityMatrix,
     controversialPoints: controversialPoints.length > 0 ? controversialPoints : undefined,
+    legendaryInsights: {
+      valueSage: valueSage?.structuredData ? {
+        marginOfSafety: valueSage.structuredData.marginOfSafety,
+        intrinsicValue: valueSage.structuredData.intrinsicValue,
+        moatRating: valueSage.structuredData.moatRating
+      } : undefined,
+      growthVisionary: growthVisionary?.structuredData ? {
+        tamEstimate: growthVisionary.structuredData.tamEstimate,
+        innovationScore: growthVisionary.structuredData.innovationScore,
+        disruptionPotential: growthVisionary.structuredData.disruptionPotential
+      } : undefined,
+      macroTitan: macroTitan?.structuredData ? {
+        macroSignal: macroTitan.structuredData.macroSignal,
+        liquidityStatus: macroTitan.structuredData.liquidityStatus,
+        systemicRiskLevel: macroTitan.structuredData.systemicRiskLevel
+      } : undefined,
+    }
   };
 
   if (backtest) {

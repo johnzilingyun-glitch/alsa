@@ -1,0 +1,9 @@
+{
+  "stockInfo": {
+    "symbol": "TEST",
+    "name": "Test Stock"
+  },
+  "generatedAt": 1776242184279,
+  "id": "stock-1776242184407-ewzdhrktb",
+  "type": "stock"
+}

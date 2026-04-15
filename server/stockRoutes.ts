@@ -233,20 +233,8 @@ router.get('/stock/news', async (req, res) => {
       }
     }
 
-    // 1. Primary Top-Tier Fetch via Python Microservice (AkShare / FinNLP style) - Only for general market news or if ticker news is empty
-    if (news.length < 3) {
-      try {
-        const pythonRes = await fetch(`http://127.0.0.1:8000/api/market/news?market=${marketKey}`);
-        if (pythonRes.ok) {
-          const pythonData = await pythonRes.json();
-          if (pythonData.success && pythonData.data && pythonData.data.length > 0) {
-            news.push(...pythonData.data);
-          }
-        }
-      } catch (e) {
-        console.warn("Python News MS unavailable, falling back to Node fetchers:", e);
-      }
-    }
+    // 1. Primary Top-Tier Fetch via Node.js (Fallback to Sina/Yahoo)
+    // Removed Python microservice call to avoid 401/proxy issues in this environment
     
     // 2. Fallback simple fetch for Sina Roll News (if A-share/HK-share)
     if (news.length < 5 && (marketKey === 'A-Share' || marketKey === 'HK-Share')) {
@@ -315,49 +303,78 @@ router.get('/stock/news', async (req, res) => {
   }
 });
 
-// Institutional Sector Flows (Python Microservice Proxy)
+// Institutional Sector Flows (Node.js Implementation)
 router.get('/stock/sectors', async (req, res) => {
   const cacheKey = 'sector_flow';
   const cached = getCached(cacheKey);
   if (cached) return res.json(cached);
 
   try {
-    const response = await fetch('http://127.0.0.1:8000/api/market/sector_flow');
-    if (!response.ok) throw new Error(`Python service failed: ${response.status}`);
+    // Fetch from EastMoney directly
+    const url = 'https://push2.eastmoney.com/api/qt/clist/get?pn=1&pz=10&po=1&np=1&ut=b2884a393a59ad64002292a3e90d46a5&fltt=2&invt=2&fid=f62&fs=m:90+t:2&fields=f12,f14,f2,f3,f62,f184,f66,f69,f72,f75,f78,f81,f84,f87,f204,f205,f124,f1,f13';
+    const response = await fetchWithTimeout(url);
+    if (!response.ok) throw new Error(`EastMoney API failed: ${response.status}`);
     const data = await response.json();
     
-    if (data.success && data.data) {
-      setCache(cacheKey, data.data);
-      res.json(data.data);
+    if (data?.data?.diff) {
+      const items = data.data.diff.map((item: any) => ({
+        "序号": item.f12,
+        "行业": item.f14,
+        "最新价": item.f2,
+        "涨跌幅": item.f3,
+        "主力净流入-净额": item.f62,
+        "主力净流入-净占比": item.f184
+      }));
+      
+      const sorted = items.sort((a: any, b: any) => (b["主力净流入-净额"] || 0) - (a["主力净流入-净额"] || 0));
+      const topInflows = sorted.slice(0, 5);
+      const topOutflows = sorted.slice(-3).reverse();
+      
+      const result = { topInflows, topOutflows };
+      setCache(cacheKey, result);
+      res.json(result);
     } else {
-      throw new Error('Invalid data format from Python service');
+      throw new Error('Invalid data format from EastMoney');
     }
   } catch (error) {
-    console.warn('Sector flow fetch error (is Python backend running?):', error);
-    res.status(500).json({ error: 'Python service unavailable' });
+    console.warn('Sector flow fetch error:', error);
+    res.status(500).json({ error: 'Failed to fetch sector flow' });
   }
 });
 
-// Northbound Capital Flows (Python Microservice Proxy)
+// Northbound Capital Flows (Node.js Implementation)
 router.get('/stock/northbound', async (req, res) => {
   const cacheKey = 'northbound_flow';
   const cached = getCached(cacheKey);
   if (cached) return res.json(cached);
 
   try {
-    const response = await fetch('http://127.0.0.1:8000/api/market/northbound');
-    if (!response.ok) throw new Error(`Python service failed: ${response.status}`);
+    // Fetch from EastMoney directly
+    const url = 'https://push2.eastmoney.com/api/qt/kamt.rtmin/get?fields1=f1,f2,f3,f4&fields2=f51,f52,f54,f58,f56&ut=b2884a393a59ad64002292a3e90d46a5';
+    const response = await fetchWithTimeout(url);
+    if (!response.ok) throw new Error(`EastMoney API failed: ${response.status}`);
     const data = await response.json();
     
-    if (data.success && data.data) {
-      setCache(cacheKey, data.data);
-      res.json(data.data);
-    } else {
-      throw new Error('Invalid data format from Python service');
+    if (data?.data?.s2n) {
+      const s2n = data.data.s2n;
+      // Get the latest data point
+      const latest = s2n[s2n.length - 1];
+      if (latest) {
+        const parts = latest.split(',');
+        const result = {
+          "日期": data.data.date || new Date().toISOString().split('T')[0],
+          "沪股通净买入": parseFloat(parts[1]) || 0,
+          "深股通净买入": parseFloat(parts[2]) || 0,
+          "北向资金净买入": (parseFloat(parts[1]) || 0) + (parseFloat(parts[2]) || 0)
+        };
+        setCache(cacheKey, result);
+        return res.json(result);
+      }
     }
+    throw new Error('Invalid data format from EastMoney');
   } catch (error) {
-    console.warn('Northbound flow fetch error (is Python backend running?):', error);
-    res.status(500).json({ error: 'Python service unavailable' });
+    console.warn('Northbound flow fetch error:', error);
+    res.status(500).json({ error: 'Failed to fetch northbound flow' });
   }
 });
 
@@ -546,6 +563,19 @@ router.get('/stock/realtime', async (req, res) => {
 });
 
 // --- Helpers ---
+
+async function fetchWithTimeout(url: string, options: RequestInit = {}, timeout = 5000) {
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), timeout);
+  try {
+    const response = await fetch(url, { ...options, signal: controller.signal });
+    clearTimeout(id);
+    return response;
+  } catch (error) {
+    clearTimeout(id);
+    throw error;
+  }
+}
 
 async function resolveSymbolEx(input: string, preferredMarket: string, isDebug: boolean): Promise<{ symbol: string; market: string }> {
   const upperInput = input.toUpperCase();

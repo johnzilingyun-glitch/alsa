@@ -19,7 +19,7 @@ export const Header = memo(function Header({ onSearch, onResetToHome, onTriggerD
   const { t, i18n } = useTranslation();
   const loading = useUIStore(selectLoading);
   const { isTriggeringReport, showAdminPanel, setShowAdminPanel, setIsSettingsOpen, analysisLevel, setAnalysisLevel } = useUIStore();
-  const { dailyReport } = useMarketStore();
+  const { dailyReport, recentSearches } = useMarketStore();
   const { symbol, setSymbol, market, setMarket } = useAnalysisStore();
   const { language, setLanguage } = useConfigStore();
 
@@ -95,17 +95,18 @@ export const Header = memo(function Header({ onSearch, onResetToHome, onTriggerD
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (!showSuggestions || suggestions.length === 0) return;
+    const currentList = localSymbol ? suggestions : recentSearches;
+    if (!showSuggestions || currentList.length === 0) return;
 
     if (e.key === 'ArrowDown') {
       e.preventDefault();
-      setSelectedIndex(prev => (prev + 1) % suggestions.length);
+      setSelectedIndex(prev => (prev + 1) % currentList.length);
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
-      setSelectedIndex(prev => (prev - 1 + suggestions.length) % suggestions.length);
+      setSelectedIndex(prev => (prev - 1 + currentList.length) % currentList.length);
     } else if (e.key === 'Enter' && selectedIndex >= 0) {
       e.preventDefault();
-      handleSelectSuggestion(suggestions[selectedIndex]);
+      handleSelectSuggestion(currentList[selectedIndex]);
     } else if (e.key === 'Escape') {
       setShowSuggestions(false);
     }
@@ -280,16 +281,21 @@ export const Header = memo(function Header({ onSearch, onResetToHome, onTriggerD
                 setSymbol(val);
               }
             }}
-            onFocus={() => { if (suggestions.length > 0) setShowSuggestions(true); }}
+            onFocus={() => { setShowSuggestions(true); }}
             onKeyDown={handleKeyDown}
             className="h-14 w-full font-medium text-base rounded-xl border border-zinc-200 bg-white pl-14 pr-6 text-zinc-950 transition-all placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-indigo-600/10 focus:border-indigo-600/40 shadow-sm shadow-zinc-900/5 group-hover:border-zinc-300"
           />
 
           {/* Suggestions Dropdown */}
-          {showSuggestions && suggestions.length > 0 && (
+          {showSuggestions && (suggestions.length > 0 || (!localSymbol && recentSearches.length > 0)) && (
             <div className="absolute top-full left-0 right-0 mt-2 z-[60] overflow-hidden rounded-2xl border border-zinc-100 bg-white/95 backdrop-blur-xl shadow-2xl shadow-indigo-600/10 animate-in fade-in slide-in-from-top-2 duration-200">
               <div className="p-1.5" id="search-suggestions" role="listbox" aria-label="Search suggestions">
-                {suggestions.map((s, idx) => (
+                {!localSymbol && recentSearches.length > 0 && (
+                  <div className="px-4 py-2 text-[10px] font-bold text-zinc-400 uppercase tracking-widest flex items-center gap-2">
+                    <Clock size={12} /> 最近搜索
+                  </div>
+                )}
+                {(localSymbol ? suggestions : recentSearches).map((s, idx) => (
                   <button
                     key={`suggestion-${s.symbol}-${idx}`}
                     type="button"

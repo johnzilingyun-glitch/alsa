@@ -28,7 +28,10 @@ function cleanupOldHistory() {
       // Extract ISO timestamp from filename: type_YYYY-MM-DDTHH-MM-SS-mmmZ_id.json
       const match = f.match(/^\w+_(\d{4}-\d{2}-\d{2}T[\d-]+Z)/);
       if (match) {
-        const fileDate = new Date(match[1].replace(/-(?=\d{2}[T-])/g, '-').replace(/(\d{2})-(\d{2})-(\d{3})Z/, '$1:$2:$3Z').replace(/T(\d{2})-(\d{2})-(\d{2})/, 'T$1:$2:$3'));
+        const isoStr = match[1]
+          .replace(/T(\d{2})-(\d{2})-(\d{2})/, 'T$1:$2:$3')
+          .replace(/-(\d{3})Z$/, '.$1Z');
+        const fileDate = new Date(isoStr);
         if (!isNaN(fileDate.getTime()) && fileDate.getTime() < cutoff) {
           fs.unlinkSync(path.join(HISTORY_DIR, f));
           deleted++;

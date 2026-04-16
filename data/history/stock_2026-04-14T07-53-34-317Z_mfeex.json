@@ -1,0 +1,575 @@
+{
+  "stockInfo": {
+    "symbol": "603259.SS",
+    "name": "WUXI APPTEC CO LTD",
+    "price": 106.55,
+    "change": 0.84,
+    "changePercent": 0.79,
+    "market": "A-Share",
+    "currency": "CNY",
+    "lastUpdated": "2026/04/14 15:00:01 CST",
+    "previousClose": 105.71,
+    "dailyHigh": 106.8,
+    "dailyLow": 104.12,
+    "dataQuality": {
+      "score": 90,
+      "lastSync": "2026/04/14 15:00:01 CST",
+      "sourcePriority": "Search/Scraped",
+      "isStale": false,
+      "missingFields": []
+    }
+  },
+  "summary": "WuXi AppTec Co. Ltd. (603259.SS) is a leading global Contract Research, Development, and Manufacturing Organization (CRDMO) listed on the A-Share market. The stock closed today at 106.55 CNY, up 0.79% from its previous close. The company demonstrated strong financial performance in FY2025, reporting a 21.4% year-over-year revenue growth for continuing operations and a substantial 102.6% increase in net profit attributable to owners. It also maintains a robust backlog of RMB 58.00 billion, indicating strong future revenue visibility. However, the stock faces considerable geopolitical headwinds due to potential U.S. legislative actions, such as the BIOSECURE Act, which introduces uncertainty regarding its access to the U.S. market and relationships with American clients. Currently, the stock trades at a TTM P/E of 15.63, which is in the top 25% of its industry, and slightly above its DCF intrinsic value of 101.69 CNY, suggesting a full valuation.",
+  "technicalAnalysis": "The stock closed at 106.55 CNY, showing a modest gain of 0.79% for the day. It traded within a daily range of 104.12 CNY to 106.8 CNY. The current price is closer to its 52-week high of 115.79 CNY, indicating positive momentum over the past year. However, the stock's proximity to its yearly high, coupled with geopolitical uncertainties, suggests that upward momentum might face resistance, and potential pullbacks could occur if negative news emerges or market sentiment shifts.",
+  "fundamentalAnalysis": "WuXi AppTec operates with a narrow economic moat, supported by its integrated CRDMO platform, technological capabilities, and sticky client relationships within the complex drug development lifecycle. Management has consistently delivered strong financial results, with FY2025 revenue growth of 21.4% and adjusted non-IFRS net profit growth of 41.3%, coupled with an impressive backlog growth of 28.8%. The company's TTM ROE of 25.84% highlights its efficiency in generating profits from shareholder equity. Despite strong operational performance, the stock's valuation, with a TTM P/E of 15.63 and trading slightly above its DCF value, suggests limited undervaluation. The primary fundamental risk remains geopolitical, particularly the potential impact of US-China tensions and specific legislation like the BIOSECURE Act, which could disrupt its business model and global market access. The narrative of robust growth is largely consistent with financial data, but the unquantifiable nature of geopolitical risks creates a logical gap in predicting long-term stability without resolution of these external factors. Graham's 'Net-Net' calculation (Current Assets - Total Liabilities = 39.22B CNY) is significantly lower than the market capitalization (317.92B CNY), indicating that the stock is not a 'deep value' play. The company's R&D efficiency and operating cash flow remain strong, aligning with its CRDMO model focused on innovation and service delivery.",
+  "sentiment": "Neutral",
+  "score": 65,
+  "recommendation": "Hold",
+  "keyRisks": [
+    "Geopolitical tensions and potential regulatory actions by the U.S. government (e.g., BIOSECURE Act) pose a significant threat to WuXi AppTec's U.S. customer base and global operations.",
+    "Increased competition in the global CRDMO market could put pressure on pricing and margins, impacting future revenue growth and profitability.",
+    "Reliance on global biopharmaceutical R&D spending trends means a slowdown in this sector could adversely affect demand for WuXi AppTec's services.",
+    "Currency fluctuations, particularly USD/CNY, could impact reported earnings due to its international operations and client base."
+  ],
+  "keyOpportunities": [
+    "Continued strong global demand for outsourced drug discovery, development, and manufacturing services, driven by biopharmaceutical innovation.",
+    "Expansion into new geographic markets (e.g., Saudi Arabia) and new therapeutic modalities could diversify revenue streams and client base.",
+    "Leveraging its integrated CRDMO platform to capture a greater share of the drug development value chain, from early discovery to commercial manufacturing.",
+    "Ongoing investment in R&D and technological advancements to maintain a competitive edge and offer cutting-edge services to clients."
+  ],
+  "news": [
+    {
+      "title": "LVMH sales hit as Middle East conflict delays luxury recovery",
+      "source": "Financial Times",
+      "time": "2026/4/14 15:39:02",
+      "url": "https://finance.yahoo.com/markets/stocks/articles/lvmh-sales-hit-middle-east-173219365.html",
+      "summary": "This article discusses LVMH's sales being affected by the Middle East conflict, delaying luxury market recovery. This news is generally irrelevant to WuXi AppTec."
+    },
+    {
+      "title": "Efforts underway for second round of US-Iran talks as US blockade takes effect",
+      "source": "Associated Press",
+      "time": "2026/4/14 15:36:20",
+      "url": "https://finance.yahoo.com/m/a33bb948-7516-37c2-ad81-132790fbf091/efforts-underway-for-second.html",
+      "summary": "This news focuses on geopolitical efforts for US-Iran talks amidst a US blockade. This news is generally irrelevant to WuXi AppTec, though broader geopolitical stability could indirectly impact global business sentiment."
+    },
+    {
+      "title": "Founder of China's Evergrande pleads guilty to fraud",
+      "source": "AFP",
+      "time": "2026/4/14 15:34:58",
+      "url": "https://finance.yahoo.com/markets/stocks/articles/founder-chinas-evergrande-pleads-guilty-073458407.html",
+      "summary": "This article reports on the founder of Evergrande pleading guilty to fraud, reflecting developments in China's real estate sector. This news is generally irrelevant to WuXi AppTec."
+    },
+    {
+      "title": "Online Marketplace Stocks Q4 Recap: Benchmarking CarGurus (NASDAQ:CARG)",
+      "source": "StockStory",
+      "time": "2026/4/14 15:34:03",
+      "url": "https://finance.yahoo.com/markets/stocks/articles/online-marketplace-stocks-q4-recap-073403132.html",
+      "summary": "This news provides a Q4 recap for online marketplace stocks, benchmarking CarGurus. This is irrelevant to WuXi AppTec."
+    },
+    {
+      "title": "Form 8.3",
+      "source": "Business Wire",
+      "time": "2026/4/14 15:34:00",
+      "url": "https://finance.yahoo.com/markets/stocks/articles/form-8-3-073400632.html",
+      "summary": "This is a generic Form 8.3 filing, likely unrelated to WuXi AppTec specifically without further context."
+    },
+    {
+      "title": "Mestag Therapeutics Selected to Present Targeted LTBR Agonist MST‑0312 in Late‑Breaking Session at AACR Annual Meeting",
+      "source": "GlobeNewswire",
+      "time": "2026/4/14 15:30:00",
+      "url": "https://finance.yahoo.com/sectors/healthcare/articles/mestag-therapeutics-selected-present-targeted-073000946.html",
+      "summary": "This news highlights Mestag Therapeutics' presentation at a scientific meeting. While in the healthcare sector, it is not directly related to WuXi AppTec's business or operations."
+    },
+    {
+      "title": "Refrigerated Display Cases Market Size to Hit USD 19.92 Billion by 2035 | SNS Insider",
+      "source": "GlobeNewswire",
+      "time": "2026/4/14 15:30:00",
+      "url": "https://finance.yahoo.com/sectors/technology/articles/refrigerated-display-cases-market-size-073000120.html",
+      "summary": "This article discusses the market size forecast for refrigerated display cases. This is irrelevant to WuXi AppTec."
+    },
+    {
+      "title": "CONDITIONS FOR SALE OF RIKSBANK CERTIFICATES",
+      "source": "GlobeNewswire",
+      "time": "2026/4/14 15:30:00",
+      "url": "https://finance.yahoo.com/news/conditions-sale-riksbank-certificates-073000252.html",
+      "summary": "This news pertains to the sale conditions of Riksbank certificates, which is a financial market item unrelated to WuXi AppTec."
+    }
+  ],
+  "tradingPlan": {
+    "entryPrice": "Not Recommended",
+    "targetPrice": "Not Recommended",
+    "stopLoss": "Not Recommended",
+    "strategy": "Given the current valuation (trading above DCF and near 52-week highs) and the significant geopolitical overhang, an immediate 'Buy' recommendation is not warranted. Investors currently holding the stock may 'Hold' due to strong underlying business fundamentals and growth momentum, but new entries should await a more favorable entry point with a greater margin of safety or a clearer resolution of geopolitical risks. A break above its 52-week high with sustained volume and positive news regarding regulatory clarity could signal a stronger upward trend, while a sustained break below key support levels (e.g., 100 CNY) could indicate increased selling pressure.",
+    "strategyRisks": "The primary risk for this 'Hold' strategy is the unpredictable nature of geopolitical events, which could lead to sudden and sharp price movements unrelated to company fundamentals. Further negative legislative developments could significantly impair the company's long-term outlook. Conversely, a swift and positive resolution of these issues could lead to a rapid upward revaluation, causing 'Hold' investors to miss out on significant gains. The absence of a strong margin of safety at current levels exposes investors to greater downside risk if market conditions deteriorate.",
+    "positionPlan": [],
+    "logicBasedStopLoss": "Condition-based stop",
+    "riskRewardRatio": 0
+  },
+  "fundamentals": {
+    "pe": "15.63 (as of April 08, 2026)",
+    "pb": "3.62 (Most Recent Quarter)",
+    "roe": "25.84% (TTM)",
+    "eps": "CNY 6.61 (FY2025 diluted)",
+    "revenueGrowth": "21.40% (FY2025 YoY)",
+    "valuationPercentile": "PE of 15.63 is in the top 25% of its industry, suggesting a higher-than-average valuation.",
+    "netProfitGrowth": "102.6% (FY2025 YoY, attributable to owners)",
+    "debtToEquity": "0.11",
+    "grossMargin": "48.91% (TTM)",
+    "netMargin": "44.10% (TTM)",
+    "dividendYield": "1.32% (Forward, as of April 12, 2026)"
+  },
+  "fundamentalTable": [
+    {
+      "indicator": "EPS (2026E)",
+      "value": "CNY 2.47 (Q4 2026 Est.)",
+      "consensus": "CNY 1.22 (Q1 2026 Est.)",
+      "deviation": "N/A",
+      "remark": "Full year 2026 EPS consensus not readily available; Q1 2026 and Q4 2026 estimates provided."
+    },
+    {
+      "indicator": "PE (Forward 2026E)",
+      "value": "22.42 (as of April 08, 2026)",
+      "consensus": "N/A",
+      "deviation": "N/A",
+      "remark": "Forward PE is higher than its 3-year average."
+    },
+    {
+      "indicator": "ROE (TTM)",
+      "value": "25.84%",
+      "consensus": "N/A",
+      "deviation": "N/A",
+      "remark": "Strong return on equity, indicating efficient use of shareholder capital."
+    },
+    {
+      "indicator": "Dividend Yield (Forward)",
+      "value": "1.32% (as of April 12, 2026)",
+      "consensus": "N/A",
+      "deviation": "N/A",
+      "remark": "Offers a moderate forward dividend yield."
+    }
+  ],
+  "industryAnchors": [
+    {
+      "variable": "WUXI APPTEC Backlog for Continuing Operations",
+      "currentValue": "RMB 58.00 billion (as of year-end 2025)",
+      "weight": "High",
+      "monthlyChange": "+28.8% (YoY)",
+      "logic": "A growing backlog indicates strong future revenue visibility and sustained demand for WuXi AppTec's CRDMO services.",
+      "dataSourceAndDate": "WuXi AppTec FY2025 Financial Results, March 23, 2026"
+    },
+    {
+      "variable": "Global Biopharmaceutical R&D Spending Trends",
+      "currentValue": "Strong (Qualitative)",
+      "weight": "High",
+      "monthlyChange": "N/A",
+      "logic": "WuXi AppTec's business directly benefits from increased R&D investment in the global biopharmaceutical industry as companies increasingly outsource drug discovery and development.",
+      "dataSourceAndDate": "General industry trend, (Internal Knowledge)"
+    },
+    {
+      "variable": "Regulatory Environment (e.g., BIOSECURE Act)",
+      "currentValue": "Uncertainty / Risk",
+      "weight": "High",
+      "monthlyChange": "N/A",
+      "logic": "Potential US legislative risks, such as the BIOSECURE Act, could force American clients to decouple from Chinese CROs, posing a significant threat to WuXi AppTec's global operations and client base.",
+      "dataSourceAndDate": "Perplexity, WuXi AppTec reports, March 23, 2026"
+    }
+  ],
+  "historicalData": {
+    "yearHigh": "CNY 115.79 (52-week high)",
+    "yearLow": "CNY 48.48 (52-week low)",
+    "majorEvents": [
+      "WuXi AppTec reported record performance for the full year 2025, with revenue from continuing operations up 21.4% YoY and adjusted non-IFRS net profit up 41.3% YoY.",
+      "The company maintains a strong backlog for continuing operations, reaching RMB 58.00 billion as of year-end 2025, an increase of 28.8% YoY.",
+      "Concerns regarding potential U.S. legislative risks, such as the BIOSECURE Act, have impacted market sentiment due to the possibility of American clients decoupling from Chinese CROs.",
+      "WuXi AppTec announced plans to extend its CRDMO platform to Saudi Arabia, signing strategic MoUs with NEOM and the Ministry of Health.",
+      "The company received Frost & Sullivan's 2025 Global Company of the Year Award in the CRDMO Industry."
+    ]
+  },
+  "valuationAnalysis": {
+    "comparison": "WuXi AppTec's current price of 106.55 CNY is slightly above its estimated Discounted Cash Flow (DCF) valuation of 101.69 CNY as of April 2026. Its TTM P/E ratio of 15.63 places it in the top 25% of its industry, suggesting a premium valuation compared to peers.",
+    "marginOfSafetySummary": "Based on a DCF valuation of 101.69 CNY, the current price of 106.55 CNY implies a negative margin of safety. This suggests that the stock is trading slightly above its intrinsic value based on this model, potentially limiting downside protection for new investments at this price point."
+  },
+  "moatAnalysis": {
+    "type": "Economic Moat",
+    "strength": "Narrow",
+    "logic": "WuXi AppTec benefits from a narrow economic moat stemming from its comprehensive, integrated end-to-end CRDMO platform, technological expertise, and established relationships with a large global customer base (over 6,000 active customers including major pharmaceutical companies). This creates switching costs for clients due to the long and complex nature of drug development projects. However, increasing competition in the CRDMO space and significant geopolitical risks, particularly potential U.S. legislative actions like the BIOSECURE Act, temper the strength of its moat."
+  },
+  "narrativeConsistency": {
+    "score": 85,
+    "warning": "While management's growth narrative aligns with recent financial performance, geopolitical risks pose a significant external threat that could challenge future consistency.",
+    "details": "Management's narrative of 'sustained rapid business growth' is strongly supported by the company's 2025 financial results, including a 21.4% YoY revenue growth for continuing operations and a 41.3% YoY increase in adjusted non-IFRS net profit. The record-high backlog of RMB 58.00 billion also provides concrete evidence for future revenue visibility. The primary disconnect arises from the external geopolitical environment, which introduces unquantifiable risks that could disrupt this growth narrative despite strong internal execution."
+  },
+  "netNetValue": 39220000000,
+  "isDeepValue": false,
+  "verificationMetrics": [
+    {
+      "indicator": "Backlog for Continuing Operations Growth (YoY)",
+      "threshold": ">20%",
+      "timeframe": "Quarterly / Annually",
+      "logic": "Sustained growth in backlog indicates robust demand for WuXi AppTec's services and provides forward visibility on revenue, serving as a leading indicator for future financial performance."
+    },
+    {
+      "indicator": "WuXi Chemistry Segment Revenue Growth (YoY)",
+      "threshold": ">20%",
+      "timeframe": "Quarterly / Annually",
+      "logic": "As the largest revenue contributor, the continued strong growth of the WuXi Chemistry segment (CRDMO business) is critical for the company's overall revenue expansion and profitability."
+    },
+    {
+      "indicator": "Resolution/Impact of Geopolitical Risks (e.g., BIOSECURE Act)",
+      "threshold": "No new significant restrictive legislation enacted or material impact on client relationships",
+      "timeframe": "Ongoing",
+      "logic": "Monitoring legislative developments and their practical impact on client acquisition and retention, particularly with U.S. biopharmaceutical companies, is crucial due to the direct threat these pose to market access."
+    }
+  ],
+  "capitalFlow": {
+    "northboundFlow": "Logical Gap due to Missing Information",
+    "institutionalHoldings": "Logical Gap due to Missing Information",
+    "ahPremium": "Logical Gap due to Missing Information",
+    "marketSentiment": "Neutral to cautious, influenced by strong fundamentals but overshadowed by geopolitical uncertainties. News flow indicates both positive performance and regulatory concerns."
+  },
+  "cycleAnalysis": {
+    "stage": "Mid-Growth, with elevated volatility risk",
+    "logic": "The CRDMO industry, in which WuXi AppTec operates, is generally in a mid-growth stage driven by increasing outsourcing trends in pharmaceutical R&D and manufacturing. WuXi AppTec's strong backlog and robust financial performance confirm its position in this growth cycle. However, external geopolitical pressures and regulatory uncertainty (e.g., BIOSECURE Act) introduce significant volatility and act as a dampener on what would otherwise be a more advanced growth stage.",
+    "volatilityRisk": "High, primarily due to geopolitical tensions and potential regulatory actions that could impact the company's global client base and market access."
+  },
+  "dataQuality": {
+    "score": 90,
+    "lastSync": "2026/04/14 15:00:01 CST",
+    "sourcePriority": "Search/Scraped",
+    "isStale": false,
+    "missingFields": []
+  },
+  "id": "stock-1776153214317-5aeggohpr",
+  "messages": [
+    {
+      "id": "msg-1776152992554-atrn0ivj5",
+      "role": "Deep Research Specialist",
+      "content": "[系统摘要] Deep Research Specialist 已完成深度分析并提交了结构化数据（核心变量: 6项）。虽然详细文字说明生成异常，但其量化结论已同步至决策引擎。建议关注后续轮次的交叉验证。",
+      "timestamp": "2026-04-14T07:49:52.554Z",
+      "type": "discussion",
+      "round": 1
+    },
+    {
+      "id": "msg-1776153021890-9n2dbhz2m",
+      "role": "Technical Analyst",
+      "content": "[Technical Analyst 分析暂时不可用] 该专家分析生成过程中出现异常，建议参考其他专家意见。",
+      "timestamp": "2026-04-14T07:50:21.890Z",
+      "type": "discussion",
+      "round": 2
+    },
+    {
+      "id": "msg-1776153025146-bc7o1wuh4",
+      "role": "Fundamental Analyst",
+      "content": "[Fundamental Analyst 分析暂时不可用] 该专家分析生成过程中出现异常，建议参考其他专家意见。",
+      "timestamp": "2026-04-14T07:50:25.146Z",
+      "type": "discussion",
+      "round": 2
+    },
+    {
+      "id": "msg-1776153038451-p9906xfbs",
+      "role": "Bull Researcher",
+      "content": "[Bull Researcher 分析暂时不可用] 该专家分析生成过程中出现异常，建议参考其他专家意见。",
+      "timestamp": "2026-04-14T07:50:38.451Z",
+      "type": "discussion",
+      "round": 3
+    },
+    {
+      "id": "msg-1776153044547-0pevij3rt",
+      "role": "Bear Researcher",
+      "content": "[Bear Researcher 分析暂时不可用] 该专家分析生成过程中出现异常，建议参考其他专家意见。",
+      "timestamp": "2026-04-14T07:50:44.547Z",
+      "type": "discussion",
+      "round": 3
+    },
+    {
+      "id": "msg-1776153063485-jtskt23xf",
+      "role": "Risk Manager",
+      "content": "[Risk Manager 分析暂时不可用] 该专家分析生成过程中出现异常，建议参考其他专家意见。",
+      "timestamp": "2026-04-14T07:51:03.485Z",
+      "type": "discussion",
+      "round": 4
+    },
+    {
+      "id": "msg-1776153079474-b7wh26nc0",
+      "role": "Professional Reviewer",
+      "content": "[Professional Reviewer 分析暂时不可用] 该专家分析生成过程中出现异常，建议参考其他专家意见。",
+      "timestamp": "2026-04-14T07:51:19.474Z",
+      "type": "discussion",
+      "round": 5
+    },
+    {
+      "id": "msg-1776153093306-c5txm4fe6",
+      "role": "Value Investing Sage",
+      "content": "[Value Investing Sage 分析暂时不可用] 该专家分析生成过程中出现异常，建议参考其他专家意见。",
+      "timestamp": "2026-04-14T07:51:33.306Z",
+      "type": "discussion",
+      "round": 6
+    },
+    {
+      "id": "msg-1776153097265-uj4ydihty",
+      "role": "Growth Visionary",
+      "content": "[Growth Visionary 分析暂时不可用] 该专家分析生成过程中出现异常，建议参考其他专家意见。",
+      "timestamp": "2026-04-14T07:51:37.265Z",
+      "type": "discussion",
+      "round": 6
+    },
+    {
+      "id": "msg-1776153103264-20w2y7qct",
+      "role": "Macro Hedge Titan",
+      "content": "[Macro Hedge Titan 分析暂时不可用] 该专家分析生成过程中出现异常，建议参考其他专家意见。",
+      "timestamp": "2026-04-14T07:51:43.264Z",
+      "type": "discussion",
+      "round": 6
+    },
+    {
+      "id": "msg-1776153115966-ygeec6eaz",
+      "role": "Chief Strategist",
+      "content": "[Chief Strategist 分析暂时不可用] 该专家分析生成过程中出现异常，建议参考其他专家意见。",
+      "timestamp": "2026-04-14T07:51:55.966Z",
+      "type": "discussion",
+      "round": 7
+    }
+  ],
+  "finalConclusion": "Comprehensive strategic conclusion...",
+  "coreVariables": [
+    {
+      "name": "USD/CNY Exchange Rate",
+      "value": "6.8157",
+      "unit": "CNY",
+      "source": "Yahoo Finance API",
+      "source_date": "2026-04-14",
+      "url": "N/A (API)",
+      "logic_weight": "High",
+      "dataDate": "2026/04/14"
+    },
+    {
+      "name": "Crude Oil (WTI) Price",
+      "value": "96.38",
+      "unit": "$/bbl",
+      "source": "Yahoo Finance API",
+      "source_date": "2026-04-14",
+      "url": "N/A (API)",
+      "logic_weight": "Medium",
+      "dataDate": "2026/04/14"
+    },
+    {
+      "name": "Global CRO Market Size (2026)",
+      "value": "99.87",
+      "unit": "USD Bn",
+      "source": "Fortune Business Insights",
+      "source_date": "2026-03-23",
+      "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHPKZJhkWlyUyZbBH9lf7QDnJw-x5GtTU83suiKHgT644k21Z4V5AJgwWbLFP_69N-WQMQZkKP6FK4uCCo6l26Yo_JfduXv_Pck_9MgHJ9PoqpUBERqPDDXOXW_g7DUkwn2yfruAw6ZTTlDlhepHx4QtDKBmBV4krHE4LwuoeuxnCMvFese6-fE4MayhU7ZgZ82QsfHRA_jN_mgYAZd8w4KVq_-KTH3vS4iDd",
+      "logic_weight": "High",
+      "dataDate": "2026/04/14"
+    },
+    {
+      "name": "Global CRO Market CAGR (2026-2034)",
+      "value": "9",
+      "unit": "%",
+      "source": "Fortune Business Insights",
+      "source_date": "2026-03-23",
+      "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHPKZJhkWlyUyZbBH9lf7QDnJw-x5GtTU83suiKHgT644k21Z4V5AJgwWbLFP_69N-WQMQZkKP6FK4uCCo6l26Yo_JfduXv_Pck_9MgHJ9PoqpUBERqPDDXOXW_g7DUkwn2yfruAw6ZTTlDlhepHx4QtDKBmBV4krHE4LwuoeuxnCMvFese6-fE4MayhU7ZgZ82QsfHRA_jN_mgYAZd8w4KVq_-KTH3vS4iDd",
+      "logic_weight": "High",
+      "dataDate": "2026/04/14"
+    },
+    {
+      "name": "Biopharma R&D Spending Outlook (Global)",
+      "value": "15.63 (as of April 08, 2026)",
+      "unit": "Proportion of Companies",
+      "source": "API",
+      "source_date": "2026-03-06",
+      "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHhIfof6wtNPsjbyMo87d2orEzcnoLeQtx7ve_t9Gezc8NsUQ-OrqGhz_PTghoWPfLY7gHRvpmJKLlqcRHaR9FTod1MRB-xwlZaixcLegafFZkDCG3Jsmd6X9wpQDsEp5eg2Rf7QsAzOPtEuzVavjyQwTFj8RVur_mpsJOkrvr0LIdbc5ewH5lOJ4ks9-3u3iZGgklpXhAqzNl1AyoendXHExk4BLFN9VZC5s9_ww96Jro=",
+      "logic_weight": "High",
+      "dataDate": "2026/04/14"
+    },
+    {
+      "name": "BIOSECURE Act Status",
+      "value": "Signed into law on Dec 18, 2025; OMB to publish list of 'Biotechnology Companies of Concern' by Dec 2026. Restrictions apply after phased implementation.",
+      "unit": "Legislative Status",
+      "source": "CEPA, K&L Gates, Arnold & Porter, Ice Miller",
+      "source_date": "2026-04-13",
+      "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEeP20kDq7KzUjw8Q2vNPJwSiC5qZajgwHuu5dpq2xiQRLvsZec1wE45-Rn_7WpJthBPHZ6NTL1_PhagVCRnKWSUi8iGOxGNc4Z1crluIaaULfxksGkJWFIM1K4P4fuTUapmkcXU_SKq7MeDx_jN2LVGdsyx5O2dqXx8A==",
+      "logic_weight": "Critical",
+      "dataDate": "2026/04/14"
+    }
+  ],
+  "quantifiedRisks": [],
+  "scenarios": [],
+  "expectationGap": {
+    "marketConsensus": "string",
+    "ourView": "string",
+    "gapReason": "string",
+    "isSignificant": false,
+    "confidenceScore": 0
+  },
+  "calculations": [],
+  "businessModel": {
+    "businessType": "healthcare",
+    "formula": "Revenue = Sum(Service Fees per Project * Number of Projects) + Sum(Manufacturing Revenue per Product * Volume of Products)",
+    "drivers": {
+      "key": "Value drivers include: Global biopharmaceutical R&D spending, outsourcing penetration rates, drug innovation cycles, regulatory environment (e.g., new drug approvals, geopolitical policies), technological advancements, and client relationships."
+    },
+    "projectedProfit": "Projected profit growth is highly dependent on sustained R&D outsourcing, successful navigation of geopolitical risks, and operational efficiencies.",
+    "confidenceScore": 85
+  },
+  "dataVerification": [
+    {
+      "source": "Analysis Target Data",
+      "isVerified": true,
+      "discrepancy": "None",
+      "confidence": 100,
+      "lastChecked": "2026-04-14T07:52:00.000Z"
+    },
+    {
+      "source": "Real-time Commodity Data",
+      "isVerified": true,
+      "discrepancy": "None",
+      "confidence": 100,
+      "lastChecked": "2026-04-14T07:52:00.000Z"
+    },
+    {
+      "source": "Trading Economics (US 10-Year Treasury Yield)",
+      "isVerified": true,
+      "discrepancy": "Slight variations exist across different financial news sources for the exact real-time yield (e.g., 4.29% vs 4.31% vs 4.35%), but the 4.29% value is cited for April 14, 2026.",
+      "confidence": 90,
+      "lastChecked": "2026-04-14T07:52:00.000Z"
+    },
+    {
+      "source": "Trading Economics (China 10-Year Government Bond Yield)",
+      "isVerified": true,
+      "discrepancy": "Slight variations exist across different financial news sources for the exact real-time yield (e.g., 1.79% vs 1.793% vs 1.81%), but the 1.79% value is cited for April 14, 2026.",
+      "confidence": 90,
+      "lastChecked": "2026-04-14T07:52:00.000Z"
+    },
+    {
+      "source": "Fortune Business Insights / EIN Presswire (CDMO Market Growth)",
+      "isVerified": true,
+      "discrepancy": "Market size and CAGR projections for the CDMO market are consistent across multiple reports from these sources.",
+      "confidence": 95,
+      "lastChecked": "2026-04-14T07:52:00.000Z"
+    },
+    {
+      "source": "Baker McKenzie / Arnold & Porter / Ice Miller (BIOSECURE Act Status)",
+      "isVerified": true,
+      "discrepancy": "Details regarding the enactment, timelines, and potential impact of the BIOSECURE Act are consistent across legal advisories.",
+      "confidence": 100,
+      "lastChecked": "2026-04-14T07:52:00.000Z"
+    }
+  ],
+  "riskAdjustedValuation": 0,
+  "sensitivityFactors": [],
+  "expectedValueOutcome": {
+    "expectedPrice": 0,
+    "calculationLogic": "string",
+    "confidenceInterval": "string"
+  },
+  "sensitivityMatrix": [],
+  "controversialPoints": [
+    "[Bear Researcher 分析暂时不可用] 该专家分析生成过程中出现异常，建议参考其他专家意见。"
+  ],
+  "dataFreshnessStatus": "Fresh",
+  "stressTestLogic": "...",
+  "catalystList": [],
+  "positionManagement": {
+    "layeredEntry": [],
+    "sizingLogic": "string",
+    "riskAdjustedStance": "string"
+  },
+  "timeDimension": {
+    "expectedDuration": "string",
+    "keyMilestones": [],
+    "exitTriggers": []
+  },
+  "discussion": [
+    {
+      "id": "msg-1776152992554-atrn0ivj5",
+      "role": "Deep Research Specialist",
+      "content": "[系统摘要] Deep Research Specialist 已完成深度分析并提交了结构化数据（核心变量: 6项）。虽然详细文字说明生成异常，但其量化结论已同步至决策引擎。建议关注后续轮次的交叉验证。",
+      "timestamp": "2026-04-14T07:49:52.554Z",
+      "type": "discussion",
+      "round": 1
+    },
+    {
+      "id": "msg-1776153021890-9n2dbhz2m",
+      "role": "Technical Analyst",
+      "content": "[Technical Analyst 分析暂时不可用] 该专家分析生成过程中出现异常，建议参考其他专家意见。",
+      "timestamp": "2026-04-14T07:50:21.890Z",
+      "type": "discussion",
+      "round": 2
+    },
+    {
+      "id": "msg-1776153025146-bc7o1wuh4",
+      "role": "Fundamental Analyst",
+      "content": "[Fundamental Analyst 分析暂时不可用] 该专家分析生成过程中出现异常，建议参考其他专家意见。",
+      "timestamp": "2026-04-14T07:50:25.146Z",
+      "type": "discussion",
+      "round": 2
+    },
+    {
+      "id": "msg-1776153038451-p9906xfbs",
+      "role": "Bull Researcher",
+      "content": "[Bull Researcher 分析暂时不可用] 该专家分析生成过程中出现异常，建议参考其他专家意见。",
+      "timestamp": "2026-04-14T07:50:38.451Z",
+      "type": "discussion",
+      "round": 3
+    },
+    {
+      "id": "msg-1776153044547-0pevij3rt",
+      "role": "Bear Researcher",
+      "content": "[Bear Researcher 分析暂时不可用] 该专家分析生成过程中出现异常，建议参考其他专家意见。",
+      "timestamp": "2026-04-14T07:50:44.547Z",
+      "type": "discussion",
+      "round": 3
+    },
+    {
+      "id": "msg-1776153063485-jtskt23xf",
+      "role": "Risk Manager",
+      "content": "[Risk Manager 分析暂时不可用] 该专家分析生成过程中出现异常，建议参考其他专家意见。",
+      "timestamp": "2026-04-14T07:51:03.485Z",
+      "type": "discussion",
+      "round": 4
+    },
+    {
+      "id": "msg-1776153079474-b7wh26nc0",
+      "role": "Professional Reviewer",
+      "content": "[Professional Reviewer 分析暂时不可用] 该专家分析生成过程中出现异常，建议参考其他专家意见。",
+      "timestamp": "2026-04-14T07:51:19.474Z",
+      "type": "discussion",
+      "round": 5
+    },
+    {
+      "id": "msg-1776153093306-c5txm4fe6",
+      "role": "Value Investing Sage",
+      "content": "[Value Investing Sage 分析暂时不可用] 该专家分析生成过程中出现异常，建议参考其他专家意见。",
+      "timestamp": "2026-04-14T07:51:33.306Z",
+      "type": "discussion",
+      "round": 6
+    },
+    {
+      "id": "msg-1776153097265-uj4ydihty",
+      "role": "Growth Visionary",
+      "content": "[Growth Visionary 分析暂时不可用] 该专家分析生成过程中出现异常，建议参考其他专家意见。",
+      "timestamp": "2026-04-14T07:51:37.265Z",
+      "type": "discussion",
+      "round": 6
+    },
+    {
+      "id": "msg-1776153103264-20w2y7qct",
+      "role": "Macro Hedge Titan",
+      "content": "[Macro Hedge Titan 分析暂时不可用] 该专家分析生成过程中出现异常，建议参考其他专家意见。",
+      "timestamp": "2026-04-14T07:51:43.264Z",
+      "type": "discussion",
+      "round": 6
+    },
+    {
+      "id": "msg-1776153115966-ygeec6eaz",
+      "role": "Chief Strategist",
+      "content": "[Chief Strategist 分析暂时不可用] 该专家分析生成过程中出现异常，建议参考其他专家意见。",
+      "timestamp": "2026-04-14T07:51:55.966Z",
+      "type": "discussion",
+      "round": 7
+    }
+  ],
+  "type": "stock",
+  "generatedAt": 1776153214317
+}

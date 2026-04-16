@@ -1,0 +1,92 @@
+{
+  "indices": [
+    {
+      "name": "S&P 500",
+      "symbol": "^GSPC",
+      "price": 6967.38,
+      "change": 81.14,
+      "changePercent": 1.18,
+      "previousClose": 6886.24
+    },
+    {
+      "name": "Nasdaq Composite",
+      "symbol": "^IXIC",
+      "price": 23639.084,
+      "change": 455.35,
+      "changePercent": 1.96,
+      "previousClose": 23183.736
+    },
+    {
+      "name": "Dow Jones Industrial Average",
+      "symbol": "^DJI",
+      "price": 48535.99,
+      "change": 317.74,
+      "changePercent": 0.66,
+      "previousClose": 48218.25
+    },
+    {
+      "name": "Russell 2000",
+      "symbol": "^RUT",
+      "price": 2705.6682,
+      "change": 35.18,
+      "changePercent": 1.32,
+      "previousClose": 2670.49
+    },
+    {
+      "name": "PHLX Semiconductor Index",
+      "symbol": "^SOX",
+      "price": 9224.121,
+      "change": 184.6,
+      "changePercent": 2.04,
+      "previousClose": 9039.524
+    }
+  ],
+  "topNews": [],
+  "sectorAnalysis": [
+    {
+      "name": "Semiconductors",
+      "trend": "Bullish",
+      "rotationStage": "Leading",
+      "upstreamImpact": "Increased demand for raw wafers and equipment to support AI and high-end compute.",
+      "downstreamImpact": "Rapid integration into data centers and automotive electronics driving record efficiency.",
+      "conclusion": "Semiconductors are currently leading the market rally due to high institutional ETF interest in SMH."
+    },
+    {
+      "name": "Technology/QQQ-linked",
+      "trend": "Bullish",
+      "rotationStage": "Leading",
+      "upstreamImpact": "High software development cost efficiency via AI coding assistants.",
+      "downstreamImpact": "Accelerated cloud service adoption and productivity gains for enterprise users.",
+      "conclusion": "Massive capital inflows into QQQ confirm strong institutional appetite for large-cap tech growth."
+    }
+  ],
+  "commodityAnalysis": [
+    {
+      "name": "Crude Oil (WTI)",
+      "trend": "Bullish",
+      "expectation": "Expected to remain volatile with upward pressure due to geopolitical tensions in the Hormuz region."
+    },
+    {
+      "name": "Gold",
+      "trend": "Bearish",
+      "expectation": "Short-term correction as risk appetite returns, favoring equity markets over safe-haven assets."
+    }
+  ],
+  "recommendations": [
+    {
+      "type": "Sector",
+      "name": "Semiconductors",
+      "reason": "Supported by strong institutional inflow (SMH ETF) and price performance outstripping broad indices."
+    },
+    {
+      "type": "Sector",
+      "name": "Large-cap Technology",
+      "reason": "Driven by persistent capital flows into QQQ and positive market sentiment regarding potential diplomatic progress."
+    }
+  ],
+  "marketSummary": "As of April 15, 2026, at 18:37 CST, US equity markets are showing a strong pre-market rally driven by optimism surrounding diplomatic efforts to conclude the US-Iran conflict. Data from Yahoo Finance indicates consistent gains across all major indices, led by the Nasdaq Composite (+1.96%) and the PHLX Semiconductor Index (+2.04%). This positive sentiment is underscored by large capital inflows into tech-heavy ETFs like QQQ and SMH. Geopolitical cooling in the Hormuz Strait is tempering oil volatility despite a 1.77% gain in WTI, while gold prices have dipped, indicating a shift back to risk-on assets. Institutional sentiment remains firmly supportive of growth-focused sectors as the market reacts to headlines suggesting a potential cessation of regional hostilities.",
+  "id": "market-1776249440594-8ajqj6q62",
+  "generatedAt": 1776249440555,
+  "market": "US-Share",
+  "type": "market"
+}

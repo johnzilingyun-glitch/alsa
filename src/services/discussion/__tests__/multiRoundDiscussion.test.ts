@@ -15,6 +15,25 @@ vi.mock('../../geminiService', async () => {
   };
 });
 
+// Mock config store
+vi.mock('../../../stores/useConfigStore', () => ({
+  useConfigStore: {
+    getState: () => ({ language: 'zh-CN' }),
+  },
+}));
+
+// Mock reflection service to avoid localStorage/logic issues
+vi.mock('../../reflectionService', () => ({
+  reflectAndRemember: vi.fn(),
+  retrieveMemories: vi.fn().mockReturnValue([]),
+  formatMemoryForPrompt: vi.fn().mockReturnValue(''),
+}));
+
+// Mock admin service for history retrieval
+vi.mock('../../adminService', () => ({
+  getPreviousStockAnalysis: vi.fn().mockResolvedValue(null),
+}));
+
 const mockAnalysis: StockAnalysis = {
   stockInfo: {
     symbol: '600519.SS',
@@ -30,6 +49,7 @@ const mockAnalysis: StockAnalysis = {
   summary: 'Test summary',
   technicalAnalysis: 'Test technical',
   fundamentalAnalysis: 'Test fundamental',
+  fundamentals: { pe: 10 } as any, // Prevent deterministic pre-fill from skipping
   sentiment: 'Bullish',
   score: 85,
   recommendation: 'Buy',
@@ -41,6 +61,11 @@ const mockAnalysis: StockAnalysis = {
 function mockExpertResponse(content: string, extra?: Record<string, any>) {
   return {
     content,
+    finalConclusion: content, // Required for synth result
+    tradingPlan: { entryPrice: '1', targetPrice: '2', stopLoss: '0', strategy: 'test' },
+    coreVariables: [],
+    quantifiedRisks: [],
+    scenarios: [],
     messages: [], // Required for AgentDiscussion validation
     ...extra
   };
@@ -82,7 +107,7 @@ describe('startMultiRoundDiscussion', () => {
     });
   });
 
-  it('deep mode calls 14 experts (12 + Bull/Bear revision) + synthesis', async () => {
+  it('deep mode calls 17 experts + synthesis', async () => {
     const progressUpdates: MultiRoundProgress[] = [];
 
     const result = await startMultiRoundDiscussion(
@@ -92,11 +117,11 @@ describe('startMultiRoundDiscussion', () => {
       (progress) => progressUpdates.push({ ...progress, messages: [...progress.messages] }),
     );
 
-    // Deep topology: 14 rounds (12 experts + Bull/Bear revision rounds) + 1 synthesis = 15
-    expect(callCount).toBe(15);
+    // Deep topology: 17 experts + 1 synthesis = 18
+    expect(callCount).toBe(18);
 
     // All multi-round messages should be in the result
-    expect(result.messages).toHaveLength(14);
+    expect(result.messages).toHaveLength(17);
 
     // Each message should have content
     result.messages.forEach((msg) => {
@@ -105,7 +130,7 @@ describe('startMultiRoundDiscussion', () => {
     });
 
     // Progress should have been called for each expert + 1 synthesis
-    expect(progressUpdates.length).toBe(15);
+    expect(progressUpdates.length).toBe(18);
 
     // First expert should be Deep Research Specialist
     expect(progressUpdates[0].currentExpert).toBe('Deep Research Specialist');
@@ -120,9 +145,9 @@ describe('startMultiRoundDiscussion', () => {
   it('standard mode runs single iteration (no repetition)', async () => {
     const result = await startMultiRoundDiscussion(mockAnalysis, 'standard');
 
-    // Standard topology: DR + TA + FA + Bull + Bear + RM + Reviewer + CS = 8 expert calls + 1 synthesis = 9
-    expect(callCount).toBe(9);
-    expect(result.messages).toHaveLength(8);
+    // Standard topology: DR(1) + TA/FA(2) + Bull/Bear(2) + RM(1) + Reviewer(1) + Legendary(3) + CS(1) = 11 expert calls + 1 synthesis = 12
+    expect(callCount).toBe(12);
+    expect(result.messages).toHaveLength(11);
   });
 
   it('messages accumulate across rounds (each expert sees previous messages)', async () => {
@@ -170,14 +195,22 @@ describe('startMultiRoundDiscussion', () => {
   });
 
   it('uses googleSearch tool for search-specific experts, schema for others', async () => {
-    const searchRoles = new Set(['Deep Research Specialist', 'Sentiment Analyst', 'Contrarian Strategist']);
+    const searchRoles = new Set([
+      'Deep Research Specialist', 
+      'Fundamental Analyst',
+      'Sentiment Analyst', 
+      'Contrarian Strategist',
+      'Macro Hedge Titan',
+      'Value Investing Sage',
+      'Growth Visionary'
+    ]);
     (geminiService.generateAndParseJsonWithRetry as any).mockImplementation((_ai: any, params: any, options: any) => {
       const tools = options?.tools || params.config?.tools;
       const schema = options?.responseSchema || params.config?.responseSchema;
       const role = options?.role;
       
-      if (searchRoles.has(role)) {
-        // Search experts get tools
+      if (searchRoles.has(role) || !role) {
+        // Search experts and synthesis (role=undefined) get tools
         expect(tools).toEqual([{ googleSearch: {} }]);
       } else {
         // Non-search experts get schema enforcement (no tools)
@@ -243,5 +276,54 @@ describe('startMultiRoundDiscussion', () => {
     expect(result.coreVariables).toBeDefined();
     expect(result.tradingPlan).toBeDefined();
     expect(result.scenarios).toBeDefined();
+  });
+
+  it('skips LLM call via Deterministic Pre-fill for halted stocks', async () => {
+    const haltedAnalysis = {
+      ...mockAnalysis,
+      stockInfo: { ...mockAnalysis.stockInfo, price: 0 }
+    };
+    
+    // In standard mode, Technical Analyst is called. 
+    // It should hit the pre-fill logic and NOT call generateAndParseJsonWithRetry for its role.
+    const calledRoles: string[] = [];
+    (geminiService.generateAndParseJsonWithRetry as any).mockImplementation((_ai: any, _params: any, options: any) => {
+      calledRoles.push(options?.role);
+      return Promise.resolve(mockExpertResponse(`Response`));
+    });
+
+    const result = await startMultiRoundDiscussion(haltedAnalysis, 'standard');
+    
+    // Check if TA role was skipped in AI calls but present in results
+    expect(calledRoles).not.toContain('Technical Analyst');
+    const taMessage = result.messages.find(m => m.role === 'Technical Analyst');
+    expect(taMessage?.content).toContain('系统预填');
+    expect(taMessage?.content).toContain('停牌');
+  });
+
+  it('compacts long history to save tokens in multi-round discussions', async () => {
+    const allPrompts: string[] = [];
+    (geminiService.generateAndParseJsonWithRetry as any).mockImplementation((_ai: any, params: any, options: any) => {
+      allPrompts.push(params.contents);
+      const role = options?.role;
+      // Return a VERY long response for Technical Analyst (Round 2)
+      if (role === 'Technical Analyst') {
+        return Promise.resolve(mockExpertResponse('A'.repeat(500)));
+      }
+      return Promise.resolve(mockExpertResponse(`Response for ${role}`));
+    });
+
+    // Run standard mode (multiple rounds)
+    await startMultiRoundDiscussion(mockAnalysis, 'standard');
+
+    // In Round 4+ (e.g. Risk Manager), TA's content from Round 2 should be compacted
+    // TA (R2) -> RM (R4). 4-1 = 3. msg.round(2) !== 3. So it should be compacted.
+    const compacted = allPrompts.some(p => p.includes('... [Content compacted]'));
+    expect(compacted).toBe(true);
+    
+    // Ensure the original long string is not in the later prompts
+    // (Check the very last prompt, which is synthesis or CS)
+    const lastExpertPrompt = allPrompts[allPrompts.length - 2]; 
+    expect(lastExpertPrompt).not.toContain('A'.repeat(500));
   });
 });

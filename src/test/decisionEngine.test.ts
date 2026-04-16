@@ -36,8 +36,10 @@ describe('Decision Engine: Backtest Service', () => {
   });
 
   it('should calculate "In Progress" correctly', () => {
+    // Use a recent date (14 days ago) to stay within the 45-day "In Progress" window
+    const recentDate = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString();
     const previousAnalysis = {
-      stockInfo: { price: 140, lastUpdated: '2026-03-01T00:00:00Z' },
+      stockInfo: { price: 140, lastUpdated: recentDate },
       recommendation: 'Buy',
       tradingPlan: { targetPrice: '200', stopLoss: '120' }
     } as any as StockAnalysis;

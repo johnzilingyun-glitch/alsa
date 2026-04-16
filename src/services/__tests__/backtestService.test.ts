@@ -111,6 +111,30 @@ describe('backtestService', () => {
       expect(result.learningPoint).toContain('验证');
     });
 
+    it('should calculate Sharpe and Sortino ratios when riskMetrics are available', () => {
+      const previous = makeAnalysis({
+        stockInfo: { ...makeAnalysis().stockInfo, price: 1000, lastUpdated: '2026-01-01 15:00:00 CST' },
+        tradingPlan: { entryPrice: '980', targetPrice: '1200', stopLoss: '900', strategy: 'test', strategyRisks: '' },
+      });
+      const current = makeAnalysis({
+        stockInfo: { 
+          ...makeAnalysis().stockInfo, 
+          price: 1100, 
+          lastUpdated: '2026-04-01 15:00:00 CST',
+          technicalIndicators: {
+            ma5: 0, ma20: 0, ma60: 0, avgVolume5: 0, avgVolume20: 0,
+            resistanceShort: 0, supportShort: 0, resistanceLong: 0, supportLong: 0,
+            lastClose: 0,
+            riskMetrics: { annualizedVolatility: 0.20, maxPositionLimit: 0.20, volatilityRegime: 'Normal' }
+          } as any
+        }
+      });
+      const result = performBacktest(current, previous)!;
+      expect(result.sharpeRatio).toBeDefined();
+      expect(result.sortinoRatio).toBeDefined();
+      expect(result.sharpeRatio).toBeGreaterThan(0); // Pos return -> Pos Sharpe
+    });
+
     it('should handle missing trading plan gracefully', () => {
       const previous = makeAnalysis({
         stockInfo: { ...makeAnalysis().stockInfo, price: 1600 },

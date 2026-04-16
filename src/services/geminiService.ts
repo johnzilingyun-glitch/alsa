@@ -1,15 +1,27 @@
 import { GoogleGenAI } from "@google/genai";
 import { useConfigStore } from "../stores/useConfigStore";
+import { useUIStore } from "../stores/useUIStore";
 import { requestScheduler } from "./requestScheduler";
 import { tryFallbackProviders, getAvailableFallbackProviders } from "./llmProvider";
 
-export const GEMINI_MODEL = "gemini-3.1-flash-lite-preview";
+export const GEMINI_MODEL = "gemini-3.1-pro-preview";
 
 // Fallback chain: primary + backup model for resilience.
-// gemini-2.5-flash has separate RPD quota and 15 RPM on free tier.
 export const MODEL_FALLBACK_CHAIN: string[] = [
-  "gemini-3.1-flash-lite-preview",  // 500 RPD, 15 RPM — primary
-  "gemini-2.5-flash",               // 500 RPD, 15 RPM — backup
+  "gemini-3.1-pro-preview",         // Ultimate logic engine (Primary)
+  "gemini-3.1-flash-lite-preview",  // High-throughput backup
+  "gemini-1.5-pro",                 // Stable logic fallback
+];
+
+/**
+ * Relaxed safety settings to prevent false positive blocks in financial/technical analysis prompts.
+ */
+export const DEFAULT_SAFETY_SETTINGS = [
+  { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
+  { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
+  { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE' },
+  { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' },
+  { category: 'HARM_CATEGORY_CIVIC_INTEGRITY', threshold: 'BLOCK_NONE' },
 ];
 
 export const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
@@ -145,6 +157,8 @@ export async function generateAndParseJsonWithRetry<T>(
   const { dailyTokenBudget, tokenUsage } = useConfigStore.getState();
   if (dailyTokenBudget > 0 && tokenUsage.dailyTotal >= dailyTokenBudget) {
     const pct = Math.round((tokenUsage.dailyTotal / dailyTokenBudget) * 100);
+    useConfigStore.getState().addTokenUsage({ dailyTotal: tokenUsage.dailyTotal }); // Sync back for safe persistence
+    useUIStore.getState().setServiceStatus('quota_exhausted');
     throw new QuotaError(
       `今日 Token 用量已达预算上限 (${tokenUsage.dailyTotal.toLocaleString()} / ${dailyTokenBudget.toLocaleString()}, ${pct}%)。` +
       `\n可在设置中调整每日 Token 预算，或等待明日重置。`
@@ -198,6 +212,7 @@ export async function generateAndParseJsonWithRetry<T>(
             ...params,
             model,
             config: mergedConfig,
+            safetySettings: DEFAULT_SAFETY_SETTINGS,
           };
           // Remove stale top-level tools/generationConfig to avoid confusion
           delete mergedParams.tools;
@@ -206,9 +221,13 @@ export async function generateAndParseJsonWithRetry<T>(
           const result = await generateContentWithUsage(ai, mergedParams, priority);
           if (!result.text && result.text !== '') {
             // Empty response — safety filter, empty candidates, or blocked content
-            const finishReason = result.candidates?.[0]?.finishReason;
-            console.warn(`[Gemini] Empty response text. finishReason=${finishReason}`);
-            throw new Error(`Gemini returned empty response (finishReason: ${finishReason || 'unknown'}). The model may have blocked the content.`);
+            const candidate = result.candidates?.[0];
+            const finishReason = candidate?.finishReason;
+            const safetyRatings = candidate?.safetyRatings;
+            
+            console.warn(`[Gemini] Empty response text. finishReason=${finishReason}. SafetyRatings:`, JSON.stringify(safetyRatings));
+            
+            throw new Error(`Gemini returned empty response (finishReason: ${finishReason || 'unknown'}). The model may have blocked the content. Check logs for safetyRatings.`);
           }
           return result.text;
         }, transportRetries, baseDelayMs);
@@ -225,6 +244,14 @@ export async function generateAndParseJsonWithRetry<T>(
           lastError = transportErr;
           break; // break parse retry loop, continue to next model
         }
+        
+        // If the model returned an empty response (blocked or refused), trigger fallback
+        if (transportErr instanceof Error && transportErr.message.includes('Gemini returned empty response')) {
+          console.warn(`[ModelFallback] ${model} returned empty response, trying next model...`);
+          lastError = transportErr;
+          break;
+        }
+
         throw transportErr;
       }
 
@@ -289,20 +316,30 @@ export async function generateAndParseJsonWithRetry<T>(
   // Quota error — parse Gemini error for specifics
   let diagnosticDetail = '';
   try {
-    const parsed = JSON.parse(lastErrorMsg);
+    const parsed = typeof lastErrorMsg === 'string' && lastErrorMsg.startsWith('{') ? JSON.parse(lastErrorMsg) : null;
     const errInfo = parsed?.error || parsed;
-    if (errInfo?.status === 'RESOURCE_EXHAUSTED') {
-      diagnosticDetail = `\n原因: API Key 每日配额(RPD)已用尽，需等待次日重置。`;
-    } else if (errInfo?.code === 429) {
-      diagnosticDetail = `\n原因: 请求频率超限(RPM)，请等待1分钟后重试。`;
+    const status = errInfo?.status;
+    const message = errInfo?.message || lastErrorMsg;
+
+    if (status === 'RESOURCE_EXHAUSTED' || message.includes('quota') || message.includes('exhausted') || message.includes('depleted')) {
+      if (message.includes('prepayment credits') || message.includes('depleted')) {
+        diagnosticDetail = `\n原因: API 账户余额不足或预付额度已耗尽。请检查 Google AI Studio 的账单设置。`;
+      } else if (message.includes('Daily') || message.includes('limit: 0') || message.includes('RPD')) {
+        diagnosticDetail = `\n原因: API Key 每日配额(RPD)已用尽，需等待次日重置。`;
+      } else {
+        diagnosticDetail = `\n原因: 请求频率超限(RPM)或项目配额不足，请等待1分钟后重试。`;
+      }
     } else {
-      diagnosticDetail = `\n详情: ${errInfo?.message || lastErrorMsg}`.substring(0, 200);
+      diagnosticDetail = `\n详情: ${message}`.substring(0, 300);
     }
   } catch {
-    diagnosticDetail = `\n详情: ${lastErrorMsg.substring(0, 200)}`;
+    diagnosticDetail = `\n详情: ${lastErrorMsg.substring(0, 300)}`;
   }
-  const triedModels = modelsToTry.join(', ');
-  throw new Error(`API 配额已耗尽 (已尝试: ${triedModels})。${diagnosticDetail}\n建议: 在设置中切换回默认模型 gemini-3.1-flash-lite-preview，或等待配额重置。`);
+  const triedModels = modelsToTry.slice(0, consecutiveQuotaErrors + 1).join(', ');
+  if (isQuotaError) {
+    useUIStore.getState().setServiceStatus('quota_exhausted');
+  }
+  throw new Error(`API 服务暂时不可用 (尝试了: ${triedModels})。${diagnosticDetail}\n建议: 在设置中检查并更新 API Key，或等待配额重置。`);
 }
 
 export async function remoteLog(type: string, data: any, forceLog = false) {
@@ -369,10 +406,13 @@ export async function withRetry<T>(
       // A generic RESOURCE_EXHAUSTED without "limit: 0" is likely transient RPM.
       const isPermanentQuota = errorStr.includes('limit: 0') ||
                                errorStr.includes('GenerateRequestsPerDayPerProject') ||
-                               errorStr.includes('GenerateContentInputTokensPerModelPerDay');
+                               errorStr.includes('GenerateContentInputTokensPerModelPerDay') ||
+                               errorStr.toLowerCase().includes('prepayment credits') ||
+                               errorStr.toLowerCase().includes('depleted');
       
       if (isQuota && isPermanentQuota) {
-        console.error(`[QuotaExhausted] Model has zero/exhausted daily quota (no retry). Error: ${errorStr.substring(0, 200)}`);
+        console.error(`[QuotaExhausted] Model has zero/exhausted/depleted daily quota (no retry). Error: ${errorStr.substring(0, 200)}`);
+        useUIStore.getState().setServiceStatus('quota_exhausted');
         remoteLog('quota_permanent', { error: errorStr, attempt, status: error?.status }, true);
         throw new QuotaError(errorStr);
       }
@@ -705,7 +745,12 @@ export async function generateContentWithUsage(ai: any, params: any, priority: n
   }
 
   const result = await requestScheduler.schedule(async () => {
-    return await ai.models.generateContent(params);
+    // Inject safety settings if not already provided in params
+    const callParams = {
+      ...params,
+      safetySettings: params.safetySettings || DEFAULT_SAFETY_SETTINGS
+    };
+    return await ai.models.generateContent(callParams);
   }, priority);
 
   // Some models return empty .text when using tools (grounding/search).
@@ -720,14 +765,15 @@ export async function generateContentWithUsage(ai: any, params: any, priority: n
     }
   }
   
-  if (isDebug) {
+  if (isDebug || (!result.text && result.text !== '')) {
     await remoteLog('ai_response_raw', {
       text: result.text,
       usage: result.usageMetadata,
       candidates: result.candidates?.map((c: any) => ({
         index: c.index,
         finishReason: c.finishReason,
-        safetyRatings: c.safetyRatings
+        safetyRatings: c.safetyRatings,
+        content: c.content
       }))
     });
   }
@@ -757,8 +803,9 @@ export async function fetchAvailableModelsList(config?: any): Promise<ModelInfo[
   const modelsToCheck = [
     { id: 'gemini-3.1-flash-lite-preview', name: 'Gemini 3.1 Flash Lite (Default)', description: 'Free Tier 最强高吞吐引擎，官方赋予 15 RPM 超高配额。' },
     { id: 'gemini-3-flash-preview', name: 'Gemini 3.0 Flash (Next-Gen)', description: '下一代核心快速模型。' },
-    { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash', description: '成熟稳定的多模块复合扫盘。' },
-    { id: 'gemini-1.5-flash', name: 'Gemini 1.5 Flash (Fallback Ultra-Fast)', description: '高稳定性容灾备用模型。' },
+    { id: 'gemini-1.5-flash', name: 'Gemini 1.5 Flash (Stable)', description: '高稳定性容灾备用模型。' },
+    { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash', description: '高稳定性容灾备用模型。' },
+    { id: 'gemini-1.5-pro', name: 'Gemini 1.5 Pro', description: '强逻辑模型。' },
     { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro (Advanced Reasoning)', description: '极强的上下文推理，适用于极客深研。' },
     // Paid / Extreme Tier -------------------------
     { id: 'gemini-3.1-pro-preview', name: 'Gemini 3.1 Pro (Ultimate Engine)', description: '[受限 API 专属] 地表最强金融逻辑穿透引擎。' }

@@ -25,6 +25,7 @@ interface UIState {
   chatError: string | null;
   overviewError: string | null;
   reportStatus: 'idle' | 'success' | 'error';
+  serviceStatus: 'available' | 'quota_exhausted' | 'error';
 
   // Config
   autoRefreshInterval: number;
@@ -56,6 +57,7 @@ interface UIState {
   setSelectedDetail: (detail: { type: 'log' | 'history', data: any } | null) => void;
   setAutoRefreshInterval: (interval: number) => void;
   setAnalysisLevel: (level: AnalysisLevel) => void;
+  setServiceStatus: (status: 'available' | 'quota_exhausted' | 'error') => void;
 }
 
 export const useUIStore = create<UIState>()(
@@ -74,6 +76,7 @@ export const useUIStore = create<UIState>()(
       chatError: null,
       overviewError: null,
       reportStatus: 'idle',
+      serviceStatus: 'available',
       autoRefreshInterval: 0,
 
       // Activity setters - mutually exclusive via enum
@@ -115,6 +118,7 @@ export const useUIStore = create<UIState>()(
       setAutoRefreshInterval: (autoRefreshInterval) => set({ autoRefreshInterval }),
       analysisLevel: 'standard' as AnalysisLevel,
       setAnalysisLevel: (analysisLevel: AnalysisLevel) => set({ analysisLevel }),
+      setServiceStatus: (serviceStatus) => set({ serviceStatus }),
     }),
     {
       name: 'ui-storage',

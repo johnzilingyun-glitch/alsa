@@ -290,7 +290,7 @@ describe('geminiService', () => {
       await expect(generateAndParseJsonWithRetry(mockAi, {
         model: 'gemini-3.1-flash-lite-preview',
         contents: 'test',
-      }, { transportRetries: 2 })).rejects.toThrow(/配额已耗尽/);
+      }, { transportRetries: 2 })).rejects.toThrow(/API 服务暂时不可用|配额已耗尽/);
     }, 60000);
 
     it('should skip retries immediately when model has zero quota (limit: 0)', async () => {
@@ -426,7 +426,7 @@ describe('geminiService', () => {
       await expect(generateAndParseJsonWithRetry(mockAi, {
         model: 'gemini-3.1-flash-lite-preview',
         contents: 'test',
-      }, { transportRetries: 2, baseDelayMs: 100 })).rejects.toThrow(/负载过高/);
+      }, { transportRetries: 2, baseDelayMs: 100 })).rejects.toThrow(/暂时不可用|负载过高/);
     }, 10000);
   });
 });

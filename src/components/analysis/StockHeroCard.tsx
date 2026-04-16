@@ -113,6 +113,42 @@ export function StockHeroCard({ analysis }: StockHeroCardProps) {
         </div>
       </div>
 
+      {/* Technical Indicators Grid (NEW) */}
+      {analysis.technicalIndicators && (
+        <div className="mt-8 grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-5 border-t border-zinc-200/50 pt-8">
+          <div className="p-3 rounded-2xl bg-zinc-50/40 border border-zinc-200/40">
+            <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-400 mb-1">均线 MA5 / MA20 / MA60</p>
+            <p className="text-sm font-mono font-medium text-zinc-700">
+              {analysis.technicalIndicators.ma5} / {analysis.technicalIndicators.ma20} / {analysis.technicalIndicators.ma60}
+            </p>
+          </div>
+          <div className="p-3 rounded-2xl bg-zinc-50/40 border border-zinc-200/40">
+            <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-400 mb-1">短期支撑 / 阻力</p>
+            <p className="text-sm font-mono font-medium text-zinc-700">
+              {analysis.technicalIndicators.supportShort} / {analysis.technicalIndicators.resistanceShort}
+            </p>
+          </div>
+          <div className="p-3 rounded-2xl bg-zinc-50/40 border border-zinc-200/40">
+            <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-400 mb-1">长期支撑 / 阻力</p>
+            <p className="text-sm font-mono font-medium text-zinc-700">
+              {analysis.technicalIndicators.supportLong} / {analysis.technicalIndicators.resistanceLong}
+            </p>
+          </div>
+          <div className="p-3 rounded-2xl bg-emerald-50/40 border border-emerald-200/30">
+            <p className="text-[10px] font-bold uppercase tracking-widest text-emerald-600/60 mb-1">5日 / 20日 均量</p>
+            <p className="text-sm font-mono font-medium text-emerald-700">
+              {analysis.technicalIndicators.avgVolume5} / {analysis.technicalIndicators.avgVolume20}
+            </p>
+          </div>
+          <div className="p-3 rounded-2xl bg-blue-50/40 border border-blue-200/30">
+            <p className="text-[10px] font-bold uppercase tracking-widest text-blue-600/60 mb-1">技术形态感知</p>
+            <p className="text-sm font-medium text-blue-700 truncate">
+              {analysis.technicalIndicators.ma5 && analysis.stockInfo?.price && analysis.stockInfo.price > analysis.technicalIndicators.ma5 ? '多头占优' : '空头占优'}
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Fundamentals Grid */}
       {analysis.fundamentals && (
         <div className="mt-8 grid grid-cols-2 gap-4 md:grid-cols-4 lg:grid-cols-6 border-t border-zinc-200/50 pt-8">

@@ -1,0 +1,79 @@
+{
+  "indices": [
+    {
+      "name": "SSE Composite",
+      "symbol": "000001.SS",
+      "price": 4034.1272,
+      "change": 7.5,
+      "changePercent": 0.19,
+      "previousClose": 3988.56
+    },
+    {
+      "name": "Shenzhen Component",
+      "symbol": "399001.SZ",
+      "price": 14554.599,
+      "change": -85.35,
+      "changePercent": -0.58,
+      "previousClose": 14407.9
+    },
+    {
+      "name": "ChiNext Index",
+      "symbol": "399006.SZ",
+      "price": 3534.7783,
+      "change": -23.75,
+      "changePercent": -0.67,
+      "previousClose": 3558.5273
+    },
+    {
+      "name": "CSI 300",
+      "symbol": "000300.SS",
+      "price": 4698.5903,
+      "change": -2.69,
+      "changePercent": -0.06,
+      "previousClose": 4701.2837
+    },
+    {
+      "name": "Hang Seng Index",
+      "symbol": "^HSI",
+      "price": 26065.84,
+      "change": 193.52,
+      "changePercent": 0.75,
+      "previousClose": 25872.32
+    }
+  ],
+  "topNews": [],
+  "sectorAnalysis": [
+    {
+      "name": "General Index-Based Deduction",
+      "trend": "Mixed performance with institutional divergence",
+      "rotationStage": "Improving",
+      "upstreamImpact": "Neutral impact on supply chain stability",
+      "downstreamImpact": "Selective caution regarding demand recovery",
+      "conclusion": "The market displays a defensive posture following the divergent performance between mainboard indices and growth-focused indices."
+    }
+  ],
+  "commodityAnalysis": [
+    {
+      "name": "London Gold (XAU)",
+      "trend": "Stable at $4845.9/oz",
+      "expectation": "Neutral, reflecting global macroeconomic uncertainty."
+    },
+    {
+      "name": "WTI Crude Oil",
+      "trend": "Positive trend at $91.35/bbl",
+      "expectation": "Bullish, supporting energy-related industrial segments."
+    }
+  ],
+  "recommendations": [
+    {
+      "type": "Sector",
+      "name": "Energy & Resources",
+      "reason": "Driven by steady crude oil pricing and commodity resilience."
+    }
+  ],
+  "marketSummary": "As of 2026-04-15 11:25:55 CST, the A-Share market presents a mixed landscape. The SSE Composite showed marginal strength (+0.19%), while Shenzhen Component (-0.58%) and ChiNext (-0.67%) experienced corrections. Northbound capital activity remained muted for mainland stocks while Southbound capital flowed significantly into the Hang Seng Index, which outperformed with a 0.75% gain. The market lacks a strong singular sector catalyst, reflecting institutional hesitation amidst external macro variables. Data is derived from Yahoo Finance API. No major sector inflow data was provided, prompting a defensive, index-led market strategy.",
+  "id": "market-1776223574980-4qhslf8c4",
+  "generatedAt": 1776223574659,
+  "market": "A-Share",
+  "type": "market"
+}

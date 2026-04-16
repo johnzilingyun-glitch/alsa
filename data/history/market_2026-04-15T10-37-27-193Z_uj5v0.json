@@ -1,0 +1,92 @@
+{
+  "indices": [
+    {
+      "name": "S&P 500",
+      "symbol": "^GSPC",
+      "price": 6967.38,
+      "change": 81.14,
+      "changePercent": 1.18,
+      "previousClose": 6886.24
+    },
+    {
+      "name": "Nasdaq Composite",
+      "symbol": "^IXIC",
+      "price": 23639.084,
+      "change": 455.35,
+      "changePercent": 1.96,
+      "previousClose": 23183.736
+    },
+    {
+      "name": "Dow Jones Industrial Average",
+      "symbol": "^DJI",
+      "price": 48535.99,
+      "change": 317.74,
+      "changePercent": 0.66,
+      "previousClose": 48218.25
+    },
+    {
+      "name": "Russell 2000",
+      "symbol": "^RUT",
+      "price": 2705.6682,
+      "change": 35.18,
+      "changePercent": 1.32,
+      "previousClose": 2670.49
+    },
+    {
+      "name": "PHLX Semiconductor Index",
+      "symbol": "^SOX",
+      "price": 9224.121,
+      "change": 184.6,
+      "changePercent": 2.04,
+      "previousClose": 9039.524
+    }
+  ],
+  "topNews": [],
+  "sectorAnalysis": [
+    {
+      "name": "Semiconductors",
+      "trend": "Bullish",
+      "rotationStage": "Leading",
+      "upstreamImpact": "Increased demand for raw materials and foundry capacity",
+      "downstreamImpact": "Strengthening supply chains for AI, computing, and electronics sectors",
+      "conclusion": "High institutional inflows and strong index performance indicate continued leadership in technology-driven growth."
+    },
+    {
+      "name": "Technology/QQQ",
+      "trend": "Bullish",
+      "rotationStage": "Leading",
+      "upstreamImpact": "High demand for specialized hardware and infrastructure",
+      "downstreamImpact": "Accelerating adoption of AI applications and cloud computing",
+      "conclusion": "Strong ETF flows reflect investors' preference for growth-oriented tech stocks amid easing geopolitical tensions."
+    }
+  ],
+  "commodityAnalysis": [
+    {
+      "name": "WTI Oil",
+      "trend": "Rising",
+      "expectation": "Bullish volatility remains as potential Hormuz supply choke points persist despite diplomatic hints."
+    },
+    {
+      "name": "Gold",
+      "trend": "Bearish",
+      "expectation": "Declining as geopolitical risk premium cools off following hints of diplomacy in the US-Iran conflict."
+    }
+  ],
+  "recommendations": [
+    {
+      "type": "Sector",
+      "name": "Semiconductors (SMH)",
+      "reason": "Outperformance in index data and strong inflows confirm institutional backing for chip-driven growth."
+    },
+    {
+      "type": "Stock",
+      "name": "QQQ ETF",
+      "reason": "Strong daily ETF inflows indicate broad-based investor confidence in tech growth."
+    }
+  ],
+  "marketSummary": "US-Share markets are currently in a pre-market rally driven by optimism surrounding potential diplomatic efforts to end the US-Iran war. Indices show robust gains, with the Nasdaq (+1.96%) and PHLX Semiconductor Index (+2.04%) leading the charge. Data from Yahoo Finance reflects a positive sentiment shift, as reduced conflict concerns support risk-on assets and temper safe-haven demand, evidenced by Gold's -0.71% decline. Conversely, WTI oil is up 1.77%, highlighting lingering supply concerns due to the Hormuz situation. The market trend is continuing a recovery phase as institutional investors reallocate capital into growth sectors. Beijing Time: 2026-04-15 18:37:13 CST.",
+  "id": "market-1776249447193-qfm0g5fxg",
+  "generatedAt": 1776249447180,
+  "market": "US-Share",
+  "type": "market"
+}

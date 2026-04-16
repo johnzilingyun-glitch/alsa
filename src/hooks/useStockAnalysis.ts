@@ -14,7 +14,7 @@ export function useStockAnalysis() {
   const { setAnalysis, setSymbol, setMarket, symbol, market, analysis, resetAnalysis } = useAnalysisStore();
   const { setDiscussionResults: setDiscussionStoreResults, resetDiscussion, setRoundProgress, setAbortController, setDiscussionMessages } = useDiscussionStore();
   const { setScenarioResults, resetScenario } = useScenarioStore();
-  const { setHistoryItems, setOptimizationLogs } = useMarketStore();
+  const { setHistoryItems, setOptimizationLogs, addRecentSearch } = useMarketStore();
 
   const fetchAdminData = useCallback(async () => {
     try {
@@ -59,6 +59,15 @@ export function useStockAnalysis() {
       }
       
       setAnalysis(result);
+
+      // Add to recent searches
+      if (result.stockInfo) {
+        addRecentSearch({
+          symbol: result.stockInfo.symbol,
+          name: result.stockInfo.name,
+          market: result.stockInfo.market as Market
+        });
+      }
 
       setShowDiscussion(false);
 

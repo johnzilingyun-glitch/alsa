@@ -34,6 +34,13 @@ export interface TechnicalIndicators {
   supportLong: number | null;
   lastClose?: number;
   quantSignals?: any;
+  riskMetrics?: RiskMetrics;
+}
+
+export interface RiskMetrics {
+  annualizedVolatility: number;
+  maxPositionLimit: number;
+  volatilityRegime: string;
 }
 
 export interface DataQuality {

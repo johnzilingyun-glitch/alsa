@@ -2,7 +2,7 @@ import React, { useMemo } from 'react';
 import {
   MessageSquare, Send, Loader2, Share2, CheckCircle2, ChevronDown, ChevronUp
 } from 'lucide-react';
-import { motion } from 'motion/react';
+import { motion, AnimatePresence } from 'motion/react';
 import { useTranslation } from 'react-i18next';
 import { cn } from './utils';
 import { useUIStore, selectIsChatting } from '../../stores/useUIStore';

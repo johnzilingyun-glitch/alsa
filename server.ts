@@ -43,7 +43,12 @@ async function startServer() {
   // API routes FIRST
   app.get('/api/health', (req, res) => {
     console.log('Health check called');
-    res.json({ status: 'ok' });
+    res.json({
+      success: true,
+      status: 'ok',
+      service: 'Node API Gateway',
+      message: 'Node API gateway is running',
+    });
   });
 
   app.get('/api/health/data-sources', (req, res) => {
@@ -85,6 +90,10 @@ async function startServer() {
       appType: 'spa',
     });
     app.use(vite.middlewares);
+    // SPA fallback for development mode
+    app.get('*', (req, res) => {
+      res.redirect('/');
+    });
   }
 
   // Production serving

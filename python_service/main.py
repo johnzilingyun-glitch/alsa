@@ -27,7 +27,12 @@ SPOT_CACHE_TTL = 30  # seconds
 
 @app.get("/api/health")
 async def health_check():
-    return {"status": "ok", "service": "Python Data Acquisition"}
+    return {
+        "success": True,
+        "status": "ok",
+        "service": "Python Data Acquisition",
+        "message": "Python data acquisition service is running"
+    }
 
 @app.get("/api/market/sector_flow")
 async def get_sector_fund_flow() -> Dict[str, Any]:

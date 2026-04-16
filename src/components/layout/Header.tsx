@@ -18,7 +18,7 @@ interface HeaderProps {
 export const Header = memo(function Header({ onSearch, onResetToHome, onTriggerDailyReport, onOpenHistory, onFetchAdminData }: HeaderProps) {
   const { t, i18n } = useTranslation();
   const loading = useUIStore(selectLoading);
-  const { isTriggeringReport, showAdminPanel, setShowAdminPanel, setIsSettingsOpen, analysisLevel, setAnalysisLevel } = useUIStore();
+  const { isTriggeringReport, showAdminPanel, setShowAdminPanel, setIsSettingsOpen, analysisLevel, setAnalysisLevel, serviceStatus } = useUIStore();
   const { dailyReport } = useMarketStore();
   const { symbol, setSymbol, market, setMarket } = useAnalysisStore();
   const { language, setLanguage } = useConfigStore();
@@ -113,6 +113,38 @@ export const Header = memo(function Header({ onSearch, onResetToHome, onTriggerD
 
   return (
     <header className="mb-12 animate-premium text-zinc-950 dark:text-white relative z-10">
+      {/* Service Status Banner */}
+      <AnimatePresence>
+        {serviceStatus === 'quota_exhausted' && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            className="mb-8 overflow-hidden"
+          >
+            <div className="bg-rose-500/10 border border-rose-500/20 rounded-2xl p-4 flex items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <div className="flex-shrink-0 w-8 h-8 rounded-full bg-rose-500/20 flex items-center justify-center text-rose-500">
+                  <Zap size={16} />
+                </div>
+                <div>
+                  <p className="text-sm font-bold text-rose-600">API 配额已用尽 / 余额不足</p>
+                  <p className="text-xs text-rose-500/80">目前无法启动新分析。请检查您的 API Key 或前往 Google AI Studio 充值。</p>
+                </div>
+              </div>
+              <a 
+                href="https://aistudio.google.com/app/billing" 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="flex-shrink-0 px-4 py-2 bg-rose-500 text-white text-xs font-bold rounded-xl hover:bg-rose-600 transition-colors"
+              >
+                前往 AI Studio
+              </a>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <div className="flex flex-col gap-10 lg:flex-row lg:items-end lg:justify-between">
         <div className="cursor-pointer" onClick={onResetToHome}>
           <div className="flex items-center gap-2 mb-3">

@@ -5,6 +5,7 @@ export function aggregateResults(
   roundResults: Map<AgentRole, ExpertOutput>,
   backtest: BacktestResult | null,
   allMessages?: AgentMessage[],
+  baseline?: Partial<StockAnalysis>
 ): AgentDiscussion {
   // Use allMessages if provided (multi-round), otherwise extract from Map (single-round)
   const messages = allMessages
@@ -44,16 +45,16 @@ export function aggregateResults(
   const discussion: AgentDiscussion = {
     messages,
     finalConclusion: chiefStrategist?.message.content ?? '',
-    coreVariables: deepResearch?.structuredData?.coreVariables,
-    businessModel: deepResearch?.structuredData?.businessModel,
-    moatAnalysis: deepResearch?.structuredData?.moatAnalysis,
-    industryAnchors: deepResearch?.structuredData?.industryAnchors,
-    quantifiedRisks: mergedRisks.length > 0 ? mergedRisks : undefined,
-    tradingPlan: chiefStrategist?.structuredData?.tradingPlan,
-    scenarios: chiefStrategist?.structuredData?.scenarios,
-    expectationGap: chiefStrategist?.structuredData?.expectationGap,
-    expectedValueOutcome: chiefStrategist?.structuredData?.expectedValueOutcome,
-    sensitivityMatrix: chiefStrategist?.structuredData?.sensitivityMatrix,
+    coreVariables: deepResearch?.structuredData?.coreVariables || baseline?.coreVariables,
+    businessModel: deepResearch?.structuredData?.businessModel || baseline?.businessModel,
+    moatAnalysis: deepResearch?.structuredData?.moatAnalysis || baseline?.moatAnalysis,
+    industryAnchors: deepResearch?.structuredData?.industryAnchors || baseline?.industryAnchors,
+    quantifiedRisks: mergedRisks.length > 0 ? mergedRisks : (baseline?.quantifiedRisks || []),
+    tradingPlan: chiefStrategist?.structuredData?.tradingPlan || baseline?.tradingPlan,
+    scenarios: chiefStrategist?.structuredData?.scenarios || baseline?.scenarios,
+    expectationGap: chiefStrategist?.structuredData?.expectationGap || baseline?.expectationGap,
+    expectedValueOutcome: chiefStrategist?.structuredData?.expectedValueOutcome || baseline?.expectedValueOutcome,
+    sensitivityMatrix: chiefStrategist?.structuredData?.sensitivityMatrix || baseline?.sensitivityMatrix,
     controversialPoints: controversialPoints.length > 0 ? controversialPoints : undefined,
     legendaryInsights: {
       valueSage: valueSage?.structuredData ? {

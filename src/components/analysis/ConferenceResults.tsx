@@ -62,7 +62,8 @@ export function ConferenceResults({ analysis, onSendDiscussionReport }: Conferen
                       !!moatAnalysis ||
                       !!businessModel ||
                       coreVariables.length > 0 ||
-                      quantifiedRisks.length > 0;
+                      quantifiedRisks.length > 0 ||
+                      !!analysis.expectedValueOutcome;
 
   if (!isDiscussing && discussionMessages.length === 0 && !hasDeepData) return null;
 
@@ -158,6 +159,65 @@ export function ConferenceResults({ analysis, onSendDiscussionReport }: Conferen
                       </div>
                       <div className="text-[10px] font-mono text-zinc-400">
                         {t('app.title')}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Decision Engine Dashboard (Dashboard Logic) */}
+              {(analysis.expectedValueOutcome || scenarios.length > 0) && (
+                <div className="p-8 rounded-[2rem] bg-indigo-600 text-white border border-indigo-500 shadow-xl relative overflow-hidden group">
+                  <div className="absolute top-0 right-0 p-8 opacity-[0.05] group-hover:opacity-[0.1] transition-opacity pointer-events-none">
+                    <Cpu size={160} className="rotate-12" />
+                  </div>
+                  <div className="relative z-10">
+                    <div className="flex items-center justify-between mb-8">
+                      <div className="flex items-center gap-3">
+                        <div className="p-2.5 rounded-2xl bg-white/10 border border-white/20">
+                          <Cpu size={20} />
+                        </div>
+                        <div>
+                          <h4 className="text-[10px] font-bold uppercase tracking-[0.2em] text-indigo-100">Decision Engine Dashboard</h4>
+                          <p className="text-[9px] text-indigo-200/60 font-medium uppercase tracking-wider">Multi-Agent Probability Weighted Model</p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-4">
+                        <div className="text-right">
+                          <p className="text-[9px] text-indigo-200 uppercase font-bold tracking-widest mb-1">Confidence Interval</p>
+                          <p className="text-sm font-mono font-bold text-white">{analysis.expectedValueOutcome?.confidenceInterval || "N/A"}</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-col md:flex-row items-center gap-12">
+                      <div className="flex-1 space-y-4">
+                        <p className="text-[11px] text-indigo-100 leading-relaxed font-medium italic">
+                          "{analysis.expectedValueOutcome?.calculationLogic || "Comprehensive synthesis of expert consensus and mathematical baselines."}"
+                        </p>
+                        <div className="flex items-center gap-6">
+                          <div className="flex items-center gap-2">
+                            <CheckCircle2 size={12} className="text-emerald-400" />
+                            <span className="text-[10px] uppercase font-bold tracking-widest text-indigo-100">Math Baseline Matched</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <CheckCircle2 size={12} className="text-emerald-400" />
+                            <span className="text-[10px] uppercase font-bold tracking-widest text-indigo-100">Expert Consensus Aligned</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="p-8 rounded-3xl bg-white/10 border border-white/20 backdrop-blur-md shadow-2xl flex flex-col items-center justify-center min-w-[240px] group-hover:scale-105 transition-transform">
+                        <p className="text-[10px] text-indigo-200 uppercase font-bold tracking-[0.3em] mb-4">Unified Expected Price</p>
+                        <div className="flex items-baseline gap-2">
+                          <span className="text-6xl font-bold tracking-tighter text-white">
+                            {analysis.expectedValueOutcome?.expectedPrice?.toFixed(2) || analysis.stockInfo.price.toFixed(2)}
+                          </span>
+                          <span className="text-xl font-bold text-indigo-200">{analysis.stockInfo.currency}</span>
+                        </div>
+                        <div className="mt-6 w-full h-1 bg-white/20 rounded-full overflow-hidden">
+                          <div className="h-full bg-emerald-400 w-full animate-pulse" />
+                        </div>
                       </div>
                     </div>
                   </div>

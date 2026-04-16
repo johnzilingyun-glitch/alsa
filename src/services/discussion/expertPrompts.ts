@@ -67,7 +67,8 @@ const ROLE_INSTRUCTIONS_ZH: Record<AgentRole, string> = {
 1. 分析当前价格所处的技术形态（突破/整理/反转）
 2. 识别关键支撑位和阻力位
 3. 评估成交量配合情况
-4. 给出技术面评分和短期趋势判断
+4. **量化信号集成 (CRITICAL)**: 你必须参考 [API数据] 中的五策略量化技术分析引擎 (Quant Ensemble)。包含：趋势跟踪(ADX)、均值回归(Z-score/RSI)、动量、波动率以及统计套利(Hurst)。将其结论与你的图形观察相结合，给出最终研判。
+5. 给出技术面评分和短期趋势判断
 **专业研判集成要求**: 你必须审视深度研究专家提出的核心变量，从技术面视角对其结论进行客观验证或证伪。如果前序已有其他专家发言，你必须将他们的观点纳入你的技术面分析框架，给出印证或反驳。`,
 
   'Fundamental Analyst': `你是基本面分析师。任务：
@@ -106,7 +107,8 @@ const ROLE_INSTRUCTIONS_ZH: Record<AgentRole, string> = {
 1. 列出 3-5 个量化风险（概率 × 影响 = 期望损失）
 2. 为每个风险提供对冲策略
 3. 设计止损方案（价格止损 + 逻辑止损）
-4. 评估最大回撤风险
+4. **量化仓位限制 (MANDATORY)**: 你必须参考 [API数据] 中的量化风控数据 (Risk Metrics)。依据当前的年化波动率和波动率区间，给出结构化的持仓上限建议。
+5. 评估最大回撤风险
 **专业研判集成要求**: 你必须针对前序所有专家的看涨/看跌逻辑，逐一进行压力测试和风险暴露评估。若多位专家观点趋同，你必须警惕并指出"一致性偏差"风险。你的止损位设定必须参考技术分析师提供的关键支撑位。`,
 
   'Contrarian Strategist': `你是逆向策略师。任务：
@@ -188,9 +190,9 @@ const ROLE_INSTRUCTIONS_ZH: Record<AgentRole, string> = {
 4. 给出综合风险评分（0-100）`,
   'Value Investing Sage': `你是价值投资圣手（格雷厄姆/巴菲特流派）。
 你的职责是站在“企业所有者”的角度重新审视这场讨论：
-1. **护城河终极审判**: 挑战深度研究专家的结论。该护城河是“结构性”的还是“临时性”的？
-2. **安全边际测算**: 基于所有负面情绪和风险，计算在什么价格下该资产才具备“即使逻辑全错也不会血本无归”的边际。
-3. **股东盈余与资本分配**: 关注管理层的资本分配能力，而非短期股价波动。
+1. **护城河终极审判**: 挑战深度研究专家的结论。该护城河是“结构性”的还是“临时性”的？你必须参考 [API数据] 中的量化护城河评级。
+2. **安全边际测算**: 基于所有负面情绪和风险，以及 [API数据] 提供的量化估值分 (Value Score) 和 估值下限估算 (Intrinsic Value Estimate)，计算在什么价格下该资产才具备“即使逻辑全错也不会血本无归”的边际。
+3. **股东盈余与资本分配**: 关注管理层的资本分配能力，以及 [API数据] 中的安全分 (Safety Score)，判断财务稳健性。
 **专业集成**: 你必须引用“深度研究专家”和“基本面分析师”的观点，并用你的长期思维进行修正。`,
   'Growth Visionary': `你是增长愿景家（凯瑟琳·伍德流派）。
 你的职责是寻找改变世界的“震中”：
@@ -409,6 +411,41 @@ export function getExpertPrompt(
   // Include API-sourced financial data for cross-validation
   if (analysis.technicalAnalysis) {
     sections.push(`\n**[API数据] 技术面分析**: ${analysis.technicalAnalysis.slice(0, 800)}`);
+  }
+  if (analysis.technicalIndicators) {
+    const ti = analysis.technicalIndicators;
+    sections.push(`\n**[API数据] 关键技术指标 (ABSOLUTE GROUND TRUTH)**:`);
+    sections.push(`- 均线系统: MA5=${ti.ma5}, MA20=${ti.ma20}, MA60=${ti.ma60}`);
+    sections.push(`- 平均成交量: 5日均量=${ti.avgVolume5}, 20日均量=${ti.avgVolume20}`);
+    sections.push(`- 短期支撑/阻力: 支撑位=${ti.supportShort}, 阻力位=${ti.resistanceShort}`);
+    sections.push(`- 长期支撑/阻力: 支撑位=${ti.supportLong}, 阻力位=${ti.resistanceLong}`);
+    
+    if (ti.quantSignals) {
+      sections.push(`- **五策略量化研究引擎信号 (Quant Ensemble)**:`);
+      sections.push(`  * 最终信号: ${ti.quantSignals.signal} (置信度: ${ti.quantSignals.confidence}%)`);
+      sections.push(`  * 综合评分: ${ti.quantSignals.weighted_score}`);
+      sections.push(`  * 策略细节: ${JSON.stringify(ti.quantSignals.strategies)}`);
+    }
+
+    if (ti.riskMetrics) {
+      sections.push(`- **量化风控指标 (Risk Metrics)**:`);
+      sections.push(`  * 60日年化波动率: ${(ti.riskMetrics.annualizedVolatility * 100).toFixed(2)}%`);
+      sections.push(`  * 建议最大持仓上限: ${(ti.riskMetrics.maxPositionLimit * 100).toFixed(2)}%`);
+      sections.push(`  * 波动率区间: ${ti.riskMetrics.volatilityRegime}`);
+    }
+  }
+
+  if (analysis.stockInfo.fundamentalScores) {
+    const fs = analysis.stockInfo.fundamentalScores;
+    sections.push(`\n**[API数据] 智能基本面量化评分 (Fundamental Scores)**:`);
+    sections.push(`- 估值分 (Value): ${fs.valueScore}/100`);
+    sections.push(`- 增长分 (Growth): ${fs.growthScore}/100`);
+    sections.push(`- 安全分 (Safety): ${fs.safetyScore}/100`);
+    sections.push(`- 护城河评级: ${fs.moatRating}`);
+    sections.push(`- 算法判读: ${fs.verdict}`);
+    if (analysis.stockInfo.intrinsicValueEstimate) {
+      sections.push(`- **初步内在价值估算 (Intrinsic Value Estimate)**: ${analysis.stockInfo.intrinsicValueEstimate.toFixed(2)} ${analysis.stockInfo.currency}`);
+    }
   }
   if (analysis.fundamentalAnalysis) {
     sections.push(`\n**[API数据] 基本面分析**: ${analysis.fundamentalAnalysis.slice(0, 800)}`);

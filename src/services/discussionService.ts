@@ -1,4 +1,4 @@
-import { createAI, withRetry, generateContentWithUsage, GEMINI_MODEL, delay, generateAndParseJsonWithRetry } from "./geminiService";
+import { createAI, withRetry, generateContentWithUsage, GEMINI_MODEL, delay, generateAndParseJsonWithRetry, QuotaError } from "./geminiService";
 import { StockAnalysis, AgentMessage, AgentDiscussion, GeminiConfig, AnalysisLevel, AgentRole, ExpertOutput, Language } from "../types";
 import { useConfigStore } from "../stores/useConfigStore";
 import { getCommoditiesData } from "./marketService";
@@ -11,6 +11,51 @@ import { getExpertPrompt, getExpertResponseSchema } from "./discussion/expertPro
 import { aggregateResults } from "./discussion/resultAggregator";
 import { normalizeCoreVariablesByPriority } from "./coreVariablePriority";
 import { reflectAndRemember, retrieveMemories, formatMemoryForPrompt } from "./reflectionService";
+import { generateQuantitativeBaseline } from "./quantitativeModeling";
+import { discoverIndustryAnchors } from "./discussion/anchorDiscovery";
+
+/**
+ * Compacts historical messages to reduce token usage in multi-round discussions.
+ */
+function compactMessages(messages: AgentMessage[], currentRound: number): AgentMessage[] {
+  return messages.map((msg) => {
+    if (msg.round === currentRound - 1 || msg.role === 'Deep Research Specialist' || msg.role === 'Chief Strategist') {
+      return msg;
+    }
+    if (msg.content.length > 300) {
+      return {
+        ...msg,
+        content: msg.content.substring(0, 300) + '... [Content compacted]'
+      };
+    }
+    return msg;
+  });
+}
+
+/**
+ * Deterministic Pre-fill: Skips LLM call if data is insufficient.
+ */
+function getDeterministicPrefill(role: AgentRole, analysis: StockAnalysis): string | null {
+  if (role === 'Technical Analyst' && analysis.stockInfo.price === 0) {
+    return "由于标的当前处于停牌或数据缺失状态，无法进行有效技术面形态分析。";
+  }
+  if (role === 'Fundamental Analyst' && !analysis.fundamentals && !analysis.stockInfo.fundamentalScores) {
+    return "当前财务数据缺失，无法进行深度定量分析。建议等待财报披露。";
+  }
+  return null;
+}
+
+/**
+ * Default Factory for role-specific fallbacks.
+ */
+function getDefaultExpertOutput(role: AgentRole): string {
+  const defaults: Partial<Record<AgentRole, string>> = {
+    'Technical Analyst': "技术面分析暂时不可用。建议参考关键支撑位进行博弈。",
+    'Fundamental Analyst': "基本面评估暂时不可用。建议关注行业平均收益率。",
+    'Risk Manager': "风险评估暂时受限。建议维持审慎限仓。",
+  };
+  return defaults[role] || "分析生成异常，建议参考其他专家意见。";
+}
 
 // Iteration count per analysis level (how many times the middle cycle repeats)
 const ITERATION_COUNT: Record<AnalysisLevel, number> = {
@@ -72,6 +117,18 @@ export async function startMultiRoundDiscussion(
   // Store reflection from backtest outcomes for future retrieval
   reflectAndRemember(analysis, backtest);
 
+  // --- NEW: Generate Quantitative Baseline ---
+  const { coreVariables: discoveredVars, industryAnchors: discoveredAnchors } = discoverIndustryAnchors(analysis, commoditiesData);
+  const baselineAnalysis = generateQuantitativeBaseline({
+    ...analysis,
+    coreVariables: [...(analysis.coreVariables || []), ...discoveredVars],
+    industryAnchors: discoveredAnchors
+  });
+  
+  // Update analysis with baseline data for prompt injection
+  Object.assign(analysis, baselineAnalysis);
+  // -------------------------------------------
+
   const iterations = ITERATION_COUNT[level];
 
   // Build iterative topology:
@@ -105,15 +162,38 @@ export async function startMultiRoundDiscussion(
         messages: [...allMessages],
       });
 
-      const prompt = getExpertPrompt(role, analysis, allMessages, commoditiesData, backtest, language);
+      // Optimization 1: Deterministic Pre-fill
+      const prefill = getDeterministicPrefill(role, analysis);
+      if (prefill) {
+        return {
+          role,
+          message: {
+            id: `msg-prefill-${Date.now()}`,
+            role,
+            content: `[系统预填] ${prefill}`,
+            timestamp: new Date().toISOString(),
+            type: 'discussion',
+            round: roundNum,
+          },
+          structuredData: {}
+        };
+      }
+
+      // Optimization 2: Context Compaction
+      const compactedContext = compactMessages(allMessages, roundNum);
+      const prompt = getExpertPrompt(role, analysis, compactedContext, commoditiesData, backtest, language);
 
       // Only roles that explicitly need Google Search get the tool.
       // When tools are present, the SDK drops responseMimeType + responseSchema,
       // causing the model to return free-form text instead of structured JSON.
       const SEARCH_ROLES: Set<AgentRole> = new Set([
         'Deep Research Specialist',
+        'Fundamental Analyst',
         'Sentiment Analyst',
         'Contrarian Strategist',
+        'Macro Hedge Titan',
+        'Value Investing Sage',
+        'Growth Visionary',
       ]);
       const needsSearch = SEARCH_ROLES.has(role);
 
@@ -239,6 +319,9 @@ export async function startMultiRoundDiscussion(
           try {
             output = await callExpert(expertRole);
           } catch (expertErr) {
+            if (expertErr instanceof QuotaError) {
+              throw expertErr; // Bubble up quota errors to stop the discussion loop
+            }
             console.error(`[Discussion] Expert ${expertRole} failed:`, expertErr);
             const errorMsg = expertErr instanceof Error ? expertErr.message : String(expertErr);
             output = {
@@ -246,7 +329,7 @@ export async function startMultiRoundDiscussion(
               message: {
                 id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`,
                 role: expertRole,
-                content: `[${expertRole} 分析暂时不可用] ${errorMsg.includes('quota') || errorMsg.includes('配额') ? '因 API 配额限制，该专家暂时无法提供分析。' : '该专家分析生成过程中出现异常，建议参考其他专家意见。'}`,
+                content: `[${expertRole} 分析暂时不可用] ${errorMsg.includes('quota') || errorMsg.includes('配额') ? '因 API 配额限制，该专家暂时无法提供分析。' : '该专家分析生成过程中出现异常回报。'}\n\n${getDefaultExpertOutput(expertRole)}`,
                 timestamp: new Date().toISOString(),
                 type: 'discussion',
                 round: roundNum,
@@ -275,6 +358,9 @@ export async function startMultiRoundDiscussion(
         try {
           output = await callExpert(round.experts[i]);
         } catch (expertErr) {
+          if (expertErr instanceof QuotaError) {
+            throw expertErr; // Bubble up quota errors to stop the discussion loop
+          }
           console.error(`[Discussion] Expert ${round.experts[i]} failed:`, expertErr);
           const errorMsg = expertErr instanceof Error ? expertErr.message : String(expertErr);
           output = {
@@ -282,7 +368,7 @@ export async function startMultiRoundDiscussion(
             message: {
               id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`,
               role: round.experts[i],
-              content: `[${round.experts[i]} 分析暂时不可用] ${errorMsg.includes('quota') || errorMsg.includes('配额') ? '因 API 配额限制，该专家暂时无法提供分析。' : '该专家分析生成过程中出现异常，建议参考其他专家意见。'}`,
+              content: `[${round.experts[i]} 分析暂时不可用] ${errorMsg.includes('quota') || errorMsg.includes('配额') ? '因 API 配额限制，该专家暂时无法提供分析。' : '该专家分析生成过程中出现异常汇报。'}\n\n${getDefaultExpertOutput(round.experts[i])}`,
               timestamp: new Date().toISOString(),
               type: 'discussion',
               round: roundNum,
@@ -299,7 +385,7 @@ export async function startMultiRoundDiscussion(
     }
   }
 
-  const multiRoundResult = aggregateResults(expertResults, backtest, allMessages);
+  const multiRoundResult = aggregateResults(expertResults, backtest, allMessages, analysis);
 
   // Final synthesis: use the standard discussion prompt with multi-round history
   // to generate complete dashboard data (expectedValueOutcome, dataVerification, etc.)

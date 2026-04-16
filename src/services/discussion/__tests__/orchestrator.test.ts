@@ -10,9 +10,9 @@ describe('Discussion Orchestrator', () => {
       maxConcurrency: 3,
     };
 
-    it('generates 9 rounds for deep analysis (with parallel groups)', () => {
+    it('generates 10 rounds for deep analysis (with parallel groups)', () => {
       const rounds = buildTopology(deepConfig);
-      expect(rounds).toHaveLength(9);
+      expect(rounds).toHaveLength(10);
     });
 
     it('starts with Deep Research Specialist in round 1', () => {
@@ -37,10 +37,10 @@ describe('Discussion Orchestrator', () => {
       expect(rounds[6].experts).toContain('Professional Reviewer');
     });
 
-    it('ends with Chief Strategist in round 9', () => {
+    it('ends with Chief Strategist in round 10', () => {
       const rounds = buildTopology(deepConfig);
-      expect(rounds[8].round).toBe(9);
-      expect(rounds[8].experts).toEqual(['Chief Strategist']);
+      expect(rounds[9].round).toBe(10);
+      expect(rounds[9].experts).toEqual(['Chief Strategist']);
     });
 
     it('parallelizes risk management triad in round 5', () => {
@@ -87,14 +87,14 @@ describe('Discussion Orchestrator', () => {
   });
 
   describe('buildTopology - standard level', () => {
-    it('generates 6 rounds for standard analysis (with parallel groups)', () => {
+    it('generates 7 rounds for standard analysis (with parallel groups)', () => {
       const config: OrchestratorConfig = {
         level: 'standard',
         assetType: 'stock',
         maxConcurrency: 3,
       };
       const rounds = buildTopology(config);
-      expect(rounds).toHaveLength(6);
+      expect(rounds).toHaveLength(7);
     });
 
     it('parallelizes TA & FA in standard mode', () => {

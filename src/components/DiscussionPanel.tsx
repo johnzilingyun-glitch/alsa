@@ -5,7 +5,7 @@ import {
   User, Shield, BarChart3, PieChart, MessageSquare, Loader2, Download, Search, Zap, Send, 
   UserCheck, ExternalLink, AlertTriangle, Award, X, Maximize2, Minimize2, 
   CheckCircle2, ShieldCheck, ShieldAlert, Cpu, Layers, Target, History, RotateCcw, Database, 
-  Calculator, Table, Activity, Clock, ArrowRight, Info, Share2
+  Calculator, Table, Activity, Clock, ArrowRight, Info, Share2, ChevronDown, ChevronUp
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -96,6 +96,7 @@ export const DiscussionPanel: React.FC<DiscussionPanelProps> = ({
   const [tempWebhook, setTempWebhook] = useState(feishuWebhookUrl);
   const [isSendingToFeishu, setIsSendingToFeishu] = useState(false);
   const [shareStatus, setShareStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
+  const [isInputCollapsed, setIsInputCollapsed] = useState(false);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const [inputValue, setInputValue] = React.useState('');
@@ -550,9 +551,31 @@ export const DiscussionPanel: React.FC<DiscussionPanelProps> = ({
 
       {/* Footer / Input */}
       {messages.length > 0 && !isDiscussing && onSendMessage && (
-        <div className="p-8 border-t border-zinc-100 bg-white relative z-10 shadow-[0_-12px_40px_-20px_rgba(0,0,0,0.05)]">
-          <div className="relative flex flex-col gap-4 max-w-4xl mx-auto">
-            <div className="flex items-center justify-between">
+        <div className="border-t border-zinc-100 bg-white relative z-10 shadow-[0_-12px_40px_-20px_rgba(0,0,0,0.05)]">
+          {/* Collapse Toggle Button */}
+          <div className="flex justify-center -mt-3.5 relative z-20">
+            <button
+              onClick={() => setIsInputCollapsed(!isInputCollapsed)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white border border-zinc-200 text-zinc-400 hover:text-indigo-600 hover:border-indigo-200 transition-all shadow-sm hover:shadow-md"
+              title={isInputCollapsed ? "展开提问卡片" : "收起提问卡片"}
+            >
+              {isInputCollapsed ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+              <span className="text-[9px] font-bold uppercase tracking-widest">{isInputCollapsed ? "展开提问" : "点击收起"}</span>
+            </button>
+          </div>
+
+          <AnimatePresence>
+            {!isInputCollapsed && (
+              <motion.div
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: 'auto', opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={{ duration: 0.3, ease: "easeInOut" }}
+                className="overflow-hidden"
+              >
+                <div className="p-8">
+                  <div className="relative flex flex-col gap-4 max-w-4xl mx-auto">
+                    <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-indigo-50 border border-indigo-100 text-indigo-600">
                   <Cpu size={14} className="animate-pulse" />
@@ -598,8 +621,12 @@ export const DiscussionPanel: React.FC<DiscussionPanelProps> = ({
           </div>
           <p className="mt-3 text-[10px] text-zinc-400 px-2 flex items-center gap-1.5 font-bold uppercase tracking-wider max-w-4xl mx-auto">
             <Zap size={14} className="text-indigo-600" />
-            {t('analysis.conference.alpha_hint')}
-          </p>
+                    {t('analysis.conference.alpha_hint')}
+                  </p>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
       )}
 

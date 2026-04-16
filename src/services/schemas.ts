@@ -19,6 +19,7 @@ const StockInfoSchema = z.object({
   dataSource: z.string().optional(),
   sourceWeight: z.number().optional(),
   dataQuality: z.any().optional(),
+  technicalIndicators: z.any().optional(),
 });
 
 const TradingPlanSchema = z.object({
@@ -47,6 +48,7 @@ export const StockAnalysisSchema = z.object({
   keyOpportunities: z.array(z.string()).catch([]),
   news: z.array(z.any()).catch([]),
   tradingPlan: TradingPlanSchema,
+  technicalIndicators: z.any().optional(),
   // All remaining fields pass through un-validated
 }).passthrough();
 

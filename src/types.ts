@@ -17,6 +17,23 @@ export interface StockInfo {
   dataSource?: string; // e.g. "FMP", "Bloomberg"
   sourceWeight?: number; // 0.0 - 1.0
   dataQuality?: DataQuality;
+  technicalIndicators?: TechnicalIndicators;
+  fundamentalScores?: any;
+  intrinsicValueEstimate?: number;
+}
+
+export interface TechnicalIndicators {
+  ma5: number | null;
+  ma20: number | null;
+  ma60: number | null;
+  avgVolume5: number | null;
+  avgVolume20: number | null;
+  resistanceShort: number | null;
+  supportShort: number | null;
+  resistanceLong: number | null;
+  supportLong: number | null;
+  lastClose?: number;
+  quantSignals?: any;
 }
 
 export interface DataQuality {
@@ -145,6 +162,7 @@ export interface StockAnalysis {
   news: NewsItem[];
   summary: string;
   technicalAnalysis: string;
+  technicalIndicators?: TechnicalIndicators;
   fundamentalAnalysis: string;
   fundamentalTable?: FundamentalTableItem[];
   industryAnchors?: IndustryAnchor[];

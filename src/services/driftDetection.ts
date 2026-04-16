@@ -225,6 +225,10 @@ export function enforceGroundTruth(analysis: StockAnalysis, realtimeData: any): 
   if (realtimeData.dayLow != null) analysis.stockInfo.dailyLow = Number(realtimeData.dayLow);
   if (realtimeData.lastUpdated) analysis.stockInfo.lastUpdated = realtimeData.lastUpdated;
   if (realtimeData.currency) analysis.stockInfo.currency = realtimeData.currency;
+  if (realtimeData.technicalIndicators) {
+    analysis.technicalIndicators = realtimeData.technicalIndicators;
+    analysis.stockInfo.technicalIndicators = realtimeData.technicalIndicators;
+  }
 }
 
 /**

@@ -45,6 +45,7 @@ const STORAGE_KEY = 'reflection_memory';
 const MAX_ENTRIES = 200;
 
 function loadMemory(): ReflectionEntry[] {
+  if (typeof localStorage === 'undefined') return [];
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     return raw ? JSON.parse(raw) : [];
@@ -54,6 +55,7 @@ function loadMemory(): ReflectionEntry[] {
 }
 
 function saveMemory(entries: ReflectionEntry[]): void {
+  if (typeof localStorage === 'undefined') return;
   // Keep only the latest MAX_ENTRIES
   const trimmed = entries.slice(-MAX_ENTRIES);
   localStorage.setItem(STORAGE_KEY, JSON.stringify(trimmed));

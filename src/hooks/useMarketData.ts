@@ -65,6 +65,12 @@ export function useMarketData(fetchAdminData: () => Promise<void>) {
       void fetchAdminData();
     } catch (err) {
       console.warn('[Market] AI enrichment failed (snapshot data still available):', err);
+      
+      const errorStr = String(err);
+      if (errorStr.includes('quota') || errorStr.includes('exhausted') || errorStr.includes('429')) {
+        useUIStore.getState().setServiceStatus('quota_exhausted');
+      }
+
       // Don't show error if we already have snapshot data
       const currentData = useMarketStore.getState().marketOverviews[overviewMarket];
       if (!currentData?.indices?.length) {

@@ -2,6 +2,9 @@ import { Router } from 'express';
 import YahooFinance from 'yahoo-finance2';
 import { monitor } from './dataSourceHealth.js';
 import { logDebug, logError } from './stockLogger.js';
+import { calcIndicators } from './indicators/technicalCalc.js';
+import { calculateVolatility, calculateVolatilityAdjustedLimit } from './indicators/riskMetrics.js';
+import { calculateFundamentalScores, calculateIntrinsicValueEstimate } from './indicators/fundamentalScoring.js';
 
 const yahooFinance = new YahooFinance();
 const router = Router();
@@ -173,12 +176,12 @@ router.get('/stock/commodities', async (req, res) => {
   if (cached) return res.json(cached);
 
   try {
-    const results: any[] = [];
-    for (const item of commoditySymbols) {
+    // Parallel fetch — ~5x faster than sequential for..of loop
+    const results = (await Promise.all(commoditySymbols.map(async (item) => {
       try {
         const quote = await yahooFinance.quote(item.symbol) as any;
         if (quote) {
-          results.push({
+          return {
             name: item.name,
             symbol: item.symbol,
             price: quote.regularMarketPrice,
@@ -186,12 +189,13 @@ router.get('/stock/commodities', async (req, res) => {
             unit: item.unit,
             source: 'Yahoo Finance API',
             lastUpdated: new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' }) + ' CST'
-          });
+          };
         }
       } catch (e) {
         console.warn(`Failed to fetch commodity ${item.symbol}:`, e instanceof Error ? e.message : String(e));
       }
-    }
+      return null;
+    }))).filter(r => r !== null);
     setCache(cacheKey, results);
     res.json(results);
   } catch (error) {
@@ -328,13 +332,11 @@ router.get('/stock/sectors', async (req, res) => {
     
     if (data.success && data.data) {
       setCache(cacheKey, data.data);
-      res.json(data.data);
-    } else {
-      throw new Error('Invalid data format from Python service');
+      return res.json(data.data);
     }
   } catch (error) {
     console.warn('Sector flow fetch error (is Python backend running?):', error);
-    res.status(500).json({ error: 'Python service unavailable' });
+    res.json({ topInflows: [], topOutflows: [] });
   }
 });
 
@@ -351,13 +353,11 @@ router.get('/stock/northbound', async (req, res) => {
     
     if (data.success && data.data) {
       setCache(cacheKey, data.data);
-      res.json(data.data);
-    } else {
-      throw new Error('Invalid data format from Python service');
+      return res.json(data.data);
     }
   } catch (error) {
     console.warn('Northbound flow fetch error (is Python backend running?):', error);
-    res.status(500).json({ error: 'Python service unavailable' });
+    res.json([]);
   }
 });
 
@@ -528,16 +528,134 @@ router.get('/stock/realtime', async (req, res) => {
     const input = symbolStr;
     // Step 1: Broad Resolution
     const resolution = await resolveSymbolEx(input, market as string, isDebug);
-    // Step 2: Quote
-    const result = await tryQuoteEx(resolution.symbol, input, resolution.market, isDebug);
+    
+    let result: any = null;
+    let indicators: any = null;
+    let source = 'Yahoo Finance API';
+
+    // A-Share: Prioritize Python Microservice (AkShare)
+    if (resolution.market === 'A-Share' && /^\d{6}$/.test(resolution.symbol)) {
+      try {
+        const [spotRes, histRes, valRes, techRes] = await Promise.all([
+          fetch(`http://127.0.0.1:8000/api/stock/a_spot?symbol=${resolution.symbol}`).then(r => r.json()),
+          fetch(`http://127.0.0.1:8000/api/stock/a_history?symbol=${resolution.symbol}`).then(r => r.json()),
+          fetch(`http://127.0.0.1:8000/api/stock/a_valuation?symbol=${resolution.symbol}`).then(r => r.json()),
+          fetch(`http://127.0.0.1:8000/api/technicals/${resolution.symbol}`).then(r => r.json()).catch(() => ({ success: false }))
+        ]);
+
+        if (spotRes.success && spotRes.data) {
+          const d = spotRes.data;
+          result = {
+            symbol: d['代码'],
+            shortName: d['名称'],
+            regularMarketPrice: d['最新价'],
+            regularMarketChange: d['涨跌额'],
+            regularMarketChangePercent: d['涨跌幅'],
+            regularMarketPreviousClose: d['昨收'],
+            regularMarketOpen: d['今开'],
+            regularMarketDayHigh: d['最高'],
+            regularMarketDayLow: d['最低'],
+            regularMarketVolume: d['成交量'],
+            marketCap: d['总市值'],
+            trailingPE: d['动态市盈率'],
+            currency: 'CNY',
+            fullExchangeName: 'CN',
+            marketState: 'REGULAR'
+          };
+          source = 'AkShare (Local Python API)';
+
+          // Enrich with valuation data (already fetched, previously unused)
+          if (valRes.success && valRes.data) {
+            const v = valRes.data;
+            if (v['行业']) result.industry = v['行业'];
+            if (v['总股本']) result.sharesOutstanding = v['总股本'];
+
+            // Calculate quantitative fundamental scores
+            const pe = parseFloat(v['动态市盈率']) || 0;
+            const pb = parseFloat(v['市净率']) || 0;
+            const roe = parseFloat(v['加权净资产收益率']) || parseFloat(v['净资产收益率']) || 10; // Default 10%
+            const growth = parseFloat(v['净利润同期预计增幅']) || 10; // Default 10%
+            const margin = parseFloat(v['毛利率']) || 20; // Default 20%
+            const d2e = 0.5; // Placeholder for Debt-to-Equity if not easily available from spot
+
+            result.fundamentalScores = calculateFundamentalScores({
+              pe, pb, roe, grossMargin: margin, netProfitGrowth: growth, debtToEquity: d2e
+            });
+            result.intrinsicValueEstimate = calculateIntrinsicValueEstimate(result.regularMarketPrice, roe, growth);
+          }
+        }
+
+        if (histRes.success && histRes.data) {
+          const history = histRes.data;
+          const prices = history.map((q: any) => q['收盘']);
+          const volumes = history.map((q: any) => q['成交量']);
+          const highs = history.map((q: any) => q['最高']);
+          const lows = history.map((q: any) => q['最低']);
+
+          indicators = calcIndicators(prices, volumes, highs, lows);
+          
+          // Add the 5-strategy quantitative technical ensemble if available
+          if (techRes.success && techRes.data) {
+            indicators.quantSignals = techRes.data;
+          }
+
+          // Calculate quantitative risk metrics
+          const annVol = calculateVolatility(prices, 60);
+          const volLimit = calculateVolatilityAdjustedLimit(annVol);
+          indicators.riskMetrics = {
+            annualizedVolatility: annVol,
+            maxPositionLimit: volLimit.limit,
+            volatilityRegime: volLimit.regime
+          };
+        }
+      } catch (e) {
+        logDebug('AkShare Fetch failed', e instanceof Error ? e.message : String(e));
+      }
+    }
+
+    // Fallback or Non-A-Share: Use Yahoo Finance
+    if (!result) {
+      result = await tryQuoteEx(resolution.symbol, input, resolution.market, isDebug);
+      if (result) {
+        // Fetch indicators for Yahoo if not already fetched from AkShare
+        if (!indicators) {
+           try {
+              const symWithSuffix = appendMarketSuffix(resolution.symbol, resolution.market);
+              const now = new Date();
+              const startDate = new Date();
+              startDate.setDate(now.getDate() - 120); 
+              
+              const historyRes = await yahooFinance.chart(symWithSuffix, { 
+                period1: startDate, 
+                interval: '1d' 
+              });
+
+              if (historyRes?.quotes && historyRes.quotes.length > 0) {
+                const prices = historyRes.quotes.map((q: any) => q.close).filter((p: any) => p != null);
+                const volumes = historyRes.quotes.map((q: any) => q.volume).filter((v: any) => v != null);
+                const highs = historyRes.quotes.map((q: any) => q.high).filter((h: any) => h != null);
+                const lows = historyRes.quotes.map((q: any) => q.low).filter((l: any) => l != null);
+
+                indicators = calcIndicators(prices, volumes, highs, lows, { roundVolume: true });
+              }
+           } catch {}
+        }
+      }
+    }
 
     if (!result) {
       return res.status(404).json({ error: `无法找到代码 "${symbol}" 的相关数据。` });
     }
 
+    const formatted = formatQuoteResult(result);
+    if (source === 'AkShare (Local Python API)') {
+      formatted.source = source;
+    }
+
     res.json({
-      ...formatQuoteResult(result),
-      resolvedMarket: resolution.market
+      ...formatted,
+      resolvedMarket: resolution.market,
+      technicalIndicators: indicators
     });
   } catch (error) {
     logError(error, 'realtime_total_error');

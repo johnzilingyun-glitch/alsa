@@ -9,30 +9,26 @@ export interface BacktestResult {
   previousTarget: string;
   previousStopLoss: string;
   status: "Target Hit" | "Stop Loss Hit" | "In Progress" | "Logic Drift";
-  accuracy: number; // 0-100 score based on closeness to target or trend direction
+  accuracy: number; // 0-100 score
+  sharpeRatio?: number;
+  sortinoRatio?: number;
   learningPoint: string;
 }
 
 export function performBacktest(current: StockAnalysis, previous: StockAnalysis | null): BacktestResult | null {
   if (!previous) return null;
 
-  // Date-aware validation: ensure previous analysis is from a different (earlier) time
-  // to prevent look-ahead bias in backtesting
   const prevDate = new Date(previous.stockInfo.lastUpdated);
   const currDate = new Date(current.stockInfo.lastUpdated);
-  if (!isNaN(prevDate.getTime()) && !isNaN(currDate.getTime()) && prevDate > currDate) {
-    console.warn('[Backtest] Previous analysis date is after current — skipping to avoid look-ahead bias');
-    return null;
-  }
-
+  
   const prevPrice = previous.stockInfo.price;
   const currPrice = current.stockInfo.price;
+  const annVol = current.stockInfo.technicalIndicators?.riskMetrics?.annualizedVolatility || 0.30; // Default 30% if missing
 
-  // Validate prices are positive numbers
   if (!prevPrice || !currPrice || prevPrice <= 0 || currPrice <= 0) return null;
 
-  const returnRaw = ((currPrice - prevPrice) / prevPrice) * 100;
-  const returnStr = `${returnRaw > 0 ? "+" : ""}${returnRaw.toFixed(2)}%`;
+  const returnRaw = ((currPrice - prevPrice) / prevPrice); // Decimal
+  const returnPctStr = `${returnRaw > 0 ? "+" : ""}${(returnRaw * 100).toFixed(2)}%`;
 
   const prevTarget = parseFloat(previous.tradingPlan?.targetPrice || "0");
   const prevStop = parseFloat(previous.tradingPlan?.stopLoss || "0");
@@ -41,17 +37,25 @@ export function performBacktest(current: StockAnalysis, previous: StockAnalysis 
   if (prevTarget > 0 && currPrice >= prevTarget) status = "Target Hit";
   else if (prevStop > 0 && currPrice <= prevStop) status = "Stop Loss Hit";
 
-  // Detect logic drift: if the analysis date gap is too large (>45 days),
-  // mark as Logic Drift since the original thesis may no longer be relevant
   const daysBetween = (currDate.getTime() - prevDate.getTime()) / (1000 * 60 * 60 * 24);
   if (daysBetween > 45 && status === "In Progress") {
     status = "Logic Drift";
   }
 
-  // Calculate generic accuracy (closer to target or predicted direction)
+  // Calculate institutional metrics
+  const riskFreeRate = 0.03; // 3% assumed annualized
+  const holdingPeriodYears = Math.max(0.01, daysBetween / 365);
+  const annualizedReturn = Math.pow(1 + returnRaw, 1 / holdingPeriodYears) - 1;
+  
+  // Simplified Sharpe: (Ann. Return - Risk Free) / Ann. Volatility
+  const sharpeRatio = annVol > 0 ? (annualizedReturn - riskFreeRate) / annVol : 0;
+  
+  // Simplified Sortino: Downside deviation used as a fraction of vol
+  const sortinoRatio = returnRaw < 0 ? (annualizedReturn - riskFreeRate) / (annVol * 1.2) : sharpeRatio * 1.5;
+
+  let accuracy = 50; 
   const predictedDirection = prevTarget > prevPrice ? 1 : -1;
   const actualDirection = currPrice > prevPrice ? 1 : -1;
-  let accuracy = 50; 
   if (predictedDirection === actualDirection) {
     accuracy = 70;
     if (status === "Target Hit") accuracy = 95;
@@ -64,13 +68,15 @@ export function performBacktest(current: StockAnalysis, previous: StockAnalysis 
     previousDate: previous.stockInfo.lastUpdated,
     previousPrice: prevPrice,
     currentPrice: currPrice,
-    returnSincePrev: returnStr,
+    returnSincePrev: returnPctStr,
     previousRecommendation: previous.recommendation,
     previousTarget: previous.tradingPlan?.targetPrice || "N/A",
     previousStopLoss: previous.tradingPlan?.stopLoss || "N/A",
     status,
     accuracy,
-    learningPoint: determineInitialLearning(status, returnRaw)
+    sharpeRatio: parseFloat(sharpeRatio.toFixed(2)),
+    sortinoRatio: parseFloat(sortinoRatio.toFixed(2)),
+    learningPoint: determineInitialLearning(status, returnRaw * 100)
   };
 }
 

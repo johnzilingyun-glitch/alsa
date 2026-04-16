@@ -68,11 +68,11 @@ class RequestScheduler {
         if (model.includes('pro')) {
           dynamicInterval = 12000;  // 5 RPM for pro models
         } else if (model.includes('flash-lite')) {
-          dynamicInterval = 4200;  // 15 RPM → 4s + 200ms margin
+          dynamicInterval = 5000;  // 12 RPM (Safety margin for 15 RPM limit)
         } else if (model.includes('flash')) {
-          dynamicInterval = 4200;  // 15 RPM
+          dynamicInterval = 5000;  // 12 RPM
         } else {
-          dynamicInterval = 4200;  // Default safety
+          dynamicInterval = 5000;  // Default safety
         }
       }
       

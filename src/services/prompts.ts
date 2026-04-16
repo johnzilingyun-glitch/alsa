@@ -138,9 +138,9 @@ Analyze stock "${symbol}" in the ${market} market using the latest available pub
 - **Output Language**: All user-facing text fields MUST be in ${isChinese ? "Simplified Chinese (简体中文)" : "English"}.
 
 **DATA SOURCE HIERARCHY (CRITICAL)**: 
-1. If the "REAL-TIME DATA TOOL OUTPUT" is provided above, you **MUST MUST MUST** use its exact values for ALL matching fields in your JSON output. This includes: "price", "change", "changePercent", "previousClose", "lastUpdated", "dailyHigh" (use dayHigh), "dailyLow" (use dayLow), "pe" (use pe), and currency.
-2. **DO NOT** override ANY of the tool-provided numbers. The tool data is the absolute mathematical truth.
-3. Use your internal knowledge base **ONLY** for filling in missing fundamental data not provided by the tool (e.g., PB, ROE, EPS, Revenue Growth) and providing qualitative context.
+1. If the "REAL-TIME DATA TOOL OUTPUT" is provided above, you **MUST MUST MUST** use its exact values for ALL matching fields in your JSON output. This includes: "price", "change", "changePercent", "previousClose", "lastUpdated", "dailyHigh" (use dayHigh), "dailyLow" (use dayLow), "pe" (use pe), currency, and **technicalIndicators (MA5, MA20, MA60, avgVolume5, avgVolume20, resistanceShort, supportShort, resistanceLong, supportLong)**.
+2. **DO NOT** override ANY of the tool-provided numbers. The tool data is the absolute mathematical truth. If Technical Indicators (Support/Resistance/MA/Volume) are provided, you MUST use them for analysis instead of claiming data is missing.
+3. Use Google Search grounding **MANDATORY** to find the latest available fundamental data (e.g., PB, ROE, EPS, Revenue Growth, Dividend Yield) for the current year (2025/2026) instead of relying solely on your internal training data. Internal knowledge must only be the last fallback.
 
 If the current time in China is past 15:00 CST (for A-shares) or 16:00 HKT (for HK-shares), the market is closed and you are summarizing the closing action.
 
@@ -653,8 +653,8 @@ export const getDiscussionPrompt = (
     - **SEARCH-DRIVEN ANCHORS**: Use Google Search to identify the 2-3 most critical macro variables or raw material prices for this specific stock.
     
     **Team Members (12, in order of speaking)**:
-    1. **Deep Research Specialist**: First speaker, responsible for full-dimension data penetration.
-       - Use Google Search for deep qualitative insights (management, supply chain, moats).
+     1. **Deep Research Specialist**: First speaker, responsible for full-dimension data penetration.
+        - **MANDATORY**: Use Google Search for latest quantitative data (PE, PB, ROE, Revenue Growth, etc.) and deep qualitative insights (management, supply chain, moats). Do not guess metrics.
        - **Graham's Net-Net Value Calculation**: Attempt to calculate (Current Assets - Total Liabilities) vs current Market Cap.
        - **Business Moat Analysis**: Specifically categorize the moat as Wide, Narrow, or None based on industry barriers.
        - Select 4-6 most core industry-specific quantitative indicators.
@@ -664,7 +664,11 @@ export const getDiscussionPrompt = (
        - **[Structured Output] Core Variables (MANDATORY)**: Populate \`coreVariables\` in JSON.
 
     2. **Technical Analyst**: Responsible for deep technical analysis.
-       - Trend qualification, key levels (Support/Resistance), MACD/RSI/Volume signal interpretation.
+       - **MANDATORY DATA**: Moving Averages (MA5/20/60), Average Volume (avgVol5/20), and **Pivot Levels (resistanceShort, supportShort, resistanceLong, supportLong)** are provided in REAL-TIME DATA.
+       - **Support/Resistance**: You MUST use the provided pivot levels (e.g., resistanceShort = 20-day high) as the primary support/resistance benchmarks.
+       - **Formations**: Based on the current price relative to MAs and Pivot Levels, identify the pattern (W-bottom, Head & Shoulders, Consolidation, etc.).
+       - **Volume-Price Coordination**: Compare current volume with 5-day/20-day averages.
+       - **NO EXCUSES**: You have sufficient data for a professional analysis. Do not claim data is incomplete.
 
     3. **Fundamental Analyst**: Responsible for fundamental value analysis.
        - Core value drivers, valuation logic (PE/PB vs industry/history), DCF/Comparative valuation.

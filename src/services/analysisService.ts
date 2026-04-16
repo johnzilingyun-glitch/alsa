@@ -80,6 +80,14 @@ export async function analyzeStock(symbol: string, market: Market, config?: Gemi
     enforceGroundTruth(analysis, realtimeData);
   }
 
+  // Populate technical indicators if present in realtimeData
+  if (realtimeData?.technicalIndicators) {
+    analysis.technicalIndicators = realtimeData.technicalIndicators;
+    if (analysis.stockInfo) {
+      analysis.stockInfo.technicalIndicators = realtimeData.technicalIndicators;
+    }
+  }
+
   // Calculate and associate data quality metadata
   analysis.dataQuality = calculateQualityScore(analysis.stockInfo);
   analysis.stockInfo.dataQuality = analysis.dataQuality;

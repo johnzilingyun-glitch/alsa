@@ -1,5 +1,5 @@
 import React from 'react';
-import { AlertCircle, RefreshCw, Settings, HelpCircle } from 'lucide-react';
+import { AlertCircle, RefreshCw, Settings, HelpCircle, ExternalLink } from 'lucide-react';
 
 function classifyError(message: string): { hint: string; action?: 'retry' | 'settings' } {
   const lower = message.toLowerCase();
@@ -10,7 +10,7 @@ function classifyError(message: string): { hint: string; action?: 'retry' | 'set
     // If the error already includes diagnostic detail (原因/详情), use it as the hint
     const detailMatch = message.match(/\n(原因|详情)[:：]\s*(.+)/);
     const detail = detailMatch ? detailMatch[0].trim() : '';
-    return { hint: detail || '请求过于频繁或配额耗尽。稍候片刻后重试，或在设置中切换模型。', action: 'settings' };
+    return { hint: detail || '请求过于频繁或配额耗尽。可能是 API 角色额度受限或预付余额不足。', action: 'settings' };
   }
   if (lower.includes('api key') || lower.includes('未配置') || lower.includes('apikey'))
     return { hint: '请在设置中填写 Gemini API Key。', action: 'settings' };
@@ -56,13 +56,26 @@ export function ErrorNotice({ title, message, onRetry, onOpenSettings }: ErrorNo
             </button>
           )}
           {action === 'settings' && onOpenSettings && (
-            <button
-              onClick={onOpenSettings}
-              className="flex items-center gap-1.5 text-xs font-semibold text-rose-500 hover:text-rose-600 transition-colors"
-            >
-              <Settings size={12} />
-              打开设置
-            </button>
+            <div className="flex items-center gap-4">
+              <button
+                onClick={onOpenSettings}
+                className="flex items-center gap-1.5 text-xs font-semibold text-rose-500 hover:text-rose-600 transition-colors"
+              >
+                <Settings size={12} />
+                打开设置
+              </button>
+              {(message.toLowerCase().includes('quota') || message.includes('配额') || message.toLowerCase().includes('depleted')) && (
+                <a
+                  href="https://aistudio.google.com/app/billing"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-1.5 text-xs font-semibold text-indigo-600 hover:text-indigo-700 transition-colors"
+                >
+                  <ExternalLink size={12} />
+                  管理账单 (AI Studio)
+                </a>
+              )}
+            </div>
           )}
         </div>
       </div>

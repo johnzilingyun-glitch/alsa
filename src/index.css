@@ -1,7 +1,5 @@
-@import "tailwindcss";
-
-/* ─── Google Fonts: Satoshi (body) + Erode (display headings) ──────────── */
 @import url('https://api.fontshare.com/v2/css?f[]=satoshi@400;500;700;900&f[]=erode@400;500;600;700&display=swap');
+@import "tailwindcss";
 
 /* ─── Design Tokens (Impeccable: OKLCH, tinted neutrals, 4pt scale) ──── */
 @theme {

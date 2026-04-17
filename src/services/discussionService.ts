@@ -5,7 +5,7 @@ import { getCommoditiesData } from "./marketService";
 import { getPreviousStockAnalysis } from "./adminService";
 import { performBacktest } from "./backtestService";
 import { AgentDiscussionSchema, validateResponse } from "./schemas";
-import { getDiscussionPrompt } from "./prompts";
+import { getDiscussionPrompt, getTranslationPrompt } from "./prompts";
 import { buildTopology } from "./discussion/orchestrator";
 import { getExpertPrompt, getExpertResponseSchema } from "./discussion/expertPrompts";
 import { aggregateResults } from "./discussion/resultAggregator";
@@ -689,4 +689,40 @@ export async function startAgentDiscussion(
   parsed.coreVariables = normalizeCoreVariablesByPriority(parsed.coreVariables, analysis);
 
   return parsed;
+}
+
+export async function translateDiscussion(discussion: AgentDiscussion, targetLanguage: string, config?: GeminiConfig): Promise<AgentDiscussion> {
+  const ai = createAI(config);
+  const prompt = getTranslationPrompt(targetLanguage, discussion, 'discussion');
+
+  try {
+    const translatedRaw = await generateAndParseJsonWithRetry<AgentDiscussion>(
+      ai,
+      {
+        model: config?.model || GEMINI_MODEL,
+        contents: prompt,
+        config: { responseMimeType: "application/json" }
+      },
+      {
+        transportRetries: 2,
+        baseDelayMs: 2000,
+        parseRetries: 1,
+        parseDelayMs: 1000,
+      }
+    );
+    
+    const translated = validateResponse(AgentDiscussionSchema, translatedRaw, 'TranslatedDiscussion') as AgentDiscussion;
+    
+    return {
+      ...discussion,
+      ...translated,
+      messages: translated.messages.map((msg, i) => ({
+        ...msg,
+        id: discussion.messages[i]?.id || msg.id // Try to keep original IDs for stable keys
+      }))
+    };
+  } catch (err) {
+    console.error(`[TranslationService] Failed to translate discussion:`, err);
+    throw err;
+  }
 }

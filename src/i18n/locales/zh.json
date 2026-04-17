@@ -49,6 +49,10 @@
     "commodity_trends": "大宗商品趋势",
     "recommendations": "今日关注",
     "news": "核心财经要闻",
+    "moat": {
+      "wide": "宽阔",
+      "narrow": "狭窄"
+    },
     "table": {
       "name": "名称",
       "price": "现价",
@@ -87,8 +91,8 @@
     "expert_discussion": "AI 专家组研讨",
     "tabs": {
       "overview": "概览",
-      "technical": "技术面",
-      "fundamental": "基本面",
+      "technical": "技术面分析",
+      "fundamental": "基本面分析",
       "expert": "专家研讨",
       "chat": "AI 分析师"
     },
@@ -129,7 +133,8 @@
       "data_pipeline": "数据管线",
       "price_fundamentals": "价格 / 基本面数据",
       "ashare_fallback": "A股实时行情备用源",
-      "ai_analysis": "智能研判与场景分析"
+      "ai_analysis": "智能研判与场景分析",
+      "data_verification_passed": "机构级一致性验证已通过"
     },
     "prediction": {
       "track_record": "AI 预测追踪",
@@ -162,7 +167,41 @@
       "stop_loss": "硬性止损位",
       "tactical_strategy": "核心战术策略",
       "version_control": "交易计划版本控制 (Version Control)",
-      "change_reason": "变更原因"
+      "change_reason": "变更原因",
+      "round": "第 {{n}} 轮",
+      "deep_value": "绝对安全边际 (Deep Value)",
+      "moat": "护城河",
+      "narrative_consistency": "叙事一致性",
+      "mos_combined": "结合安全边际"
+    },
+    "moat": {
+      "wide": "宽阔",
+      "narrow": "狭窄"
+    },
+    "technical": {
+      "ma_ribbon": "均线 MA 5 / 20 / 60",
+      "pivot_short": "短期支撑 / 阻力",
+      "pivot_long": "长期支撑 / 阻力",
+      "avg_volume": "5日 / 20日 均量",
+      "sentiment": "技术形态感知",
+      "bullish_bias": "多头占优",
+      "bearish_bias": "空头占优"
+    },
+    "fundamental": {
+      "pe": "市盈率 PE",
+      "pb": "市净率 PB",
+      "roe": "净资产收益率 ROE",
+      "eps": "每股收益 EPS",
+      "revenue_growth": "营收增长",
+      "valuation_percentile": "估值水位",
+      "net_profit_growth": "净利增长",
+      "debt_to_equity": "资产负债率",
+      "gross_margin": "毛利率",
+      "net_margin": "净利率",
+      "dividend_yield": "股息率"
+    },
+    "trading": {
+      "not_recommended_desc": "当前估值或风险不符合安全边际要求，暂不推荐买入计划。"
     },
     "scenarios": {
       "expectation_gap": "预期偏差识别 (Expectation Gap)",
@@ -245,13 +284,74 @@
     "bearish": "看空",
     "neutral": "中性",
     "every_n_min": "每 {{n}} 分钟",
-    "no_auto_refresh": "不自动刷新"
+    "no_auto_refresh": "不自动刷新",
+    "expand": "展开",
+    "collapse": "收起",
+    "cancel": "取消",
+    "save_push": "保存并推送",
+    "go_to_ai_studio": "前往 AI Studio",
+    "app_name": "AI 每日智析",
+    "footer": {
+      "data_sources": "数据来源",
+      "terms": "服务条款",
+      "privacy": "隐私政策"
+    }
   },
   "errors": {
     "feishu_webhook_missing": "请先在设置中配置飞书 Webhook 链接",
+    "analysis_failed": "个股分析加载失败",
     "invalid_feishu_webhook": "请输入有效的飞书 Webhook 链接",
     "api_key_env_only": "API Key 选择仅在 AI Studio 环境中可用",
     "logs_cleared": "日志已清除",
     "confirm_clear_logs": "确定要清除所有调试日志吗？"
+  },
+  "settings": {
+    "title": "系统配置中心",
+    "subtitle": "定制您的智能研判引擎",
+    "sections": {
+      "auth": "API 授权认证",
+      "feishu": "飞书通知配置",
+      "diagnosis": "系统诊断与优化",
+      "models": "大语言模型预设"
+    },
+    "modes": {
+      "byok": "自定义 Key 模式",
+      "managed": "免 Key 托管模式",
+      "copilot": "本地 Copilot 模式"
+    },
+    "feishu": {
+      "placeholder": "输入飞书 Webhook 链接",
+      "hint": "配置飞书 Webhook 链接，以便在分析完成后接收实时通知。"
+    },
+    "diagnosis": {
+      "debug_mode": "调试模式",
+      "debug_on": "调试模式已开启",
+      "debug_off": "调试模式已关闭",
+      "failover": "智能故障转移 (Copilot)",
+      "failover_on": "自动恢复已开启",
+      "failover_off": "自动恢复已关闭",
+      "debug_desc": "开发者模式：开启后将记录所有后台请求数据。有助于分析数据偏差并优化 AI 推理逻辑。",
+      "failover_desc": "自动恢复：开启后，若 Gemini API 余额耗尽，系统将自动通过本机 GitHub Copilot 通道完成研报生成。需确保后端已登录 GitHub。",
+      "view_logs": "查看调试日志",
+      "clear_logs": "清除日志"
+    },
+    "models": {
+      "refresh": "刷新模型列表",
+      "syncing": "同步中",
+      "quota_exhausted": "配额耗尽",
+      "unavailable": "不可用"
+    },
+    "actions": {
+      "save": "保存配置并开始分析",
+      "footer_hint": "配置将立即生效。如有疑问，请访问 Google AI Studio 检查 Key 状态。"
+    }
+  },
+  "admin": {
+    "history": {
+      "title": "历史分析回溯",
+      "empty": "暂无历史记录",
+      "unknown_stock": "未知股票",
+      "last_updated": "最后更新"
+    }
   }
 }

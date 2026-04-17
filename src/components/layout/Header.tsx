@@ -129,8 +129,8 @@ export const Header = memo(function Header({ onSearch, onResetToHome, onTriggerD
                   <Zap size={16} />
                 </div>
                 <div>
-                  <p className="text-sm font-bold text-rose-600">API 配额已用尽 / 余额不足</p>
-                  <p className="text-xs text-rose-500/80">目前无法启动新分析。请检查您的 API Key 或前往 Google AI Studio 充值。</p>
+                  <p className="text-sm font-bold text-rose-600">{t('errors.quota_exhausted_title')}</p>
+                  <p className="text-xs text-rose-500/80">{t('errors.quota_exhausted_desc')}</p>
                 </div>
               </div>
               <a 
@@ -139,7 +139,7 @@ export const Header = memo(function Header({ onSearch, onResetToHome, onTriggerD
                 rel="noopener noreferrer"
                 className="flex-shrink-0 px-4 py-2 bg-rose-500 text-white text-xs font-bold rounded-xl hover:bg-rose-600 transition-colors"
               >
-                前往 AI Studio
+                {t('common.go_to_ai_studio')}
               </a>
             </div>
           </motion.div>
@@ -168,8 +168,8 @@ export const Header = memo(function Header({ onSearch, onResetToHome, onTriggerD
             <button
               onClick={toggleLanguage}
               className="btn-secondary w-12 h-12 p-0 flex items-center justify-center rounded-xl overflow-hidden relative group"
-              aria-label={language === 'en' ? 'Switch to Chinese' : '切换为英文'}
-              title={language === 'en' ? 'Switch to Chinese' : '切换为英文'}
+              aria-label={t('header.toggleLanguage')}
+              title={t('header.toggleLanguage')}
             >
               <Languages size={20} strokeWidth={1.5} className="group-hover:scale-110 transition-transform" />
               <span className="absolute bottom-1 right-1 text-[8px] font-bold opacity-70">
@@ -248,7 +248,7 @@ export const Header = memo(function Header({ onSearch, onResetToHome, onTriggerD
             {showMobileMenu && (
               <div className="absolute top-14 right-0 z-50 bg-white rounded-2xl shadow-2xl border border-zinc-200 p-3 min-w-[200px] space-y-1 animate-in fade-in slide-in-from-top-2">
                 <button onClick={() => { toggleLanguage(); setShowMobileMenu(false); }} className="flex w-full items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-zinc-600 hover:bg-zinc-50 transition-colors">
-                  <Languages size={18} /> {language === 'en' ? '切换中文' : 'English'}
+                  <Languages size={18} /> {t('header.toggleLanguage')}
                 </button>
                 <button onClick={() => { onTriggerDailyReport(); setShowMobileMenu(false); }} disabled={isTriggeringReport} className="flex w-full items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-zinc-600 hover:bg-zinc-50 transition-colors disabled:opacity-50">
                   <Bell size={18} /> {t('header.triggerBrief')}

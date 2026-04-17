@@ -35,14 +35,14 @@ export function StockHeroCard({ analysis }: StockHeroCardProps) {
           <div className="flex flex-wrap items-center gap-3">
             {analysis.isDeepValue && (
               <div className="px-3 py-1.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-[10px] font-bold text-amber-600 uppercase tracking-widest flex items-center gap-2 shadow-sm">
-                <Award size={14} />
-                绝对安全边际 (Deep Value)
+                < Award size={14} />
+                {t('analysis.info.deep_value')}
               </div>
             )}
             {analysis.moatAnalysis && analysis.moatAnalysis.strength !== "None" && (
               <div className="px-3 py-1.5 rounded-xl bg-indigo-600/10 border border-indigo-600/20 text-[10px] font-bold text-indigo-600 uppercase tracking-widest flex items-center gap-2 shadow-sm">
                 <ShieldCheck size={14} />
-                护城河: {analysis.moatAnalysis.strength === "Wide" ? "宽阔" : "狭窄"} ({analysis.moatAnalysis.type})
+                {t('analysis.info.moat')}: {analysis.moatAnalysis.strength === "Wide" ? t('analysis.moat.wide') : t('analysis.moat.narrow')} ({analysis.moatAnalysis.type})
               </div>
             )}
             {analysis.narrativeConsistency && (
@@ -53,7 +53,7 @@ export function StockHeroCard({ analysis }: StockHeroCardProps) {
                 "bg-rose-500/10 border-rose-500/20 text-rose-600"
               )}>
                 <MessageSquare size={14} />
-                叙事一致性: {analysis.narrativeConsistency.score}%
+                {t('analysis.info.narrative_consistency')}: {analysis.narrativeConsistency.score}%
               </div>
             )}
           </div>
@@ -75,7 +75,7 @@ export function StockHeroCard({ analysis }: StockHeroCardProps) {
         </div>
         
         <div className="text-right space-y-2 relative z-10">
-          <p className="font-mono text-[10px] font-bold uppercase tracking-[0.3em] text-zinc-400">最后更新 (Last Sync)</p>
+          <p className="font-mono text-[10px] font-bold uppercase tracking-[0.3em] text-zinc-400">{t('analysis.info.lastUpdated')} (Last Sync)</p>
           <p className="text-base font-semibold text-zinc-500 flex items-center justify-end gap-2">
             <Clock size={16} className="text-zinc-300" />
             {analysis.stockInfo?.lastUpdated}
@@ -100,14 +100,14 @@ export function StockHeroCard({ analysis }: StockHeroCardProps) {
         <div className="space-y-4">
           <div className="flex items-center gap-2 text-sm font-medium text-zinc-500">
             <BarChart3 size={16} className="text-emerald-500" />
-            技术面分析
+            {t('analysis.tabs.technical')}
           </div>
           <p className="text-sm leading-relaxed text-zinc-500">{analysis.technicalAnalysis}</p>
         </div>
         <div className="space-y-4">
           <div className="flex items-center gap-2 text-sm font-medium text-zinc-500">
             <PieChart size={16} className="text-blue-500" />
-            基本面分析 (结合安全边际)
+            {t('analysis.tabs.fundamental')} ({t('analysis.info.mos_combined')})
           </div>
           <p className="text-sm leading-relaxed text-zinc-500">{analysis.fundamentalAnalysis}</p>
         </div>
@@ -117,33 +117,33 @@ export function StockHeroCard({ analysis }: StockHeroCardProps) {
       {analysis.technicalIndicators && (
         <div className="mt-8 grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-5 border-t border-zinc-200/50 pt-8">
           <div className="p-3 rounded-2xl bg-zinc-50/40 border border-zinc-200/40">
-            <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-400 mb-1">均线 MA5 / MA20 / MA60</p>
+            <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-400 mb-1">{t('analysis.technical.ma_ribbon')}</p>
             <p className="text-sm font-mono font-medium text-zinc-700">
               {analysis.technicalIndicators.ma5} / {analysis.technicalIndicators.ma20} / {analysis.technicalIndicators.ma60}
             </p>
           </div>
           <div className="p-3 rounded-2xl bg-zinc-50/40 border border-zinc-200/40">
-            <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-400 mb-1">短期支撑 / 阻力</p>
+            <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-400 mb-1">{t('analysis.technical.pivot_short')}</p>
             <p className="text-sm font-mono font-medium text-zinc-700">
               {analysis.technicalIndicators.supportShort} / {analysis.technicalIndicators.resistanceShort}
             </p>
           </div>
           <div className="p-3 rounded-2xl bg-zinc-50/40 border border-zinc-200/40">
-            <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-400 mb-1">长期支撑 / 阻力</p>
+            <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-400 mb-1">{t('analysis.technical.pivot_long')}</p>
             <p className="text-sm font-mono font-medium text-zinc-700">
               {analysis.technicalIndicators.supportLong} / {analysis.technicalIndicators.resistanceLong}
             </p>
           </div>
           <div className="p-3 rounded-2xl bg-emerald-50/40 border border-emerald-200/30">
-            <p className="text-[10px] font-bold uppercase tracking-widest text-emerald-600/60 mb-1">5日 / 20日 均量</p>
+            <p className="text-[10px] font-bold uppercase tracking-widest text-emerald-600/60 mb-1">{t('analysis.technical.avg_volume')}</p>
             <p className="text-sm font-mono font-medium text-emerald-700">
               {analysis.technicalIndicators.avgVolume5} / {analysis.technicalIndicators.avgVolume20}
             </p>
           </div>
           <div className="p-3 rounded-2xl bg-blue-50/40 border border-blue-200/30">
-            <p className="text-[10px] font-bold uppercase tracking-widest text-blue-600/60 mb-1">技术形态感知</p>
+            <p className="text-[10px] font-bold uppercase tracking-widest text-blue-600/60 mb-1">{t('analysis.technical.sentiment')}</p>
             <p className="text-sm font-medium text-blue-700 truncate">
-              {analysis.technicalIndicators.ma5 && analysis.stockInfo?.price && analysis.stockInfo.price > analysis.technicalIndicators.ma5 ? '多头占优' : '空头占优'}
+              {analysis.technicalIndicators.ma5 && analysis.stockInfo?.price && analysis.stockInfo.price > analysis.technicalIndicators.ma5 ? t('analysis.technical.bullish_bias') : t('analysis.technical.bearish_bias')}
             </p>
           </div>
         </div>
@@ -153,56 +153,56 @@ export function StockHeroCard({ analysis }: StockHeroCardProps) {
       {analysis.fundamentals && (
         <div className="mt-8 grid grid-cols-2 gap-4 md:grid-cols-4 lg:grid-cols-6 border-t border-zinc-200/50 pt-8">
           <div className="p-3 rounded-2xl bg-zinc-50/30 border border-zinc-200/30">
-            <p className="text-[10px] font-medium uppercase tracking-widest text-zinc-400 mb-1">市盈率 PE</p>
+            <p className="text-[10px] font-medium uppercase tracking-widest text-zinc-400 mb-1">{t('analysis.fundamental.pe')}</p>
             <p className="text-sm font-medium text-zinc-600">{analysis.fundamentals.pe}</p>
           </div>
           <div className="p-3 rounded-2xl bg-zinc-50/30 border border-zinc-200/30">
-            <p className="text-[10px] font-medium uppercase tracking-widest text-zinc-400 mb-1">市净率 PB</p>
+            <p className="text-[10px] font-medium uppercase tracking-widest text-zinc-400 mb-1">{t('analysis.fundamental.pb')}</p>
             <p className="text-sm font-medium text-zinc-600">{analysis.fundamentals.pb}</p>
           </div>
           <div className="p-3 rounded-2xl bg-zinc-50/30 border border-zinc-200/30">
-            <p className="text-[10px] font-medium uppercase tracking-widest text-zinc-400 mb-1">净资产收益率 ROE</p>
+            <p className="text-[10px] font-medium uppercase tracking-widest text-zinc-400 mb-1">{t('analysis.fundamental.roe')}</p>
             <p className="text-sm font-medium text-zinc-600">{analysis.fundamentals.roe}</p>
           </div>
           <div className="p-3 rounded-2xl bg-zinc-50/30 border border-zinc-200/30">
-            <p className="text-[10px] font-medium uppercase tracking-widest text-zinc-400 mb-1">每股收益 EPS</p>
+            <p className="text-[10px] font-medium uppercase tracking-widest text-zinc-400 mb-1">{t('analysis.fundamental.eps')}</p>
             <p className="text-sm font-medium text-zinc-600">{analysis.fundamentals.eps}</p>
           </div>
           <div className="p-3 rounded-2xl bg-zinc-50/30 border border-zinc-200/30">
-            <p className="text-[10px] font-medium uppercase tracking-widest text-zinc-400 mb-1">营收增长</p>
+            <p className="text-[10px] font-medium uppercase tracking-widest text-zinc-400 mb-1">{t('analysis.fundamental.revenue_growth')}</p>
             <p className="text-sm font-medium text-zinc-600">{analysis.fundamentals.revenueGrowth}</p>
           </div>
           <div className="p-3 rounded-2xl bg-indigo-50 border border-indigo-100">
-            <p className="text-[10px] font-medium uppercase tracking-widest text-emerald-500/60 mb-1">估值水位</p>
+            <p className="text-[10px] font-medium uppercase tracking-widest text-emerald-500/60 mb-1">{t('analysis.fundamental.valuation_percentile')}</p>
             <p className="text-sm font-medium text-indigo-600">{analysis.fundamentals.valuationPercentile}</p>
           </div>
           {analysis.fundamentals.netProfitGrowth && (
             <div className="p-3 rounded-2xl bg-zinc-50/30 border border-zinc-200/30">
-              <p className="text-[10px] font-medium uppercase tracking-widest text-zinc-400 mb-1">净利增长</p>
+              <p className="text-[10px] font-medium uppercase tracking-widest text-zinc-400 mb-1">{t('analysis.fundamental.net_profit_growth')}</p>
               <p className="text-sm font-medium text-zinc-600">{analysis.fundamentals.netProfitGrowth}</p>
             </div>
           )}
           {analysis.fundamentals.debtToEquity && (
             <div className="p-3 rounded-2xl bg-zinc-50/30 border border-zinc-200/30">
-              <p className="text-[10px] font-medium uppercase tracking-widest text-zinc-400 mb-1">资产负债率</p>
+              <p className="text-[10px] font-medium uppercase tracking-widest text-zinc-400 mb-1">{t('analysis.fundamental.debt_to_equity')}</p>
               <p className="text-sm font-medium text-zinc-600">{analysis.fundamentals.debtToEquity}</p>
             </div>
           )}
           {analysis.fundamentals.grossMargin && (
             <div className="p-3 rounded-2xl bg-zinc-50/30 border border-zinc-200/30">
-              <p className="text-[10px] font-medium uppercase tracking-widest text-zinc-400 mb-1">毛利率</p>
+              <p className="text-[10px] font-medium uppercase tracking-widest text-zinc-400 mb-1">{t('analysis.fundamental.gross_margin')}</p>
               <p className="text-sm font-medium text-zinc-600">{analysis.fundamentals.grossMargin}</p>
             </div>
           )}
           {analysis.fundamentals.netMargin && (
             <div className="p-3 rounded-2xl bg-zinc-50/30 border border-zinc-200/30">
-              <p className="text-[10px] font-medium uppercase tracking-widest text-zinc-400 mb-1">净利率</p>
+              <p className="text-[10px] font-medium uppercase tracking-widest text-zinc-400 mb-1">{t('analysis.fundamental.net_margin')}</p>
               <p className="text-sm font-medium text-zinc-600">{analysis.fundamentals.netMargin}</p>
             </div>
           )}
           {analysis.fundamentals.dividendYield && (
             <div className="p-3 rounded-2xl bg-zinc-50/30 border border-zinc-200/30">
-              <p className="text-[10px] font-medium uppercase tracking-widest text-zinc-400 mb-1">股息率</p>
+              <p className="text-[10px] font-medium uppercase tracking-widest text-zinc-400 mb-1">{t('analysis.fundamental.dividend_yield')}</p>
               <p className="text-sm font-medium text-zinc-600">{analysis.fundamentals.dividendYield}</p>
             </div>
           )}

@@ -1,4 +1,4 @@
-import { Market, MarketOverview, StockAnalysis, AgentMessage, Scenario, Language } from "../types";
+import { Market, MarketOverview, StockAnalysis, AgentMessage, Scenario, Language, AgentRole } from "../types";
 import { formatCommoditiesToMarkdown } from "./formatUtils";
 
 export const getMarketOverviewPrompt = (indicesData: any[], commoditiesData: any[], newsData: any[], sectorsData: any, northboundData: any, history: any[], beijingDate: string, now: Date, market: Market = "A-Share", language: Language = "en") => {
@@ -881,4 +881,27 @@ Requirements:
 2. Score reflects trend strength and valuation.
 3. Provide a clear one-sentence "Reason for Recommendation".
 `;
+};
+
+export const getTranslationPrompt = (targetLanguage: string, data: any, type: 'analysis' | 'discussion' | 'chat') => {
+  const isChinese = targetLanguage === "zh-CN";
+  const languageName = isChinese ? "Simplified Chinese" : "English";
+  
+  return `
+    You are an expert financial translator. Your task is to translate the following JSON object into ${languageName}.
+    
+    **CRITICAL RULES**:
+    1. **PRESERVE STRUCTURE**: You MUST return a JSON object with the EXACT same structure as the input.
+    2. **PRESERVE VALUES**: Do NOT change any numbers, dates, IDs, symbols, currencies, or technical indicators.
+    3. **TRANSLATE NARRATIVE**: Translate all descriptive text, summaries, rationales, and conclusions. 
+    4. **ROLE PERSISTENCE**: In a discussion, expert names/roles MUST be translated to their standard ${languageName} equivalents.
+    5. **MARKDOWN PRESERVATION**: If a field contains Markdown (like tables or bold text), translate the content but keep the Markdown formatting.
+    6. **NO EXTRA TEXT**: Return ONLY the raw JSON object. No explanation, no markdown fences.
+    
+    Target Language: ${languageName}
+    Object Type: ${type}
+    
+    JSON Data to Translate:
+    ${JSON.stringify(data)}
+  `.trim();
 };

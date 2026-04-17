@@ -195,8 +195,8 @@ export function SettingsModal() {
                   <Settings size={24} strokeWidth={1.5} />
                 </div>
                 <div>
-                  <h2 id="settings-modal-title" className="text-xl font-bold text-zinc-950 tracking-tight">系统配置</h2>
-                  <p className="text-xs font-medium text-zinc-400 mt-0.5">Customizing your analytical engine</p>
+                  <h2 id="settings-modal-title" className="text-xl font-bold text-zinc-950 tracking-tight">{t('settings.title')}</h2>
+                  <p className="text-xs font-medium text-zinc-400 mt-0.5">{t('settings.subtitle')}</p>
                 </div>
               </div>
               <button
@@ -213,7 +213,7 @@ export function SettingsModal() {
               <section className="space-y-4">
                 <div className="flex items-center gap-2">
                   <ShieldCheck size={16} className="text-indigo-600" />
-                  <span className="text-xs font-bold uppercase tracking-wider text-zinc-400">API 授权认证</span>
+                  <span className="text-xs font-bold uppercase tracking-wider text-zinc-400">{t('settings.sections.auth')}</span>
                 </div>
 
                 <div className="flex bg-zinc-100 p-1 rounded-lg w-fit">
@@ -225,7 +225,7 @@ export function SettingsModal() {
                         : 'text-zinc-400 hover:text-zinc-600'
                     }`}
                   >
-                    自定义 Key 模式
+                    {t('settings.modes.byok')}
                   </button>
                   <button
                     onClick={() => setConfig({ ...config, serviceMode: 'managed_no_key' })}
@@ -235,7 +235,7 @@ export function SettingsModal() {
                         : 'text-zinc-400 hover:text-zinc-600'
                     }`}
                   >
-                    免 Key 托管模式
+                    {t('settings.modes.managed')}
                   </button>
                   <button
                     onClick={() => setConfig({ ...config, serviceMode: 'copilot_local', model: 'copilot_auto' })}
@@ -245,7 +245,7 @@ export function SettingsModal() {
                         : 'text-zinc-400 hover:text-zinc-600'
                     }`}
                   >
-                    本地 Copilot 模式
+                    {t('settings.modes.copilot')}
                   </button>
                 </div>
                 
@@ -446,14 +446,14 @@ export function SettingsModal() {
               <section className="space-y-4">
                 <div className="flex items-center gap-2">
                   <Globe size={16} className="text-indigo-600" />
-                  <span className="text-xs font-bold uppercase tracking-wider text-zinc-400">飞书通知配置</span>
+                  <span className="text-xs font-bold uppercase tracking-wider text-zinc-400">{t('settings.sections.feishu')}</span>
                 </div>
                 
                 <div className="space-y-4">
                   <div className="relative group">
                     <input
                       type="text"
-                      placeholder="输入飞书 Webhook 链接"
+                      placeholder={t('settings.feishu.placeholder')}
                       id="feishu-webhook-input"
                       value={feishuWebhookUrl}
                       onChange={(e) => setFeishuWebhookUrl(e.target.value)}
@@ -463,7 +463,7 @@ export function SettingsModal() {
                   <div className="flex items-start gap-3 p-4 rounded-xl bg-indigo-50/50 border border-indigo-100/50">
                     <Info size={16} className="text-indigo-400 shrink-0 mt-0.5" />
                     <p className="text-xs text-indigo-600/70 leading-relaxed">
-                      配置飞书 Webhook 链接，以便在分析完成后接收实时通知。
+                      {t('settings.feishu.hint')}
                     </p>
                   </div>
                 </div>
@@ -474,11 +474,11 @@ export function SettingsModal() {
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <Sparkles size={16} className="text-indigo-600" />
-                    <span className="text-xs font-bold uppercase tracking-wider text-zinc-400">系统诊断与优化</span>
+                    <span className="text-xs font-bold uppercase tracking-wider text-zinc-400">{t('settings.sections.diagnosis')}</span>
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">
-                      {debugMode ? '调试模式已开启' : '调试模式已关闭'}
+                      {debugMode ? t('settings.diagnosis.debug_on') : t('settings.diagnosis.debug_off')}
                     </span>
                     <button
                       onClick={() => setDebugMode(!debugMode)}
@@ -498,11 +498,11 @@ export function SettingsModal() {
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <Github size={16} className="text-sky-600" />
-                    <span className="text-xs font-bold uppercase tracking-wider text-zinc-400">智能故障转移 (Copilot)</span>
+                    <span className="text-xs font-bold uppercase tracking-wider text-zinc-400">{t('settings.diagnosis.failover')}</span>
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">
-                      {config.enableCopilotFallback ? '自动恢复已开启' : '自动恢复已关闭'}
+                      {config.enableCopilotFallback ? t('settings.diagnosis.failover_on') : t('settings.diagnosis.failover_off')}
                     </span>
                     <button
                       onClick={() => setConfig({ ...config, enableCopilotFallback: !config.enableCopilotFallback })}
@@ -524,13 +524,13 @@ export function SettingsModal() {
                     <div className="flex items-start gap-3">
                       <Cpu size={16} className="text-zinc-400 shrink-0 mt-0.5" />
                       <p className="text-xs text-zinc-500 leading-relaxed">
-                        <strong>开发者模式</strong>：开启后将记录所有后台请求数据。有助于分析数据偏差并优化 AI 推理逻辑。
+                        {t('settings.diagnosis.debug_desc')}
                       </p>
                     </div>
                     <div className="flex items-start gap-3 border-t border-zinc-200/60 pt-3">
                       <Github size={16} className="text-zinc-400 shrink-0 mt-0.5" />
                       <p className="text-xs text-zinc-500 leading-relaxed">
-                        <strong>自动恢复</strong>：开启后，若 Gemini API 余额耗尽，系统将自动通过本机 GitHub Copilot 通道完成研报生成。需确保后端已登录 GitHub。
+                        {t('settings.diagnosis.failover_desc')}
                       </p>
                     </div>
                     <div className="flex gap-2">
@@ -540,15 +540,16 @@ export function SettingsModal() {
                         rel="noopener noreferrer"
                         className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white border border-zinc-200 text-[10px] font-bold text-zinc-600 hover:bg-zinc-50"
                       >
-                        查看调试日志
+                        {t('settings.diagnosis.view_logs')}
                       </a>
                       <button 
                         onClick={async () => {
+                          if (!confirm(t('errors.confirm_clear_logs'))) return;
                           await fetch('/api/logs/debug', { method: 'DELETE' });
                         }}
                         className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white border border-zinc-200 text-[10px] font-bold text-rose-500 hover:bg-rose-50"
                       >
-                        清除日志
+                        {t('settings.diagnosis.clear_logs')}
                       </button>
                     </div>
                   </div>
@@ -560,7 +561,7 @@ export function SettingsModal() {
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <Cpu size={16} className="text-indigo-600" />
-                    <span className="text-xs font-bold uppercase tracking-wider text-zinc-400">大语言模型预设</span>
+                    <span className="text-xs font-bold uppercase tracking-wider text-zinc-400">{t('settings.sections.models')}</span>
                   </div>
                   <button 
                     onClick={handleFetchModels}
@@ -568,7 +569,7 @@ export function SettingsModal() {
                     className="text-[10px] font-bold uppercase tracking-widest text-indigo-600 hover:text-indigo-700 disabled:opacity-50 flex items-center gap-1.5"
                   >
                     {isFetchingModels ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
-                    {isFetchingModels ? '同步中' : '刷新模型列表'}
+                    {isFetchingModels ? t('settings.models.syncing') : t('settings.models.refresh')}
                   </button>
                 </div>
 
@@ -604,13 +605,13 @@ export function SettingsModal() {
                             {isQuotaExhausted && (
                               <span className="flex items-center gap-1 text-[10px] font-bold text-amber-500 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-100">
                                 <AlertTriangle size={10} />
-                                配额耗尽
+                                {t('settings.models.quota_exhausted')}
                               </span>
                             )}
                             {isUnavailable && (
                               <span className="flex items-center gap-1 text-[10px] font-bold text-rose-500 bg-rose-50 px-2 py-0.5 rounded-full border border-rose-100">
                                 <X size={10} />
-                                不可用
+                                {t('settings.models.unavailable')}
                               </span>
                             )}
                             {!isDisabled && config.model === model.id && (
@@ -636,10 +637,10 @@ export function SettingsModal() {
                 onClick={onClose}
                 className="btn-primary w-full h-14 rounded-2xl text-base shadow-xl shadow-indigo-600/10"
               >
-                保存配置并开始分析
+                {t('settings.actions.save')}
               </button>
               <p className="mt-4 text-center text-[10px] text-zinc-400 font-medium">
-                配置将立即生效。如有疑问，请访问 Google AI Studio 检查 Key 状态。
+                {t('settings.actions.footer_hint')}
               </p>
             </div>
           </motion.div>

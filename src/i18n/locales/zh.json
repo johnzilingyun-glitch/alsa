@@ -264,15 +264,25 @@
       "ask_ai_placeholder": "继续追问 AI..."
     },
     "roles": {
-      "Technical Analyst": "技术分析师",
-      "Fundamental Analyst": "基本面分析师",
-      "Sentiment Analyst": "情绪分析师",
-      "Risk Manager": "风险合规官",
-      "Contrarian Strategist": "反向策略师",
-      "Deep Research Specialist": "深度研究专家",
-      "Professional Reviewer": "高级评审专家",
       "Chief Strategist": "首席策略师",
-      "Moderator": "研讨主持人"
+      "Moderator": "研讨主持人",
+      "Aggressive Risk Analyst": "激进风险分析师",
+      "Conservative Risk Analyst": "稳健风险分析师",
+      "Neutral Risk Analyst": "中立风险分析师",
+      "Bull Researcher": "多头研究员",
+      "Bear Researcher": "空头研究员",
+      "Value Investing Sage": "价值投资贤者",
+      "Growth Visionary": "成长视觉专家",
+      "Macro Hedge Titan": "宏观对冲巨头"
+    },
+    "matrix": {
+      "title": "联席决策进度矩阵",
+      "subtitle": "当前进度: 第 {{current}} / {{total}} 轮研讨",
+      "grounding": "数据锚定",
+      "reasoning": "逻辑推演",
+      "drafting": "初稿生成",
+      "auditing": "事实审计",
+      "active_agents": "当前活跃分析师"
     }
   },
   "common": {

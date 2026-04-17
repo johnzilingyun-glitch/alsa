@@ -265,15 +265,25 @@
       "ask_ai_placeholder": "Ask AI more..."
     },
     "roles": {
-      "Technical Analyst": "Technical Analyst",
-      "Fundamental Analyst": "Fundamental Analyst",
-      "Sentiment Analyst": "Sentiment Analyst",
-      "Risk Manager": "Risk Manager",
-      "Contrarian Strategist": "Contrarian Strategist",
-      "Deep Research Specialist": "Deep Research Specialist",
-      "Professional Reviewer": "Professional Reviewer",
       "Chief Strategist": "Chief Strategist",
-      "Moderator": "Moderator"
+      "Moderator": "Moderator",
+      "Aggressive Risk Analyst": "Aggressive Risk Analyst",
+      "Conservative Risk Analyst": "Conservative Risk Analyst",
+      "Neutral Risk Analyst": "Neutral Risk Analyst",
+      "Bull Researcher": "Bull Researcher",
+      "Bear Researcher": "Bear Researcher",
+      "Value Investing Sage": "Value Investing Sage",
+      "Growth Visionary": "Growth Visionary",
+      "Macro Hedge Titan": "Macro Hedge Titan"
+    },
+    "matrix": {
+      "title": "Deliberation Progress Matrix",
+      "subtitle": "Progress: Round {{current}} / {{total}}",
+      "grounding": "Data Grounding",
+      "reasoning": "Logical Reasoning",
+      "drafting": "Drafting",
+      "auditing": "Fact Auditing",
+      "active_agents": "Active Analysts"
     }
   },
   "common": {

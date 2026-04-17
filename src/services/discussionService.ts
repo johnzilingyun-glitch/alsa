@@ -29,7 +29,7 @@ async function runJudgeAgent(
   try {
     const prompt = getJudgePrompt(analysis, discussion, language);
     const raw = await generateAndParseJsonWithRetry<any>(ai, {
-      model: config?.model || GEMINI_MODEL,
+      model: CRITICAL_MODEL, // Always use high-logic model for auditing
       contents: prompt,
     }, { 
       responseMimeType: "application/json",
@@ -93,12 +93,16 @@ function getDefaultExpertOutput(role: AgentRole): string {
   return defaults[role] || "分析生成异常，建议参考其他专家意见。";
 }
 
-// Iteration count per analysis level (how many times the middle cycle repeats)
+// Iteration count per analysis level
 const ITERATION_COUNT: Record<AnalysisLevel, number> = {
   quick: 0,
   standard: 1,
-  deep: 1, // single pass through all 12 experts; iteration=2 exceeded free-tier 15 RPM
+  deep: 1, 
 };
+
+// Tiered model configuration
+const DRAFTING_MODEL = "gemini-3.1-flash-lite-preview"; // Fast, high-throughput
+const CRITICAL_MODEL = "gemini-3.1-pro-preview";       // Deep reasoning, high logic
 
 
 function hasQuantData(text: string): boolean {
@@ -188,7 +192,8 @@ export async function startMultiRoundDiscussion(
       onProgress?.({
         currentRound: roundNum,
         totalRounds,
-        currentExpert: role,
+        activeExperts: [role],
+        currentStep: 'reasoning',
         messages: [...allMessages],
         partialDiscussion: {
           messages: [...allMessages],
@@ -234,7 +239,7 @@ export async function startMultiRoundDiscussion(
 
       const invokeExpert = async (inputPrompt: string) => {
         return generateAndParseJsonWithRetry<any>(ai, {
-          model: config?.model || GEMINI_MODEL,
+          model: config?.model || DRAFTING_MODEL, // Use Flash for expert drafting
           contents: inputPrompt,
         }, { 
           transportRetries: 2, 
@@ -350,6 +355,16 @@ export async function startMultiRoundDiscussion(
       const parallelOutputs = await Promise.all(
         round.experts.map(async (expertRole) => {
           if (abortSignal?.aborted) return null;
+          
+          // Local progress for parallel roles
+          onProgress?.({
+            currentRound: roundNum,
+            totalRounds,
+            activeExperts: round.experts,
+            currentStep: 'grounding',
+            messages: [...allMessages],
+          });
+
           let output: ExpertOutput | null = null;
           try {
             output = await callExpert(expertRole);
@@ -426,7 +441,8 @@ export async function startMultiRoundDiscussion(
   onProgress?.({
     currentRound: totalRounds,
     totalRounds,
-    currentExpert: language === 'zh-CN' ? '逻辑审计引擎' : 'Fact Check Auditor',
+    activeExperts: [language === 'zh-CN' ? '逻辑审计引擎' : 'Fact Check Auditor'],
+    currentStep: 'auditing',
     messages: [...allMessages],
   });
   const verificationResults = await runJudgeAgent(ai, analysis, multiRoundResult, config, language);
@@ -439,7 +455,8 @@ export async function startMultiRoundDiscussion(
     onProgress?.({
       currentRound: totalRounds,
       totalRounds,
-      currentExpert: '综合研判引擎',
+      activeExperts: ['综合研判引擎'],
+      currentStep: 'reviewing',
       messages: [...allMessages],
     });
 

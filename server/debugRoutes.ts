@@ -285,7 +285,7 @@ router.post('/test-gemini', async (req, res) => {
     }
 });
 
-router.get('/logs/debug', (req, res) => {
+router.get('/debug/config', (req, res) => {
     try {
         if (fs.existsSync(LOG_FILE)) {
             const content = fs.readFileSync(LOG_FILE, 'utf8');

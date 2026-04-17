@@ -10,7 +10,9 @@ export const GEMINI_MODEL = "gemini-3.1-pro-preview";
 export const MODEL_FALLBACK_CHAIN: string[] = [
   "gemini-3.1-pro-preview",         // Ultimate logic engine (Primary)
   "gemini-3.1-flash-lite-preview",  // High-throughput backup
+  "gemini-2.0-flash-exp",           // Cutting-edge experimental fallback
   "gemini-1.5-pro",                 // Stable logic fallback
+  "gemini-1.5-flash",               // Lightweight high-speed fallback
 ];
 
 /**
@@ -358,14 +360,38 @@ export async function generateAndParseJsonWithRetry<T>(
   // Try cross-provider fallback for quota errors only
   if (isQuotaError) {
     const fallbackProviders = getAvailableFallbackProviders();
+    console.warn(`[ModelFallback] Gemini models exhausted. Attempting recovery via backend gateway...`);
+    
+    // Recovery path 1: Backend Copilot Bridge (Highly resilient)
+    const { enableCopilotFallback } = useConfigStore.getState().config;
+    if (enableCopilotFallback) {
+      try {
+        const bridge = createCopilotBridgeClient({ model: requestedModel });
+        const bridgeResult = await bridge.models.generateContent({
+          contents: params.contents,
+          generationConfig: params.config,
+        });
+        const text = typeof bridgeResult === 'string' ? bridgeResult : bridgeResult?.text || '';
+        if (text) {
+          console.log('[ModelFallback] ✅ Recovery SUCCESS via backend gateway.');
+          return parseJsonResponse<T>(text);
+        }
+      } catch (bridgeErr) {
+        console.error('[ModelFallback] Backend gateway recovery attempt failed:', bridgeErr);
+      }
+    } else {
+      console.info('[ModelFallback] Copilot fallback is disabled by user settings.');
+    }
+
+    // Recovery path 2: Direct Frontend Cross-Provider (Secondary)
     if (fallbackProviders.length > 0) {
       try {
-        console.warn('[ModelFallback] All Gemini models exhausted. Trying cross-provider fallback...');
+        console.warn('[ModelFallback] Trying direct frontend cross-provider fallback...');
         const prompt = typeof params.contents === 'string' ? params.contents : JSON.stringify(params.contents);
         const fallbackText = await tryFallbackProviders(prompt);
         return parseJsonResponse<T>(fallbackText);
       } catch (fallbackErr) {
-        console.error('[ModelFallback] Cross-provider fallback also failed:', fallbackErr);
+        console.error('[ModelFallback] Direct cross-provider fallback also failed:', fallbackErr);
       }
     }
   }

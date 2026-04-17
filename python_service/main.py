@@ -7,8 +7,17 @@ import time
 import asyncio
 try:
     from .technicals import analyze as analyze_technicals
+    from .snapshot_manager import save_market_snapshot, SNAPSHOT_DIR
+    from .app.api.router import api_router
 except ImportError:
     from technicals import analyze as analyze_technicals
+    from snapshot_manager import save_market_snapshot, SNAPSHOT_DIR
+    from app.api.router import api_router
+
+import polars as pl
+import duckdb
+import uuid
+import os
 
 app = FastAPI(title="AI Daily Financial Backend", version="1.0.0")
 
@@ -21,9 +30,46 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(api_router, prefix="/api")
+
+# --- Infrastructure Initialization ---
+from .app.db.sqlite import build_session_factory, DATABASE_URL
+from .app.lake.parquet_store import ParquetMarketStore
+from .app.db.repositories.job_repo import JobRepository
+from .app.services.market_snapshot_service import MarketSnapshotService
+from .app.services.analysis_job_service import AnalysisJobService
+from .app.db.repositories.watchlist_repo import WatchlistRepository
+from .app.db.repositories.journal_repo import JournalRepository
+
+# Singletons for simplicity in this analytical app
+session_factory = build_session_factory(DATABASE_URL)
+parquet_store = ParquetMarketStore()
+job_repo = JobRepository(session_factory)
+watchlist_repo = WatchlistRepository(session_factory)
+journal_repo = JournalRepository(session_factory)
+
+market_snapshot_service = MarketSnapshotService(parquet_store)
+analysis_job_service = AnalysisJobService(job_repo, market_snapshot_service)
+
+# Dependency helpers
+def get_analysis_job_service():
+    return analysis_job_service
+
+def get_watchlist_repo():
+    return watchlist_repo
+
+def get_journal_repo():
+    return journal_repo
+
 # --- A-Share Spot Cache (avoids pulling 5000+ rows per request) ---
 _spot_cache: Dict[str, Any] = {"df": None, "ts": 0}
 SPOT_CACHE_TTL = 30  # seconds
+
+# --- Job Management ---
+analysis_jobs: Dict[str, Dict[str, Any]] = {}
+
+def get_duckdb_conn():
+    return duckdb.connect(database=':memory:') # Or a local file for persistent analysis
 
 @app.get("/api/health")
 async def health_check():
@@ -284,6 +330,86 @@ async def get_stock_a_valuation(
     except Exception as e:
         print(f"Error fetching valuation: {e}")
         return {"success": False, "error": str(e)}
+
+# --- Analysis Job Endpoints ---
+
+@app.post("/api/analysis/jobs")
+async def create_analysis_job(payload: Dict[str, Any]):
+    job_id = f"job_{uuid.uuid4().hex[:8]}"
+    symbol = payload.get("symbol")
+    market = payload.get("market", "A-Share")
+    
+    analysis_jobs[job_id] = {
+        "id": job_id,
+        "symbol": symbol,
+        "market": market,
+        "status": "queued",
+        "created_at": datetime.now().isoformat(),
+        "result": None
+    }
+    
+    # Run in background (simple async task for now)
+    asyncio.create_task(run_analysis_job(job_id, symbol, market))
+    
+    return {"jobId": job_id, "status": "queued"}
+
+@app.get("/api/analysis/jobs/{job_id}")
+async def get_job_status(job_id: str):
+    job = analysis_jobs.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return job
+
+async def run_analysis_job(job_id: str, symbol: str, market: str):
+    job = analysis_jobs[job_id]
+    job["status"] = "running"
+    
+    try:
+        # 1. Fetch data
+        history = await get_stock_a_history(symbol=symbol)
+        valuation = await get_stock_a_valuation(symbol=symbol)
+        spot = await get_stock_a_spot(symbol=symbol)
+        
+        # 2. Save snapshot
+        snapshot_data = {
+            "history": history.get("data", []),
+            "valuation": valuation.get("data", {}),
+            "spot": spot.get("data", {})
+        }
+        snapshot_path = save_market_snapshot(job_id, snapshot_data)
+        
+        # 3. Compute technicals using Polars acceleration (leveraged in technicals.py)
+        # For now, we reuse the existing technicals logic
+        tech_res = await get_technicals(symbol=symbol)
+        
+        # 4. Final Result (LLM part will be handled by Node or here if we have a client)
+        job["status"] = "completed"
+        job["result"] = {
+            "snapshot_path": snapshot_path,
+            "stockInfo": snapshot_data["spot"],
+            "technicals": tech_res.get("data"),
+            "valuation": snapshot_data["valuation"]
+        }
+    except Exception as e:
+        job["status"] = "failed"
+        job["error"] = str(e)
+        print(f"Job {job_id} failed: {e}")
+
+@app.get("/api/analysis/query")
+async def query_historical_analysis(query_sql: str):
+    """
+    Example DuckDB query over the Parquet data lake.
+    """
+    try:
+        con = duckdb.connect()
+        # Create a view over the Parquet snapshots
+        con.execute(f"CREATE VIEW snapshots AS SELECT * FROM read_parquet('{SNAPSHOT_DIR}/*.parquet')")
+        res = con.execute(query_sql).pl()
+        return {"success": True, "data": res.to_dicts()}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+from datetime import datetime
 
 if __name__ == "__main__":
     import uvicorn

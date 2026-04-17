@@ -165,11 +165,11 @@
       "tactical_strategy": "Core Tactical Strategy",
       "version_control": "Trading Plan Version Control",
       "change_reason": "Reason for Change",
-      "round": "Round {{n}}",
-      "deep_value": "Deep Value",
-      "moat": "Moat",
-      "narrative_consistency": "Narrative Consistency",
       "mos_combined": "with Margin of Safety"
+    },
+    "loading": {
+      "reasoning": "AI Intensive Reasoning in Progress",
+      "hint": "The engine is connecting global market data, real-time news, and macro anchors to construct a multi-dimensional investment thesis."
     },
     "moat": {
       "wide": "Wide",

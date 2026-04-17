@@ -132,10 +132,10 @@ describe('startMultiRoundDiscussion', () => {
     expect(progressUpdates.length).toBe(18);
 
     // First expert should be Deep Research Specialist
-    expect(progressUpdates[0].currentExpert).toBe('Deep Research Specialist');
+    expect(progressUpdates[0].activeExperts[0]).toBe('Deep Research Specialist');
 
     // Last progress update should be the synthesis step
-    expect(progressUpdates[progressUpdates.length - 1].currentExpert).toBe('综合研判引擎');
+    expect(progressUpdates[progressUpdates.length - 1].activeExperts[0]).toBe('综合研判引擎');
 
     // Final result should have finalConclusion from Chief Strategist
     expect(result.finalConclusion).toBeTruthy();

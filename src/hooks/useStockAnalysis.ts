@@ -10,7 +10,7 @@ import { StockAnalysis, AgentMessage, Market } from '../types';
 
 export function useStockAnalysis() {
   const geminiConfig = useConfigStore(s => s.config);
-  const { setLoading, setAnalysisError, setIsDiscussing, setShowDiscussion, resetErrors, analysisLevel } = useUIStore();
+  const { setLoading, setAnalysisError, setIsDiscussing, setShowDiscussion, resetErrors, analysisLevel, setAnalysisStatus } = useUIStore();
   const { setAnalysis, setSymbol, setMarket, symbol, market, analysis, resetAnalysis } = useAnalysisStore();
   const { setDiscussionResults: setDiscussionStoreResults, resetDiscussion, setRoundProgress, setAbortController, setDiscussionMessages } = useDiscussionStore();
   const { setScenarioResults, resetScenario } = useScenarioStore();
@@ -72,7 +72,7 @@ export function useStockAnalysis() {
         : '分析请求超时：当前生成深度研讨报告所需时间较长（涉及实时搜索与数据校正，已等待 120 秒）。建议稍后再试，或通过设置选择更快的 Flash 模型。';
 
       const result = await withTimeout(
-        analyzeStock(symbol, market, geminiConfig),
+        analyzeStock(symbol, market, geminiConfig, setAnalysisStatus),
         analysisTimeoutMs,
         timeoutMsg
       );

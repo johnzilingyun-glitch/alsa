@@ -168,11 +168,11 @@
       "tactical_strategy": "核心战术策略",
       "version_control": "交易计划版本控制 (Version Control)",
       "change_reason": "变更原因",
-      "round": "第 {{n}} 轮",
-      "deep_value": "绝对安全边际 (Deep Value)",
-      "moat": "护城河",
-      "narrative_consistency": "叙事一致性",
       "mos_combined": "结合安全边际"
+    },
+    "loading": {
+      "reasoning": "深度智能研判进行中",
+      "hint": "AI 正在联接全球市场行情、实时资讯与大宗商品锚点以构建多维投资逻辑。"
     },
     "moat": {
       "wide": "宽阔",

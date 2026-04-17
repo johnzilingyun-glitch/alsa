@@ -102,6 +102,7 @@ export interface MarketOverview {
 }
 
 export interface StockFundamentals {
+  // Original
   pe: string;
   pb: string;
   roe: string;
@@ -113,6 +114,12 @@ export interface StockFundamentals {
   grossMargin?: string;
   netMargin?: string;
   dividendYield?: string;
+  // New
+  marketCap?: string;
+  revenue?: string;
+  netProfit?: string;
+  nonGaapNetProfit?: string;
+  dividend?: string;
 }
 
 export interface FundamentalTableItem {

@@ -85,6 +85,24 @@
     "summary": "核心研判摘要",
     "technical": "技术面分析",
     "fundamental": "基本面分析",
+    "fundamental_metrics": {
+      "pe": "市盈率",
+      "pb": "市净率",
+      "roe": "ROE",
+      "eps": "每股收益",
+      "revenue": "营收",
+      "revenue_growth": "营收增长",
+      "net_profit": "净利润",
+      "non_gaap_net_profit": "扣非净利润",
+      "net_profit_growth": "净利增长",
+      "valuation_percentile": "估值分位",
+      "debt_to_equity": "负债率",
+      "gross_margin": "毛利率",
+      "net_margin": "净利率",
+      "dividend": "分红",
+      "dividend_yield": "股息率",
+      "market_cap": "市值"
+    },
     "risks": "关键风险",
     "opportunities": "核心机会",
     "trading_plan": "交易计划",
@@ -134,7 +152,8 @@
       "price_fundamentals": "价格 / 基本面数据",
       "ashare_fallback": "A股实时行情备用源",
       "ai_analysis": "智能研判与场景分析",
-      "data_verification_passed": "机构级一致性验证已通过"
+      "data_verification_passed": "机构级一致性验证已通过",
+      "mos_combined": "安全边际与综合实力"
     },
     "prediction": {
       "track_record": "AI 预测追踪",

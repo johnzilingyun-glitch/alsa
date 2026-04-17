@@ -16,6 +16,20 @@ export function useStockAnalysis() {
   const { setScenarioResults, resetScenario } = useScenarioStore();
   const { setHistoryItems, setOptimizationLogs, addRecentSearch } = useMarketStore();
 
+  const withTimeout = useCallback(async <T,>(promise: Promise<T>, ms: number, message: string): Promise<T> => {
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    try {
+      return await Promise.race<T>([
+        promise,
+        new Promise<T>((_, reject) => {
+          timer = setTimeout(() => reject(new Error(message)), ms);
+        }),
+      ]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }, []);
+
   const fetchAdminData = useCallback(async () => {
     try {
       const [history, logsRes] = await Promise.all([
@@ -51,7 +65,11 @@ export function useStockAnalysis() {
     resetErrors();
 
     try {
-      const result = await analyzeStock(symbol, market, geminiConfig);
+      const result = await withTimeout(
+        analyzeStock(symbol, market, geminiConfig),
+        35000,
+        '分析请求超时：当前数据源可能不稳定。建议稍后重试，或切换到热门标的（如 600519/000001）验证链路是否恢复。'
+      );
       
       // Update global market state if backend resolved to a different market
       if ((result as any).resolvedMarket && (result as any).resolvedMarket !== market) {
@@ -150,7 +168,7 @@ export function useStockAnalysis() {
     } finally {
       setLoading(false);
     }
-  }, [symbol, market, geminiConfig, analysisLevel, setLoading, resetAnalysis, resetDiscussion, resetScenario, resetErrors, setAnalysis, setShowDiscussion, setIsDiscussing, setDiscussionStoreResults, setScenarioResults, setAnalysisError, setRoundProgress, setAbortController, setDiscussionMessages, fetchAdminData]);
+  }, [symbol, market, geminiConfig, analysisLevel, setLoading, resetAnalysis, resetDiscussion, resetScenario, resetErrors, setAnalysis, setShowDiscussion, setIsDiscussing, setDiscussionStoreResults, setScenarioResults, setAnalysisError, setRoundProgress, setAbortController, setDiscussionMessages, fetchAdminData, withTimeout]);
 
   const resetToHome = useCallback(() => {
     resetAnalysis();

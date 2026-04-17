@@ -1,0 +1,118 @@
+{
+  "indices": [
+    {
+      "name": "上证综指",
+      "symbol": "000001.SS",
+      "price": 4039.2673,
+      "change": -16.28,
+      "changePercent": -0.4,
+      "previousClose": 4055.5469
+    },
+    {
+      "name": "深证成指",
+      "symbol": "399001.SZ",
+      "price": 14806.215,
+      "change": 9.88,
+      "changePercent": 0.07,
+      "previousClose": 14796.335
+    },
+    {
+      "name": "创业板指",
+      "symbol": "399006.SZ",
+      "price": 3646.4775,
+      "change": 20.21,
+      "changePercent": 0.56,
+      "previousClose": 3626.271
+    },
+    {
+      "name": "沪深300",
+      "symbol": "000300.SS",
+      "price": 4720.503,
+      "change": -16.1,
+      "changePercent": -0.34,
+      "previousClose": 4736.608
+    },
+    {
+      "name": "恒生指数",
+      "symbol": "^HSI",
+      "price": 26145.7,
+      "change": -248.56,
+      "changePercent": -0.94,
+      "previousClose": 26394.26
+    }
+  ],
+  "topNews": [],
+  "sectorAnalysis": [
+    {
+      "name": "钛白粉",
+      "trend": "强势上涨，今日涨幅1.86%",
+      "rotationStage": "领涨",
+      "upstreamImpact": "钛矿价格波动及提纯成本直接影响毛利",
+      "downstreamImpact": "涂料、油漆及塑料制品行业需求旺盛带动销量",
+      "conclusion": "主力资金净流入8666万元，鲁北化工领涨，行业景气度处于上行期。"
+    },
+    {
+      "name": "橡胶助剂",
+      "trend": "持续走强，涨幅1.76%",
+      "rotationStage": "领涨",
+      "upstreamImpact": "苯胺等化工原材料供应稳定，成本压力可控",
+      "downstreamImpact": "汽车轮胎及工业橡胶制品出口订单回升",
+      "conclusion": "彤程新材主力净流入领先，作为精细化工细分领域，受益于下游需求复苏。"
+    },
+    {
+      "name": "特种纸",
+      "trend": "缩量整理，跌幅0.18%，但主力资金大幅净流入",
+      "rotationStage": "补涨",
+      "upstreamImpact": "纸浆价格高位回落，成本端出现改善预期",
+      "downstreamImpact": "食品包装及医疗用纸需求具有强粘性",
+      "conclusion": "尽管指数微跌，但主力净流入达2.11亿元，呈现资金暗中吸筹迹象，青山纸业表现活跃。"
+    },
+    {
+      "name": "房产租赁经纪",
+      "trend": "爆发式上涨，涨幅2.61%",
+      "rotationStage": "领涨",
+      "upstreamImpact": "政策面支持租赁住房建设及金融工具支持",
+      "downstreamImpact": "城市存量房流转及租房市场活跃度提升",
+      "conclusion": "世联行领涨，主力净流入占比11.35%，反映市场对地产服务类轻资产模式的认可。"
+    }
+  ],
+  "commodityAnalysis": [
+    {
+      "name": "原油 (WTI)",
+      "trend": "大幅下跌 -1.23%",
+      "expectation": "油价走弱有望降低中下游化工企业成本，但反映全球工业需求预期放缓。"
+    },
+    {
+      "name": "伦敦金 (XAU)",
+      "trend": "微涨 +0.02%",
+      "expectation": "价格高位震荡，避险情绪对金价仍有支撑，但短期向上动力减弱。"
+    },
+    {
+      "name": "美元/人民币",
+      "trend": "小幅贬值 +0.07%",
+      "expectation": "汇率波动对出口型企业有利，但需警惕北向资金外流压力。"
+    }
+  ],
+  "recommendations": [
+    {
+      "type": "Stock",
+      "name": "鲁北化工",
+      "reason": "钛白粉板块主力净流入最大股，行业处于涨价周期，业绩弹性较大。"
+    },
+    {
+      "type": "Sector",
+      "name": "房产租赁经纪",
+      "reason": "板块涨幅居前且主力净占比高，轻资产模式在地产转型期具备防御性。"
+    },
+    {
+      "type": "Stock",
+      "name": "彤程新材",
+      "reason": "橡胶助剂板块领头羊，资金关注度高，基本面受益于下游轮胎行业扩产。"
+    }
+  ],
+  "marketSummary": "截至北京时间2026年4月17日10:28，A股市场呈现分化走势。上证指数受大盘蓝筹拖累下跌0.4%，而创业板指表现稳健，上涨0.56%。市场整体情绪偏向谨慎，沪深两市下跌个股数显著超过上涨数（2159对1036）。根据Yahoo Finance数据，金融控股及焦炭板块资金流出严重，而钛白粉、橡胶助剂等精细化工细分板块获主力大幅增持。北向资金今日表现低迷，成交额为0，反映外资观望情绪极浓；南向资金则继续净流入港股，尽管恒指跌幅近1%。原油价格的显著回落可能对今日化工类板块的超额收益形成成本端支撑。",
+  "id": "market-1776392963835-nbrv37plk",
+  "generatedAt": 1776392963832,
+  "market": "A-Share",
+  "type": "market"
+}

@@ -80,7 +80,9 @@ async def get_sector_fund_flow() -> Dict[str, Any]:
     # If all retries fail, return a success: false instead of 500 to allow Node to handle it
     return {
         "success": False, 
-        "error": f"Failed after {max_retries} attempts. Last error: {last_error}",
+        "code": "AKSHARE_DATA_SOURCE_UNAVAILABLE",
+        "message": "【数据源异常】AkShare API 连接中断，行业资金流数据暂不可用。请稍后重试。",
+        "error": last_error,
         "data": {"topInflows": [], "topOutflows": []}
     }
 

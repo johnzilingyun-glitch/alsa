@@ -328,24 +328,24 @@ export const DiscussionPanel: React.FC<DiscussionPanelProps> = ({
                     <History size={20} className="text-indigo-600" />
                   </div>
                   <div>
-                    <h4 className="text-sm font-bold uppercase tracking-widest text-indigo-600">历史预测复盘 (Learning Loop)</h4>
-                    <p className="text-[10px] text-zinc-400">上次分析时间: {new Date(analysis.backtestResult.previousDate).toLocaleString()}</p>
+                    <h4 className="text-sm font-bold uppercase tracking-widest text-indigo-600">{t('analysis.prediction.track_record')} (Learning Loop)</h4>
+                    <p className="text-[10px] text-zinc-400">{t('analysis.info.lastUpdated')}: {new Date(analysis.backtestResult.previousDate).toLocaleString()}</p>
                   </div>
                 </div>
                 <div className="text-right">
                   <span className={`text-xs font-semibold px-3 py-1 rounded-full border ${ analysis.backtestResult.actualReturn.startsWith('+') ? 'bg-emerald-500/8 border-emerald-500/15 text-emerald-500' : 'bg-rose-500/6 border-rose-500/15 text-rose-500' }`}>
-                    区间表现: {analysis.backtestResult.actualReturn}
+                    {t('analysis.prediction.streaks')}: {analysis.backtestResult.actualReturn}
                   </span>
                 </div>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="bg-zinc-100/80 rounded-xl p-3 border border-zinc-200/60">
-                  <p className="text-[10px] text-zinc-400 uppercase font-medium mb-1">上次建议</p>
+                  <p className="text-[10px] text-zinc-400 uppercase font-medium mb-1">{t('analysis.info.summary')}</p>
                   <p className="text-sm font-semibold text-zinc-950">{analysis.backtestResult.previousRecommendation}</p>
                 </div>
                 <div className="bg-zinc-100/80 rounded-xl p-3 border border-zinc-200/60 col-span-2">
-                  <p className="text-[10px] text-indigo-600 uppercase font-medium mb-1">专家组进化心得</p>
+                  <p className="text-[10px] text-indigo-600 uppercase font-medium mb-1">{t('analysis.expert_discussion')} Wisdom</p>
                   <p className="text-xs text-zinc-600 leading-relaxed italic">"{analysis.backtestResult.learningPoint}"</p>
                 </div>
               </div>
@@ -369,10 +369,10 @@ export const DiscussionPanel: React.FC<DiscussionPanelProps> = ({
                       <div className="h-8 w-8 rounded-xl bg-indigo-600/10 flex items-center justify-center border border-indigo-600/15">
                         <Calculator size={18} className="text-indigo-600" />
                       </div>
-                      <h4 className="text-sm font-bold uppercase tracking-wider text-indigo-600">期望价值中枢 (Expected Value)</h4>
+                      <h4 className="text-sm font-bold uppercase tracking-wider text-indigo-600">{t('tools.expected_value_center')} (Expected Value)</h4>
                     </div>
                     <div className="text-right">
-                      <p className="text-[10px] text-zinc-400 uppercase font-semibold">统一期望价格</p>
+                      <p className="text-[10px] text-zinc-400 uppercase font-semibold">{t('scenarios.target_valuation')}</p>
                       <p className="text-2xl font-semibold text-zinc-950 tracking-tighter">${evData.expectedPrice}</p>
                     </div>
                   </div>
@@ -381,14 +381,14 @@ export const DiscussionPanel: React.FC<DiscussionPanelProps> = ({
                     <div className="bg-white border border-zinc-200/60 rounded-2xl p-5 space-y-4">
                       <div className="flex items-center gap-2 border-b border-zinc-200/60 pb-3">
                         <Activity size={16} className="text-indigo-600" />
-                        <span className="text-[11px] font-bold uppercase tracking-widest text-zinc-500">概率加权演算逻辑</span>
+                        <span className="text-[11px] font-bold uppercase tracking-widest text-zinc-500">{t('scenarios.gap_reason')}</span>
                       </div>
                       <div className="bg-zinc-100/80 rounded-xl p-4 border border-zinc-200/60 font-mono text-xs text-indigo-500/80 leading-relaxed italic">
                         "{evData.calculationLogic}"
                       </div>
                       <div className="flex items-center justify-between text-[10px] text-zinc-400 mt-2">
-                        <span>置信区间: <span className="text-zinc-500 font-medium">{evData.confidenceInterval}</span></span>
-                        <span className="flex items-center gap-1"><Shield size={10} /> 机构级一致性验证已通过</span>
+                        <span>{t('analysis.info.ai_confidence')}: <span className="text-zinc-500 font-medium">{evData.confidenceInterval}</span></span>
+                        <span className="flex items-center gap-1"><Shield size={10} /> {t('analysis.info.data_verification_passed')}</span>
                       </div>
                     </div>
  
@@ -398,7 +398,7 @@ export const DiscussionPanel: React.FC<DiscussionPanelProps> = ({
                         <div className="bg-white border border-zinc-200/60 rounded-2xl p-5 space-y-4">
                           <div className="flex items-center gap-2 border-b border-zinc-200/60 pb-3">
                             <Table size={16} className="text-emerald-500" />
-                            <span className="text-[11px] font-bold uppercase tracking-widest text-zinc-500">多变量收益敏感度矩阵</span>
+                            <span className="text-[11px] font-bold uppercase tracking-widest text-zinc-500">{t('tools.sensitivity_panel')}</span>
                           </div>
                           <div className="space-y-2">
                             {matrix.map((row: any, idx: number) => (
@@ -444,7 +444,7 @@ export const DiscussionPanel: React.FC<DiscussionPanelProps> = ({
                   <div key={`divider-${msgKey}`} className="flex items-center gap-3 my-4 max-w-4xl mx-auto">
                     <div className="flex-1 h-px bg-indigo-200/40" />
                     <span className="text-xs font-bold text-indigo-500 bg-indigo-50 px-3 py-1 rounded-full border border-indigo-200/50 whitespace-nowrap">
-                      第 {msg.round} 轮
+                      {t('analysis.conference.round', { n: msg.round })}
                     </span>
                     <div className="flex-1 h-px bg-indigo-200/40" />
                   </div>
@@ -517,7 +517,7 @@ export const DiscussionPanel: React.FC<DiscussionPanelProps> = ({
                           <div className="mt-5 pt-5 border-t border-zinc-200/60">
                             <p className="text-xs font-medium text-zinc-400 uppercase tracking-widest mb-3 flex items-center gap-2">
                               <ExternalLink size={14} />
-                              引用来源
+                              {t('analysis.info.data_sources')}
                             </p>
                             <div className="flex flex-wrap gap-2">
                               {msg.references.map((ref, idx) => (
@@ -563,10 +563,10 @@ export const DiscussionPanel: React.FC<DiscussionPanelProps> = ({
             <button
               onClick={() => setIsInputCollapsed(!isInputCollapsed)}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white border border-zinc-200 text-zinc-400 hover:text-indigo-600 hover:border-indigo-200 transition-all shadow-sm hover:shadow-md"
-              title={isInputCollapsed ? "展开提问卡片" : "收起提问卡片"}
+              title={isInputCollapsed ? t('common.expand') : t('common.collapse')}
             >
               {isInputCollapsed ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
-              <span className="text-[9px] font-bold uppercase tracking-widest">{isInputCollapsed ? "展开提问" : "点击收起"}</span>
+              <span className="text-[9px] font-bold uppercase tracking-widest">{isInputCollapsed ? t('common.expand') : t('common.collapse')}</span>
             </button>
           </div>
 
@@ -688,13 +688,13 @@ export const DiscussionPanel: React.FC<DiscussionPanelProps> = ({
                     onClick={() => setShowFeishuConfig(false)}
                     className="flex-1 h-12 rounded-xl bg-zinc-50 hover:bg-zinc-100 text-zinc-500 text-xs font-bold uppercase tracking-widest transition-all"
                   >
-                    取消
+                    {t('common.cancel')}
                   </button>
                   <button 
                     onClick={saveFeishuWebhook}
                     className="flex-1 h-12 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold uppercase tracking-widest shadow-xl shadow-indigo-600/10 transition-all active:scale-[0.98]"
                   >
-                    保存并推送
+                    {t('common.save_push')}
                   </button>
                 </div>
               </div>

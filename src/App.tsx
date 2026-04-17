@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, lazy, Suspense } from 'react';
 import { AnimatePresence } from 'motion/react';
 import { useTranslation } from 'react-i18next';
 import { useStockAnalysis, useDiscussion, useChat, useReporting, useMarketData, useUrlState } from './hooks';
+import { useI18nSync } from './hooks/useI18nSync';
 import { useUIStore } from './stores/useUIStore';
 import { useMarketStore } from './stores/useMarketStore';
 import { useAnalysisStore } from './stores/useAnalysisStore';
@@ -26,6 +27,9 @@ export default function App() {
   const { i18n } = useTranslation();
   const language = useConfigStore(s => s.language);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+
+  // Enable dynamic AI content translation on language change
+  useI18nSync();
 
   useEffect(() => {
     i18n.changeLanguage(language);
@@ -144,7 +148,7 @@ export default function App() {
           {analysisError && (
             <div className="mb-8">
               <ErrorNotice
-                title="个股 analysis 加载失败"
+                title={t('errors.analysis_failed')}
                 message={analysisError}
                 onRetry={() => handleSearch({ preventDefault: () => {} } as React.FormEvent)}
                 onOpenSettings={() => setIsSettingsOpen(true)}
@@ -196,11 +200,11 @@ export default function App() {
 
       <footer className="mx-auto mt-16 max-w-7xl border-t border-zinc-200 px-4 py-10 md:px-8">
         <div className="flex flex-col items-center justify-between gap-6 section-label md:flex-row">
-          <p>© 2026 AI 每日智析</p>
+          <p>© 2026 {t('common.app_name')}</p>
           <div className="flex gap-8">
-            <a href="#" className="text-zinc-400 transition-colors duration-200 hover:text-zinc-500">数据来源</a>
-            <a href="#" className="text-zinc-400 transition-colors duration-200 hover:text-zinc-500">服务条款</a>
-            <a href="#" className="text-zinc-400 transition-colors duration-200 hover:text-zinc-500">隐私政策</a>
+            <a href="#" className="text-zinc-400 transition-colors duration-200 hover:text-zinc-500">{t('common.footer.data_sources')}</a>
+            <a href="#" className="text-zinc-400 transition-colors duration-200 hover:text-zinc-500">{t('common.footer.terms')}</a>
+            <a href="#" className="text-zinc-400 transition-colors duration-200 hover:text-zinc-500">{t('common.footer.privacy')}</a>
           </div>
         </div>
       </footer>

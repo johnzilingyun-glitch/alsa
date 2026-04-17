@@ -1,6 +1,6 @@
 import { createAI, withRetry, generateContentWithUsage, GEMINI_MODEL, generateAndParseJsonWithRetry } from "./geminiService";
 import { useConfigStore } from "../stores/useConfigStore";
-import { getAnalyzeStockPrompt, getChatMessagePrompt, getStockReportPrompt, getDiscussionReportPrompt, getChatReportPrompt, getCorrectionPrompt } from "./prompts";
+import { getAnalyzeStockPrompt, getChatMessagePrompt, getStockReportPrompt, getDiscussionReportPrompt, getChatReportPrompt, getCorrectionPrompt, getTranslationPrompt } from "./prompts";
 import { Market, StockAnalysis, AgentMessage, Scenario, AgentDiscussion, GeminiConfig } from "../types";
 import { getHistoryContext, saveAnalysisToHistory } from "./adminService";
 import { getBeijingDate } from "./dateUtils";
@@ -167,4 +167,39 @@ export async function getDiscussionReport(
   });
 
   return response;
+}
+
+export async function translateAnalysis(analysis: StockAnalysis, targetLanguage: string, config?: GeminiConfig): Promise<StockAnalysis> {
+  const ai = createAI(config);
+  const prompt = getTranslationPrompt(targetLanguage, analysis, 'analysis');
+
+  try {
+    const translatedRaw = await generateAndParseJsonWithRetry<StockAnalysis>(
+      ai,
+      {
+        model: config?.model || GEMINI_MODEL,
+        contents: prompt,
+        config: { responseMimeType: "application/json" }
+      },
+      {
+        transportRetries: 2,
+        baseDelayMs: 2000,
+        parseRetries: 1,
+        parseDelayMs: 1000,
+      }
+    );
+    
+    // Validate the translated schema, but be slightly more lenient in case the AI missed a field 
+    // we'll merge it with the original to ensure structural integrity
+    const translated = validateResponse(StockAnalysisSchema, translatedRaw, 'TranslatedAnalysis') as StockAnalysis;
+    
+    return {
+      ...analysis,
+      ...translated,
+      id: analysis.id // Keep original ID
+    };
+  } catch (err) {
+    console.error(`[TranslationService] Failed to translate analysis:`, err);
+    throw err;
+  }
 }

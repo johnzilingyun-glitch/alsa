@@ -24,8 +24,9 @@
     "title": "Daily AI Stock Analysis",
     "subtitle": "A deep learning-based market judgment engine providing professional investors with minimalist, intuitive, and deep transaction decision support.",
     "searchPlaceholder": "Search symbol, name or alias (e.g., 700, Tencent, BABA)...",
-    "downloadReport": "Download Daily Report",
-    "triggerBrief": "Trigger Brief",
+    "downloadReport": "Download Report",
+    "triggerBrief": "Generate Brief",
+    "toggleLanguage": "English / Chinese",
     "history": "View History",
     "sysLogs": "System Logs",
     "settings": "Settings",
@@ -129,7 +130,8 @@
       "data_pipeline": "Data Pipeline",
       "price_fundamentals": "Price / fundamental data",
       "ashare_fallback": "A-share real-time fallback",
-      "ai_analysis": "AI analysis & scenario modeling"
+      "ai_analysis": "AI analysis & scenario modeling",
+      "data_verification_passed": "Institutional consistency verified"
     },
     "prediction": {
       "track_record": "AI Prediction Track Record",
@@ -162,7 +164,45 @@
       "stop_loss": "Hard Stop Loss",
       "tactical_strategy": "Core Tactical Strategy",
       "version_control": "Trading Plan Version Control",
-      "change_reason": "Reason for Change"
+      "change_reason": "Reason for Change",
+      "round": "Round {{n}}",
+      "deep_value": "Deep Value",
+      "moat": "Moat",
+      "narrative_consistency": "Narrative Consistency",
+      "mos_combined": "with Margin of Safety"
+    },
+    "moat": {
+      "wide": "Wide",
+      "narrow": "Narrow"
+    },
+    "tabs": {
+      "technical": "Technical Analysis",
+      "fundamental": "Fundamental Analysis"
+    },
+    "technical": {
+      "ma_ribbon": "MA 5 / 20 / 60",
+      "pivot_short": "Short Support / Resistance",
+      "pivot_long": "Long Support / Resistance",
+      "avg_volume": "5D / 20D Avg Vol",
+      "sentiment": "Technical Sentiment",
+      "bullish_bias": "Bullish Bias",
+      "bearish_bias": "Bearish Bias"
+    },
+    "fundamental": {
+      "pe": "P/E Ratio",
+      "pb": "P/B Ratio",
+      "roe": "ROE",
+      "eps": "EPS",
+      "revenue_growth": "Revenue Growth",
+      "valuation_percentile": "Valuation Level",
+      "net_profit_growth": "Net Profit Growth",
+      "debt_to_equity": "Debt to Equity",
+      "gross_margin": "Gross Margin",
+      "net_margin": "Net Margin",
+      "dividend_yield": "Dividend Yield"
+    },
+    "trading": {
+      "not_recommended_desc": "Current valuation or risk does not meet the safety margin requirements. Buy plan is not recommended for now."
     },
     "scenarios": {
       "expectation_gap": "Expectation Gap Identification",
@@ -245,13 +285,76 @@
     "bearish": "Bearish",
     "neutral": "Neutral",
     "every_n_min": "Every {{n}} mins",
-    "no_auto_refresh": "No Auto Refresh"
+    "no_auto_refresh": "No Auto Refresh",
+    "expand": "Expand",
+    "collapse": "Collapse",
+    "cancel": "Cancel",
+    "save_push": "Save & Push",
+    "go_to_ai_studio": "Go to AI Studio",
+    "app_name": "ALSA Insight",
+    "footer": {
+      "data_sources": "Data Sources",
+      "terms": "Terms of Service",
+      "privacy": "Privacy Policy"
+    }
   },
   "errors": {
     "feishu_webhook_missing": "Please configure the Feishu Webhook URL in Settings first",
     "invalid_feishu_webhook": "Please enter a valid Feishu Webhook URL",
     "api_key_env_only": "API Key selection is only available in the AI Studio environment",
     "logs_cleared": "Logs cleared",
-    "confirm_clear_logs": "Are you sure you want to clear all debug logs?"
+    "confirm_clear_logs": "Are you sure you want to clear all debug logs?",
+    "analysis_failed": "Stock Analysis Loading Failed",
+    "quota_exhausted_title": "API Quota Exhausted / Insufficient Balance",
+    "quota_exhausted_desc": "Unable to start new analysis. Please check your API Key or recharge at Google AI Studio."
+  },
+  "settings": {
+    "title": "System Configuration",
+    "subtitle": "Customizing your analytical engine",
+    "sections": {
+      "auth": "API Authorization",
+      "feishu": "Feishu Notification",
+      "diagnosis": "Diagnostics & Optimization",
+      "models": "LLM Presets"
+    },
+    "modes": {
+      "byok": "Custom Key",
+      "managed": "Managed (No Key)",
+      "copilot": "Local Copilot"
+    },
+    "feishu": {
+      "placeholder": "Enter Feishu Webhook URL",
+      "hint": "Configure Feishu Webhook to receive real-time notifications after analysis."
+    },
+    "diagnosis": {
+      "debug_mode": "Debug Mode",
+      "debug_on": "Debug Mode On",
+      "debug_off": "Debug Mode Off",
+      "failover": "Smart Failover (Copilot)",
+      "failover_on": "Auto-recovery On",
+      "failover_off": "Auto-recovery Off",
+      "debug_desc": "Developer Mode: Logs all backend requests. Helps analyze data deviation and optimize AI logic.",
+      "failover_desc": "Auto-recovery: When Gemini API quota is exhausted, system automatically uses local GitHub Copilot. Ensure gh is logged in.",
+      "view_logs": "View Debug Logs",
+      "clear_logs": "Clear Logs"
+    },
+    "models": {
+      "refresh": "Refresh Models",
+      "syncing": "Syncing...",
+      "quota_exhausted": "Quota Exhausted",
+      "unavailable": "Unavailable"
+    },
+    "actions": {
+      "save": "Save & Start Analysis",
+      "footer_hint": "Changes take effect immediately. Check Google AI Studio for Key status."
+    }
+  },
+  "admin": {
+    "history": {
+      "title": "History Recall",
+      "empty": "No history found",
+      "unknown_stock": "Unknown Stock",
+      "last_updated": "Last Updated"
+    }
   }
 }

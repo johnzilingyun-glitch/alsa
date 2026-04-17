@@ -170,13 +170,38 @@ export function ExpertReportCard({ message, isExpert, expertiseArea, references 
                        </div>
                     </div>
                   ) : (
-                    <div className="prose prose-zinc max-w-none 
-                      prose-p:text-[15px] prose-p:leading-relaxed prose-p:text-zinc-600 
-                      prose-strong:text-zinc-950 prose-strong:font-bold
-                      prose-table:mt-4 prose-table:mb-8 prose-table:border-collapse prose-table:w-full 
-                      prose-th:bg-zinc-50 prose-th:p-3 prose-th:text-[10px] prose-th:font-bold prose-th:uppercase prose-th:tracking-widest prose-th:text-zinc-500 prose-th:border prose-th:border-zinc-200
-                      prose-td:p-3 prose-td:text-sm prose-td:text-zinc-600 prose-td:border prose-td:border-zinc-100
-                    ">
+                    <div className={cn(
+                      "prose prose-zinc max-w-none w-full",
+                      "prose-sm sm:prose-base antialiased",
+                      // Paragraphs
+                      "prose-p:text-zinc-600 prose-p:leading-[1.8] prose-p:mb-5",
+                      // Headings
+                      "prose-headings:text-zinc-900 prose-headings:font-bold prose-headings:tracking-tight",
+                      "prose-h3:text-lg prose-h3:mt-8 prose-h3:mb-4",
+                      "prose-h4:text-base prose-h4:mt-6 prose-h4:mb-3",
+                      // Typography
+                      "prose-strong:text-zinc-900 prose-strong:font-semibold",
+                      "prose-em:italic",
+                      // Lists
+                      "prose-ul:list-outside prose-ul:pl-5 prose-ul:mb-6 prose-ul:space-y-2",
+                      "prose-ol:list-decimal prose-ol:list-outside prose-ol:pl-5 prose-ol:mb-6 prose-ol:space-y-2",
+                      "prose-li:text-zinc-600 prose-li:leading-relaxed",
+                      // Blockquotes (styled dynamically by role theme)
+                      "prose-blockquote:border-l-4 prose-blockquote:pl-5 prose-blockquote:py-1 prose-blockquote:not-italic",
+                      "prose-blockquote:text-zinc-600 prose-blockquote:bg-zinc-50 prose-blockquote:rounded-r-xl",
+                      // Tables (Institutional Grade)
+                      "prose-table:w-full prose-table:my-8 prose-table:border-collapse",
+                      "prose-table:shadow-sm prose-table:rounded-xl prose-table:overflow-hidden",
+                      "prose-thead:bg-zinc-100/80 prose-thead:border-b-2 prose-thead:border-zinc-200",
+                      "prose-th:px-4 prose-th:py-3.5 prose-th:text-left prose-th:text-[11px] prose-th:font-bold prose-th:uppercase prose-th:tracking-wider prose-th:text-zinc-500",
+                      "prose-tbody:bg-white",
+                      "prose-tr:border-b prose-tr:border-zinc-100 hover:prose-tr:bg-zinc-50/50 prose-tr:transition-colors",
+                      "prose-td:px-4 prose-td:py-3.5 prose-td:text-sm prose-td:text-zinc-600 prose-td:align-middle",
+                      // Links
+                      "prose-a:text-indigo-600 prose-a:no-underline hover:prose-a:underline prose-a:font-medium",
+                      // Inline Code
+                      "prose-code:text-[13px] prose-code:font-mono prose-code:bg-zinc-100 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded-md prose-code:text-zinc-800 before:prose-code:content-none after:prose-code:content-none"
+                    )}>
                       <ReactMarkdown remarkPlugins={[remarkGfm]}>{section.content}</ReactMarkdown>
                     </div>
                   )}

@@ -82,6 +82,24 @@
     "summary": "Core Summary",
     "technical": "Technical Analysis",
     "fundamental": "Fundamental Analysis",
+    "fundamental_metrics": {
+      "pe": "P/E",
+      "pb": "P/B",
+      "roe": "ROE",
+      "eps": "EPS",
+      "revenue": "Revenue",
+      "revenue_growth": "Rev Growth",
+      "net_profit": "Net Profit",
+      "non_gaap_net_profit": "Non-GAAP NP",
+      "net_profit_growth": "NP Growth",
+      "valuation_percentile": "Valuation %",
+      "debt_to_equity": "D/E Ratio",
+      "gross_margin": "Gross Margin",
+      "net_margin": "Net Margin",
+      "dividend": "Dividend",
+      "dividend_yield": "Div Yield",
+      "market_cap": "Market Cap"
+    },
     "risks": "Key Risks",
     "opportunities": "Key Opportunities",
     "trading_plan": "Trading Plan",
@@ -130,8 +148,9 @@
       "data_pipeline": "Data Pipeline",
       "price_fundamentals": "Price / fundamental data",
       "ashare_fallback": "A-share real-time fallback",
-      "ai_analysis": "AI analysis & scenario modeling",
-      "data_verification_passed": "Institutional consistency verified"
+      "ai_analysis": "AI Analysis & Scenario Planning",
+      "data_verification_passed": "Institutional Data Verification Passed",
+      "mos_combined": "Margin of Safety & Composite Score"
     },
     "prediction": {
       "track_record": "AI Prediction Track Record",

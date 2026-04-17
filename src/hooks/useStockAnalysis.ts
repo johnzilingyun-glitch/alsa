@@ -124,7 +124,7 @@ export function useStockAnalysis() {
               analysisLevel,
               geminiConfig,
               (progress) => {
-                setRoundProgress(progress.currentRound, progress.totalRounds);
+                setRoundProgress(progress.currentRound, progress.totalRounds, progress.activeExperts, progress.currentStep);
                 setDiscussionMessages(progress.messages);
                 if (progress.partialDiscussion) {
                   // [PHASE 3 OPTIMIZATION]: Incremental UI update

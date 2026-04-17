@@ -20,6 +20,8 @@ import { useUIStore, selectIsDiscussing, selectIsReviewing } from '../stores/use
 import { useConfigStore } from '../stores/useConfigStore';
 import { getQualityLabel } from '../services/dataQualityService';
 import { sendAnalysisToFeishu } from '../services/feishuService';
+import { ExpertReportCard } from './analysis/ExpertReportCard';
+import { DeliberationMatrix } from './analysis/DeliberationMatrix';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -90,6 +92,8 @@ export const DiscussionPanel: React.FC<DiscussionPanelProps> = ({
     analystWeights, 
     currentRound, 
     totalRounds,
+    activeExperts,
+    currentStep,
     expectedValueOutcome: discussionExpectedValue,
     sensitivityMatrix: discussionSensitivity
   } = useDiscussionStore();
@@ -259,25 +263,11 @@ export const DiscussionPanel: React.FC<DiscussionPanelProps> = ({
           </div>
 
           {isDiscussing && (
-            <div className="flex items-center gap-3 px-4 py-1.5 rounded-full bg-white border border-zinc-200">
+            <div className="flex items-center gap-3 px-4 py-1.5 rounded-full bg-indigo-50 border border-indigo-100">
               <Loader2 size={14} className="animate-spin text-indigo-600 shrink-0" />
-              {totalRounds > 1 ? (
-                <div className="flex items-center gap-2 min-w-[140px]">
-                  <div className="flex-1 h-1.5 bg-zinc-200 rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-indigo-600 rounded-full transition-all duration-500"
-                      style={{ width: `${Math.round((currentRound / totalRounds) * 100)}%` }}
-                    />
-                  </div>
-                  <span className="text-[10px] font-bold text-indigo-600 whitespace-nowrap">
-                    {currentRound}/{totalRounds}
-                  </span>
-                </div>
-              ) : (
-                <span className="text-xs font-medium text-zinc-400 uppercase tracking-widest">
-                  {t('analysis.conference.status_entering')}
-                </span>
-              )}
+              <span className="text-[10px] font-bold text-indigo-600 uppercase tracking-widest">
+                {currentRound > 0 ? t('analysis.conference.round', { n: currentRound }) : t('analysis.conference.status_entering')}
+              </span>
             </div>
           )}
 
@@ -310,6 +300,16 @@ export const DiscussionPanel: React.FC<DiscussionPanelProps> = ({
         aria-live="polite"
         aria-label="Expert discussion messages"
       >
+        {/* Progress Matrix */}
+        {isDiscussing && totalRounds > 0 && (
+          <DeliberationMatrix 
+            currentRound={currentRound}
+            totalRounds={totalRounds}
+            activeExperts={activeExperts}
+            currentStep={currentStep}
+          />
+        )}
+
         {/* Performance Review (Backtest) */}
         {analysis?.backtestResult && (
           <motion.div
@@ -433,113 +433,19 @@ export const DiscussionPanel: React.FC<DiscussionPanelProps> = ({
           </motion.div>
         )}
 
-        {/* Messages */}
         <AnimatePresence initial={false}>
           {messages.map((msg, i) => {
             const msgKey = msg.id || `${msg.role}-${msg.timestamp}-${i}`;
-            const showRoundDivider = msg.round != null && (i === 0 || messages[i - 1]?.round !== msg.round);
+            const weightInfo = getWeightInfo(msg.role);
+            
             return (
-              <React.Fragment key={`frag-${msgKey}`}>
-                {showRoundDivider && (
-                  <div key={`divider-${msgKey}`} className="flex items-center gap-3 my-4 max-w-4xl mx-auto">
-                    <div className="flex-1 h-px bg-indigo-200/40" />
-                    <span className="text-xs font-bold text-indigo-500 bg-indigo-50 px-3 py-1 rounded-full border border-indigo-200/50 whitespace-nowrap">
-                      {t('analysis.conference.round', { n: msg.round })}
-                    </span>
-                    <div className="flex-1 h-px bg-indigo-200/40" />
-                  </div>
-                )}
-                <motion.div
-                  key={`msg-div-${msgKey}`}
-                  initial={{ opacity: 0, x: -20 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ type: "spring", stiffness: 100, damping: 15 }}
-                  className="flex gap-6 group max-w-4xl mx-auto"
-                >
-                  <div className={`flex-shrink-0 w-14 h-14 rounded-2xl flex items-center justify-center border transition-all duration-300 group-hover:scale-110 shadow-sm ${roleColors[msg.role] || "text-zinc-400 bg-white border-zinc-200/60"}`}>
-                    {roleIcons[msg.role] || <MessageSquare size={24} />}
-                  </div>
-                  <div className="flex-1 space-y-3">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <span className={`text-xs font-bold uppercase tracking-widest px-3 py-1 rounded-xl border shadow-sm ${roleColors[msg.role] || "text-zinc-500 bg-white border-zinc-200/60"}`}>
-                          {t(`analysis.roles.${msg.role}`)}
-                        </span>
-                        {getWeightInfo(msg.role)?.isExpert && (
-                          <span className="text-xs font-medium text-indigo-600 bg-indigo-600/8 px-3 py-1 rounded-xl border border-indigo-600/15 flex items-center gap-1.5 animate-pulse">
-                            <Award size={14} />
-                            {t('analysis.expert_discussion')} ({getWeightInfo(msg.role)?.expertiseArea})
-                          </span>
-                        )}
-                      </div>
-                      <span className="text-xs text-zinc-400 font-mono font-medium">
-                        {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-                      </span>
-                    </div>
-                    <div className="relative">
-                      <div className={cn(
-                        "text-[15px] leading-7 p-6 rounded-2xl rounded-tl-none border transition-all duration-300 shadow-sm",
-                        msg.role === "Chief Strategist" ? "bg-amber-50/30 border-amber-200/60 ring-1 ring-amber-100/50" :
-                        msg.type === "research" ? "bg-cyan-50/30 border-cyan-200/60 text-zinc-700 hover:border-cyan-300" : 
-                        msg.type === "review" ? "bg-indigo-50/20 border-indigo-200/60 text-zinc-700 hover:border-indigo-300" : 
-                        msg.type === "fact_check" ? "bg-rose-50/30 border-rose-200/60 text-zinc-700 hover:border-rose-300" : 
-                        msg.type === "user_question" ? "bg-white border-zinc-200 text-zinc-600" : 
-                        "bg-white border-zinc-200/60 text-zinc-600 hover:border-zinc-300 hover:shadow-md"
-                      )}>
-                        <div className="prose prose-sm md:prose-base max-w-none prose-zinc prose-p:leading-relaxed prose-p:mb-4 prose-p:text-zinc-700 prose-headings:mt-6 prose-headings:mb-3 prose-strong:text-zinc-950 prose-table:my-6 prose-table:border-collapse prose-th:bg-zinc-50 prose-th:text-zinc-900 prose-th:font-extrabold prose-th:border prose-th:border-zinc-200 prose-td:border prose-td:border-zinc-100 prose-td:p-3 prose-img:rounded-2xl">
-                          {/* Confidence Score Badge Integration */}
-                          {(() => {
-                            const confidenceMatch = msg.content.match(/Confidence Score:\s*(\d+)\/10/i);
-                            if (confidenceMatch) {
-                              const score = parseInt(confidenceMatch[1]);
-                              const badgeColor = score >= 8 ? "bg-emerald-500/10 text-emerald-600 border-emerald-500/20" :
-                                               score >= 5 ? "bg-amber-500/10 text-amber-600 border-amber-500/20" :
-                                               "bg-rose-500/10 text-rose-500 border-rose-500/20";
-                              return (
-                                <div className={cn("inline-flex items-center gap-1.5 px-3 py-1 rounded-lg border text-[10px] font-bold uppercase tracking-widest mb-4 shadow-sm", badgeColor)}>
-                                  <ShieldCheck size={12} />
-                                  Evidence Level: {score}/10
-                                </div>
-                              );
-                            }
-                            return null;
-                          })()}
-                          
-                          <ReactMarkdown 
-                            remarkPlugins={[remarkGfm]} 
-                            rehypePlugins={[rehypeRaw]}
-                          >
-                            {msg.content.replace(/Confidence Score:\s*(\d+)\/10/i, '')}
-                          </ReactMarkdown>
-                        </div>
-
-                        {msg.references && msg.references.length > 0 && (
-                          <div className="mt-5 pt-5 border-t border-zinc-200/60">
-                            <p className="text-xs font-medium text-zinc-400 uppercase tracking-widest mb-3 flex items-center gap-2">
-                              <ExternalLink size={14} />
-                              {t('analysis.info.data_sources')}
-                            </p>
-                            <div className="flex flex-wrap gap-2">
-                              {msg.references.map((ref, idx) => (
-                                <a
-                                  key={`ref-${idx}-${ref.url}`}
-                                  href={ref.url}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="text-xs font-medium text-cyan-600 hover:text-zinc-950 bg-cyan-950/40 border border-cyan-200/50 px-3 py-1.5 rounded-xl transition-colors flex items-center gap-1.5"
-                                >
-                                  {ref.title && ref.title.length > 30 ? ref.title.substring(0, 30) + '...' : (ref.title || 'Untitled Source')}
-                                  <ExternalLink size={12} />
-                                </a>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                </motion.div>
-              </React.Fragment>
+              <ExpertReportCard 
+                key={msgKey}
+                message={msg}
+                isExpert={weightInfo?.isExpert}
+                expertiseArea={weightInfo?.expertiseArea}
+                references={msg.references}
+              />
             );
           })}
         </AnimatePresence>

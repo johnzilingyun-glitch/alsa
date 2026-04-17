@@ -290,7 +290,8 @@ export interface AgentMessage {
 export interface MultiRoundProgress {
   currentRound: number;
   totalRounds: number;
-  currentExpert: string;
+  activeExperts: string[]; // Support parallel experts
+  currentStep?: 'grounding' | 'reasoning' | 'drafting' | 'reviewing' | 'auditing';
   messages: AgentMessage[];
   partialDiscussion?: Partial<AgentDiscussion>;
 }

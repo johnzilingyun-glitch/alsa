@@ -1,4 +1,4 @@
-import type { AgentRole, AgentMessage, AgentDiscussion, ExpertOutput } from '../../types';
+import type { AgentRole, AgentMessage, AgentDiscussion, ExpertOutput, StockAnalysis } from '../../types';
 import type { BacktestResult } from '../backtestService';
 
 export function aggregateResults(
@@ -42,6 +42,36 @@ export function aggregateResults(
     ...(conservativeRisk?.structuredData?.quantifiedRisks || []),
   ];
 
+  const valueSageInsights = valueSage?.structuredData?.marginOfSafety
+    && valueSage.structuredData.intrinsicValue
+    && valueSage.structuredData.moatRating
+      ? {
+          marginOfSafety: valueSage.structuredData.marginOfSafety,
+          intrinsicValue: valueSage.structuredData.intrinsicValue,
+          moatRating: valueSage.structuredData.moatRating,
+        }
+      : undefined;
+
+  const growthVisionaryInsights = growthVisionary?.structuredData?.tamEstimate
+    && growthVisionary.structuredData.innovationScore !== undefined
+    && growthVisionary.structuredData.disruptionPotential
+      ? {
+          tamEstimate: growthVisionary.structuredData.tamEstimate,
+          innovationScore: growthVisionary.structuredData.innovationScore,
+          disruptionPotential: growthVisionary.structuredData.disruptionPotential,
+        }
+      : undefined;
+
+  const macroTitanInsights = macroTitan?.structuredData?.macroSignal
+    && macroTitan.structuredData.liquidityStatus
+    && macroTitan.structuredData.systemicRiskLevel
+      ? {
+          macroSignal: macroTitan.structuredData.macroSignal,
+          liquidityStatus: macroTitan.structuredData.liquidityStatus,
+          systemicRiskLevel: macroTitan.structuredData.systemicRiskLevel,
+        }
+      : undefined;
+
   const discussion: AgentDiscussion = {
     messages,
     finalConclusion: chiefStrategist?.message.content ?? '',
@@ -57,21 +87,9 @@ export function aggregateResults(
     sensitivityMatrix: chiefStrategist?.structuredData?.sensitivityMatrix || baseline?.sensitivityMatrix,
     controversialPoints: controversialPoints.length > 0 ? controversialPoints : undefined,
     legendaryInsights: {
-      valueSage: valueSage?.structuredData ? {
-        marginOfSafety: valueSage.structuredData.marginOfSafety,
-        intrinsicValue: valueSage.structuredData.intrinsicValue,
-        moatRating: valueSage.structuredData.moatRating
-      } : undefined,
-      growthVisionary: growthVisionary?.structuredData ? {
-        tamEstimate: growthVisionary.structuredData.tamEstimate,
-        innovationScore: growthVisionary.structuredData.innovationScore,
-        disruptionPotential: growthVisionary.structuredData.disruptionPotential
-      } : undefined,
-      macroTitan: macroTitan?.structuredData ? {
-        macroSignal: macroTitan.structuredData.macroSignal,
-        liquidityStatus: macroTitan.structuredData.liquidityStatus,
-        systemicRiskLevel: macroTitan.structuredData.systemicRiskLevel
-      } : undefined,
+      valueSage: valueSageInsights,
+      growthVisionary: growthVisionaryInsights,
+      macroTitan: macroTitanInsights,
     }
   };
 

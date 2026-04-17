@@ -3,6 +3,9 @@ import { AlertCircle, RefreshCw, Settings, HelpCircle, ExternalLink } from 'luci
 
 function classifyError(message: string): { hint: string; action?: 'retry' | 'settings' } {
   const lower = message.toLowerCase();
+  if (lower.includes('所有 llm 提供商均失败') || lower.includes('llm 提供商均失败') || lower.includes('copilot') || lower.includes('personal access token') || lower.includes('etimedout')) {
+    return { hint: '当前 Copilot 模型链路不可用或超时。建议在设置中切换到 copilot_auto / claude-opus-4.6，或重新完成 GitHub Copilot 登录。', action: 'settings' };
+  }
   // Model not found: only match explicit 404/not-found indicators (avoid false positive from "所有模型均不可用")
   if (lower.includes('404') || (lower.includes('not found') && lower.includes('模型')))
     return { hint: '当前模型已下线或不存在。请在设置中切换到可用模型。', action: 'settings' };

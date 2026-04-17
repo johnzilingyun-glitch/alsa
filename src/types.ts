@@ -454,6 +454,7 @@ export interface GeminiConfig {
   apiKey?: string;
   feishuWebhookUrl?: string;
   tier?: 'free' | 'paid';
+  serviceMode?: 'byok' | 'managed_no_key' | 'copilot_local';
 }
 
 export interface ReportPreference {
@@ -559,6 +560,15 @@ export interface ExpertOutput {
     };
     industryAnchors?: IndustryAnchor[];
     expectationGap?: ExpectationGap;
+    marginOfSafety?: string;
+    intrinsicValue?: string;
+    moatRating?: string;
+    tamEstimate?: string;
+    innovationScore?: number;
+    disruptionPotential?: string;
+    macroSignal?: string;
+    liquidityStatus?: string;
+    systemicRiskLevel?: string;
   };
 }
 

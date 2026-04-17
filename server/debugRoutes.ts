@@ -2,14 +2,220 @@ import { Router } from 'express';
 import { logDebug, logError } from './stockLogger.js';
 import fs from 'fs';
 import path from 'path';
+import { execSync } from 'child_process';
+import { gatewayGenerate, gatewayStatus } from './llmGateway.js';
+import {
+  startDeviceFlow,
+  pollDeviceFlow,
+  saveGithubToken,
+  clearGithubToken,
+  getCopilotAuthStatus,
+} from './copilotAuth.js';
 
 const router = Router();
 const LOG_FILE = path.join(process.cwd(), 'logs', 'debug_records.log');
+
+// Kept for backward compatibility — still exported and tested
+function getGhCliToken(): string | null {
+    try {
+        const token = execSync('gh auth token', { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+        if (token) return token;
+    } catch {
+        // ignore
+    }
+    return null;
+}
+
+export function buildGithubTokenCandidates(env: NodeJS.ProcessEnv = process.env, ghToken?: string | null): string[] {
+    const tokenList = [
+        env.COPILOT_GITHUB_TOKEN,
+        env.GH_TOKEN,
+        env.GITHUB_TOKEN,
+        ghToken,
+    ]
+        .map(v => (typeof v === 'string' ? v.trim() : ''))
+        .filter(Boolean);
+
+    return Array.from(new Set(tokenList));
+}
+
+export function isBadCredentialsError(status: number, message: string): boolean {
+    const text = (message || '').toLowerCase();
+    return status === 401 || text.includes('bad credentials') || text.includes('invalid token') || text.includes('authentication failed');
+}
+
+export function getCliModelCandidates(targetModel: string): string[] {
+    if (targetModel === 'copilot_auto') {
+        return ['claude-opus-4.6', 'claude-sonnet-4.6', 'gpt-5.4'];
+    }
+    return [targetModel];
+}
+
+function extractPromptText(params: any): string {
+    const contents = params?.contents;
+    if (typeof contents === 'string') return contents;
+    if (Array.isArray(contents)) {
+        return contents
+            .map((c: any) => {
+                if (typeof c === 'string') return c;
+                const parts = c?.parts;
+                if (Array.isArray(parts)) {
+                    return parts.map((p: any) => (typeof p?.text === 'string' ? p.text : '')).join('\n');
+                }
+                return '';
+            })
+            .filter(Boolean)
+            .join('\n\n');
+    }
+    return '';
+}
+
+export function normalizeCopilotModel(model: string): string {
+    const key = (model || '').trim().toLowerCase();
+    const aliasMap: Record<string, string> = {
+        'auto': 'copilot_auto',
+        'copilot_auto': 'copilot_auto',
+        'gpt-5': 'gpt-5.4',
+        'gpt5': 'gpt-5.4',
+        'gpt-5.4': 'gpt-5.4',
+        'gpt5.4': 'gpt-5.4',
+        'gpt-5.2': 'gpt-5.2',
+        'gpt-5-mini': 'gpt-5-mini',
+        'gpt5-mini': 'gpt-5-mini',
+        'gpt-5.4-mini': 'gpt-5.4-mini',
+        'gpt5.4-mini': 'gpt-5.4-mini',
+        'gpt-4.1': 'gpt-4.1',
+        'gpt-4.1-mini': 'gpt-4.1-mini',
+        'gpt-4o-mini': 'gpt-4o-mini',
+        'o4-mini': 'o4-mini',
+        'claude ops 4.6': 'claude-opus-4.6',
+        'claude-ops-4.6': 'claude-opus-4.6',
+        'claude_opus_4_6': 'claude-opus-4.6',
+        'claude-opus-4.1': 'claude-opus-4.6',
+        'claude-opus-4-1': 'claude-opus-4.6',
+        'claude-opus-4.5': 'claude-opus-4.5',
+        'claude-opus-4.6': 'claude-opus-4.6',
+        'claude-opus-4.7': 'claude-opus-4.7',
+        'claude-sonnet-4': 'claude-sonnet-4.6',
+        'claude-sonnet-4.5': 'claude-sonnet-4.5',
+        'claude-sonnet-4.6': 'claude-sonnet-4.6',
+        'claude-haiku-4.5': 'claude-haiku-4.5',
+    };
+    return aliasMap[key] || model;
+}
+
+// ── Copilot OAuth device flow ──────────────────────────────────────────────
+
+// Step 1: Start device flow — returns user_code + verification_uri to show in UI
+router.post('/copilot/auth/start', async (_req, res) => {
+    try {
+        const flow = await startDeviceFlow();
+        logDebug('copilot_auth_start', { user_code: flow.user_code });
+        res.json({ success: true, ...flow });
+    } catch (err: any) {
+        logError(err, 'copilot_auth_start');
+        res.status(500).json({ success: false, error: err?.message || 'Device flow failed' });
+    }
+});
+
+// Step 2: Poll — called repeatedly by frontend until success/expired
+router.get('/copilot/auth/poll', async (req, res) => {
+    const { device_code } = req.query as { device_code?: string };
+    if (!device_code) {
+        res.status(400).json({ success: false, error: 'Missing device_code' });
+        return;
+    }
+    try {
+        const result = await pollDeviceFlow(device_code);
+        if (result.status === 'success') {
+            saveGithubToken(result.token);
+            logDebug('copilot_auth_success', {});
+        }
+        res.json({ success: true, ...result });
+    } catch (err: any) {
+        logError(err, 'copilot_auth_poll');
+        res.status(500).json({ success: false, error: err?.message });
+    }
+});
+
+// Current auth status
+router.get('/copilot/auth/status', async (_req, res) => {
+    try {
+        const status = await getCopilotAuthStatus();
+        res.json({ success: true, ...status });
+    } catch (err: any) {
+        res.json({ success: true, authenticated: false, error: err?.message });
+    }
+});
+
+// Logout: remove stored token
+router.delete('/copilot/auth/token', (_req, res) => {
+    clearGithubToken();
+    logDebug('copilot_auth_logout', {});
+    res.json({ success: true });
+});
+
+// ── Debug log routes ───────────────────────────────────────────────────────
 
 router.post('/logs/debug', (req, res) => {
     const { type, data } = req.body;
     logDebug(type || 'client_debug', data);
     res.json({ success: true });
+});
+
+router.post('/copilot/generate', async (req, res) => {
+    const { params, model } = req.body || {};
+    const startTime = Date.now();
+
+    logDebug('copilot_generate_start', { model, paramSize: JSON.stringify(params).length });
+    console.log('[LLMGateway] POST /copilot/generate - model:', model);
+
+    const prompt = extractPromptText(params);
+    if (!prompt) {
+        logDebug('copilot_generate_error', { error: 'no_prompt' });
+        res.status(400).json({ success: false, error: '请求缺少可解析的 prompt 内容。' });
+        return;
+    }
+
+    const targetModel = normalizeCopilotModel(model || 'copilot_auto');
+
+    try {
+        const result = await gatewayGenerate(
+            prompt,
+            targetModel,
+            (event, data) => logDebug(event, data as any),
+        );
+
+        const elapsed = Date.now() - startTime;
+        console.log(`[LLMGateway] ✅ ${result.provider}/${result.model} in ${elapsed}ms (${result.text.length} chars)`);
+
+        res.json({
+            success: true,
+            model: result.model,
+            via: result.provider,
+            result: {
+                text: result.text,
+                candidates: [
+                    {
+                        index: 0,
+                        finishReason: 'STOP',
+                        content: { parts: [{ text: result.text }] },
+                    },
+                ],
+                usageMetadata: { promptTokenCount: 0, candidatesTokenCount: 0, totalTokenCount: 0 },
+            },
+        });
+    } catch (err: any) {
+        const elapsed = Date.now() - startTime;
+        logDebug('gateway_all_failed', { targetModel, elapsed, error: err?.message });
+        logError(err, 'copilot_bridge_generate');
+        res.status(502).json({ success: false, error: err?.message || 'LLM gateway failed' });
+    }
+});
+
+// Gateway status: shows which providers are currently available
+router.get('/gateway/status', (_req, res) => {
+    res.json({ success: true, providers: gatewayStatus() });
 });
 
 // Diagnostic endpoint: test Gemini API key directly (bypasses all app retry/scheduler logic)

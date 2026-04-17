@@ -1,5 +1,5 @@
-import React from 'react';
-import { X, Settings, ShieldCheck, Cpu, AlertTriangle, Globe, Info, RefreshCw, Loader2, CheckCircle2, Sparkles, Eye, EyeOff, Trash2 } from 'lucide-react';
+import React, { useEffect, useCallback } from 'react';
+import { X, Settings, ShieldCheck, Cpu, AlertTriangle, Globe, Info, RefreshCw, Loader2, CheckCircle2, Sparkles, Eye, EyeOff, Trash2, Github, ExternalLink, LogOut } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useConfigStore } from '../stores/useConfigStore';
 import { useUIStore } from '../stores/useUIStore';
@@ -13,14 +13,39 @@ const AVAILABLE_MODELS = [
   { id: 'gemini-3.1-pro-preview', name: 'Gemini 3.1 Pro (Advanced Reasoning)', description: '顶级推理模型，具备最高逻辑深度 (Paid 25 RPM, 250 RPD)，适合复杂多轮研讨。' },
 ];
 
+const COPILOT_LOCAL_MODELS = [
+  { id: 'copilot_auto',    name: 'Copilot Auto (Recommended)',          description: '自动选择当前最稳的可用模型，优先尝试 Claude Opus 4.6，再回退其他高质量模型。' },
+  { id: 'gpt-5.4',         name: 'GPT-5.4 (Standard)',                  description: 'OpenAI 最新标准旗舰，均衡速度与质量。' },
+  { id: 'claude-opus-4.6', name: 'Claude Opus 4.6 (Premium)',           description: 'Anthropic 顶级推理模型，适合最复杂分析。' },
+  { id: 'claude-opus-4.7', name: 'Claude Opus 4.7 (Premium Latest)',    description: 'Opus 最新旗舰版本，最强逻辑链能力。' },
+  { id: 'gpt-5.2',         name: 'GPT-5.2 (Standard)',                  description: '上一代 GPT-5，稳定可靠。' },
+  { id: 'claude-sonnet-4.6', name: 'Claude Sonnet 4.6 (Standard)',      description: '当前默认 Sonnet，速度与质量最优平衡。' },
+  { id: 'gpt-5-mini',      name: 'GPT-5 Mini (Fast/Cheap)',             description: '轻量高速，适合快速预览分析。' },
+  { id: 'gpt-5.4-mini',    name: 'GPT-5.4 Mini (Fast/Cheap)',           description: '最新 GPT-5.4 轻量版，低延迟。' },
+  { id: 'gpt-4.1',         name: 'GPT-4.1 (Fast/Cheap)',                description: '稳定备选，低成本高频调用。' },
+  { id: 'claude-haiku-4.5',name: 'Claude Haiku 4.5 (Fast/Cheap)',      description: '极速响应，适合简单摘要场景。' },
+];
+
 export function SettingsModal() {
   const { config, setConfig, tokenUsage, availableModels, setAvailableModels, feishuWebhookUrl, setFeishuWebhookUrl, debugMode, setDebugMode } = useConfigStore();
   const { isSettingsOpen, setIsSettingsOpen } = useUIStore();
   const [isFetchingModels, setIsFetchingModels] = useState(false);
   const [fetchMessage, setFetchMessage] = useState<{type: 'error' | 'success', text: string} | null>(null);
   const [showApiKey, setShowApiKey] = useState(false);
+  const serviceMode = config.serviceMode || 'byok';
 
-  const displayModels = availableModels.length > 0 ? availableModels : AVAILABLE_MODELS;
+  // Copilot OAuth auth state
+  type CopilotFlowState = 'checking' | 'idle' | 'connecting' | 'waiting_user' | 'connected' | 'error';
+  const [copilotFlow, setCopilotFlow] = useState<CopilotFlowState>('checking');
+  const [copilotFlowData, setCopilotFlowData] = useState<{
+    userCode?: string; verificationUri?: string; deviceCode?: string; interval?: number;
+    username?: string; tokenSource?: string; error?: string;
+  }>({});
+  const [copilotPollRef, setCopilotPollRef] = useState<ReturnType<typeof setInterval> | null>(null);
+
+  const displayModels = serviceMode === 'copilot_local'
+    ? COPILOT_LOCAL_MODELS
+    : (availableModels.length > 0 ? availableModels : AVAILABLE_MODELS);
 
   const handleFetchModels = async () => {
     setIsFetchingModels(true);
@@ -40,6 +65,95 @@ export function SettingsModal() {
     } finally {
       setIsFetchingModels(false);
     }
+  };
+
+  // Check Copilot auth status whenever the modal opens in copilot_local mode
+  const checkCopilotStatus = useCallback(async () => {
+    setCopilotFlow('checking');
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 8000);
+      const r = await fetch('/api/diagnostics/copilot/auth/status', { signal: controller.signal });
+      clearTimeout(timer);
+      const data = await r.json();
+      if (data.authenticated) {
+        // Show connected as long as we have a valid GitHub token.
+        // Copilot subscription is verified lazily when an analysis is run.
+        setCopilotFlow('connected');
+        setCopilotFlowData({ username: data.username, tokenSource: data.tokenSource });
+      } else {
+        setCopilotFlow('idle');
+        setCopilotFlowData({});
+      }
+    } catch {
+      setCopilotFlow('idle');
+    }
+  }, []);
+
+  useEffect(() => {
+    if (isSettingsOpen && serviceMode === 'copilot_local') {
+      checkCopilotStatus();
+    }
+  }, [isSettingsOpen, serviceMode, checkCopilotStatus]);
+
+  // Stop polling when component unmounts or modal closes
+  useEffect(() => {
+    if (!isSettingsOpen && copilotPollRef) {
+      clearInterval(copilotPollRef);
+      setCopilotPollRef(null);
+    }
+  }, [isSettingsOpen, copilotPollRef]);
+
+  const handleCopilotConnect = async () => {
+    setCopilotFlow('connecting');
+    setCopilotFlowData({});
+    try {
+      const r = await fetch('/api/diagnostics/copilot/auth/start', { method: 'POST' });
+      const data = await r.json();
+      if (!data.success) throw new Error(data.error || 'Device flow failed');
+      setCopilotFlow('waiting_user');
+      setCopilotFlowData({
+        userCode: data.user_code,
+        verificationUri: data.verification_uri,
+        deviceCode: data.device_code,
+        interval: data.interval,
+      });
+      // Start polling
+      const intervalMs = (data.interval ?? 5) * 1000;
+      const pollId = setInterval(async () => {
+        try {
+          const pr = await fetch(`/api/diagnostics/copilot/auth/poll?device_code=${data.device_code}`);
+          const pd = await pr.json();
+          if (pd.status === 'success') {
+            clearInterval(pollId);
+            setCopilotPollRef(null);
+            // Immediately show connected — don't wait for subscription check
+            setCopilotFlow('connected');
+            setCopilotFlowData({ username: undefined, tokenSource: 'file' });
+            // Then refresh in background to get username
+            checkCopilotStatus();
+          } else if (pd.status === 'expired' || pd.status === 'error') {
+            clearInterval(pollId);
+            setCopilotPollRef(null);
+            setCopilotFlow('error');
+            setCopilotFlowData({ error: pd.message || '授权已过期，请重试' });
+          }
+        } catch {
+          // Network error during poll — keep trying
+        }
+      }, intervalMs);
+      setCopilotPollRef(pollId);
+    } catch (err: any) {
+      setCopilotFlow('error');
+      setCopilotFlowData({ error: err?.message || '连接失败' });
+    }
+  };
+
+  const handleCopilotDisconnect = async () => {
+    if (copilotPollRef) { clearInterval(copilotPollRef); setCopilotPollRef(null); }
+    await fetch('/api/diagnostics/copilot/auth/token', { method: 'DELETE' });
+    setCopilotFlow('idle');
+    setCopilotFlowData({});
   };
 
   const handleOpenKeySelector = async () => {
@@ -101,17 +215,51 @@ export function SettingsModal() {
                   <ShieldCheck size={16} className="text-indigo-600" />
                   <span className="text-xs font-bold uppercase tracking-wider text-zinc-400">API 授权认证</span>
                 </div>
+
+                <div className="flex bg-zinc-100 p-1 rounded-lg w-fit">
+                  <button
+                    onClick={() => setConfig({ ...config, serviceMode: 'byok' })}
+                    className={`px-3 py-1 text-[10px] font-bold rounded-md transition-all ${
+                      serviceMode === 'byok'
+                        ? 'bg-white text-zinc-950 shadow-sm'
+                        : 'text-zinc-400 hover:text-zinc-600'
+                    }`}
+                  >
+                    自定义 Key 模式
+                  </button>
+                  <button
+                    onClick={() => setConfig({ ...config, serviceMode: 'managed_no_key' })}
+                    className={`px-3 py-1 text-[10px] font-bold rounded-md transition-all ${
+                      serviceMode === 'managed_no_key'
+                        ? 'bg-white text-zinc-950 shadow-sm'
+                        : 'text-zinc-400 hover:text-zinc-600'
+                    }`}
+                  >
+                    免 Key 托管模式
+                  </button>
+                  <button
+                    onClick={() => setConfig({ ...config, serviceMode: 'copilot_local', model: 'copilot_auto' })}
+                    className={`px-3 py-1 text-[10px] font-bold rounded-md transition-all ${
+                      serviceMode === 'copilot_local'
+                        ? 'bg-white text-zinc-950 shadow-sm'
+                        : 'text-zinc-400 hover:text-zinc-600'
+                    }`}
+                  >
+                    本地 Copilot 模式
+                  </button>
+                </div>
                 
                 <div className="space-y-4">
                   <div className="group relative flex flex-col gap-2">
                     <div className="relative">
                       <input
                         type={showApiKey ? "text" : "password"}
-                        placeholder="AIzaSy... (输入您的 Gemini API Key)"
+                        placeholder={serviceMode === 'managed_no_key' ? '托管模式下无需填写（将使用服务端配置）' : serviceMode === 'copilot_local' ? '本地 Copilot 模式下无需填写（将使用本机 GitHub 登录态）' : 'AIzaSy... (输入您的 Gemini API Key)'}
                         id="api-key-input"
                         value={config.apiKey || ''}
                         onChange={(e) => setConfig({ ...config, apiKey: e.target.value })}
-                        className="input-premium pr-24 font-mono w-full"
+                        disabled={serviceMode === 'managed_no_key' || serviceMode === 'copilot_local'}
+                        className="input-premium pr-24 font-mono w-full disabled:opacity-60 disabled:cursor-not-allowed"
                       />
                       <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-2">
                         {config.apiKey && (
@@ -158,9 +306,9 @@ export function SettingsModal() {
                         </button>
                       </div>
                       <div className="flex items-center gap-1.5 ml-auto">
-                        <div className={`h-1.5 w-1.5 rounded-full ${config.apiKey?.startsWith('AIzaSy') ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]' : 'bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.5)]'}`} />
+                        <div className={`h-1.5 w-1.5 rounded-full ${serviceMode === 'managed_no_key' ? 'bg-indigo-500 shadow-[0_0_8px_rgba(99,102,241,0.5)]' : serviceMode === 'copilot_local' ? 'bg-sky-500 shadow-[0_0_8px_rgba(14,165,233,0.5)]' : config.apiKey?.startsWith('AIzaSy') ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]' : 'bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.5)]'}`} />
                         <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">
-                          {config.apiKey?.startsWith('AIzaSy') ? '格式正确' : '格式不合规'}
+                          {serviceMode === 'managed_no_key' ? '托管模式' : serviceMode === 'copilot_local' ? 'Copilot 模式' : config.apiKey?.startsWith('AIzaSy') ? '格式正确' : '格式不合规'}
                         </span>
                       </div>
                     </div>
@@ -178,7 +326,11 @@ export function SettingsModal() {
                   <div className="flex items-start gap-3 p-4 rounded-xl bg-indigo-50/50 border border-indigo-100/50">
                     <Info size={16} className="text-indigo-400 shrink-0 mt-0.5" />
                     <p className="text-xs text-indigo-600/70 leading-relaxed">
-                      您的密钥仅保存在本地浏览器中。为了保障分析的深度，请确保该 Key 已启用商业配额或属于 Google Cloud 项目。
+                      {serviceMode === 'managed_no_key'
+                        ? '托管模式下不会在浏览器保存个人 Key。系统将使用服务端预配置模型通道。若服务端未配置，将自动提示并可切换回自定义 Key。'
+                        : serviceMode === 'copilot_local'
+                        ? '本地 Copilot 模式通过后端桥接使用本机 GitHub 登录态（例如 gh auth token）。无需在浏览器保存个人 Gemini Key。'
+                        : '您的密钥仅保存在本地浏览器中。为了保障分析的深度，请确保该 Key 已启用商业配额或属于 Google Cloud 项目。'}
                     </p>
                   </div>
                   
@@ -190,6 +342,105 @@ export function SettingsModal() {
                   </div>
                 </div>
               </section>
+
+              {/* GitHub Copilot Authentication Section — only in copilot_local mode */}
+              {serviceMode === 'copilot_local' && (
+                <section className="space-y-4">
+                  <div className="flex items-center gap-2">
+                    <Github size={16} className="text-sky-600" />
+                    <span className="text-xs font-bold uppercase tracking-wider text-zinc-400">GitHub Copilot 认证</span>
+                  </div>
+
+                  {copilotFlow === 'checking' && (
+                    <div className="flex items-center gap-3 p-4 rounded-xl bg-zinc-50 border border-zinc-100">
+                      <Loader2 size={16} className="text-sky-500 animate-spin" />
+                      <span className="text-xs text-zinc-500">检查认证状态…</span>
+                    </div>
+                  )}
+
+                  {copilotFlow === 'connected' && (
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between p-4 rounded-xl bg-sky-50 border border-sky-100">
+                        <div className="flex items-center gap-3">
+                          <CheckCircle2 size={16} className="text-sky-600" />
+                          <div>
+                            <p className="text-xs font-bold text-sky-800">
+                              已连接 {copilotFlowData.username ? `@${copilotFlowData.username}` : ''}
+                            </p>
+                            {copilotFlowData.tokenSource && (
+                              <p className="text-[10px] text-sky-500 mt-0.5">
+                                来源: {copilotFlowData.tokenSource === 'env' ? '环境变量' : copilotFlowData.tokenSource === 'file' ? '本地 OAuth' : 'gh CLI'}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                        <button
+                          onClick={handleCopilotDisconnect}
+                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-bold text-zinc-500 bg-white border border-zinc-200 hover:border-red-200 hover:text-red-600 transition-colors"
+                        >
+                          <LogOut size={12} />
+                          断开
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {(copilotFlow === 'idle' || copilotFlow === 'error') && (
+                    <div className="space-y-3">
+                      {copilotFlow === 'error' && (
+                        <div className="flex items-start gap-3 p-3 rounded-xl bg-red-50 border border-red-100">
+                          <AlertTriangle size={14} className="text-red-400 shrink-0 mt-0.5" />
+                          <p className="text-[11px] text-red-600">{copilotFlowData.error}</p>
+                        </div>
+                      )}
+                      <button
+                        onClick={handleCopilotConnect}
+                        className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-zinc-900 text-white text-xs font-bold hover:bg-zinc-800 transition-colors"
+                      >
+                        <Github size={14} />
+                        通过 GitHub 连接 Copilot
+                      </button>
+                      <div className="flex items-start gap-3 p-4 rounded-xl bg-sky-50/50 border border-sky-100/50">
+                        <Info size={14} className="text-sky-400 shrink-0 mt-0.5" />
+                        <p className="text-[11px] text-sky-600/80 leading-relaxed">
+                          点击后会生成一个 8 位验证码，在 GitHub.com 上输入即可授权。需要有效的 GitHub Copilot 订阅。
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
+                  {copilotFlow === 'connecting' && (
+                    <div className="flex items-center gap-3 p-4 rounded-xl bg-zinc-50 border border-zinc-100">
+                      <Loader2 size={16} className="text-sky-500 animate-spin" />
+                      <span className="text-xs text-zinc-500">正在初始化 GitHub 授权流程…</span>
+                    </div>
+                  )}
+
+                  {copilotFlow === 'waiting_user' && copilotFlowData.userCode && (
+                    <div className="space-y-3">
+                      <div className="p-5 rounded-xl bg-zinc-900 text-center space-y-3">
+                        <p className="text-[10px] text-zinc-400 uppercase tracking-wider">在浏览器中输入以下验证码</p>
+                        <p className="text-3xl font-mono font-bold text-white tracking-[0.3em]">
+                          {copilotFlowData.userCode}
+                        </p>
+                        <a
+                          href={copilotFlowData.verificationUri}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1.5 text-[11px] text-sky-400 hover:text-sky-300 transition-colors"
+                        >
+                          <ExternalLink size={11} />
+                          {copilotFlowData.verificationUri}
+                        </a>
+                      </div>
+                      <div className="flex items-center gap-3 p-3 rounded-xl bg-sky-50 border border-sky-100">
+                        <Loader2 size={14} className="text-sky-500 animate-spin shrink-0" />
+                        <p className="text-[11px] text-sky-700">等待授权确认中，请在上方链接完成验证…</p>
+                      </div>
+                    </div>
+                  )}
+                </section>
+              )}
 
               {/* Feishu Webhook Section */}
               <section className="space-y-4">

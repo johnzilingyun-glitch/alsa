@@ -1,4 +1,4 @@
-import { Market, MarketOverview, StockAnalysis, AgentMessage, Scenario, Language, AgentRole } from "../types";
+import { Market, MarketOverview, StockAnalysis, AgentMessage, Scenario, Language, AgentRole, MultiRoundProgress, DataVerification, AgentDiscussion } from "../types";
 import { formatCommoditiesToMarkdown } from "./formatUtils";
 
 export const getMarketOverviewPrompt = (indicesData: any[], commoditiesData: any[], newsData: any[], sectorsData: any, northboundData: any, history: any[], beijingDate: string, now: Date, market: Market = "A-Share", language: Language = "en") => {
@@ -622,6 +622,48 @@ export const getChatReportPrompt = (stockName: string, chatHistory: { role: stri
     Please use a format friendly to Feishu cards: do not use #, >, - or other Markdown symbols. Use **bold text** and Emojis as headers. Each major block must be separated by '---'.
     Answer language: ${isChinese ? "Simplified Chinese" : "English"}.
 `.trim();
+};
+
+export const getJudgePrompt = (analysis: StockAnalysis, discussion: AgentDiscussion, language: Language = "en") => {
+  const isChinese = language === "zh-CN";
+  return `
+    You are the **Lead Professional Auditor (The Judge Agent)** for a high-end financial intelligence system.
+    Your mission is to perform a rigorous **Fact-Check and Logic Audit** on the expert deliberation results before they reach the user.
+
+    **TASKS (CRITICAL)**:
+    1. **Data Consistency Check**: Cross-examine the expert "messages" against the "GROUND TRUTH API DATA" (stockInfo, technicalIndicators, fundamentals).
+    2. **Identify Hallucinations**:
+       - Did anyone claim a price different from ${analysis.stockInfo.price}?
+       - Did anyone mention a support/resistance level that contradicts the Technical Indicators?
+       - Did anyone cite a news event that isn't in the provided news array (unless substantiated by a Google Search citation)?
+    3. **Detect Narrative Drift**: Check if experts are using qualitative adjectives (huge, massive) that are not supported by the quantitative exposure data (e.g., calling a 0.5% drop a "crash").
+    4. **Output Verification Array**: Create a JSON list of verified data points and flag discrepancies.
+
+    **GROUND TRUTH DATA (MANDATORY ALIGNMENT)**:
+    - Stock: ${analysis.stockInfo.name} (${analysis.stockInfo.symbol})
+    - Price: ${analysis.stockInfo.price} ${analysis.stockInfo.currency} (${analysis.stockInfo.changePercent}%)
+    - Indicators: ${JSON.stringify(analysis.technicalIndicators)}
+    - Fundamentals: ${JSON.stringify(analysis.fundamentals)}
+
+    **EXPERT DISCUSSION TO AUDIT**:
+    ${discussion.messages.map(m => `[${m.role}]: ${m.content.slice(0, 500)}...`).join('\n\n')}
+
+    **RETURN JSON FORMAT ONLY**:
+    {
+      "verificationResults": [
+        {
+          "subject": "Role Name or Metric",
+          "isVerified": boolean,
+          "finding": "Short explanation of verification or discrepancy",
+          "confidence": number, // 0-100
+          "severity": "low | medium | high | none"
+        }
+      ],
+      "overallCredibilityScore": number // 0-100
+    }
+
+    **LANGUAGE**: Response must be in ${isChinese ? "Simplified Chinese" : "English"}.
+  `.trim();
 };
 
 export const getDiscussionPrompt = (

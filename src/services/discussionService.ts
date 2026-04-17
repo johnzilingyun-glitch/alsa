@@ -1,5 +1,5 @@
 import { createAI, withRetry, generateContentWithUsage, GEMINI_MODEL, delay, generateAndParseJsonWithRetry, QuotaError } from "./geminiService";
-import { StockAnalysis, AgentMessage, AgentDiscussion, GeminiConfig, AnalysisLevel, AgentRole, ExpertOutput, Language } from "../types";
+import { StockAnalysis, AgentMessage, AgentDiscussion, GeminiConfig, AnalysisLevel, AgentRole, ExpertOutput, Language, MultiRoundProgress, DataVerification } from "../types";
 import { useConfigStore } from "../stores/useConfigStore";
 import { getCommoditiesData } from "./marketService";
 import { getPreviousStockAnalysis } from "./adminService";
@@ -13,6 +13,42 @@ import { normalizeCoreVariablesByPriority } from "./coreVariablePriority";
 import { reflectAndRemember, retrieveMemories, formatMemoryForPrompt } from "./reflectionService";
 import { generateQuantitativeBaseline } from "./quantitativeModeling";
 import { discoverIndustryAnchors } from "./discussion/anchorDiscovery";
+import { getJudgePrompt } from "./prompts";
+
+/**
+ * [PHASE 2 OPTIMIZATION] - THE JUDGE AGENT
+ * Cross-verifies expert messages against raw quantitative data.
+ */
+async function runJudgeAgent(
+  ai: any, 
+  analysis: StockAnalysis, 
+  discussion: AgentDiscussion, 
+  config?: GeminiConfig,
+  language: Language = "en"
+): Promise<DataVerification[]> {
+  try {
+    const prompt = getJudgePrompt(analysis, discussion, language);
+    const raw = await generateAndParseJsonWithRetry<any>(ai, {
+      model: config?.model || GEMINI_MODEL,
+      contents: prompt,
+    }, { 
+      responseMimeType: "application/json",
+      role: 'Professional Reviewer'
+    });
+
+    const results: any[] = raw.verificationResults || [];
+    return results.map(r => ({
+      source: r.subject,
+      isVerified: r.isVerified,
+      discrepancy: r.severity !== 'none' ? r.finding : undefined,
+      confidence: r.confidence,
+      lastChecked: new Date().toISOString()
+    }));
+  } catch (err) {
+    console.error("[JudgeAgent] Failed to audit discussion:", err);
+    return [];
+  }
+}
 
 /**
  * Compacts historical messages to reduce token usage in multi-round discussions.
@@ -64,12 +100,6 @@ const ITERATION_COUNT: Record<AnalysisLevel, number> = {
   deep: 1, // single pass through all 12 experts; iteration=2 exceeded free-tier 15 RPM
 };
 
-export interface MultiRoundProgress {
-  currentRound: number;
-  totalRounds: number;
-  currentExpert: string;
-  messages: AgentMessage[];
-}
 
 function hasQuantData(text: string): boolean {
   return /\d/.test(text);
@@ -160,6 +190,11 @@ export async function startMultiRoundDiscussion(
         totalRounds,
         currentExpert: role,
         messages: [...allMessages],
+        partialDiscussion: {
+          messages: [...allMessages],
+          coreVariables: Array.from(expertResults.values()).flatMap(r => r.structuredData?.coreVariables || []),
+          quantifiedRisks: Array.from(expertResults.values()).flatMap(r => r.structuredData?.quantifiedRisks || []),
+        }
       });
 
       // Optimization 1: Deterministic Pre-fill
@@ -386,6 +421,17 @@ export async function startMultiRoundDiscussion(
   }
 
   const multiRoundResult = aggregateResults(expertResults, backtest, allMessages, analysis);
+
+  // --- [PHASE 2 OPTIMIZATION]: Run Judge Agent ---
+  onProgress?.({
+    currentRound: totalRounds,
+    totalRounds,
+    currentExpert: language === 'zh-CN' ? '逻辑审计引擎' : 'Fact Check Auditor',
+    messages: [...allMessages],
+  });
+  const verificationResults = await runJudgeAgent(ai, analysis, multiRoundResult, config, language);
+  multiRoundResult.dataVerification = verificationResults;
+  // ----------------------------------------------
 
   // Final synthesis: use the standard discussion prompt with multi-round history
   // to generate complete dashboard data (expectedValueOutcome, dataVerification, etc.)

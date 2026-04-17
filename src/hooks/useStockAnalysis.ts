@@ -126,6 +126,11 @@ export function useStockAnalysis() {
               (progress) => {
                 setRoundProgress(progress.currentRound, progress.totalRounds);
                 setDiscussionMessages(progress.messages);
+                if (progress.partialDiscussion) {
+                  // [PHASE 3 OPTIMIZATION]: Incremental UI update
+                  setDiscussionStoreResults(progress.partialDiscussion as any);
+                  setScenarioResults(progress.partialDiscussion as any);
+                }
               },
               controller.signal,
             );

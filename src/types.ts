@@ -287,6 +287,14 @@ export interface AgentMessage {
   round?: number;
 }
 
+export interface MultiRoundProgress {
+  currentRound: number;
+  totalRounds: number;
+  currentExpert: string;
+  messages: AgentMessage[];
+  partialDiscussion?: Partial<AgentDiscussion>;
+}
+
 export interface Scenario {
   case: "Bull" | "Base" | "Stress";
   probability: number; // 0-100

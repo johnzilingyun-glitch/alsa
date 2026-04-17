@@ -21,6 +21,7 @@ const SettingsModal = lazy(() => import('./components/SettingsModal').then(m => 
 const HistoryModal = lazy(() => import('./components/HistoryModal').then(m => ({ default: m.HistoryModal })));
 const AnalysisResult = lazy(() => import('./components/analysis/AnalysisResult').then(m => ({ default: m.AnalysisResult })));
 const AdminPanel = lazy(() => import('./components/admin/AdminPanel').then(m => ({ default: m.AdminPanel })));
+const AnalysisLoadingPulse = lazy(() => import('./components/analysis/AnalysisLoadingPulse').then(m => ({ default: m.AnalysisLoadingPulse })));
 
 export default function App() {
   console.log('App is rendering');
@@ -194,6 +195,8 @@ export default function App() {
         <Suspense fallback={null}><SettingsModal /></Suspense>
 
         {showAdminPanel && <ErrorBoundary fallback="Admin panel encountered an error"><Suspense fallback={null}><AdminPanel /></Suspense></ErrorBoundary>}
+        
+        <Suspense fallback={null}><AnalysisLoadingPulse /></Suspense>
       </div>
 
       <DetailModal onSendHistoryToFeishu={handleSendHistoryToFeishu} />

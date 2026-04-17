@@ -12,6 +12,7 @@ interface DiscussionState {
   sensitivityMatrix: any[] | null;
   activeExperts: string[];
   currentStep?: 'grounding' | 'reasoning' | 'drafting' | 'reviewing' | 'auditing';
+  abortController: AbortController | null;
 
   setDiscussionMessages: (messages: AgentMessage[] | ((prev: AgentMessage[]) => AgentMessage[])) => void;
   setControversialPoints: (points: string[]) => void;

@@ -9,7 +9,16 @@ import { calculateQualityScore } from "./dataQualityService";
 import { StockAnalysisSchema, validateResponse } from "./schemas";
 import { detectDrift, enforceGroundTruth } from "./driftDetection";
 
-export async function analyzeStock(symbol: string, market: Market, config?: GeminiConfig): Promise<StockAnalysis> {
+export async function analyzeStock(
+  symbol: string, 
+  market: Market, 
+  config?: GeminiConfig,
+  onStatus?: (status: string) => void
+): Promise<StockAnalysis> {
+  const language = useConfigStore.getState().language;
+  const isChinese = language === 'zh-CN';
+
+  onStatus?.(isChinese ? "正在采集实时市场行情数据..." : "Extracting real-time market data...");
   const ai = createAI(config);
   const history = await getHistoryContext();
   const now = new Date();
@@ -26,13 +35,14 @@ export async function analyzeStock(symbol: string, market: Market, config?: Gemi
   const realtimeData = data.resolvedMarket ? data : data;
   const resolvedMarket = data.resolvedMarket || market;
 
-  const language = useConfigStore.getState().language;
+  onStatus?.(isChinese ? "正在同步全球大宗商品与宏观锚点..." : "Syncing global commodities & macro anchors...");
   const commoditiesData = await getCommoditiesData();
   
-  // Pre-fetch ticker-specific news to feed the AI context
+  onStatus?.(isChinese ? "正在合成新闻资讯与市场舆情..." : "Synthesizing market news & sentiment...");
   const newsRes = await fetch(`/api/stock/news?symbol=${encodeURIComponent(symbol)}&market=${market}`).catch(() => null);
   const newsData = newsRes && newsRes.ok ? await newsRes.json() : [];
 
+  onStatus?.(isChinese ? "深度研判引擎正在思考中..." : "Deep Reasoning Engine is thinking...");
   const prompt = getAnalyzeStockPrompt(symbol, resolvedMarket, realtimeData, commoditiesData, newsData, history, beijingDate, beijingShortDate, now, language);
 
   const raw = await generateAndParseJsonWithRetry<StockAnalysis>(
@@ -58,6 +68,7 @@ export async function analyzeStock(symbol: string, market: Market, config?: Gemi
     const { hasDrift, correctedData } = detectDrift(analysis, realtimeData, commoditiesData);
 
     if (hasDrift) {
+      onStatus?.(isChinese ? "检测到数据偏差，正在进行逻辑重构..." : "Drift detected. Re-reasoning logic...");
       const correctionPrompt = getCorrectionPrompt(analysis, correctedData, language);
       try {
         const correctedRaw = await generateAndParseJsonWithRetry<StockAnalysis>(
@@ -92,6 +103,7 @@ export async function analyzeStock(symbol: string, market: Market, config?: Gemi
   analysis.dataQuality = calculateQualityScore(analysis.stockInfo);
   analysis.stockInfo.dataQuality = analysis.dataQuality;
 
+  onStatus?.(isChinese ? "研报正在定稿..." : "Finalizing report...");
   analysis.id = `stock-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
   
   return analysis;

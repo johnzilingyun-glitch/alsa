@@ -29,6 +29,9 @@ interface UIState {
 
   // Config
   autoRefreshInterval: number;
+  analysisStatus: string;
+  analysisLogs: { message: string, timestamp: number }[];
+  setAnalysisStatus: (status: string) => void;
   analysisLevel: AnalysisLevel;
 
   // Activity setters (update enum)
@@ -78,10 +81,20 @@ export const useUIStore = create<UIState>()(
       reportStatus: 'idle',
       serviceStatus: 'available',
       autoRefreshInterval: 0,
+      analysisStatus: '',
+      analysisLogs: [],
+      setAnalysisStatus: (analysisStatus) => set((state) => {
+        if (!analysisStatus) return { analysisStatus };
+        return {
+          analysisStatus,
+          analysisLogs: [...state.analysisLogs, { message: analysisStatus, timestamp: Date.now() }]
+        };
+      }),
 
       // Activity setters - mutually exclusive via enum
       setLoading: (loading) => set((s) => ({
         analysisActivity: loading ? 'analyzing' : (s.analysisActivity === 'analyzing' ? 'idle' : s.analysisActivity),
+        analysisLogs: loading ? s.analysisLogs : [], // clear logs when done
       })),
       setIsChatting: (is) => set((s) => ({
         analysisActivity: is ? 'chatting' : (s.analysisActivity === 'chatting' ? 'idle' : s.analysisActivity),

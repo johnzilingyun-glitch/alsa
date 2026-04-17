@@ -799,12 +799,24 @@ export function getExpertPrompt(
     sections.push(`\n**[API数据] 大宗商品实时数据**: ${JSON.stringify(commoditiesData)}`);
   }
 
-  // Authoritative baseline for all experts
-  sections.push(`\n**权威API基准口径 (MANDATORY)**:`);
-  sections.push(`- 以下 [API数据] 是本轮讨论唯一优先口径，优先级高于 Google Search 与其他来源。`);
-  sections.push(`- 你的关键量化结论（价格、估值、增速、资金流、风险概率）必须先对齐 API 基准。`);
-  sections.push(`- 若搜索结果与 API 冲突（>1%），你必须保留 API 作为主口径，并额外说明冲突来源、时间与原因。`);
-  sections.push(`- 严禁直接用低优先级来源覆盖 API 数值。`);
+  // [PHASE 1 OPTIMIZATION] - STRICT_DATA_BOUNDS & ANCHORING
+  sections.push(isChinese 
+    ? `\n**数据锚定与防幻觉指令 (STRICT_DATA_BOUNDS)**:
+- **严禁编造数据**: 你获取的所有关键量化结论（价格、估值、增速、资金流、风险概率）必须**首选对齐**下方的 [API数据]。
+- **空值处理**: 如果 [API数据] 中缺失某个字段，且 Google Search 也没有返回今天的实时数据，你必须显式回答"该数据缺失"，绝对严禁基于往年记忆或逻辑进行臆测。
+- **锚定优先级**: 优先级顺序为：API基准 > 搜索结果解释。若两者冲突，以 API 为主口径。`
+    : `\n**DATA ANCHORING & ANTI-HALLUCINATION (STRICT_DATA_BOUNDS)**:
+- **NO DATA FABRICATION**: All quantitative conclusions (Price, Valuation, Growth, Capital Flow, Risk Probability) MUST be anchored to the [API DATA] below.
+- **NULL HANDLING**: If a metric is missing from the API and Google Search does not return real-time data for today, you MUST state "Data missing". Guessing or using historical training data memory is strictly prohibited.
+- **PRIORITY**: API Ground Truth > Search Explanation. If they conflict, the API value is absolute.`);
+
+  sections.push(isChinese
+    ? `\n**自信度分解与确定性逻辑 (CONVICTION_DECOMPOSITION)**:
+- **量化确定性**: 在你的分析结尾，必须给出你的"逻辑置信度" (0-100)。
+- **核心论据追溯**: 你的每一个关键判断，必须指明是基于 API 中的哪个数值，还是基于搜寻到的具体新闻证据。`
+    : `\n**CONVICTION DECOMPOSITION & CERTAINTY LOGIC**:
+- **QUANTIFIED CONFIDENCE**: At the end of your analysis, you must explicitly state your "Logic Confidence Score" (0-100).
+- **EVIDENCE TRACING**: Every critical judgment must specify whether it is based on a specific API value or a cited news source.`);
 
   // Cross-validation instructions
   sections.push(`\n**数据源追溯要求 (MANDATORY)**:

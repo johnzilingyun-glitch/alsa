@@ -1,8 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { startMultiRoundDiscussion } from '../../discussionService';
-import type { MultiRoundProgress } from '../../discussionService';
+import { StockAnalysis, MultiRoundProgress, AgentMessage } from '../../../types';
 import * as geminiService from '../../geminiService';
-import { StockAnalysis, AgentMessage } from '../../../types';
 
 // Mock geminiService
 vi.mock('../../geminiService', async () => {

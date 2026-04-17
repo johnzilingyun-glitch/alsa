@@ -5,6 +5,7 @@ import { useConfigStore } from '../stores/useConfigStore';
 import { useUIStore } from '../stores/useUIStore';
 import { fetchAvailableModelsList, type ModelInfo } from '../services/geminiService';
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 const AVAILABLE_MODELS = [
   { id: 'gemini-2.5-flash-lite', name: 'Gemini 2.5 Flash Lite (Unlimited)', description: '旗舰级速率，Paid 层级无限制 RPD，4000 RPM，适合极高频自动化分析。' },
@@ -27,6 +28,7 @@ const COPILOT_LOCAL_MODELS = [
 ];
 
 export function SettingsModal() {
+  const { t } = useTranslation();
   const { config, setConfig, tokenUsage, availableModels, setAvailableModels, feishuWebhookUrl, setFeishuWebhookUrl, debugMode, setDebugMode } = useConfigStore();
   const { isSettingsOpen, setIsSettingsOpen } = useUIStore();
   const [isFetchingModels, setIsFetchingModels] = useState(false);

@@ -9,6 +9,7 @@ interface SidebarSummaryProps {
 }
 
 export function SidebarSummary({ analysis }: SidebarSummaryProps) {
+  const { t } = useTranslation();
   const isNotRecommended = analysis.tradingPlan?.entryPrice?.includes('不推荐') || 
                           analysis.tradingPlan?.entryPrice?.includes('Not Recommended');
 

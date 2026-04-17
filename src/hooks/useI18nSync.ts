@@ -15,7 +15,7 @@ export function useI18nSync() {
   const { i18n } = useTranslation();
   const language = useConfigStore((state) => state.language);
   const { analysis, setAnalysis } = useAnalysisStore();
-  const { discussionMessages, setDiscussionMessages, setDiscussionState } = useDiscussionStore();
+  const { discussionMessages, setDiscussionMessages } = useDiscussionStore();
   
   // Track previous language to avoid re-translation on mount
   const prevLang = useRef(language);

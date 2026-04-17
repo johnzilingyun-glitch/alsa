@@ -24,7 +24,7 @@ const AdminPanel = lazy(() => import('./components/admin/AdminPanel').then(m => 
 
 export default function App() {
   console.log('App is rendering');
-  const { i18n } = useTranslation();
+  const { t, i18n } = useTranslation();
   const language = useConfigStore(s => s.language);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
 

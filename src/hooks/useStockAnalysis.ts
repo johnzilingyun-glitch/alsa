@@ -65,10 +65,16 @@ export function useStockAnalysis() {
     resetErrors();
 
     try {
+      const isCopilotMode = geminiConfig?.serviceMode === 'copilot_local';
+      const analysisTimeoutMs = isCopilotMode ? 160_000 : 35_000;
+      const timeoutMsg = isCopilotMode
+        ? '分析请求超时：Copilot CLI 推理超时（已等待 160 秒）。请检查 copilot login 状态，或切换到 Gemini (BYOK) 模式。'
+        : '分析请求超时：当前数据源可能不稳定。建议稍后重试，或切换到热门标的（如 600519/000001）验证链路是否恢复。';
+
       const result = await withTimeout(
         analyzeStock(symbol, market, geminiConfig),
-        35000,
-        '分析请求超时：当前数据源可能不稳定。建议稍后重试，或切换到热门标的（如 600519/000001）验证链路是否恢复。'
+        analysisTimeoutMs,
+        timeoutMsg
       );
       
       // Update global market state if backend resolved to a different market

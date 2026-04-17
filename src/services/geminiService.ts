@@ -26,11 +26,61 @@ export const DEFAULT_SAFETY_SETTINGS = [
 
 export const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-export function getApiKey(config?: { apiKey?: string }): string {
-  // Priority: 1. Explicit config → 2. Store (user-set) → 3. Env var
-  if (config?.apiKey) return config.apiKey;
-  const storeApiKey = useConfigStore.getState().config?.apiKey;
-  if (storeApiKey) return storeApiKey;
+type ServiceMode = 'byok' | 'managed_no_key' | 'copilot_local';
+
+function getServiceMode(config?: { serviceMode?: ServiceMode }): ServiceMode {
+  const storeConfig = useConfigStore.getState().config as any;
+  return config?.serviceMode || storeConfig?.serviceMode || 'byok';
+}
+
+function createCopilotBridgeClient(config?: { model?: string; serviceMode?: ServiceMode }) {
+  const fallbackModel = config?.model || 'gpt-4o-mini';
+  console.log('[CopilotBridge] Bridge client created with fallbackModel:', fallbackModel);
+  
+  return {
+    models: {
+      generateContent: async (params: any) => {
+        const requestedModel = params?.model || fallbackModel;
+        console.log('[CopilotBridge] generateContent called with model:', requestedModel);
+        console.log('[CopilotBridge] Request params length:', JSON.stringify(params).length, 'bytes');
+        
+        const startTime = Date.now();
+        const response = await fetch('/api/diagnostics/copilot/generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            params,
+            model: requestedModel,
+          }),
+        });
+
+        const elapsed = Date.now() - startTime;
+        console.log('[CopilotBridge] Response received in', elapsed, 'ms, status:', response.status);
+
+        const payload = await response.json().catch(() => ({}));
+        
+        if (!response.ok || !payload?.success) {
+          console.error('[CopilotBridge] ❌ Bridge error:', payload?.error || `HTTP ${response.status}`);
+          throw new Error(payload?.error || `Copilot bridge failed: HTTP ${response.status}`);
+        }
+
+        console.log('[CopilotBridge] ✅ Success via', payload?.via || 'unknown', 'using model:', payload?.model);
+        return payload.result;
+      },
+    },
+  };
+}
+
+export function getApiKey(config?: { apiKey?: string; serviceMode?: ServiceMode }): string {
+  const storeConfig = useConfigStore.getState().config as any;
+  const serviceMode = getServiceMode(config);
+
+  // BYOK: explicit key has highest priority.
+  if (serviceMode === 'byok') {
+    if (config?.apiKey) return config.apiKey;
+    const storeApiKey = storeConfig?.apiKey;
+    if (storeApiKey) return storeApiKey;
+  }
   
   const envKey = process.env.GEMINI_API_KEY;
   const viteKey = import.meta.env.VITE_GEMINI_API_KEY;
@@ -38,17 +88,30 @@ export function getApiKey(config?: { apiKey?: string }): string {
 
   if (!apiKey || apiKey.trim() === '') {
     console.error('[GeminiService] No API key found in config, store, or environment.', {
+      serviceMode,
       hasEnvKey: !!envKey,
       envKeyLength: envKey?.length,
       hasViteKey: !!viteKey,
       viteKeyLength: viteKey?.length
     });
+    if (serviceMode === 'managed_no_key') {
+      throw new Error('当前为免 Key 托管模式，但服务端未配置 GEMINI_API_KEY。请联系管理员配置服务端密钥，或切换回自定义 Key 模式。');
+    }
     throw new Error('未配置 Gemini API Key。请在设置中填写，或在 .env 文件中设置 GEMINI_API_KEY。');
   }
   return apiKey;
 }
 
 export function createAI(config?: { apiKey?: string }) {
+  const serviceMode = getServiceMode(config as any);
+  console.log('[GeminiService] createAI called with serviceMode:', serviceMode, 'config:', config);
+  
+  if (serviceMode === 'copilot_local') {
+    console.log('[GeminiService] ✅ Using Copilot local bridge mode');
+    return createCopilotBridgeClient(config as any);
+  }
+
+  console.log('[GeminiService] Using Gemini API mode');
   const apiKey = getApiKey(config);
   return new GoogleGenAI({ apiKey });
 }
@@ -157,7 +220,6 @@ export async function generateAndParseJsonWithRetry<T>(
   const { dailyTokenBudget, tokenUsage } = useConfigStore.getState();
   if (dailyTokenBudget > 0 && tokenUsage.dailyTotal >= dailyTokenBudget) {
     const pct = Math.round((tokenUsage.dailyTotal / dailyTokenBudget) * 100);
-    useConfigStore.getState().addTokenUsage({ dailyTotal: tokenUsage.dailyTotal }); // Sync back for safe persistence
     useUIStore.getState().setServiceStatus('quota_exhausted');
     throw new QuotaError(
       `今日 Token 用量已达预算上限 (${tokenUsage.dailyTotal.toLocaleString()} / ${dailyTokenBudget.toLocaleString()}, ${pct}%)。` +
@@ -798,6 +860,66 @@ export interface ModelInfo {
 }
 
 export async function fetchAvailableModelsList(config?: any): Promise<ModelInfo[]> {
+  const serviceMode = getServiceMode(config);
+  if (serviceMode === 'copilot_local') {
+    return [
+      {
+        id: 'copilot_auto',
+        name: 'Copilot Auto (Recommended)',
+        description: '自动轮询本地 Copilot 模型可用性（无需在设置中填写 Gemini Key）。',
+        status: 'available',
+      },
+      {
+        id: 'gpt-5',
+        name: 'Copilot Local Bridge (GPT 5.4 alias -> gpt-5)',
+        description: '新一代高性能候选模型。',
+        status: 'available',
+      },
+      {
+        id: 'gpt-5-mini',
+        name: 'Copilot Local Bridge (GPT 5.4 Mini alias -> gpt-5-mini)',
+        description: '更快的 GPT-5 轻量候选。',
+        status: 'available',
+      },
+      {
+        id: 'claude-opus-4-1',
+        name: 'Copilot Local Bridge (Claude Ops 4.6 alias -> claude-opus-4-1)',
+        description: '按用户别名映射的 Claude 高性能候选。',
+        status: 'available',
+      },
+      {
+        id: 'claude-sonnet-4',
+        name: 'Copilot Local Bridge (claude-sonnet-4)',
+        description: '均衡速度与质量候选。',
+        status: 'available',
+      },
+      {
+        id: 'gpt-4.1-mini',
+        name: 'Copilot Local Bridge (gpt-4.1-mini)',
+        description: '速度与质量平衡的默认候选。',
+        status: 'available',
+      },
+      {
+        id: 'gpt-4o-mini',
+        name: 'Copilot Local Bridge (gpt-4o-mini)',
+        description: '高性价比候选。实际可用性取决于本机 GitHub 登录态与配额。',
+        status: 'available',
+      },
+      {
+        id: 'o4-mini',
+        name: 'Copilot Local Bridge (o4-mini)',
+        description: '推理型候选模型。',
+        status: 'available',
+      },
+      {
+        id: 'gpt-4.1',
+        name: 'Copilot Local Bridge (gpt-4.1)',
+        description: '更强推理能力，响应可能更慢。',
+        status: 'available',
+      },
+    ];
+  }
+
   const apiKey = getApiKey(config);
   
   const modelsToCheck = [

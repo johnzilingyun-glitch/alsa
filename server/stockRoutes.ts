@@ -21,6 +21,105 @@ function getCached(key: string) {
 function setCache(key: string, data: any) {
   apiCache.set(key, { data, timestamp: Date.now() });
 }
+
+async function fetchJsonWithTimeout(url: string, timeoutMs = 8000): Promise<any> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, { signal: controller.signal });
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status} for ${url}`);
+    }
+    return await response.json();
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function fetchAShareSpotFallbackFromSina(symbol: string): Promise<any | null> {
+  const sinaCode = symbol.startsWith('6') ? `sh${symbol}` : `sz${symbol}`;
+  const url = `https://hq.sinajs.cn/list=${sinaCode}`;
+  const response = await fetch(url, {
+    headers: { Referer: 'https://finance.sina.com.cn' }
+  });
+  const text = await response.text();
+  const match = text.match(/="([^"]*)"/);
+  if (!match?.[1]) return null;
+
+  const parts = match[1].split(',');
+  if (parts.length < 10) return null;
+
+  const name = parts[0] || symbol;
+  const open = Number(parts[1]);
+  const prevClose = Number(parts[2]);
+  const price = Number(parts[3]);
+  const high = Number(parts[4]);
+  const low = Number(parts[5]);
+  const volume = Number(parts[8]);
+
+  if (!Number.isFinite(price)) return null;
+
+  const change = Number.isFinite(prevClose) ? (price - prevClose) : 0;
+  const changePercent = Number.isFinite(prevClose) && prevClose !== 0 ? (change / prevClose) * 100 : 0;
+
+  return {
+    symbol,
+    shortName: name,
+    regularMarketPrice: price,
+    regularMarketChange: change,
+    regularMarketChangePercent: changePercent,
+    regularMarketPreviousClose: Number.isFinite(prevClose) ? prevClose : undefined,
+    regularMarketOpen: Number.isFinite(open) ? open : undefined,
+    regularMarketDayHigh: Number.isFinite(high) ? high : undefined,
+    regularMarketDayLow: Number.isFinite(low) ? low : undefined,
+    regularMarketVolume: Number.isFinite(volume) ? volume : undefined,
+    currency: 'CNY',
+    fullExchangeName: 'CN',
+    marketState: 'REGULAR',
+    source: 'Sina Finance (Fallback)',
+  };
+}
+
+async function fetchSectorFlowFromEastMoneyFallback(): Promise<{ topInflows: any[]; topOutflows: any[] } | null> {
+  const url = 'https://push2.eastmoney.com/api/qt/clist/get?pn=1&pz=10&po=1&np=1&ut=b2884a393a59ad64002292a3e90d46a5&fltt=2&invt=2&fid=f62&fs=m:90+t:2&fields=f12,f14,f2,f3,f62,f184';
+  const data = await fetchJsonWithTimeout(url, 7000);
+  const diff = data?.data?.diff;
+  if (!Array.isArray(diff) || diff.length === 0) return null;
+
+  const items = diff.map((item: any) => ({
+    行业: item.f14,
+    最新价: item.f2,
+    涨跌幅: item.f3,
+    '主力净流入-净额': item.f62,
+    '主力净流入-净占比': item.f184,
+  }));
+
+  const sorted = items.sort((a: any, b: any) => (Number(b['主力净流入-净额']) || 0) - (Number(a['主力净流入-净额']) || 0));
+  return {
+    topInflows: sorted.slice(0, 5),
+    topOutflows: sorted.slice(-3).reverse(),
+  };
+}
+
+async function fetchNorthboundFromEastMoneyFallback(): Promise<any[] | null> {
+  const url = 'https://push2.eastmoney.com/api/qt/kamt.rtmin/get?fields1=f1,f2,f3,f4&fields2=f51,f52,f54,f58,f56&ut=b2884a393a59ad64002292a3e90d46a5';
+  const data = await fetchJsonWithTimeout(url, 7000);
+  const s2n = data?.data?.s2n;
+  if (!Array.isArray(s2n) || s2n.length === 0) return null;
+
+  const latest = String(s2n[s2n.length - 1] || '');
+  const parts = latest.split(',');
+  if (parts.length < 3) return null;
+
+  const sh = Number(parts[1]) || 0;
+  const sz = Number(parts[2]) || 0;
+  return [{
+    时间: parts[0] || '',
+    沪股通净流入: sh,
+    深股通净流入: sz,
+    北向资金净流入: sh + sz,
+  }];
+}
 // -----------------------------
 
 // Market Indices
@@ -326,9 +425,7 @@ router.get('/stock/sectors', async (req, res) => {
   if (cached) return res.json(cached);
 
   try {
-    const response = await fetch('http://127.0.0.1:8000/api/market/sector_flow');
-    if (!response.ok) throw new Error(`Python service failed: ${response.status}`);
-    const data = await response.json();
+    const data = await fetchJsonWithTimeout('http://127.0.0.1:8000/api/market/sector_flow', 7000);
     
     if (data.success && data.data) {
       setCache(cacheKey, data.data);
@@ -336,6 +433,11 @@ router.get('/stock/sectors', async (req, res) => {
     }
   } catch (error) {
     console.warn('Sector flow fetch error (is Python backend running?):', error);
+    const fallback = await fetchSectorFlowFromEastMoneyFallback().catch(() => null);
+    if (fallback) {
+      setCache(cacheKey, fallback);
+      return res.json(fallback);
+    }
     res.json({ topInflows: [], topOutflows: [] });
   }
 });
@@ -347,9 +449,7 @@ router.get('/stock/northbound', async (req, res) => {
   if (cached) return res.json(cached);
 
   try {
-    const response = await fetch('http://127.0.0.1:8000/api/market/northbound');
-    if (!response.ok) throw new Error(`Python service failed: ${response.status}`);
-    const data = await response.json();
+    const data = await fetchJsonWithTimeout('http://127.0.0.1:8000/api/market/northbound', 7000);
     
     if (data.success && data.data) {
       setCache(cacheKey, data.data);
@@ -357,6 +457,11 @@ router.get('/stock/northbound', async (req, res) => {
     }
   } catch (error) {
     console.warn('Northbound flow fetch error (is Python backend running?):', error);
+    const fallback = await fetchNorthboundFromEastMoneyFallback().catch(() => null);
+    if (fallback) {
+      setCache(cacheKey, fallback);
+      return res.json(fallback);
+    }
     res.json([]);
   }
 });
@@ -537,10 +642,10 @@ router.get('/stock/realtime', async (req, res) => {
     if (resolution.market === 'A-Share' && /^\d{6}$/.test(resolution.symbol)) {
       try {
         const [spotRes, histRes, valRes, techRes] = await Promise.all([
-          fetch(`http://127.0.0.1:8000/api/stock/a_spot?symbol=${resolution.symbol}`).then(r => r.json()),
-          fetch(`http://127.0.0.1:8000/api/stock/a_history?symbol=${resolution.symbol}`).then(r => r.json()),
-          fetch(`http://127.0.0.1:8000/api/stock/a_valuation?symbol=${resolution.symbol}`).then(r => r.json()),
-          fetch(`http://127.0.0.1:8000/api/technicals/${resolution.symbol}`).then(r => r.json()).catch(() => ({ success: false }))
+          fetchJsonWithTimeout(`http://127.0.0.1:8000/api/stock/a_spot?symbol=${resolution.symbol}`, 7000).catch(() => ({ success: false })),
+          fetchJsonWithTimeout(`http://127.0.0.1:8000/api/stock/a_history?symbol=${resolution.symbol}`, 9000).catch(() => ({ success: false })),
+          fetchJsonWithTimeout(`http://127.0.0.1:8000/api/stock/a_valuation?symbol=${resolution.symbol}`, 7000).catch(() => ({ success: false })),
+          fetchJsonWithTimeout(`http://127.0.0.1:8000/api/technicals/${resolution.symbol}`, 9000).catch(() => ({ success: false }))
         ]);
 
         if (spotRes.success && spotRes.data) {
@@ -607,6 +712,15 @@ router.get('/stock/realtime', async (req, res) => {
             maxPositionLimit: volLimit.limit,
             volatilityRegime: volLimit.regime
           };
+        }
+
+        // Backup API: if AkShare spot fails, fallback to Sina quote to avoid infinite loading UX.
+        if (!result) {
+          const fallbackSpot = await fetchAShareSpotFallbackFromSina(resolution.symbol).catch(() => null);
+          if (fallbackSpot) {
+            result = fallbackSpot;
+            source = fallbackSpot.source;
+          }
         }
       } catch (e) {
         logDebug('AkShare Fetch failed', e instanceof Error ? e.message : String(e));

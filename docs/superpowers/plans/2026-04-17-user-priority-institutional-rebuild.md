@@ -2,17 +2,31 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Rebuild the current AI financial analysis app into an institutional-grade platform by prioritizing the highest-frequency user journeys first: stock lookup, trustworthy analysis, history replay, tracking, and post-trade review.
+**Goal:** Rebuild the current AI financial analysis app into an institutional-grade platform using a validated Python-first backend data stack while preserving the highest-value user flows first.
 
-**Architecture:** Keep the current React + Express + FastAPI split, but move the system from client-led orchestration to server-led orchestration. All analysis must be generated from immutable market-data snapshots, all LLM access must terminate at the backend, and all user-facing workflows must persist to a database instead of local JSON or browser-only state.
+**Architecture:** Use FastAPI as the backend control plane. Store transactional metadata in SQLite, historical market data in Parquet, analytical reads in DuckDB, indicators/factors in Polars, and semantic retrieval in LanceDB. Keep the existing Node layer only as a frontend shell and migration proxy.
 
-**Tech Stack:** React 19, TypeScript, Zustand, Express, FastAPI, Zod, PostgreSQL, Redis, BullMQ-style job queue, Vitest, Testing Library
+**Tech Stack:** React 19, TypeScript, Zustand, FastAPI, Pydantic, SQLite, SQLModel/SQLAlchemy, Parquet, DuckDB, Polars, LanceDB, Express proxy, Pytest, Vitest
 
 ---
 
 ## Scope Check
 
-This is a master rebuild plan because the user requested one institution-grade document organized by real user workflow priority. Execution should still happen in phases, with each phase shipping a usable slice:
+The backend stack is now explicitly validated as:
+
+| Component | Role | Decision |
+| --- | --- | --- |
+| FastAPI | 调度中心 / API 中枢 | Adopt |
+| SQLite | 业务元数据 / ACID | Adopt |
+| Parquet | 原始 OHLC / 快照仓 | Adopt |
+| DuckDB | Parquet SQL 分析 | Adopt |
+| Polars | 指标 / 因子计算 | Adopt |
+| LanceDB | 研报 / 新闻语义检索 | Adopt |
+| Express | 前端外壳 / 兼容代理 | Keep temporarily |
+
+This stack is the preferred target for the next stage because the current project is still a single-node analytical product, not a multi-service SaaS. Do not reintroduce PostgreSQL/Redis/BullMQ in this phase unless the stack above demonstrably fails.
+
+## User-Priority Ordering
 
 1. `查股票 -> 看分析`
 2. `回看历史 -> 导出/分享`
@@ -20,79 +34,56 @@ This is a master rebuild plan because the user requested one institution-grade d
 4. `记决策 -> 做复盘`
 5. `运营治理 -> PromptOps -> 审计`
 
-## User-Priority Ordering
+## Core Architecture Rules
 
-### P0: Daily core journey
+1. FastAPI owns new backend workflows.
+2. SQLite stores only metadata, settings, secrets, watchlist, journal, jobs, and prompt metrics.
+3. OHLC and snapshot history never live in SQLite blobs; they live in Parquet.
+4. DuckDB queries Parquet; it does not replace SQLite.
+5. Polars computes indicators and factors; frontend math must be removed.
+6. LanceDB stores chunked, versioned research/news embeddings only.
+7. API keys stored in SQLite must be encrypted before persistence.
 
-1. Stock lookup and real-time quote accuracy
-2. Single-stock AI analysis reliability
-3. Multi-expert discussion consistency
-4. History replay correctness
-5. Report export and delivery
-
-### P1: Retention journey
-
-1. Watchlist
-2. Alerting and rescan
-3. Daily market report
-
-### P2: Institutional maturity
-
-1. Decision journal and review loop
-2. Prompt governance and evaluation
-3. Audit trail, diagnostics control, compliance guardrails
-
-## Target File Structure
+## File Structure
 
 ### Existing files to modify
 
 - Modify: `server.ts`
-- Modify: `server/debugRoutes.ts`
 - Modify: `server/historyRoutes.ts`
-- Modify: `server/stockRoutes.ts`
-- Modify: `server/llmGateway.ts`
+- Modify: `server/debugRoutes.ts`
 - Modify: `python_service/main.py`
+- Modify: `python_service/technicals.py`
 - Modify: `src/App.tsx`
 - Modify: `src/services/analysisService.ts`
 - Modify: `src/services/discussionService.ts`
-- Modify: `src/services/geminiService.ts`
 - Modify: `src/services/marketService.ts`
-- Modify: `src/services/llmProvider.ts`
-- Modify: `src/services/promptRegistry.ts`
-- Modify: `src/services/promptRegistration.ts`
 - Modify: `src/stores/useConfigStore.ts`
 - Modify: `src/stores/useWatchlistStore.ts`
 - Modify: `src/stores/useDecisionStore.ts`
-- Modify: `src/components/admin/AdminPanel.tsx`
-- Modify: `package.json`
-- Modify: `.env.example`
 - Modify: `README.md`
+- Modify: `.env.example`
 
 ### New backend files
 
-- Create: `server/db/client.ts`
-- Create: `server/db/migrations/2026-04-17-001_user_priority_core.sql`
-- Create: `server/domain/analysis/analysisSnapshot.ts`
-- Create: `server/domain/watchlist/watchlistItem.ts`
-- Create: `server/domain/journal/decisionEntry.ts`
-- Create: `server/providers/market/providerTypes.ts`
-- Create: `server/providers/market/yahooProvider.ts`
-- Create: `server/providers/market/akshareProxyProvider.ts`
-- Create: `server/providers/market/fallbackProvider.ts`
-- Create: `server/services/marketSnapshotService.ts`
-- Create: `server/services/analysisJobService.ts`
-- Create: `server/services/reportDeliveryService.ts`
-- Create: `server/services/promptMetricsService.ts`
-- Create: `server/services/auditService.ts`
-- Create: `server/repositories/analysisRepository.ts`
-- Create: `server/repositories/watchlistRepository.ts`
-- Create: `server/repositories/decisionRepository.ts`
-- Create: `server/routes/analysisRoutes.ts`
-- Create: `server/routes/watchlistRoutes.ts`
-- Create: `server/routes/journalRoutes.ts`
-- Create: `server/routes/adminRoutes.ts`
-- Create: `server/jobs/analysisWorker.ts`
-- Create: `server/jobs/watchlistScanWorker.ts`
+- Create: `python_service/app/api/router.py`
+- Create: `python_service/app/api/analysis.py`
+- Create: `python_service/app/api/market.py`
+- Create: `python_service/app/api/watchlist.py`
+- Create: `python_service/app/api/journal.py`
+- Create: `python_service/app/api/admin.py`
+- Create: `python_service/app/core/config.py`
+- Create: `python_service/app/db/sqlite.py`
+- Create: `python_service/app/db/models.py`
+- Create: `python_service/app/db/repositories/watchlist_repo.py`
+- Create: `python_service/app/db/repositories/journal_repo.py`
+- Create: `python_service/app/db/repositories/job_repo.py`
+- Create: `python_service/app/lake/parquet_store.py`
+- Create: `python_service/app/lake/duckdb_engine.py`
+- Create: `python_service/app/quant/polars_indicators.py`
+- Create: `python_service/app/vector/lancedb_store.py`
+- Create: `python_service/app/services/market_snapshot_service.py`
+- Create: `python_service/app/services/analysis_job_service.py`
+- Create: `python_service/app/services/watchlist_scan_service.py`
 
 ### New frontend files
 
@@ -105,407 +96,364 @@ This is a master rebuild plan because the user requested one institution-grade d
 
 ### New tests
 
-- Create: `server/__tests__/analysisRepository.test.ts`
-- Create: `server/__tests__/analysisRoutes.test.ts`
-- Create: `server/__tests__/marketSnapshotService.test.ts`
-- Create: `server/__tests__/watchlistRoutes.test.ts`
-- Create: `server/__tests__/journalRoutes.test.ts`
-- Create: `server/__tests__/adminRoutes.test.ts`
+- Create: `python_service/tests/test_analysis_api.py`
+- Create: `python_service/tests/test_sqlite_repositories.py`
+- Create: `python_service/tests/test_parquet_duckdb_pipeline.py`
+- Create: `python_service/tests/test_polars_indicators.py`
+- Create: `python_service/tests/test_lancedb_retrieval.py`
+- Create: `python_service/tests/test_watchlist_journal_api.py`
+- Create: `python_service/tests/test_admin_api.py`
 - Create: `src/components/__tests__/HistoryReplay.test.tsx`
 - Create: `src/services/__tests__/analysisClient.test.ts`
-- Create: `src/services/__tests__/promptMetrics.test.ts`
 
-## Architecture Decisions
-
-1. Every analysis run gets a server-generated `analysis_id`, immutable input snapshot, model metadata, prompt version, and audit record.
-2. The browser can choose a service mode, but it cannot send or persist raw provider keys for production execution.
-3. `watchlist` and `decision journal` move from browser-only Zustand state into backend persistence, with Zustand becoming a cache, not the source of truth.
-4. `historyRoutes.ts` becomes a compatibility layer during migration, then hands off to repository-backed storage.
-5. Debug and diagnostics endpoints become admin-only and disabled by default in production.
-
-## Delivery Phases
-
-### Phase A: Trustworthy core analysis
-
-- Server-side LLM gateway
-- Canonical market snapshot
-- Async analysis jobs
-- Reliable history replay
-
-### Phase B: Retention workflows
-
-- Watchlist
-- Alert scan
-- Report delivery
-
-### Phase C: Institutional governance
-
-- Decision journal
-- PromptOps
-- Audit/compliance/admin
-
-### Task 1: Build the Institutional Persistence Baseline
+### Task 1: Make FastAPI the Control Plane
 
 **Files:**
-- Create: `server/db/client.ts`
-- Create: `server/db/migrations/2026-04-17-001_user_priority_core.sql`
-- Create: `server/domain/analysis/analysisSnapshot.ts`
-- Create: `server/repositories/analysisRepository.ts`
-- Test: `server/__tests__/analysisRepository.test.ts`
-- Modify: `package.json`
+- Create: `python_service/app/api/router.py`
+- Create: `python_service/app/api/analysis.py`
+- Create: `python_service/app/api/market.py`
+- Modify: `python_service/main.py`
+- Modify: `server.ts`
+- Test: `python_service/tests/test_analysis_api.py`
+
+- [ ] **Step 1: Write the failing FastAPI job test**
+
+```python
+from fastapi.testclient import TestClient
+from python_service.main import app
+
+def test_create_analysis_job():
+    client = TestClient(app)
+    resp = client.post("/api/analysis/jobs", json={"symbol": "600519", "market": "A-Share", "level": "standard"})
+    assert resp.status_code == 202
+    assert resp.json()["job_id"].startswith("job_")
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `pytest python_service/tests/test_analysis_api.py -q`
+Expected: FAIL with missing route
+
+- [ ] **Step 3: Implement FastAPI routes and Node proxy**
+
+```python
+class AnalysisJobCreate(BaseModel):
+    symbol: str
+    market: str
+    level: str
+
+router = APIRouter(prefix="/api/analysis", tags=["analysis"])
+
+@router.post("/jobs", status_code=202)
+async def create_job(payload: AnalysisJobCreate):
+    return {"job_id": f"job_{payload.symbol}", "status": "queued"}
+```
+
+```python
+app = FastAPI(title="ALSA Backend")
+app.include_router(api_router)
+```
+
+```ts
+app.use('/api', createProxyMiddleware({ target: 'http://127.0.0.1:8000', changeOrigin: true }));
+```
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `pytest python_service/tests/test_analysis_api.py -q`
+Expected: PASS
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add python_service/main.py python_service/app/api server.ts python_service/tests/test_analysis_api.py
+git commit -m "feat: make fastapi the backend control plane"
+```
+
+### Task 2: Build SQLite as the Business Brain
+
+**Files:**
+- Create: `python_service/app/core/config.py`
+- Create: `python_service/app/db/sqlite.py`
+- Create: `python_service/app/db/models.py`
+- Create: `python_service/app/db/repositories/watchlist_repo.py`
+- Create: `python_service/app/db/repositories/journal_repo.py`
+- Create: `python_service/app/db/repositories/job_repo.py`
+- Test: `python_service/tests/test_sqlite_repositories.py`
+- Modify: `.env.example`
 
 - [ ] **Step 1: Write the failing repository test**
 
-```ts
-import { describe, expect, it } from 'vitest';
-import { createAnalysisRepository } from '../repositories/analysisRepository';
+```python
+from python_service.app.db.sqlite import build_session_factory
+from python_service.app.db.repositories.watchlist_repo import WatchlistRepository
 
-describe('analysisRepository', () => {
-  it('stores immutable snapshots and returns the latest stock analysis by symbol', async () => {
-    const repo = createAnalysisRepository();
-
-    await repo.save({
-      analysisId: 'ana_001',
-      kind: 'stock',
-      symbol: '600519',
-      market: 'A-Share',
-      inputSnapshot: { quote: { price: 1688.0 } },
-      outputPayload: { summary: 'valid payload' },
-      promptVersion: 'stock-analysis-v2',
-      model: 'gpt-5.4',
-    });
-
-    const latest = await repo.getLatestStockAnalysis('600519', 'A-Share');
-    expect(latest?.analysisId).toBe('ana_001');
-    expect(latest?.inputSnapshot.quote.price).toBe(1688.0);
-  });
-});
+def test_watchlist_repo_persists_item(tmp_path):
+    repo = WatchlistRepository(build_session_factory(tmp_path / "app.db"))
+    repo.create(symbol="600519", name="贵州茅台", market="A-Share")
+    items = repo.list_items()
+    assert len(items) == 1
+    assert items[0].symbol == "600519"
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `npm test -- server/__tests__/analysisRepository.test.ts`
-Expected: FAIL with `Cannot find module '../repositories/analysisRepository'`
+Run: `pytest python_service/tests/test_sqlite_repositories.py -q`
+Expected: FAIL with missing repository/session factory
 
-- [ ] **Step 3: Write the migration, domain model, and repository**
+- [ ] **Step 3: Implement SQLite models and repos**
 
-```sql
-create table analysis_runs (
-  analysis_id text primary key,
-  kind text not null,
-  symbol text,
-  market text,
-  status text not null default 'completed',
-  prompt_version text not null,
-  model text not null,
-  input_snapshot jsonb not null,
-  output_payload jsonb not null,
-  created_at timestamptz not null default now()
-);
-
-create index analysis_runs_symbol_market_created_idx
-  on analysis_runs(symbol, market, created_at desc);
+```python
+class WatchlistItem(SQLModel, table=True):
+    id: int | None = Field(default=None, primary_key=True)
+    symbol: str
+    name: str
+    market: str
 ```
 
-```ts
-export interface AnalysisRunRecord {
-  analysisId: string;
-  kind: 'stock' | 'market';
-  symbol?: string;
-  market?: string;
-  status?: 'queued' | 'running' | 'completed' | 'failed';
-  promptVersion: string;
-  model: string;
-  inputSnapshot: Record<string, unknown>;
-  outputPayload: Record<string, unknown>;
-  createdAt?: string;
-}
+```python
+class Settings(BaseSettings):
+    sqlite_path: str = "python_service/data/app.db"
+    admin_token: str = "change-me"
+    secret_encryption_key: str = "change-me"
+
+settings = Settings()
 ```
 
-```ts
-export function createAnalysisRepository() {
-  const memory = new Map<string, AnalysisRunRecord>();
+```python
+def build_session_factory(db_path):
+    engine = create_engine(f"sqlite:///{db_path}", connect_args={"check_same_thread": False})
+    SQLModel.metadata.create_all(engine)
+    return lambda: Session(engine)
+```
 
-  return {
-    async save(record: AnalysisRunRecord) {
-      memory.set(record.analysisId, record);
-    },
-    async getLatestStockAnalysis(symbol: string, market: string) {
-      return [...memory.values()]
-        .filter(item => item.kind === 'stock' && item.symbol === symbol && item.market === market)
-        .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''))[0] ?? null;
-    },
-  };
-}
+```env
+SQLITE_PATH=python_service/data/app.db
+SECRET_ENCRYPTION_KEY=change-me
 ```
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `npm test -- server/__tests__/analysisRepository.test.ts`
-Expected: PASS with `1 passed`
+Run: `pytest python_service/tests/test_sqlite_repositories.py -q`
+Expected: PASS
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add package.json server/db server/domain/analysis server/repositories server/__tests__/analysisRepository.test.ts
-git commit -m "feat: add institutional analysis persistence baseline"
+git add python_service/app/db python_service/tests/test_sqlite_repositories.py .env.example
+git commit -m "feat: add sqlite business metadata layer"
 ```
 
-### Task 2: Move LLM Execution Fully Behind the Backend Boundary
+### Task 3: Build the Parquet + DuckDB Market Lake
 
 **Files:**
-- Modify: `server/llmGateway.ts`
-- Create: `server/routes/analysisRoutes.ts`
-- Modify: `server.ts`
-- Modify: `src/services/geminiService.ts`
-- Modify: `src/services/llmProvider.ts`
-- Modify: `src/stores/useConfigStore.ts`
-- Test: `server/__tests__/analysisRoutes.test.ts`
+- Create: `python_service/app/lake/parquet_store.py`
+- Create: `python_service/app/lake/duckdb_engine.py`
+- Create: `python_service/app/services/market_snapshot_service.py`
+- Modify: `python_service/app/api/market.py`
+- Test: `python_service/tests/test_parquet_duckdb_pipeline.py`
 
-- [ ] **Step 1: Write the failing route test**
+- [ ] **Step 1: Write the failing pipeline test**
 
-```ts
-import { describe, expect, it } from 'vitest';
-import request from 'supertest';
-import { buildAnalysisApp } from '../routes/analysisRoutes';
+```python
+from python_service.app.lake.parquet_store import ParquetMarketStore
+from python_service.app.lake.duckdb_engine import DuckDBMarketQuery
 
-describe('analysis routes', () => {
-  it('rejects browser-supplied raw api keys and creates a server-owned job', async () => {
-    const app = buildAnalysisApp();
-
-    const response = await request(app)
-      .post('/api/analysis/jobs')
-      .send({
-        symbol: '600519',
-        market: 'A-Share',
-        apiKey: 'should-not-be-accepted',
-      });
-
-    expect(response.status).toBe(202);
-    expect(response.body.jobId).toMatch(/^job_/);
-    expect(response.body.acceptedClientSecrets).toBe(false);
-  });
-});
+def test_parquet_and_duckdb_round_trip(tmp_path):
+    store = ParquetMarketStore(tmp_path / "lake")
+    store.write_ohlc("ohlc", "A-Share", "600519", [{"trade_date": "2026-04-16", "close": 1698, "volume": 15678}])
+    row = DuckDBMarketQuery().latest_close(store.glob_path("ohlc", "A-Share", "600519"))
+    assert row["close"] == 1698
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `npm test -- server/__tests__/analysisRoutes.test.ts`
-Expected: FAIL with missing `buildAnalysisApp` or missing `/api/analysis/jobs`
+Run: `pytest python_service/tests/test_parquet_duckdb_pipeline.py -q`
+Expected: FAIL with missing Parquet store or query engine
 
-- [ ] **Step 3: Implement the server-owned analysis job entrypoint**
+- [ ] **Step 3: Implement Parquet partitioning and DuckDB query layer**
 
-```ts
-router.post('/api/analysis/jobs', async (req, res) => {
-  const { symbol, market, serviceMode, model } = req.body;
-
-  const job = await analysisJobService.enqueue({
-    symbol,
-    market,
-    serviceMode,
-    model,
-    acceptedClientSecrets: false,
-  });
-
-  res.status(202).json({
-    jobId: job.jobId,
-    status: 'queued',
-    acceptedClientSecrets: false,
-  });
-});
+```python
+class ParquetMarketStore:
+    def write_ohlc(self, dataset, market, symbol, rows):
+        frame = pl.DataFrame(rows)
+        target = self.root / dataset / f"market={market}" / "year=2026" / f"symbol={symbol}"
+        target.mkdir(parents=True, exist_ok=True)
+        frame.write_parquet(target / "part-000.parquet")
 ```
 
-```ts
-export function getApiKey() {
-  throw new Error('Client-side direct provider execution is disabled after institutional rebuild.');
-}
-```
-
-```ts
-setConfig: (config) => {
-  const sanitized = { ...config, apiKey: undefined };
-  localStorage.setItem('gemini_config', JSON.stringify(sanitized));
-  set({ geminiConfig: sanitized, config: sanitized });
-},
-```
-
-- [ ] **Step 4: Run test and targeted regression checks**
-
-Run: `npm test -- server/__tests__/analysisRoutes.test.ts src/services/geminiService.test.ts src/services/geminiService.ts`
-Expected: route test PASS, existing Gemini tests updated to assert backend-only execution path
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add server/llmGateway.ts server/routes/analysisRoutes.ts server.ts src/services/geminiService.ts src/services/llmProvider.ts src/stores/useConfigStore.ts server/__tests__/analysisRoutes.test.ts
-git commit -m "refactor: move llm execution behind backend analysis jobs"
-```
-
-### Task 3: Standardize Market Data into Immutable Analysis Snapshots
-
-**Files:**
-- Create: `server/providers/market/providerTypes.ts`
-- Create: `server/providers/market/yahooProvider.ts`
-- Create: `server/providers/market/akshareProxyProvider.ts`
-- Create: `server/providers/market/fallbackProvider.ts`
-- Create: `server/services/marketSnapshotService.ts`
-- Modify: `server/stockRoutes.ts`
-- Modify: `python_service/main.py`
-- Test: `server/__tests__/marketSnapshotService.test.ts`
-
-- [ ] **Step 1: Write the failing snapshot test**
-
-```ts
-import { describe, expect, it } from 'vitest';
-import { buildMarketSnapshot } from '../services/marketSnapshotService';
-
-describe('marketSnapshotService', () => {
-  it('returns quote, news, technicals, freshness, and source lineage in one payload', async () => {
-    const snapshot = await buildMarketSnapshot({ symbol: '600519', market: 'A-Share' });
-
-    expect(snapshot.quote.symbol).toBe('600519');
-    expect(snapshot.lineage.quote.primarySource).toBeDefined();
-    expect(snapshot.freshness.quote).toMatch(/fresh|delayed|stale/);
-  });
-});
-```
-
-- [ ] **Step 2: Run test to verify it fails**
-
-Run: `npm test -- server/__tests__/marketSnapshotService.test.ts`
-Expected: FAIL with missing `buildMarketSnapshot`
-
-- [ ] **Step 3: Implement provider adapters and unified snapshot output**
-
-```ts
-export interface QuoteSnapshot {
-  symbol: string;
-  market: 'A-Share' | 'HK-Share' | 'US-Share';
-  price: number;
-  previousClose: number;
-  change: number;
-  changePercent: number;
-  source: string;
-  asOf: string;
-}
-
-export interface MarketSnapshot {
-  quote: QuoteSnapshot;
-  news: Array<{ title: string; url: string; source: string; publishedAt: string }>;
-  technicals: Record<string, unknown>;
-  freshness: { quote: 'fresh' | 'delayed' | 'stale' };
-  lineage: { quote: { primarySource: string; fallbackChain: string[] } };
-}
-```
-
-```ts
-export async function buildMarketSnapshot(input: { symbol: string; market: string }): Promise<MarketSnapshot> {
-  const quote = await fallbackProvider.getQuote(input);
-  const news = await fallbackProvider.getNews(input);
-  const technicals = await fallbackProvider.getTechnicals(input);
-
-  return {
-    quote,
-    news,
-    technicals,
-    freshness: { quote: 'fresh' },
-    lineage: {
-      quote: {
-        primarySource: quote.source,
-        fallbackChain: ['akshare', 'sina', 'yahoo'],
-      },
-    },
-  };
-}
-```
-
-```py
-@app.get("/api/stock/a_snapshot")
-async def get_stock_a_snapshot(symbol: str = Query(..., pattern=r"^\d{6}$")):
-    spot = await get_stock_a_spot(symbol)
-    history = await get_stock_a_history(symbol)
-    technicals = await get_technicals(symbol)
-    return {
-        "success": True,
-        "data": {
-            "spot": spot.get("data"),
-            "history": history.get("data"),
-            "technicals": technicals.get("data"),
-        },
-    }
+```python
+class DuckDBMarketQuery:
+    def latest_close(self, parquet_glob):
+        row = duckdb.sql(f"select close from read_parquet('{parquet_glob}') order by trade_date desc limit 1").df().iloc[0]
+        return {"close": int(row['close'])}
 ```
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `npm test -- server/__tests__/marketSnapshotService.test.ts server/__tests__/dataSourceHealth.test.ts`
-Expected: PASS with snapshot lineage and freshness asserted
+Run: `pytest python_service/tests/test_parquet_duckdb_pipeline.py -q`
+Expected: PASS
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add server/providers/market server/services/marketSnapshotService.ts server/stockRoutes.ts python_service/main.py server/__tests__/marketSnapshotService.test.ts
-git commit -m "feat: add immutable market snapshot builder with provider lineage"
+git add python_service/app/lake python_service/app/services/market_snapshot_service.py python_service/app/api/market.py python_service/tests/test_parquet_duckdb_pipeline.py
+git commit -m "feat: add parquet market lake and duckdb analytics"
 ```
 
-### Task 4: Rebuild the Core User Journey Around Analysis Jobs and Reliable Replay
+### Task 4: Move Indicators and Factors into Polars
+
+**Files:**
+- Create: `python_service/app/quant/polars_indicators.py`
+- Modify: `python_service/technicals.py`
+- Modify: `python_service/app/services/market_snapshot_service.py`
+- Test: `python_service/tests/test_polars_indicators.py`
+
+- [ ] **Step 1: Write the failing Polars test**
+
+```python
+from python_service.app.quant.polars_indicators import compute_indicator_frame
+
+def test_compute_indicator_frame_has_core_columns():
+    rows = [{"trade_date": f"2026-04-{i:02d}", "close": 100 + i, "high": 101 + i, "low": 99 + i, "volume": 1000 + i} for i in range(1, 40)]
+    frame = compute_indicator_frame(rows)
+    assert "ma_20" in frame.columns
+    assert "macd" in frame.columns
+    assert "rsi_14" in frame.columns
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `pytest python_service/tests/test_polars_indicators.py -q`
+Expected: FAIL with missing function
+
+- [ ] **Step 3: Implement Polars indicator engine**
+
+```python
+def compute_indicator_frame(rows):
+    frame = pl.DataFrame(rows).sort("trade_date")
+    return frame.with_columns([
+        pl.col("close").rolling_mean(5).alias("ma_5"),
+        pl.col("close").rolling_mean(20).alias("ma_20"),
+        (pl.col("close").ewm_mean(span=12) - pl.col("close").ewm_mean(span=26)).alias("macd"),
+    ]).with_columns([
+        (100 - (100 / (1 + (
+            pl.when((pl.col("close") - pl.col("close").shift(1)) > 0)
+            .then(pl.col("close") - pl.col("close").shift(1)).otherwise(0).rolling_mean(14)
+            /
+            pl.when((pl.col("close") - pl.col("close").shift(1)) < 0)
+            .then(-(pl.col("close") - pl.col("close").shift(1))).otherwise(0).rolling_mean(14)
+        )))).alias("rsi_14")
+    ])
+```
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `pytest python_service/tests/test_polars_indicators.py -q`
+Expected: PASS
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add python_service/app/quant python_service/technicals.py python_service/app/services/market_snapshot_service.py python_service/tests/test_polars_indicators.py
+git commit -m "feat: add polars-based indicator engine"
+```
+
+### Task 5: Add LanceDB Semantic Retrieval for Research and News
+
+**Files:**
+- Create: `python_service/app/vector/lancedb_store.py`
+- Modify: `python_service/app/services/analysis_job_service.py`
+- Test: `python_service/tests/test_lancedb_retrieval.py`
+
+- [ ] **Step 1: Write the failing LanceDB test**
+
+```python
+from python_service.app.vector.lancedb_store import LanceResearchStore
+
+def test_lancedb_returns_best_match(tmp_path):
+    store = LanceResearchStore(tmp_path / "lancedb")
+    store.upsert_documents([{"doc_id": "r1", "symbol": "600519", "text": "直营比例提升", "embedding": [0.1, 0.2, 0.3]}])
+    result = store.search(symbol="600519", query_embedding=[0.1, 0.2, 0.29], limit=1)
+    assert result[0]["doc_id"] == "r1"
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `pytest python_service/tests/test_lancedb_retrieval.py -q`
+Expected: FAIL with missing store
+
+- [ ] **Step 3: Implement LanceDB wrapper**
+
+```python
+class LanceResearchStore:
+    def __init__(self, root):
+        self.db = lancedb.connect(str(root))
+        self.table = self.db.create_table("research_chunks", data=[{"doc_id": "bootstrap", "symbol": "BOOT", "text": "", "embedding": [0.0, 0.0, 0.0]}], mode="overwrite")
+
+    def upsert_documents(self, rows):
+        self.table.add(rows)
+
+    def search(self, symbol, query_embedding, limit=5):
+        return self.table.search(query_embedding).where(f"symbol = '{symbol}'").limit(limit).to_list()
+```
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `pytest python_service/tests/test_lancedb_retrieval.py -q`
+Expected: PASS
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add python_service/app/vector python_service/app/services/analysis_job_service.py python_service/tests/test_lancedb_retrieval.py
+git commit -m "feat: add lancedb semantic retrieval"
+```
+
+### Task 6: Rewire the User-Facing Flows to the New Data Plane
 
 **Files:**
 - Create: `src/services/api/analysisClient.ts`
+- Create: `src/services/api/watchlistClient.ts`
+- Create: `src/services/api/journalClient.ts`
 - Create: `src/hooks/useAnalysisJob.ts`
+- Create: `src/hooks/useWatchlistSync.ts`
+- Create: `src/hooks/useDecisionJournal.ts`
 - Modify: `src/services/analysisService.ts`
-- Modify: `src/services/discussionService.ts`
+- Modify: `src/services/marketService.ts`
 - Modify: `src/App.tsx`
-- Modify: `server/historyRoutes.ts`
-- Test: `src/components/__tests__/HistoryReplay.test.tsx`
+- Modify: `src/stores/useWatchlistStore.ts`
+- Modify: `src/stores/useDecisionStore.ts`
 - Test: `src/services/__tests__/analysisClient.test.ts`
+- Test: `src/components/__tests__/HistoryReplay.test.tsx`
+- Test: `python_service/tests/test_watchlist_journal_api.py`
 
-- [ ] **Step 1: Write the failing replay and polling tests**
+- [ ] **Step 1: Write the failing polling and replay tests**
 
-```tsx
-import { render, screen } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
-import App from '../../App';
-
-it('keeps selected history analysis visible when the record has no discussion payload', async () => {
-  render(<App />);
-
-  await userEvent.click(screen.getByText('打开历史'));
-  await userEvent.click(screen.getByText('STOCK: 600519'));
-
-  expect(screen.getByText(/600519/)).toBeInTheDocument();
+```ts
+it('polls until fastapi analysis job completes', async () => {
+  const payload = await pollAnalysisJob('job_001');
+  expect(payload.status).toBe('completed');
 });
 ```
 
-```ts
-import { describe, expect, it } from 'vitest';
-import { pollAnalysisJob } from '../api/analysisClient';
-
-describe('analysisClient', () => {
-  it('polls until the job reaches completed state', async () => {
-    const result = await pollAnalysisJob('job_001');
-    expect(result.status).toBe('completed');
-    expect(result.result.stockInfo.symbol).toBe('600519');
-  });
+```tsx
+it('keeps selected history visible when no discussion payload exists', async () => {
+  render(<App />);
+  await userEvent.click(screen.getByText('打开历史'));
+  await userEvent.click(screen.getByText('STOCK: 600519'));
+  expect(screen.getByText(/600519/)).toBeInTheDocument();
 });
 ```
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `npm test -- src/components/__tests__/HistoryReplay.test.tsx src/services/__tests__/analysisClient.test.ts`
-Expected: FAIL because replay still resets analysis and no analysis job client exists
+Run: `npm test -- src/services/__tests__/analysisClient.test.ts src/components/__tests__/HistoryReplay.test.tsx`
+Expected: FAIL because frontend still depends on old mixed flow
 
-- [ ] **Step 3: Implement job polling and fix history replay state logic**
+- [ ] **Step 3: Implement clients, fix replay bug, and expose watchlist/journal APIs**
 
 ```ts
-export async function createAnalysisJob(input: { symbol: string; market: string; level: string }) {
-  const response = await fetch('/api/analysis/jobs', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(input),
-  });
-  return response.json();
-}
-
 export async function pollAnalysisJob(jobId: string) {
   for (;;) {
     const response = await fetch(`/api/analysis/jobs/${jobId}`);
@@ -528,370 +476,119 @@ if (item.discussion) {
 }
 ```
 
-```ts
-router.get('/history/context', async (_req, res) => {
-  const history = await analysisRepository.listRecent({ limit: 100 });
-  res.json(history);
-});
+```python
+@router.get("/api/watchlist")
+async def list_watchlist():
+    return {"items": watchlist_repo.list_items()}
+
+@router.get("/api/journal/pending-reviews")
+async def pending_reviews():
+    return {"items": journal_repo.pending_reviews()}
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [ ] **Step 4: Run verification**
 
-Run: `npm test -- src/components/__tests__/HistoryReplay.test.tsx src/services/__tests__/analysisClient.test.ts src/test/AnalysisResult.test.tsx`
-Expected: PASS and history replay no longer clears the selected analysis
+Run: `pytest python_service/tests/test_watchlist_journal_api.py -q`
+Expected: PASS
+
+Run: `npm test -- src/services/__tests__/analysisClient.test.ts src/components/__tests__/HistoryReplay.test.tsx`
+Expected: PASS
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/services/api/analysisClient.ts src/hooks/useAnalysisJob.ts src/services/analysisService.ts src/services/discussionService.ts src/App.tsx server/historyRoutes.ts src/components/__tests__/HistoryReplay.test.tsx src/services/__tests__/analysisClient.test.ts
-git commit -m "refactor: center user analysis flow on backend jobs and reliable replay"
+git add src/services/api src/hooks src/services/analysisService.ts src/services/marketService.ts src/App.tsx src/stores/useWatchlistStore.ts src/stores/useDecisionStore.ts python_service/app/api/watchlist.py python_service/app/api/journal.py python_service/tests/test_watchlist_journal_api.py
+git commit -m "refactor: rewire user flows to sqlite parquet duckdb polars backend"
 ```
 
-### Task 5: Turn Watchlist from Browser State into a Real Tracking System
+### Task 7: Add Admin Controls, Diagnostics Lockdown, and Cutover Docs
 
 **Files:**
-- Create: `server/domain/watchlist/watchlistItem.ts`
-- Create: `server/repositories/watchlistRepository.ts`
-- Create: `server/routes/watchlistRoutes.ts`
-- Create: `server/services/reportDeliveryService.ts`
-- Create: `server/jobs/watchlistScanWorker.ts`
-- Create: `src/services/api/watchlistClient.ts`
-- Create: `src/hooks/useWatchlistSync.ts`
-- Modify: `src/stores/useWatchlistStore.ts`
-- Test: `server/__tests__/watchlistRoutes.test.ts`
-
-- [ ] **Step 1: Write the failing watchlist API test**
-
-```ts
-import { describe, expect, it } from 'vitest';
-import request from 'supertest';
-import { buildWatchlistApp } from '../routes/watchlistRoutes';
-
-describe('watchlist routes', () => {
-  it('creates a persistent watchlist item and returns it on list', async () => {
-    const app = buildWatchlistApp();
-
-    await request(app).post('/api/watchlist').send({
-      symbol: '600519',
-      name: '贵州茅台',
-      market: 'A-Share',
-    }).expect(201);
-
-    const response = await request(app).get('/api/watchlist').expect(200);
-    expect(response.body.items[0].symbol).toBe('600519');
-  });
-});
-```
-
-- [ ] **Step 2: Run test to verify it fails**
-
-Run: `npm test -- server/__tests__/watchlistRoutes.test.ts`
-Expected: FAIL because no `/api/watchlist` route exists
-
-- [ ] **Step 3: Implement persistent watchlist and sync hook**
-
-```ts
-router.post('/api/watchlist', async (req, res) => {
-  const item = await watchlistRepository.create({
-    symbol: req.body.symbol,
-    name: req.body.name,
-    market: req.body.market,
-    notes: '',
-    alertThreshold: 15,
-  });
-
-  res.status(201).json(item);
-});
-```
-
-```ts
-export function useWatchlistSync() {
-  return {
-    async refresh() {
-      const response = await fetch('/api/watchlist');
-      return response.json();
-    },
-  };
-}
-```
-
-```ts
-addItem: async (symbol, name, market) => {
-  const created = await watchlistClient.create({ symbol, name, market });
-  set(state => ({ items: [...state.items, created] }));
-},
-```
-
-- [ ] **Step 4: Run test and store regression checks**
-
-Run: `npm test -- server/__tests__/watchlistRoutes.test.ts src/stores/__tests__/useWatchlistStore.test.ts`
-Expected: PASS with persisted items and non-empty API-backed store hydration
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add server/domain/watchlist server/repositories/watchlistRepository.ts server/routes/watchlistRoutes.ts server/jobs/watchlistScanWorker.ts src/services/api/watchlistClient.ts src/hooks/useWatchlistSync.ts src/stores/useWatchlistStore.ts server/__tests__/watchlistRoutes.test.ts
-git commit -m "feat: add persistent watchlist and tracking workflow"
-```
-
-### Task 6: Build the Decision Journal and Review Loop for Repeat Users
-
-**Files:**
-- Create: `server/domain/journal/decisionEntry.ts`
-- Create: `server/repositories/decisionRepository.ts`
-- Create: `server/routes/journalRoutes.ts`
-- Create: `src/services/api/journalClient.ts`
-- Create: `src/hooks/useDecisionJournal.ts`
-- Modify: `src/stores/useDecisionStore.ts`
-- Test: `server/__tests__/journalRoutes.test.ts`
-
-- [ ] **Step 1: Write the failing journal API test**
-
-```ts
-import { describe, expect, it } from 'vitest';
-import request from 'supertest';
-import { buildJournalApp } from '../routes/journalRoutes';
-
-describe('journal routes', () => {
-  it('creates a decision entry and returns it in pending reviews', async () => {
-    const app = buildJournalApp();
-
-    await request(app).post('/api/journal').send({
-      symbol: '600519',
-      name: '贵州茅台',
-      market: 'A-Share',
-      action: 'buy',
-      reasoning: 'valuation reset with improving cash conversion',
-      priceAtDecision: 1688,
-      confidence: 72,
-      analysisId: 'ana_001',
-    }).expect(201);
-
-    const response = await request(app).get('/api/journal/pending-reviews').expect(200);
-    expect(Array.isArray(response.body.items)).toBe(true);
-  });
-});
-```
-
-- [ ] **Step 2: Run test to verify it fails**
-
-Run: `npm test -- server/__tests__/journalRoutes.test.ts`
-Expected: FAIL with missing journal route
-
-- [ ] **Step 3: Implement journal persistence and frontend hook**
-
-```ts
-router.post('/api/journal', async (req, res) => {
-  const entry = await decisionRepository.create({
-    ...req.body,
-    reviewDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
-  });
-  res.status(201).json(entry);
-});
-```
-
-```ts
-export function useDecisionJournal() {
-  return {
-    async addEntry(input: {
-      symbol: string;
-      name: string;
-      market: string;
-      action: string;
-      reasoning: string;
-      priceAtDecision: number;
-      confidence: number;
-      analysisId: string;
-    }) {
-      const response = await fetch('/api/journal', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(input),
-      });
-      return response.json();
-    },
-  };
-}
-```
-
-```ts
-getPendingReviews: async () => {
-  const payload = await journalClient.getPendingReviews();
-  set({ entries: payload.items });
-  return payload.items;
-},
-```
-
-- [ ] **Step 4: Run test to verify it passes**
-
-Run: `npm test -- server/__tests__/journalRoutes.test.ts src/stores/__tests__/useDecisionStore.test.ts`
-Expected: PASS with server-backed pending review behavior
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add server/domain/journal server/repositories/decisionRepository.ts server/routes/journalRoutes.ts src/services/api/journalClient.ts src/hooks/useDecisionJournal.ts src/stores/useDecisionStore.ts server/__tests__/journalRoutes.test.ts
-git commit -m "feat: add decision journal and review loop"
-```
-
-### Task 7: Turn Prompt Management, Admin, and Diagnostics into Governance Capabilities
-
-**Files:**
-- Create: `server/routes/adminRoutes.ts`
-- Create: `server/services/promptMetricsService.ts`
-- Create: `server/services/auditService.ts`
-- Modify: `src/services/promptRegistry.ts`
-- Modify: `src/services/promptRegistration.ts`
+- Create: `python_service/app/api/admin.py`
 - Modify: `server/debugRoutes.ts`
-- Modify: `src/components/admin/AdminPanel.tsx`
-- Test: `server/__tests__/adminRoutes.test.ts`
-- Test: `src/services/__tests__/promptMetrics.test.ts`
+- Modify: `README.md`
+- Create: `docs/ops/python-data-stack-cutover.md`
+- Test: `python_service/tests/test_admin_api.py`
 
-- [ ] **Step 1: Write the failing prompt metrics test**
+- [ ] **Step 1: Write the failing admin test**
 
-```ts
-import { describe, expect, it } from 'vitest';
-import { initializePromptRegistry } from '../promptRegistration';
-import { getPromptMetrics, recordPromptMetrics } from '../promptRegistry';
+```python
+from fastapi.testclient import TestClient
+from python_service.main import app
 
-describe('prompt metrics', () => {
-  it('records usage for the active stock analysis prompt version', () => {
-    initializePromptRegistry();
-    recordPromptMetrics('stock-analysis', 12000, 0.91, 4800, false);
-
-    const metrics = getPromptMetrics('stock-analysis');
-    expect(metrics?.callCount).toBe(1);
-    expect(metrics?.avgLatencyMs).toBe(4800);
-  });
-});
+def test_admin_requires_token():
+    client = TestClient(app)
+    resp = client.get("/api/admin/stack-status")
+    assert resp.status_code == 403
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `npm test -- src/services/__tests__/promptMetrics.test.ts`
-Expected: FAIL because prompt registry is not initialized in runtime flow and metrics are never emitted
+Run: `pytest python_service/tests/test_admin_api.py -q`
+Expected: FAIL with missing admin route
 
-- [ ] **Step 3: Implement runtime prompt registration, metrics, and admin-safe diagnostics**
+- [ ] **Step 3: Implement admin route and disable old public diagnostics**
 
-```ts
-initializePromptRegistry();
-
-recordPromptMetrics('stock-analysis', tokenUsage.totalTokens, qualityScore, latencyMs, false);
+```python
+@router.get("/api/admin/stack-status")
+async def stack_status(x_admin_token: str | None = Header(default=None)):
+    if x_admin_token != settings.admin_token:
+        raise HTTPException(status_code=403, detail="admin access required")
+    return {"fastapi": "active", "sqlite": "active", "parquet": "active", "duckdb": "active", "polars": "active", "lancedb": "active"}
 ```
 
 ```ts
 router.use((req, res, next) => {
-  const adminToken = req.header('x-admin-token');
-  if (process.env.NODE_ENV === 'production' && adminToken !== process.env.ADMIN_TOKEN) {
-    return res.status(403).json({ error: 'admin access required' });
+  if (process.env.NODE_ENV === 'production') {
+    return res.status(403).json({ error: 'diagnostics moved to fastapi admin routes' });
   }
   next();
 });
 ```
 
-```ts
-router.get('/api/admin/prompt-metrics', async (_req, res) => {
-  res.json({
-    stockAnalysis: promptMetricsService.get('stock-analysis'),
-    marketOverview: promptMetricsService.get('market-overview'),
-  });
-});
-```
-
-- [ ] **Step 4: Run test and admin regression checks**
-
-Run: `npm test -- src/services/__tests__/promptMetrics.test.ts server/__tests__/adminRoutes.test.ts`
-Expected: PASS with active metrics and protected admin diagnostics
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add server/routes/adminRoutes.ts server/services/promptMetricsService.ts server/services/auditService.ts src/services/promptRegistry.ts src/services/promptRegistration.ts server/debugRoutes.ts src/components/admin/AdminPanel.tsx src/services/__tests__/promptMetrics.test.ts server/__tests__/adminRoutes.test.ts
-git commit -m "feat: add prompt governance and admin-safe diagnostics"
-```
-
-### Task 8: Cut Over Documentation, Environment Defaults, and Production Verification
-
-**Files:**
-- Modify: `.env.example`
-- Modify: `README.md`
-- Create: `docs/ops/institutional-cutover.md`
-- Test: `server/__tests__/analysisRoutes.test.ts`
-- Test: `server/__tests__/marketSnapshotService.test.ts`
-- Test: `server/__tests__/watchlistRoutes.test.ts`
-- Test: `server/__tests__/journalRoutes.test.ts`
-
-- [ ] **Step 1: Write the cutover checklist file**
-
 ```md
-# Institutional Cutover Checklist
+# Python Data Stack Cutover
 
-1. Set `ADMIN_TOKEN`, `DATABASE_URL`, `REDIS_URL`.
-2. Run SQL migration `2026-04-17-001_user_priority_core.sql`.
-3. Disable public diagnostics in production.
-4. Verify `/api/analysis/jobs` creates and completes jobs.
-5. Verify history replay, watchlist create, and journal create in staging.
+1. Start FastAPI.
+2. Confirm SQLite path is writable.
+3. Confirm Parquet partitions exist.
+4. Confirm DuckDB query returns one OHLC row.
+5. Confirm Polars indicator pipeline returns MA/MACD/RSI.
+6. Confirm LanceDB returns one semantic match.
 ```
 
-- [ ] **Step 2: Update environment and README guidance**
+- [ ] **Step 4: Run verification**
 
-```env
-DATABASE_URL=postgres://user:pass@localhost:5432/alsa
-REDIS_URL=redis://localhost:6379
-ADMIN_TOKEN=change-me
-ENABLE_PUBLIC_DIAGNOSTICS=false
-```
-
-```md
-## Institutional Mode
-
-- Browser no longer executes provider models directly
-- Analysis is created through `/api/analysis/jobs`
-- Watchlist and journal data persist in PostgreSQL
-- Admin diagnostics require `x-admin-token`
-```
-
-- [ ] **Step 3: Run the institutional verification suite**
-
-Run: `npm test -- server/__tests__/analysisRoutes.test.ts server/__tests__/marketSnapshotService.test.ts server/__tests__/watchlistRoutes.test.ts server/__tests__/journalRoutes.test.ts src/components/__tests__/HistoryReplay.test.tsx`
-Expected: PASS with the core user journey covered end-to-end
-
-- [ ] **Step 4: Run the full regression suite**
+Run: `pytest python_service/tests/test_admin_api.py -q`
+Expected: PASS
 
 Run: `npm test`
-Expected: PASS with all legacy tests updated and no public-flow regressions
+Expected: PASS
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add .env.example README.md docs/ops/institutional-cutover.md
-git commit -m "docs: add institutional cutover and verification guide"
+git add python_service/app/api/admin.py server/debugRoutes.ts README.md docs/ops/python-data-stack-cutover.md python_service/tests/test_admin_api.py
+git commit -m "docs: add admin controls and python data stack cutover"
 ```
 
 ## Success Metrics
 
-### User journey metrics
+- Stock lookup P50 under `500ms`
+- Analysis job creation under `300ms`
+- Analysis completion P50 under `45s`
+- 100% of OHLC history written to Parquet
+- 100% of grouped historical analytics read through DuckDB
+- 100% of indicator snapshots generated by Polars
+- 0 plaintext API keys in SQLite
 
-- Stock analysis first meaningful paint under `8s` for cached quote + queued AI state
-- Job completion P50 under `45s`, P95 under `120s`
-- History replay success rate above `99%`
-- Watchlist rescan alert delivery above `95%`
-- Decision review completion rate above `60%` for active users
+## Risks to Watch
 
-### Data trust metrics
-
-- Every saved analysis has snapshot, prompt version, model, and lineage
-- Quote drift between displayed price and snapshot source under `0.1%`
-- Prompt parse success above `97%`
-- Unsupported diagnostics access blocked in production
-
-## Risks to Watch During Execution
-
-1. Do not keep browser-local secret storage after backend cutover.
-2. Do not let JSON file history remain the primary data store after Task 4.
-3. Do not keep watchlist and journal as Zustand-only state after Tasks 5 and 6.
-4. Do not add more prompt length until prompt metrics and evaluation are live.
-5. Do not expose `/api/diagnostics/*` publicly in production.
+1. Do not store OHLC arrays in SQLite.
+2. Do not duplicate indicators across frontend and Python.
+3. Do not bypass DuckDB with Python loops for grouped analysis.
+4. Do not leave old diagnostics public in production.
+5. Do not treat LanceDB as a general document store.
 
 ## Recommended Execution Order
 
@@ -902,7 +599,6 @@ git commit -m "docs: add institutional cutover and verification guide"
 5. Task 5
 6. Task 6
 7. Task 7
-8. Task 8
 
 Plan complete and saved to `docs/superpowers/plans/2026-04-17-user-priority-institutional-rebuild.md`. Two execution options:
 

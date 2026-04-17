@@ -455,6 +455,7 @@ export interface GeminiConfig {
   feishuWebhookUrl?: string;
   tier?: 'free' | 'paid';
   serviceMode?: 'byok' | 'managed_no_key' | 'copilot_local';
+  enableCopilotFallback?: boolean;
 }
 
 export interface ReportPreference {

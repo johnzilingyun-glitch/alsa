@@ -145,8 +145,36 @@ export function ConferenceResults({ analysis, onSendDiscussionReport }: Conferen
                         <p className="text-[9px] text-zinc-400 font-medium uppercase tracking-wider">{t('app.subtitle')}</p>
                       </div>
                     </div>
-                    <div className="prose prose-zinc max-w-none prose-p:text-zinc-700 prose-p:text-lg prose-p:font-medium prose-p:leading-relaxed prose-p:tracking-tight">
-                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                    <div className="prose prose-zinc max-w-none">
+                      <ReactMarkdown 
+                        remarkPlugins={[remarkGfm]}
+                        components={{
+                          h1: ({node, ...props}) => <h1 className="text-2xl font-bold text-zinc-900 mt-8 mb-4 flex items-center gap-2 border-l-4 border-indigo-600 pl-4" {...props} />,
+                          h2: ({node, ...props}) => <h2 className="text-xl font-bold text-zinc-900 mt-6 mb-3 flex items-center gap-2" {...props} />,
+                          h3: ({node, ...props}) => <h3 className="text-lg font-bold text-indigo-600 mt-4 mb-2 uppercase tracking-widest" {...props} />,
+                          p: ({node, ...props}) => <p className="text-zinc-700 text-lg font-medium leading-relaxed tracking-tight mb-4" {...props} />,
+                          ul: ({node, ...props}) => <ul className="space-y-2 mb-6 ml-4" {...props} />,
+                          li: ({node, ...props}) => (
+                            <li className="flex items-start gap-2 text-zinc-600 text-base">
+                              <div className="mt-2 w-1.5 h-1.5 rounded-full bg-indigo-500 shrink-0" />
+                              <span {...props} />
+                            </li>
+                          ),
+                          table: ({node, ...props}) => (
+                            <div className="my-8 overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm overflow-x-auto">
+                              <table className="w-full text-left border-collapse" {...props} />
+                            </div>
+                          ),
+                          thead: ({node, ...props}) => <thead className="bg-zinc-50 border-b border-zinc-200" {...props} />,
+                          th: ({node, ...props}) => <th className="px-4 py-3 text-[10px] font-bold text-zinc-500 uppercase tracking-[0.2em]" {...props} />,
+                          td: ({node, ...props}) => <td className="px-4 py-3 text-sm text-zinc-600 border-b border-zinc-50 font-medium" {...props} />,
+                          blockquote: ({node, ...props}) => (
+                            <blockquote className="my-6 p-6 rounded-2xl bg-indigo-600/5 border-l-4 border-indigo-600 italic text-indigo-900/80 font-medium quote-icon">
+                              <span {...props} />
+                            </blockquote>
+                          ),
+                        }}
+                      >
                         {analysis.finalConclusion}
                       </ReactMarkdown>
                     </div>
@@ -1033,8 +1061,26 @@ export function ConferenceResults({ analysis, onSendDiscussionReport }: Conferen
               {discussionMessages.filter(m => m.role === "Moderator").map((m, i) => (
                 <div key={`mod-${i}-${m.id || m.role}`} className="relative">
                   <div className="absolute -left-2 top-0 bottom-0 w-1 bg-indigo-600/50 rounded-full" />
-                  <div className="prose prose-invert prose-sm max-w-none pl-4">
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                  <div className="prose prose-sm max-w-none pl-4 pt-1">
+                    <ReactMarkdown 
+                      remarkPlugins={[remarkGfm]}
+                      components={{
+                        h1: ({node, ...props}) => <h1 className="text-lg font-bold text-zinc-900 border-b border-zinc-100 pb-2 mb-4" {...props} />,
+                        h2: ({node, ...props}) => <h2 className="text-base font-bold text-zinc-800 mb-3" {...props} />,
+                        p: ({node, ...props}) => <p className="text-zinc-600 leading-relaxed mb-4" {...props} />,
+                        table: ({node, ...props}) => (
+                          <div className="my-4 overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm overflow-x-auto">
+                            <table className="w-full text-left border-collapse" {...props} />
+                          </div>
+                        ),
+                        thead: ({node, ...props}) => <thead className="bg-zinc-50 border-b border-zinc-100" {...props} />,
+                        th: ({node, ...props}) => <th className="px-3 py-2 text-[8px] font-bold text-zinc-400 uppercase tracking-widest" {...props} />,
+                        td: ({node, ...props}) => <td className="px-3 py-2 text-[10px] text-zinc-500 border-b border-zinc-50" {...props} />,
+                        blockquote: ({node, ...props}) => (
+                          <blockquote className="my-4 p-4 rounded-xl bg-zinc-50 border-l-2 border-zinc-300 italic text-zinc-500" {...props} />
+                        ),
+                      }}
+                    >
                       {m.content}
                     </ReactMarkdown>
                   </div>

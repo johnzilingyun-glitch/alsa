@@ -3,11 +3,13 @@ import { createServer as createViteServer } from 'vite';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
+import { createProxyMiddleware } from 'http-proxy-middleware';
 
 import historyRoutes, { addLogEntry } from './server/historyRoutes.js';
 import feishuRoutes from './server/feishuRoutes.js';
 import stockRoutes from './server/stockRoutes.js';
 import debugRoutes from './server/debugRoutes.js';
+import analysisRoutes from './server/routes/analysisRoutes.js';
 import { monitor } from './server/dataSourceHealth.js';
 
 dotenv.config();
@@ -67,6 +69,18 @@ async function startServer() {
   }, historyRoutes);
   app.use('/api', feishuRoutes);
   app.use('/api', stockRoutes);
+  app.use('/api', analysisRoutes);
+
+  // Proxy to FastAPI for new routes (or all handled by FastAPI later)
+  // This will handle /api/analysis/ jobs and others once they are moved to Python
+  app.use('/api', createProxyMiddleware({ 
+    target: 'http://127.0.0.1:8001', 
+    changeOrigin: true,
+    pathFilter: (path) => {
+      // Proxy if not handled by existing routes or if explicitly for analytics/market/journal/watchlist
+      return path.match(/^\/api\/(analysis|market|journal|watchlist)/) !== null;
+    }
+  }));
 
   // Handle 404 for API routes explicitly to avoid falling through to SPA
   app.all('/api/*', (req, res) => {

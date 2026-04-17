@@ -59,6 +59,9 @@ const ROLE_INSTRUCTIONS_ZH: Record<AgentRole, string> = {
 你必须输出一个 Markdown 表格，包含以下列：
 | 关键变量(单位) | 当前实时值 | 逻辑权重 | 近30日趋势(%) | 成本/收入传导逻辑 | Source | 数据日期(YYYY-MM-DD) |
 要求：
+- **第一主驱变量 (The Master Variable)**: 你必须在表格下方显式识别一个“第一主驱变量”（如：美国法案通过概率、碳酸锂报价、AI 芯片禁令生效日期）。
+- **量化冲击程度 (Quantified Impact)**: 必须量化该变量对标的的影响（例如：“美国业务收入占比 65%”、“每波动 1% 对毛利影响 200bps”、“替代产能建设周期 3-5 年”）。
+- **时间路径图 (Time Horizon & Milestones)**: 若第一主驱变量是政策或法案，必须梳理其具体的路径和里程碑预测日期（例如：“2026-Q2 参议院听证会”、“2026-Q4 豁免期结束”）。
 - **当前实时值**: 必须提供具体的量化数值，严禁使用定性描述如"高/低/上涨"。
 - **逻辑权重**: 必须标注哪个是"第一驱动力"。
 - **近30日趋势(%)**: 必须提供具体的百分比数值（如 +12.3%、-5.7%），严禁使用"上涨"/"下跌"等定性描述。
@@ -243,6 +246,7 @@ const ROLE_INSTRUCTIONS_ZH: Record<AgentRole, string> = {
    - **确认偏差 (Confirmation Bias)**: 是否在上涨趋势中系统性忽略了所有看空数据？
    - **投射偏差 (Projection Bias)**: 是否假设当前线性增长会无限延续？
    - **叙事过拟合 (Narrative Overfitting)**: 是否在用数据迎合预设故事，而非让数据说话？
+   - **叙事化陷阱 (Narrative-only Risk)**: **(CRITICAL)** 审查是否有专家仅给出了定性描述（如“脱钩利空”、“替代利好”）而缺失量化支撑（如“美国收入占比”、“替代成本”）。对于此类“注水”发言，必须在此处公开点名批评并要求其在下一轮修正。
    对每种偏差给出"是/否/部分"的判定，以及具体的违规引用（哪位专家的哪个观点）。
 
 7. **审查官最终指令**:
@@ -259,9 +263,10 @@ const ROLE_INSTRUCTIONS_ZH: Record<AgentRole, string> = {
    - 严禁简单总结共识。你必须说明采纳了哪些观点、修正了哪些逻辑、以及在分歧面前你选择支持哪一方的理由
 
 2. **概率加权决策框架 (CRITICAL)**:
-   - 使用概率加权公式：**期望价格 = Σ(P_i × TargetPrice_i)**
-   - 计算示例：30%×32元 + 50%×27元 + 20%×21元 = 27.5元
-   - **决策规则 (MANDATORY)**: 若期望价格 < 当前价格，必须降低推荐级别。严禁在期望收益为负的情况下给出"买入"建议
+   - **期望价格体系**: 你必须基于 Bull (看多)、Base (基准)、Bear (看空) 三种情景，结合各自的目标价和发生概率，计算总体的期望价格。
+   - **计算公式 (MANDATORY)**: **期望价格 = Σ(P_i × TargetPrice_i)**。你必须在发言中显式列出该计算过程（如：30%×32元 + 50%×27元 + 20%×21元 = 27.5元）。
+   - **主驱变量一致性 (ALIGNMENT)**: 你的概率分布设置必须与深度研究专家识别的“第一主驱变量”的状态紧密挂钩（例如：若主驱变量是政策通过，则 Bull 情景对应政策通过，概率需与搜索到的最新赔率/研判一致）。
+   - **决策规则**: 若期望价格 < 当前价格，除非有明确的极短线博弈理由，否则严禁给评级为“买入”或“强烈推荐”。
 
 3. **分层时间维度结论 (MANDATORY)**:
    必须给出三个时间尺度的阶梯式结论：
@@ -379,6 +384,9 @@ const ROLE_INSTRUCTIONS_EN: Record<AgentRole, string> = {
 You must output a Markdown table with the following columns:
 | Key Variable (Unit) | Real-time Value | Logic Weight | 30-Day Trend (%) | Cost/Revenue Transmission Logic | Source | Data Date (YYYY-MM-DD) |
 Requirements:
+- **THE MASTER VARIABLE (CRITICAL)**: You MUST explicitly identify one "Master Variable" (e.g., "US Biosecure Act Legislation Timeline", "Lithium Carbonate Spot Price") in a bold header below the table.
+- **QUANTIFIED IMPACT (MANDATORY)**: You MUST quantify the impact of this variable (e.g., "65% revenue exposure to US market", "2 weeks lead time for replacement").
+- **TIME HORIZON & MILESTONES**: For policy variables, provide specific predicted dates for milestones (e.g., "Senate hearing Q2 2026", "Compliance deadline 2032").
 - **Real-time Value**: Must provide specific quantitative values. Qualitative descriptions like "high/low/rising" are strictly prohibited.
 - **Logic Weight**: Must indicate which is the "primary driver".
 - **30-Day Trend (%)**: Must provide specific percentage values (e.g., +12.3%, -5.7%). Qualitative descriptions like "rising"/"falling" are strictly prohibited.
@@ -556,7 +564,8 @@ If your analysis concludes the current target is overvalued or has a poor risk-r
    - **Confirmation Bias**: Were all bearish data points systematically ignored during an uptrend?
    - **Projection Bias**: Was it assumed that current linear growth will continue indefinitely?
    - **Narrative Overfitting**: Was data fitted to a preset story instead of letting data speak?
-   For each bias, provide a "Yes/No/Partial" verdict along with specific violation citations (which expert's which view).
+   - **Narrative-only Risk (CRITICAL)**: Audit for experts providing qualitative descriptions without supporting quantitative metrics. Explicitly call out and penalize narrative-heavy arguments.
+   For each bias, provide a "Yes/No/Partial" verdict along with specific violation citations.
 
 7. **Reviewer's Final Directives**:
    - Strategy correction recommendations based on audit findings.
@@ -572,8 +581,9 @@ If your analysis concludes the current target is overvalued or has a poor risk-r
    - Do NOT simply summarize consensus. You must explain which views were adopted, which logic was corrected, and the reasoning behind your choice in case of divergence.
 
 2. **Probability-Weighted Decision Framework (CRITICAL)**:
-   - Use probability-weighted formula: **Expected Price = Σ(P_i × TargetPrice_i)**
-   - Example: 30%×$32 + 50%×$27 + 20%×$21 = $27.5
+   - **VALUATION SYSTEM**: You must derive a target price based on Bull, Base, and Bear scenarios.
+   - **EXPECTED VALUE FORMULA (MANDATORY)**: Expected Price = Σ(P_i × TargetPrice_i). You MUST explicitly show this calculation (e.g., 30%×$32 + 50%×$27 + 20%×$21 = $27.5).
+   - **DRIVER ALIGNMENT**: Your scenario probabilities must be logically tied to the status of the "Master Variable" identified by the research team.
    - **Decision Rule (MANDATORY)**: If Expected Price < Current Price, must downgrade the recommendation level. Issuing a "Buy" recommendation with negative expected return is strictly prohibited.
 
 3. **Layered Time Dimension Conclusions (MANDATORY)**:

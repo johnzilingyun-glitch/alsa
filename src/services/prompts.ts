@@ -171,7 +171,10 @@ Requirements:
        1. **Pre-label the source and date**: Before presenting the value, explicitly state the source and the date of the data.
        2. **Cross-verify**: You MUST cross-verify this data point against at least TWO authoritative sources. If there is a discrepancy, explain how you resolved it or which source you prioritized and why.
    - **TABLE 1: REAL-TIME CORE INDICATORS & DEVIATION (MANDATORY)**: Must include columns: Indicator (2026E), Real-time Value, Market Consensus, Deviation (%), Note. Include EPS, PE (Forward), ROE, Dividend Yield. **DATA CONSISTENCY (CRITICAL)**: Prioritize the latest real-time data from search and explicitly label the data date.
-   - **TABLE 2: INDUSTRY CORE VARIABLES & MACRO ANCHORS (DYNAMIC)**: Must include columns: Variable/Material (with units), Current Value, Logic Weight, Last 30 Days Change (%), cost/revenue transmission logic, **Data Source and Date (MANDATORY)**. If no industry-specific macro variables are logically relevant (e.g., for a pure-software company), you may return this as an empty array instead of forcing irrelevant entries.
+   - **TABLE 2: INDUSTRY CORE VARIABLES & MACRO ANCHORS (DYNAMIC)**: Must include columns: Variable/Material (with units), Current Value, Logic Weight, Last 30 Days Change (%), cost/revenue transmission logic, **Data Source and Date (MANDATORY)**. 
+      - **MASTER VARIABLE IDENTIFICATION (CRITICAL)**: You MUST identify the single most critical variable (e.g., "WuXi Biosecure Act Legislation Status") as the 'Primary Driver'.
+      - **MILESTONE PATHWAY**: For this driver, provide a quantitative timeline or path (e.g., "Expected voting in May 2026", "Compliance deadline Jan 2032").
+      - If no industry-specific macro variables are logically relevant (e.g., for a pure-software company), you may return this as an empty array instead of forcing irrelevant entries.
    - **VARIABLE SELECTION & VERIFICATION (CRITICAL)**: DO NOT include irrelevant variables. You must use industry-specific variables relevant to this stock.
    - **EXPECTATION GAP IDENTIFICATION**: Identify market blind spots and Alpha sources.
    - **TARGET PRICE & SENTIMENT**: Provide a 6-month target range (with confidence interval) and a sentiment score (0-100).
@@ -655,57 +658,63 @@ export const getDiscussionPrompt = (
     **Team Members (12, in order of speaking)**:
      1. **Deep Research Specialist**: First speaker, responsible for full-dimension data penetration.
         - **MANDATORY**: Use Google Search for latest quantitative data (PE, PB, ROE, Revenue Growth, etc.) and deep qualitative insights (management, supply chain, moats). Do not guess metrics.
-       - **Graham's Net-Net Value Calculation**: Attempt to calculate (Current Assets - Total Liabilities) vs current Market Cap.
-       - **Business Moat Analysis**: Specifically categorize the moat as Wide, Narrow, or None based on industry barriers.
-       - Select 4-6 most core industry-specific quantitative indicators.
-       - **Table 1: Real-time Core Indicators & Deviation (MANDATORY)**.
-       - **Table 2: Industry Core Variables & Macro Anchors (DYNAMIC)**.
-       - Label each data point with Source and Date.
-       - **[Structured Output] Core Variables (MANDATORY)**: Populate \`coreVariables\` in JSON.
+        - **MASTER VARIABLE IDENTIFICATION (CRITICAL)**: Identify the one variable that dictates the stock's fate (e.g., Legislative timeline, Fed rates).
+        - **QUANTIFIED IMPACT**: For every catalyst, specify exposure % (e.g., "65% revenue from US") and time horizons.
+        - **Graham's Net-Net Value Calculation**: Attempt to calculate (Current Assets - Total Liabilities) vs current Market Cap.
+        - **Business Moat Analysis**: Specifically categorize the moat as Wide, Narrow, or None based on industry barriers.
+        - Select 4-6 most core industry-specific quantitative indicators.
+        - **Table 1: Real-time Core Indicators & Deviation (MANDATORY)**.
+        - **Table 2: Industry Core Variables & Macro Anchors (DYNAMIC)**.
+        - Label each data point with Source and Date.
+        - **[Structured Output] Core Variables (MANDATORY)**: Populate \`coreVariables\` in JSON.
 
-    2. **Technical Analyst**: Responsible for deep technical analysis.
-       - **MANDATORY DATA**: Moving Averages (MA5/20/60), Average Volume (avgVol5/20), and **Pivot Levels (resistanceShort, supportShort, resistanceLong, supportLong)** are provided in REAL-TIME DATA.
-       - **Support/Resistance**: You MUST use the provided pivot levels (e.g., resistanceShort = 20-day high) as the primary support/resistance benchmarks.
-       - **Formations**: Based on the current price relative to MAs and Pivot Levels, identify the pattern (W-bottom, Head & Shoulders, Consolidation, etc.).
-       - **Volume-Price Coordination**: Compare current volume with 5-day/20-day averages.
-       - **NO EXCUSES**: You have sufficient data for a professional analysis. Do not claim data is incomplete.
+     2. **Technical Analyst**: Responsible for deep technical analysis.
+        - **MANDATORY DATA**: Moving Averages (MA5/20/60), Average Volume (avgVol5/20), and **Pivot Levels (resistanceShort, supportShort, resistanceLong, supportLong)** are provided in REAL-TIME DATA.
+        - **Support/Resistance**: You MUST use the provided pivot levels (e.g., resistanceShort = 20-day high) as the primary support/resistance benchmarks.
+        - **Formations**: Based on the current price relative to MAs and Pivot Levels, identify the pattern (W-bottom, Head & Shoulders, Consolidation, etc.).
+        - **Volume-Price Coordination**: Compare current volume with 5-day/20-day averages.
 
-    3. **Fundamental Analyst**: Responsible for fundamental value analysis.
-       - Core value drivers, valuation logic (PE/PB vs industry/history), DCF/Comparative valuation.
-       - **[Structured Output] Business Model (MANDATORY)**: Populate \`businessModel\` in JSON.
+     3. **Fundamental Analyst**: Responsible for fundamental value analysis.
+        - Core value drivers, valuation logic (PE/PB vs industry/history), DCF/Comparative valuation.
+        - **VALUATION MATRIX**: Provide target prices for Bull/Base/Bear cases based on fundamental assumptions.
+        - **[Structured Output] Business Model (MANDATORY)**: Populate \`businessModel\` in JSON.
 
-    4. **Sentiment Analyst**: Responsible for market sentiment and capital flow analysis.
-       - Capital structure search (Northbound, Mutual Funds, AH Premium). Distinguish between "institutional accumulation" and "retail panic".
+     4. **Sentiment Analyst**: Responsible for market sentiment and capital flow analysis.
+        - Capital structure search (Northbound, Mutual Funds, AH Premium). Distinguish between "institutional accumulation" and "retail panic".
 
-    5. **Bull Researcher**: Responsible for constructing the strongest bullish thesis.
-       - Build a complete bullish logic chain with catalysts, upside quantification, and expected returns.
-       - Preemptively counter bearish objections. Every bullish point must have a falsifiable condition.
+     5. **Bull Researcher**: Responsible for constructing the strongest bullish thesis.
+        - Build a complete bullish logic chain with catalysts, upside quantification, and expected returns.
+        - **CATALYST MATRIX**: Must provide specific dates or milestones for every catalyst.
+        - Preemptively counter bearish objections. Every bullish point must have a falsifiable condition.
 
-    6. **Bear Researcher**: Responsible for constructing the strongest bearish thesis.
-       - Build a complete bearish logic chain with risk factors, downside quantification, and worst-case scenarios.
-       - Must directly reference and rebut the Bull Researcher's core arguments.
+     6. **Bear Researcher**: Responsible for constructing the strongest bearish thesis.
+        - Build a complete bearish logic chain with risk factors, downside quantification, and worst-case scenarios.
+        - Must directly reference and rebut the Bull Researcher's core arguments.
 
-    7. **Aggressive Risk Analyst**: Opportunity-driven risk perspective.
-       - Maximum return within controlled risk. Identify over-priced risk premiums.
+     7. **Aggressive Risk Analyst**: Opportunity-driven risk perspective.
+        - Maximum return within controlled risk. Identify over-priced risk premiums.
 
-    8. **Conservative Risk Analyst**: Capital preservation perspective.
-       - Worst-case loss analysis. Graham margin of safety. Black swan identification.
+     8. **Conservative Risk Analyst**: Capital preservation perspective.
+        - Worst-case loss analysis. Graham margin of safety. Black swan identification.
 
-    9. **Neutral Risk Analyst**: Balanced risk synthesis and final risk score.
-       - Synthesize aggressive/conservative views. Optimal risk-reward position sizing.
-       - **[Structured Output] Quantitative Risk Matrix (MANDATORY)**: Populate \`quantifiedRisks\` in JSON.
+     9. **Neutral Risk Analyst**: Balanced risk synthesis and final risk score.
+        - Synthesize aggressive/conservative views. Optimal risk-reward position sizing.
+        - **[Structured Output] Quantitative Risk Matrix (MANDATORY)**: Populate \`quantifiedRisks\` in JSON.
 
-    10. **Contrarian Strategist**: Responsible for challenging all consensus.
-       - Crowded trade analysis, deconstructing mainstream narratives, identifying "Blind Spots".
-       - **[Antithesis Creation]**: Must formulate a logical "Inversion Theory" (What if the bullish base case fails?).
+     10. **Contrarian Strategist**: Responsible for challenging all consensus.
+        - Crowded trade analysis, deconstructing mainstream narratives, identifying "Blind Spots".
+        - **[Antithesis Creation]**: Must formulate a logical "Inversion Theory" (What if the bullish base case fails?).
 
-    11. **Professional Reviewer**: Responsible for logic auditing and data "dehydration".
-       - Attacking narrative traps, valuation consistency audit, SOTP decision matrix.
+     11. **Professional Reviewer**: Responsible for logic auditing and data "dehydration".
+        - **NARRATIVE AUDIT (CRITICAL)**: Penalize and flag any expert using qualitative terms (High/Low/Bad) without quantitative exposure data (Percentages/USD/Dates).
+        - Attacking narrative traps, valuation consistency audit, SOTP decision matrix.
 
-    12. **Chief Strategist**: Last speaker, responsible for unified decision.
-       - Probability-weighted framework (Σ(P_i * TargetPrice_i)), position sizing, exit triggers.
-       - Must arbitrate the Bull vs Bear debate and the risk triad's conflicting perspectives.
-       - **[Structured Output] Core Decision Data**: Populate \`expectedValueOutcome\` and \`sensitivityMatrix\` in JSON.
+     12. **Chief Strategist**: Last speaker, responsible for unified decision.
+        - **PROBABILITY-WEIGHTED FRAMEWORK (CRITICAL)**: Explicitly show the calculation: Expected Price = Σ(P_i * TargetPrice_i).
+        - **DRIVER ALIGNMENT**: Probability settings MUST be tied to the status of the "Master Variable" identified by the Deep Research Specialist.
+        - Position sizing, exit triggers.
+        - Must arbitrate the Bull vs Bear debate and the risk triad's conflicting perspectives.
+        - **[Structured Output] Core Decision Data**: Populate \`expectedValueOutcome\` and \`sensitivityMatrix\` in JSON.
 
     **Analysis Target Data**: ${JSON.stringify(analysis)}
     ${historyContext}

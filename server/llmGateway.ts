@@ -68,6 +68,7 @@ export function getGatewayCliModelCandidates(model: string): string[] {
 /** Gemini models tried in order (fast → capable) */
 const GEMINI_MODELS = [
   process.env.GEMINI_GATEWAY_MODEL,   // override via env
+  'gemini-3.1-pro-preview',
   'gemini-3.1-flash-lite-preview',
   'gemini-1.5-flash',
   'gemini-1.5-pro',
@@ -204,7 +205,15 @@ async function tryGemini(prompt: string, log: LogFn): Promise<string | null> {
       log('gateway_gemini_http_error', { model, status: res.status, body: errBody.slice(0, 200) });
 
       // 429 quota exhausted — try next Gemini model
-      if (res.status === 429) continue;
+      if (res.status === 429) {
+        // If it's a credits depletion error, it applies to the whole key/project.
+        // Fail fast for all Gemini models and let the gateway try other providers.
+        if (errBody.includes('prepayment credits') || errBody.includes('depleted')) {
+          log('gateway_gemini_billing_depleted', { reason: 'fatal_billing_error' });
+          return null;
+        }
+        continue;
+      }
       // 4xx other than 429 → key issue, stop trying Gemini
       if (res.status >= 400 && res.status < 500) return null;
     } catch (err: any) {

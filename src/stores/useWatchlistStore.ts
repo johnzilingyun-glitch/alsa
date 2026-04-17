@@ -76,4 +76,5 @@ export const useWatchlistStore = create<WatchlistState>((set, get) => ({
 
   setIsScanning: (isScanning) => set({ isScanning }),
   setLastScanTime: (lastScanTime) => set({ lastScanTime }),
+  setItems: (items: WatchlistItem[]) => set({ items }),
 }));

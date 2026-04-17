@@ -469,7 +469,7 @@ export function SettingsModal() {
                 </div>
               </section>
 
-              {/* Debug Mode Section */}
+              {/* Debug & Failover Section */}
               <section className="space-y-4">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
@@ -494,13 +494,45 @@ export function SettingsModal() {
                     </button>
                   </div>
                 </div>
+
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Github size={16} className="text-sky-600" />
+                    <span className="text-xs font-bold uppercase tracking-wider text-zinc-400">智能故障转移 (Copilot)</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">
+                      {config.enableCopilotFallback ? '自动恢复已开启' : '自动恢复已关闭'}
+                    </span>
+                    <button
+                      onClick={() => setConfig({ ...config, enableCopilotFallback: !config.enableCopilotFallback })}
+                      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${
+                        config.enableCopilotFallback ? 'bg-sky-500 shadow-[0_0_8px_rgba(14,165,233,0.3)]' : 'bg-zinc-200'
+                      }`}
+                    >
+                      <span
+                        className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                          config.enableCopilotFallback ? 'translate-x-6' : 'translate-x-1'
+                        }`}
+                      />
+                    </button>
+                  </div>
+                </div>
                 
-                <div className="flex items-start gap-3 p-4 rounded-xl bg-zinc-50 border border-zinc-100 italic">
-                  <Cpu size={16} className="text-zinc-400 shrink-0 mt-0.5" />
-                  <div className="space-y-3 w-full">
-                    <p className="text-xs text-zinc-500 leading-relaxed">
-                      开启后，系统将记录所有后台请求与 API 响应数据。这有助于工程师分析数据偏差、优化 AI 推理逻辑并提高系统整体稳定性。
-                    </p>
+                <div className="flex items-start gap-4 p-5 rounded-2xl bg-zinc-50 border border-zinc-100 italic">
+                  <div className="flex flex-col gap-3 w-full">
+                    <div className="flex items-start gap-3">
+                      <Cpu size={16} className="text-zinc-400 shrink-0 mt-0.5" />
+                      <p className="text-xs text-zinc-500 leading-relaxed">
+                        <strong>开发者模式</strong>：开启后将记录所有后台请求数据。有助于分析数据偏差并优化 AI 推理逻辑。
+                      </p>
+                    </div>
+                    <div className="flex items-start gap-3 border-t border-zinc-200/60 pt-3">
+                      <Github size={16} className="text-zinc-400 shrink-0 mt-0.5" />
+                      <p className="text-xs text-zinc-500 leading-relaxed">
+                        <strong>自动恢复</strong>：开启后，若 Gemini API 余额耗尽，系统将自动通过本机 GitHub Copilot 通道完成研报生成。需确保后端已登录 GitHub。
+                      </p>
+                    </div>
                     <div className="flex gap-2">
                       <a 
                         href="/api/logs/debug" 

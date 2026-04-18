@@ -117,7 +117,8 @@ describe('startMultiRoundDiscussion', () => {
     );
 
     // Deep topology: 17 experts + 1 synthesis = 18
-    expect(callCount).toBe(18);
+    // Deep topology: 17 experts + 1 synthesis + 1 judge = 19
+    expect(callCount).toBe(19);
 
     // All multi-round messages should be in the result
     expect(result.messages).toHaveLength(17);
@@ -145,7 +146,8 @@ describe('startMultiRoundDiscussion', () => {
     const result = await startMultiRoundDiscussion(mockAnalysis, 'standard');
 
     // Standard topology: DR(1) + TA/FA(2) + Bull/Bear(2) + RM(1) + Reviewer(1) + Legendary(3) + CS(1) = 11 expert calls + 1 synthesis = 12
-    expect(callCount).toBe(12);
+    // Standard topology: DR(1) + TA/FA(2) + Bull/Bear(2) + RM(1) + Reviewer(1) + Expert(3) + Chief(1) + Judge(1)
+    expect(callCount).toBe(13);
     expect(result.messages).toHaveLength(11);
   });
 
@@ -163,7 +165,7 @@ describe('startMultiRoundDiscussion', () => {
     // The last multi-round expert (Chief Strategist, second-to-last prompt before synthesis)
     // should see previous expert messages in the prompt
     const csPrompt = prompts[prompts.length - 2];
-    expect(csPrompt).toMatch(/(PREVIOUS DISCUSSION|前轮专家分析)/i);
+    expect(csPrompt).toMatch(/(PREVIOUS DISCUSSION|前轮专家分析|PREVIOUS DISCUSSION ROUNDS)/i);
     // Should contain previous responses
     expect(csPrompt).toContain('Response #');
   });

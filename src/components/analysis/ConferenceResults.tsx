@@ -1,10 +1,15 @@
-import React from 'react';
-import {
-  AlertCircle, Loader2, AlertTriangle, Zap, Award, Target,
-  RefreshCcw, Clock, Layers, Database, History, Coins,
-  ShieldCheck, Search, TrendingUp, BarChart3, Cpu, CheckCircle2,
-  Share2, Download, User, ExternalLink,
+  Share2, Download, User, ExternalLink, Activity, BarChart,
 } from 'lucide-react';
+import { 
+  BarChart as RechartsBarChart, 
+  Bar, 
+  XAxis, 
+  YAxis, 
+  CartesianGrid, 
+  Tooltip as RechartsTooltip, 
+  ResponsiveContainer,
+  Cell
+} from 'recharts';
 import { useTranslation } from 'react-i18next';
 import { clsx } from 'clsx';
 import ReactMarkdown from 'react-markdown';
@@ -126,6 +131,19 @@ export function ConferenceResults({ analysis, onSendDiscussionReport }: Conferen
                 <div className="flex items-center justify-center gap-1.5 text-emerald-600">
                   <ShieldCheck size={14} />
                   <span className="text-sm font-bold">Verified</span>
+                </div>
+              </div>
+              <div className="p-4 rounded-2xl bg-white/50 border border-zinc-200/60 shadow-sm text-center group/drift">
+                <p className="text-[9px] font-bold text-zinc-400 uppercase tracking-widest mb-1 text-center">Opinion Drift (Bias)</p>
+                <div className="flex items-center justify-center gap-1.5">
+                  <span className={cn(
+                    "text-sm font-bold",
+                    (analysis.consensusBiasScore || 0) < 30 ? "text-emerald-600" :
+                    (analysis.consensusBiasScore || 0) < 60 ? "text-amber-600" : "text-rose-600"
+                  )}>
+                    {analysis.consensusBiasScore || 0}%
+                  </span>
+                  <div className="w-1.5 h-1.5 rounded-full bg-zinc-300 group-hover/drift:bg-indigo-400 transition-colors" />
                 </div>
               </div>
               <div className="p-4 rounded-2xl bg-white/50 border border-zinc-200/60 shadow-sm text-center">
@@ -262,17 +280,165 @@ export function ConferenceResults({ analysis, onSendDiscussionReport }: Conferen
                         </div>
                       </div>
 
-                      <div className="lg:col-span-5 flex flex-col gap-4">
-                        <div className="p-8 rounded-[2rem] bg-indigo-600 text-white shadow-xl shadow-indigo-600/20 flex flex-col items-center justify-center group-hover:shadow-indigo-600/30 transition-shadow">
-                          <p className="text-[9px] text-indigo-200 font-bold uppercase tracking-[0.3em] mb-4">Unified Target Price</p>
-                          <div className="flex items-baseline gap-2">
-                            <span className="text-6xl font-bold tracking-tighter">
-                              {analysis.expectedValueOutcome?.expectedPrice?.toFixed(2) ?? analysis.stockInfo.price.toFixed(2)}
-                            </span>
-                            <span className="text-lg font-bold text-indigo-200">{analysis.stockInfo.currency}</span>
                           </div>
                         </div>
                       </div>
+                    </div>
+                  </div>
+
+                  {/* PROBABILISTIC DISTRIBUTION (MONTE CARLO) */}
+                  {analysis.monteCarloData && (
+                    <div className="mt-8 pt-8 border-t border-indigo-100">
+                      <div className="flex items-center gap-3 mb-6">
+                        <Activity className="w-4 h-4 text-indigo-500" />
+                        <h5 className="text-[10px] font-bold uppercase tracking-[0.2em] text-zinc-500">Price Probability Distribution (90-Day Horizon)</h5>
+                      </div>
+                      
+                      <div className="grid grid-cols-1 md:grid-cols-12 gap-8 items-center">
+                        <div className="md:col-span-8 h-[200px] w-full">
+                          <ResponsiveContainer width="100%" height="100%">
+                            <RechartsBarChart data={analysis.monteCarloData.distribution}>
+                              <defs>
+                                <linearGradient id="barGradient" x1="0" y1="0" x2="0" y2="1">
+                                  <stop offset="0%" stopColor="#6366f1" stopOpacity={0.8}/>
+                                  <stop offset="100%" stopColor="#6366f1" stopOpacity={0.1}/>
+                                </linearGradient>
+                              </defs>
+                              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                              <XAxis 
+                                dataKey="price" 
+                                fontSize={10} 
+                                tickLine={false} 
+                                axisLine={false} 
+                                tick={{fill: '#94a3b8'}}
+                                unit={analysis.stockInfo.currency}
+                              />
+                              <YAxis hide />
+                              <RechartsTooltip 
+                                cursor={{fill: '#f8fafc'}}
+                                content={({ active, payload }) => {
+                                  if (active && payload && payload.length) {
+                                    return (
+                                      <div className="bg-white border border-zinc-200 p-2 rounded-lg shadow-xl text-[10px] font-bold">
+                                        <p className="text-zinc-500 mb-1 uppercase tracking-widest">Confidence</p>
+                                        <p className="text-indigo-600">{payload[0].value.toFixed(1)}% at {payload[0].payload.price} {analysis.stockInfo.currency}</p>
+                                      </div>
+                                    );
+                                  }
+                                  return null;
+                                }}
+                              />
+                              <Bar dataKey="probability" radius={[4, 4, 0, 0]}>
+                                {analysis.monteCarloData.distribution.map((entry, index) => (
+                                  <Cell 
+                                    key={`cell-${index}`} 
+                                    fill={entry.price >= analysis.monteCarloData!.p5 && entry.price <= analysis.monteCarloData!.p95 ? "url(#barGradient)" : "#e2e8f0"} 
+                                  />
+                                ))}
+                              </Bar>
+                            </RechartsBarChart>
+                          </ResponsiveContainer>
+                        </div>
+                        
+                        <div className="md:col-span-4 grid grid-cols-1 gap-3">
+                          <div className="p-3 rounded-xl bg-indigo-50/50 border border-indigo-100/50">
+                            <p className="text-[9px] font-bold text-zinc-400 uppercase tracking-widest mb-1">P5 (Stress Floor)</p>
+                            <p className="text-sm font-bold text-rose-600">{analysis.monteCarloData.p5.toFixed(2)}</p>
+                          </div>
+                          <div className="p-3 rounded-xl bg-indigo-50 border border-indigo-200/50">
+                            <p className="text-[9px] font-bold text-indigo-400 uppercase tracking-widest mb-1">P50 (Median Expectation)</p>
+                            <p className="text-sm font-bold text-indigo-700">{analysis.monteCarloData.p50.toFixed(2)}</p>
+                          </div>
+                          <div className="p-3 rounded-xl bg-indigo-50/50 border border-indigo-100/50">
+                            <p className="text-[9px] font-bold text-zinc-400 uppercase tracking-widest mb-1">P95 (Blue Sky Ceiling)</p>
+                            <p className="text-sm font-bold text-emerald-600">{analysis.monteCarloData.p95.toFixed(2)}</p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* INSTITUTIONAL RISK METRICS */}
+                  {analysis.institutionalRisk && (
+                    <div className="mt-8 grid grid-cols-3 gap-6">
+                      <div className="flex flex-col">
+                        <div className="flex items-center gap-2 mb-2">
+                          <BarChart className="w-3.5 h-3.5 text-zinc-400" />
+                          <span className="text-[9px] font-bold text-zinc-400 uppercase tracking-[0.2em]">Portfolio Beta</span>
+                        </div>
+                        <div className="text-lg font-bold text-zinc-900">{analysis.institutionalRisk.beta}</div>
+                        <p className="text-[9px] text-zinc-400 italic">Relative to Benchmark Index</p>
+                      </div>
+                      <div className="flex flex-col">
+                        <div className="flex items-center gap-2 mb-2">
+                          <Activity className="w-3.5 h-3.5 text-zinc-400" />
+                          <span className="text-[9px] font-bold text-zinc-400 uppercase tracking-[0.2em]">VaR (95%)</span>
+                        </div>
+                        <div className="text-lg font-bold text-rose-600">{analysis.institutionalRisk.var95}%</div>
+                        <p className="text-[9px] text-zinc-400 italic">Single-Day Value at Risk</p>
+                      </div>
+                      <div className="flex flex-col">
+                        <div className="flex items-center gap-2 mb-2">
+                          <Target className="w-3.5 h-3.5 text-zinc-400" />
+                          <span className="text-[9px] font-bold text-zinc-400 uppercase tracking-[0.2em]">Sharpe Proxy</span>
+                        </div>
+                        <div className="text-lg font-bold text-emerald-600">{analysis.institutionalRisk.sharpeProxy}</div>
+                        <p className="text-[9px] text-zinc-400 italic">Expected Excess Return / Vol</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* --- NEW: SOTP Valuation Matrix --- */}
+              {analysis.sotpMatrix && analysis.sotpMatrix.length > 0 && (
+                <div className="p-8 rounded-[2rem] bg-indigo-600/5 border border-indigo-100 shadow-sm relative overflow-hidden group">
+                  <div className="absolute top-0 right-0 p-8 opacity-[0.03] group-hover:opacity-[0.06] transition-opacity pointer-events-none">
+                    <BarChart3 size={160} className="text-indigo-600 -rotate-12" />
+                  </div>
+                  
+                  <div className="relative z-10">
+                    <div className="flex items-center gap-3 mb-8">
+                      <div className="p-2.5 rounded-2xl bg-indigo-600 text-white shadow-lg shadow-indigo-600/20">
+                        <BarChart3 size={20} />
+                      </div>
+                      <div>
+                        <h4 className="text-[10px] font-bold uppercase tracking-[0.2em] text-indigo-600">SOTP Valuation Matrix</h4>
+                        <p className="text-[9px] text-zinc-400 font-medium uppercase tracking-wider italic">Segmental Anchor Summation</p>
+                      </div>
+                    </div>
+
+                    <div className="overflow-x-auto rounded-2xl border border-zinc-200 bg-white/50 shadow-sm">
+                      <table className="w-full text-left">
+                        <thead>
+                          <tr className="bg-zinc-50 border-b border-zinc-200">
+                            <th className="px-6 py-4 text-[10px] font-bold text-zinc-500 uppercase tracking-[0.2em]">Segment Name</th>
+                            <th className="px-6 py-4 text-[10px] font-bold text-zinc-500 uppercase tracking-[0.2em]">Methodology</th>
+                            <th className="px-6 py-4 text-[10px] font-bold text-zinc-500 uppercase tracking-[0.2em] text-right">Multiplier</th>
+                            <th className="px-6 py-4 text-[10px] font-bold text-emerald-600 uppercase tracking-[0.2em] text-right">Segment Value</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-zinc-100">
+                          {analysis.sotpMatrix.map((item, idx) => (
+                            <tr key={idx} className="hover:bg-white transition-colors group/row">
+                              <td className="px-6 py-5">
+                                <span className="text-sm font-bold text-zinc-900 block">{item.segmentName}</span>
+                                {item.anchorPeer && (
+                                  <span className="text-[10px] text-zinc-400 font-medium mt-1 flex items-center gap-1">
+                                    <Target size={10} className="text-indigo-400" />
+                                    Peer Anchor: {item.anchorPeer}
+                                  </span>
+                                )}
+                              </td>
+                              <td className="px-6 py-5 text-xs text-zinc-600 font-medium">{item.valuationMethod}</td>
+                              <td className="px-6 py-5 text-sm font-mono text-zinc-500 text-right">{item.multiplier}</td>
+                              <td className="px-6 py-5 text-sm font-bold text-emerald-600 text-right">
+                                {item.fairValue} <span className="text-[10px] text-emerald-500/50">{analysis.stockInfo.currency}</span>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
                     </div>
                   </div>
                 </div>

@@ -121,6 +121,30 @@ export function ExpertReportCard({
             {new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
           </span>
         </div>
+        
+        {/* --- NEW: Logic Audit Sentinel: Conflict Findings --- */}
+        {message.logicFindings && message.logicFindings.length > 0 && (
+          <div className="mx-2 mb-2 p-4 rounded-3xl bg-rose-500/5 border border-rose-500/10 shadow-sm">
+            <div className="flex items-center gap-2 mb-3 text-rose-500 font-bold text-[10px] uppercase tracking-[0.15em]">
+              <AlertTriangle className="w-3.5 h-3.5" />
+              Logic Audit Sentinel: Conflict Detected
+            </div>
+            <div className="space-y-2">
+              {message.logicFindings.map((finding, idx) => (
+                <div key={idx} className="flex gap-3 text-xs">
+                  <span className={cn(
+                    "flex-shrink-0 w-1.5 h-1.5 rounded-full mt-1.5",
+                    finding.severity === 'critical' ? "bg-rose-500 shadow-[0_0_8px_rgba(244,63,94,0.6)]" : "bg-amber-500"
+                  )} />
+                  <div className="flex flex-col gap-0.5">
+                    <span className="font-bold text-zinc-700 text-[10px] uppercase tracking-wider">{finding.rule}</span>
+                    <span className="text-zinc-600 leading-relaxed font-medium">{finding.finding}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Content Body */}
         <div className={cn(

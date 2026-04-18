@@ -264,10 +264,10 @@ router.get('/stock/indices', async (req, res) => {
 router.get('/stock/commodities', async (req, res) => {
   const commoditySymbols = [
     { symbol: 'GC=F', name: '伦敦金 (XAU)', unit: '$/oz' },
-    { symbol: 'HG=F', name: 'LME铜 (HG)', unit: '$/lb' },
     { symbol: 'CL=F', name: '原油 (WTI)', unit: '$/bbl' },
-    { symbol: 'SI=F', name: '白银', unit: '$/oz' },
     { symbol: 'USDCNY=X', name: '美元/人民币', unit: 'CNY' },
+    { symbol: '^VIX', name: 'VIX 恐慌指数', unit: 'pts' },
+    { symbol: '^TNX', name: '10年美债收益率', unit: '%' },
   ];
 
   const cacheKey = 'commodities';

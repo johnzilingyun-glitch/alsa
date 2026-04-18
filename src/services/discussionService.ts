@@ -12,8 +12,10 @@ import { aggregateResults } from "./discussion/resultAggregator";
 import { normalizeCoreVariablesByPriority } from "./coreVariablePriority";
 import { reflectAndRemember, retrieveMemories, formatMemoryForPrompt } from "./reflectionService";
 import { generateQuantitativeBaseline } from "./quantitativeModeling";
+import { assembleExpertPrompt } from "./discussion/promptAssembler";
 import { discoverIndustryAnchors } from "./discussion/anchorDiscovery";
 import { getJudgePrompt } from "./prompts";
+import { auditExpertLogic } from "./discussion/guardrails";
 
 /**
  * [PHASE 2 OPTIMIZATION] - THE JUDGE AGENT
@@ -221,7 +223,10 @@ export async function startMultiRoundDiscussion(
 
       // Optimization 2: Context Compaction
       const compactedContext = compactMessages(allMessages, roundNum);
-      const prompt = getExpertPrompt(role, analysis, compactedContext, commoditiesData, backtest, language);
+      const prompt = await assembleExpertPrompt(role, analysis, compactedContext, commoditiesData, {
+        language,
+        includeExamples: true
+      });
 
       // Only roles that explicitly need Google Search get the tool.
       // When tools are present, the SDK drops responseMimeType + responseSchema,
@@ -238,8 +243,17 @@ export async function startMultiRoundDiscussion(
       const needsSearch = SEARCH_ROLES.has(role);
 
       const invokeExpert = async (inputPrompt: string) => {
+        // Determine model based on role criticality
+        const CRITICAL_ROLES: Set<AgentRole> = new Set([
+          'Professional Reviewer',
+          'Chief Strategist',
+          'Risk Manager',
+          'Macro Hedge Titan'
+        ]);
+        const model = CRITICAL_ROLES.has(role) ? CRITICAL_MODEL : (config?.model || DRAFTING_MODEL);
+
         return generateAndParseJsonWithRetry<any>(ai, {
-          model: config?.model || DRAFTING_MODEL, // Use Flash for expert drafting
+          model: model, 
           contents: inputPrompt,
         }, { 
           transportRetries: 2, 

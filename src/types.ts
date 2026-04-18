@@ -228,8 +228,26 @@ export interface StockAnalysis {
   };
   narrativeConsistency?: {
     score: number; // 0-100
-    warning?: string;
-    details: string;
+    logic: string;
+  };
+  cycleAnalysis?: {
+    stage: "Early" | "Mid" | "Late" | "Bottom" | "Peak";
+    logic: string;
+    volatilityRisk: string;
+  };
+  consensusBiasScore?: number;
+  logicFindings?: { role: string; rule: string; severity: string; finding: string }[];
+  sotpMatrix?: SegmentValuation[];
+  monteCarloData?: {
+    p5: number;
+    p50: number;
+    p95: number;
+    distribution: { price: number; probability: number }[];
+  };
+  institutionalRisk?: {
+    beta: number;
+    sharpeProxy: number;
+    var95: number;
   };
   netNetValue?: number;
   isDeepValue?: boolean;
@@ -246,17 +264,23 @@ export interface StockAnalysis {
     ahPremium?: string;
     marketSentiment: string;
   };
-  cycleAnalysis?: {
-    stage: "Early" | "Mid" | "Late" | "Bottom" | "Peak";
-    logic: string;
-    volatilityRisk: string;
-  };
   legendaryInsights?: {
     valueSage?: { marginOfSafety: string; intrinsicValue: string; moatRating: string };
-    growthVisionary?: { tamEstimate: string; innovationScore: number; disruptionPotential: string };
+    growthVisionary?: { tamEstimate: string; innovationScore: string; disruptionPotential: string };
     macroTitan?: { macroSignal: string; liquidityStatus: string; systemicRiskLevel: string };
   };
+  // Flat fields for expert insight aggregation
+  intrinsicValue?: string | number;
+  marginOfSafety?: string;
+  moatRating?: string;
+  tamEstimate?: string;
+  innovationScore?: string | number;
+  disruptionPotential?: string;
+  macroSignal?: string;
+  liquidityStatus?: string;
+  systemicRiskLevel?: string;
   chatHistory?: { id: string; role: "user" | "ai"; content: string }[];
+  extendedMarketData?: any;
 }
 
 export interface ChatMessage {
@@ -302,6 +326,7 @@ export interface MultiRoundProgress {
   currentStep?: 'grounding' | 'reasoning' | 'drafting' | 'reviewing' | 'auditing';
   messages: AgentMessage[];
   partialDiscussion?: Partial<AgentDiscussion>;
+  lastReasoning?: string; // Real-time AI feedback snippet
 }
 
 export interface Scenario {
@@ -420,8 +445,8 @@ export interface AgentDiscussion {
     exitTriggers: string[];
   };
   legendaryInsights?: {
-    valueSage?: { marginOfSafety: string; intrinsicValue: number; moatRating: string };
-    growthVisionary?: { tamEstimate: string; innovationScore: number; disruptionPotential: string };
+    valueSage?: { marginOfSafety: string; intrinsicValue: string; moatRating: string };
+    growthVisionary?: { tamEstimate: string; innovationScore: string; disruptionPotential: string };
     macroTitan?: { macroSignal: string; liquidityStatus: string; systemicRiskLevel: string };
   };
   consensusBiasScore?: number; // 0-100 (Opinion Drift)
@@ -585,31 +610,7 @@ export type AnalysisLevel = 'quick' | 'standard' | 'deep';
 export interface ExpertOutput {
   role: AgentRole;
   message: AgentMessage;
-  structuredData?: {
-    coreVariables?: CoreVariable[];
-    quantifiedRisks?: QuantifiedRisk[];
-    businessModel?: BusinessModel;
-    scenarios?: Scenario[];
-    tradingPlan?: TradingPlan;
-    expectedValueOutcome?: ExpectedValueOutcome;
-    sensitivityMatrix?: SensitivityMatrixRow[];
-    moatAnalysis?: {
-      type: string;
-      strength: "Wide" | "Narrow" | "None";
-      logic: string;
-    };
-    industryAnchors?: IndustryAnchor[];
-    expectationGap?: ExpectationGap;
-    marginOfSafety?: string;
-    intrinsicValue?: string;
-    moatRating?: string;
-    tamEstimate?: string;
-    innovationScore?: number;
-    disruptionPotential?: string;
-    macroSignal?: string;
-    liquidityStatus?: string;
-    systemicRiskLevel?: string;
-  };
+  structuredData?: Partial<StockAnalysis>;
 }
 
 // === NEW-1 Watchlist ===

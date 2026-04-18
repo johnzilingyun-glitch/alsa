@@ -1,12 +1,16 @@
 import { Router } from 'express';
 import YahooFinance from 'yahoo-finance2';
+const yahooFinance = new YahooFinance({ 
+  suppressNotices: ['yahooSurvey'],
+  validation: { logErrors: false, logWarnings: false } 
+});
 import { monitor } from './dataSourceHealth.js';
 import { logDebug, logError } from './stockLogger.js';
 import { calcIndicators } from './indicators/technicalCalc.js';
 import { calculateVolatility, calculateVolatilityAdjustedLimit } from './indicators/riskMetrics.js';
 import { calculateFundamentalScores, calculateIntrinsicValueEstimate } from './indicators/fundamentalScoring.js';
 
-const yahooFinance = new YahooFinance();
+// [FIX]: Managed via hardened Sina fallback in stockRoutes.ts
 const router = Router();
 
 // --- Simple InMemory Cache ---
@@ -78,6 +82,63 @@ async function fetchAShareSpotFallbackFromSina(symbol: string): Promise<any | nu
     marketState: 'REGULAR',
     source: 'Sina Finance (Fallback)',
   };
+}
+
+async function fetchHKSpotFallbackFromSina(symbol: string): Promise<any | null> {
+  // Sina HK codes are usually 'hk' + 5 digits (e.g., hk00700)
+  const sinaCode = `hk${symbol.padStart(5, '0')}`;
+  const url = `https://hq.sinajs.cn/list=${sinaCode}`;
+  
+  try {
+    const response = await fetch(url, {
+      headers: { Referer: 'https://finance.sina.com.cn' }
+    });
+    const text = await response.text();
+    const match = text.match(/="([^"]*)"/);
+    if (!match?.[1]) return null;
+
+    const parts = match[1].split(',');
+    if (parts.length < 10) return null;
+
+    // Sina HK parts: 0=EngName, 1=ChiName, 2=Open, 3=PrevClose, 4=High, 5=Low, 6=Last, 7=Change, 8=Change%, 9=Buy, 10=Sell, 11=Volume, ...
+    const name = parts[1] || symbol;
+    
+    // [HARDENING]: Check index 6 (last price) and fallback to index 3 (prev close) or index 2 (open)
+    let price = Number(parts[6]);
+    const prevClose = Number(parts[3]);
+    const open = Number(parts[2]);
+    const high = Number(parts[4]);
+    const low = Number(parts[5]);
+    const volume = Number(parts[12]);
+    
+    if ((!price || price === 0) && prevClose > 0) price = prevClose;
+    if ((!price || price === 0) && open > 0) price = open;
+
+    if (!Number.isFinite(price) || price === 0) return null;
+
+    const change = Number(parts[7]);
+    const changePercent = Number(parts[8]);
+
+    return {
+      symbol,
+      shortName: name,
+      regularMarketPrice: price,
+      regularMarketChange: change,
+      regularMarketChangePercent: changePercent,
+      regularMarketPreviousClose: prevClose,
+      regularMarketOpen: Number(parts[2]),
+      regularMarketDayHigh: high,
+      regularMarketDayLow: low,
+      regularMarketVolume: volume,
+      currency: 'HKD',
+      fullExchangeName: 'HK',
+      marketState: 'REGULAR',
+      source: 'Sina Finance HK (Fallback)',
+    };
+  } catch (e) {
+    console.warn(`[SinaHKFallback] Failed for ${symbol}:`, e);
+    return null;
+  }
 }
 
 async function fetchSectorFlowFromEastMoneyFallback(): Promise<{ topInflows: any[]; topOutflows: any[] } | null> {
@@ -466,6 +527,52 @@ router.get('/stock/northbound', async (req, res) => {
   }
 });
 
+// LHB (Dragon-Tiger List)
+router.get('/stock/lhb', async (req, res) => {
+  const { symbol, date } = req.query;
+  try {
+    const url = `http://127.0.0.1:8000/api/stock/lhb?symbol=${symbol}${date ? `&date=${date}` : ''}`;
+    const data = await fetchJsonWithTimeout(url, 7000);
+    res.json(data);
+  } catch (error) {
+    res.status(500).json({ success: false, error: 'Failed to fetch LHB' });
+  }
+});
+
+// Margin trading
+router.get('/stock/margin', async (req, res) => {
+  const { symbol } = req.query;
+  try {
+    const url = `http://127.0.0.1:8000/api/stock/margin?symbol=${symbol}`;
+    const data = await fetchJsonWithTimeout(url, 7000);
+    res.json(data);
+  } catch (error) {
+    res.status(500).json({ success: false, error: 'Failed to fetch margin' });
+  }
+});
+
+// Corporate Announcements
+router.get('/stock/announcements', async (req, res) => {
+  const { symbol } = req.query;
+  try {
+    const url = `http://127.0.0.1:8000/api/stock/notices?symbol=${symbol}`;
+    const data = await fetchJsonWithTimeout(url, 7000);
+    res.json(data);
+  } catch (error) {
+    res.status(500).json({ success: false, error: 'Failed to fetch announcements' });
+  }
+});
+
+// Social Trends
+router.get('/market/social-trends', async (req, res) => {
+  try {
+    const data = await fetchJsonWithTimeout('http://127.0.0.1:8000/api/market/social_trends', 7000);
+    res.json(data);
+  } catch (error) {
+    res.status(500).json({ success: false, error: 'Failed to fetch social trends' });
+  }
+});
+
 // Stock Suggestion / Autocomplete (Universal)
 router.get('/stock/suggest', async (req, res) => {
   const { input, market: currentMarket } = req.query;
@@ -727,13 +834,60 @@ router.get('/stock/realtime', async (req, res) => {
       }
     }
 
-    // Fallback or Non-A-Share: Use Yahoo Finance
-    if (!result) {
-      result = await tryQuoteEx(resolution.symbol, input, resolution.market, isDebug);
+    // HK-Share: Prioritize Python Microservice (AkShare HK Spot)
+    if (!result && resolution.market === 'HK-Share' && /^\d{1,5}$/.test(resolution.symbol)) {
+      try {
+        const spotRes = await fetchJsonWithTimeout(`http://127.0.0.1:8000/api/stock/hk_spot?symbol=${resolution.symbol}`, 7000).catch(() => ({ success: false }));
+        if (spotRes.success && spotRes.data) {
+          const d = spotRes.data;
+          result = {
+            symbol: d['代码'],
+            shortName: d['名称'],
+            regularMarketPrice: d['最新价'],
+            regularMarketChange: d['涨跌额'],
+            regularMarketChangePercent: d['涨跌幅'],
+            regularMarketPreviousClose: d['昨收'],
+            regularMarketOpen: d['今开'],
+            regularMarketDayHigh: d['最高'],
+            regularMarketDayLow: d['最低'],
+            regularMarketVolume: d['成交量'],
+            currency: 'HKD',
+            fullExchangeName: 'HK',
+            marketState: 'REGULAR',
+            source: 'AkShare (Local Python API)'
+          };
+          source = 'AkShare (Local Python API)';
+        }
+      } catch(e) {
+        logDebug('AkShare HK Fetch failed', e instanceof Error ? e.message : String(e));
+      }
+    }
+
+    // Step 2: Fallback or Non-A-Share: Use Yahoo Finance
+    if (!result || result.regularMarketPrice === 0 || result.regularMarketPrice === undefined) {
+      const yahooResult = await tryQuoteEx(resolution.symbol, input, resolution.market, isDebug);
+      
+      // If Yahoo fails or returns 0/undefined for HK, try Sina HK Fallback
+      if ((!yahooResult || !yahooResult.regularMarketPrice) && resolution.market === 'HK-Share') {
+        logDebug('HK_FALLBACK', `Yahoo returned 0 for HK stock ${resolution.symbol}. Attempting Sina fallback...`);
+        const hkFallback = await fetchHKSpotFallbackFromSina(resolution.symbol);
+        if (hkFallback && hkFallback.regularMarketPrice > 0) {
+          logDebug('HK_FALLBACK', `Sina fallback SUCCEEDED for ${resolution.symbol}: ${hkFallback.regularMarketPrice}`);
+          result = hkFallback;
+          source = hkFallback.source;
+        } else {
+          logError('HK_FALLBACK', `Sina fallback FAILED or price still 0 for ${resolution.symbol}`);
+        }
+      } else if (yahooResult) {
+        result = yahooResult;
+        if (isDebug) logDebug('REALTIME', `Resolved ${resolution.symbol} via Yahoo: ${result.regularMarketPrice}`);
+      }
+
       if (result) {
-        // Fetch indicators for Yahoo if not already fetched from AkShare
+        // Fetch indicators for result (could be Yahoo or Sina HK) if not already fetched
         if (!indicators) {
            try {
+              // Indicators still best fetched via Yahoo Chart or similar
               const symWithSuffix = appendMarketSuffix(resolution.symbol, resolution.market);
               const now = new Date();
               const startDate = new Date();

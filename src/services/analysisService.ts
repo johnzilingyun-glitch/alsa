@@ -42,8 +42,23 @@ export async function analyzeStock(
   const newsRes = await fetch(`/api/stock/news?symbol=${encodeURIComponent(symbol)}&market=${market}`).catch(() => null);
   const newsData = newsRes && newsRes.ok ? await newsRes.json() : [];
 
+  onStatus?.(isChinese ? "正在拉取龙虎榜、两融与最新公告..." : "Fetching LHB, Margin & Announcements...");
+  const [lhbRes, marginRes, noticesRes, socialRes] = await Promise.all([
+    fetch(`/api/stock/lhb?symbol=${encodeURIComponent(symbol)}`).catch(() => null),
+    fetch(`/api/stock/margin?symbol=${encodeURIComponent(symbol)}`).catch(() => null),
+    fetch(`/api/stock/announcements?symbol=${encodeURIComponent(symbol)}`).catch(() => null),
+    fetch(`/api/market/social-trends`).catch(() => null)
+  ]);
+  
+  const extendedMarketData = {
+    lhb: lhbRes && lhbRes.ok ? await lhbRes.json() : null,
+    margin: marginRes && marginRes.ok ? await marginRes.json() : null,
+    notices: noticesRes && noticesRes.ok ? await noticesRes.json() : null,
+    socialTrends: socialRes && socialRes.ok ? await socialRes.json() : null
+  };
+
   onStatus?.(isChinese ? "深度研判引擎正在思考中..." : "Deep Reasoning Engine is thinking...");
-  const prompt = getAnalyzeStockPrompt(symbol, resolvedMarket, realtimeData, commoditiesData, newsData, history, beijingDate, beijingShortDate, now, language);
+  const prompt = getAnalyzeStockPrompt(symbol, resolvedMarket, realtimeData, commoditiesData, newsData, history, beijingDate, beijingShortDate, now, language, extendedMarketData);
 
   const raw = await generateAndParseJsonWithRetry<StockAnalysis>(
     ai,
@@ -105,6 +120,7 @@ export async function analyzeStock(
 
   onStatus?.(isChinese ? "研报正在定稿..." : "Finalizing report...");
   analysis.id = `stock-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+  analysis.extendedMarketData = extendedMarketData;
   
   return analysis;
 }

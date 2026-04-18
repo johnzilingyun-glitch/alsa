@@ -7,6 +7,9 @@ import { useDiscussionStore } from '../stores/useDiscussionStore';
 import { useScenarioStore } from '../stores/useScenarioStore';
 import { StockAnalysis, AgentMessage, Market } from '../types';
 import { alertsClient } from '../services/api/alertsClient';
+import { analyzeStock } from '../services/analysisService';
+import { startMultiRoundDiscussion, startAgentDiscussion } from '../services/discussionService';
+import { getHistoryContext, saveAnalysisToHistory } from '../services/adminService';
 
 export function useStockAnalysis() {
   const geminiConfig = useConfigStore(s => s.config);
@@ -125,7 +128,7 @@ export function useStockAnalysis() {
               analysisLevel,
               geminiConfig,
               (progress) => {
-                setRoundProgress(progress.currentRound, progress.totalRounds, progress.activeExperts, progress.currentStep);
+                setRoundProgress(progress.currentRound, progress.totalRounds, progress.activeExperts, progress.currentStep, progress.lastReasoning);
                 setDiscussionMessages(progress.messages);
                 if (progress.partialDiscussion) {
                   // [PHASE 3 OPTIMIZATION]: Incremental UI update

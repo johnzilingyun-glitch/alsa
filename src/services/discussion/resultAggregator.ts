@@ -47,9 +47,9 @@ export function aggregateResults(
     && valueSage.structuredData.intrinsicValue
     && valueSage.structuredData.moatRating
       ? {
-          marginOfSafety: valueSage.structuredData.marginOfSafety,
-          intrinsicValue: valueSage.structuredData.intrinsicValue,
-          moatRating: valueSage.structuredData.moatRating,
+          marginOfSafety: valueSage.structuredData.marginOfSafety || '',
+          intrinsicValue: String(valueSage.structuredData.intrinsicValue || ''),
+          moatRating: valueSage.structuredData.moatRating || '',
         }
       : undefined;
 
@@ -57,9 +57,9 @@ export function aggregateResults(
     && growthVisionary.structuredData.innovationScore !== undefined
     && growthVisionary.structuredData.disruptionPotential
       ? {
-          tamEstimate: growthVisionary.structuredData.tamEstimate,
-          innovationScore: growthVisionary.structuredData.innovationScore,
-          disruptionPotential: growthVisionary.structuredData.disruptionPotential,
+          tamEstimate: growthVisionary.structuredData.tamEstimate || '',
+          innovationScore: String(growthVisionary.structuredData.innovationScore || ''),
+          disruptionPotential: growthVisionary.structuredData.disruptionPotential || '',
         }
       : undefined;
 

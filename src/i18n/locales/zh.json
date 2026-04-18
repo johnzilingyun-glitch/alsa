@@ -187,7 +187,8 @@
       "tactical_strategy": "核心战术策略",
       "version_control": "交易计划版本控制 (Version Control)",
       "change_reason": "变更原因",
-      "mos_combined": "结合安全边际"
+      "mos_combined": "结合安全边际",
+      "reasoning_snippet": "AI 实时推演片段"
     },
     "loading": {
       "reasoning": "深度智能研判进行中",

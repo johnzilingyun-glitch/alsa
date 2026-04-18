@@ -182,9 +182,10 @@ export async function startMultiRoundDiscussion(
   const allMessages: AgentMessage[] = [];
   const expertResults = new Map<AgentRole, ExpertOutput>();
   let roundNum = 0;
+  let quotaExhausted = false;
 
   for (const round of expandedTopology) {
-    if (abortSignal?.aborted) break;
+    if (abortSignal?.aborted || quotaExhausted) break;
     roundNum++;
 
     // Helper to call a single expert
@@ -248,7 +249,9 @@ export async function startMultiRoundDiscussion(
           'Professional Reviewer',
           'Chief Strategist',
           'Risk Manager',
-          'Macro Hedge Titan'
+          'Macro Hedge Titan',
+          'Deep Research Specialist',
+          'Fundamental Analyst'
         ]);
         const model = CRITICAL_ROLES.has(role) ? CRITICAL_MODEL : (config?.model || DRAFTING_MODEL);
 
@@ -267,22 +270,26 @@ export async function startMultiRoundDiscussion(
       let parsed = await invokeExpert(prompt);
       let content = String(parsed?.content || '').trim();
 
-      // When tools (googleSearch) strip the schema, the model may use a different
-      // field name for its text analysis. Try common alternatives before giving up.
-      if (!content && parsed && typeof parsed === 'object') {
-        const textCandidates = ['analysis', 'response', 'text', 'summary', 'answer', 'analysis_text', 'result'];
-        for (const key of textCandidates) {
-          if (typeof parsed[key] === 'string' && parsed[key].trim().length > 10) {
-            content = parsed[key].trim();
-            break;
+      // When tools (googleSearch) strip the schema, the model may return raw text analysis
+      // outside of the expected JSON structure or in a different field.
+      if (!content && parsed) {
+        if (typeof parsed === 'string') {
+          content = parsed.trim();
+        } else if (typeof parsed === 'object') {
+          const textCandidates = ['analysis', 'response', 'text', 'summary', 'answer', 'analysis_text', 'result', 'reasoning'];
+          for (const key of textCandidates) {
+            if (typeof parsed[key] === 'string' && parsed[key].trim().length > 10) {
+              content = parsed[key].trim();
+              break;
+            }
           }
-        }
-        // Last resort: concatenate all string values that look like analysis text
-        if (!content) {
-          const longStrings = Object.values(parsed)
-            .filter((v): v is string => typeof v === 'string' && v.trim().length > 50)
-            .join('\n\n');
-          if (longStrings.length > 50) content = longStrings;
+          // Last resort: concatenate all substantial string values
+          if (!content) {
+            const longStrings = Object.values(parsed)
+              .filter((v): v is string => typeof v === 'string' && v.trim().length > 50)
+              .join('\n\n');
+            if (longStrings.length > 50) content = longStrings;
+          }
         }
       }
 
@@ -360,15 +367,14 @@ export async function startMultiRoundDiscussion(
     let results: (ExpertOutput | null)[] = [];
 
     // Execute experts based on round's parallel flag.
-    // Parallel rounds: experts share the same prior context and run concurrently
-    // (API calls are still throttled by the scheduler at 4.2s intervals, but LLM
-    // processing overlaps server-side — cutting wall-clock time significantly).
-    // Sequential rounds: experts see each preceding expert's output immediately.
-    if (round.parallel && round.experts.length > 1) {
+    // [OPTIMIZATION]: Force sequential execution for Standard level to save RPM (Rate Limit)
+    const isStandardOrResilient = level === 'standard' || level === 'quick';
+    
+    if (round.parallel && round.experts.length > 1 && !isStandardOrResilient) {
       // Parallel execution — all experts see the same allMessages snapshot
       const parallelOutputs = await Promise.all(
         round.experts.map(async (expertRole) => {
-          if (abortSignal?.aborted) return null;
+          if (abortSignal?.aborted || quotaExhausted) return null;
           
           // Local progress for parallel roles
           onProgress?.({
@@ -384,16 +390,25 @@ export async function startMultiRoundDiscussion(
             output = await callExpert(expertRole);
           } catch (expertErr) {
             if (expertErr instanceof QuotaError) {
-              throw expertErr; // Bubble up quota errors to stop the discussion loop
+              quotaExhausted = true; // Signal early termination
+              return null;
             }
             console.error(`[Discussion] Expert ${expertRole} failed:`, expertErr);
             const errorMsg = expertErr instanceof Error ? expertErr.message : String(expertErr);
+            const isDataIssue = errorMsg.includes('price') || errorMsg.includes('data') || errorMsg.includes('missing');
+            
             output = {
               role: expertRole,
               message: {
                 id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`,
                 role: expertRole,
-                content: `[${expertRole} 分析暂时不可用] ${errorMsg.includes('quota') || errorMsg.includes('配额') ? '因 API 配额限制，该专家暂时无法提供分析。' : '该专家分析生成过程中出现异常回报。'}\n\n${getDefaultExpertOutput(expertRole)}`,
+                content: `[${expertRole} 分析暂时不可用] ${
+                  errorMsg.includes('quota') || errorMsg.includes('配额') 
+                  ? '因 API 配额限制，该专家暂时无法提供分析。' 
+                  : isDataIssue 
+                    ? `数据源不完整导致逻辑中断 (${errorMsg})。`
+                    : '该专家分析生成过程中出现异常汇报，可能由于推理引擎超时或 JSON 解析错误。'
+                }\n\n${getDefaultExpertOutput(expertRole)}`,
                 timestamp: new Date().toISOString(),
                 type: 'discussion',
                 round: roundNum,
@@ -405,25 +420,56 @@ export async function startMultiRoundDiscussion(
         })
       );
       // Batch-add all parallel results after completion
+      let latestSnippet = '';
       for (const output of parallelOutputs) {
         if (output) {
           results.push(output);
           allMessages.push(output.message);
           expertResults.set(output.role, output);
+          // Combine snippets for parallel roles
+          const snippet = output.message.content.substring(0, 150) + '...';
+          latestSnippet += `[${output.role}] ${snippet}\n`;
         }
       }
+      
+      // Update progress with the completion of the parallel round
+      onProgress?.({
+        currentRound: roundNum,
+        totalRounds,
+        activeExperts: round.experts,
+        currentStep: 'reasoning',
+        messages: [...allMessages],
+        lastReasoning: latestSnippet.trim(),
+      });
     } else {
       // Sequential execution — each expert sees the previous one's output
       for (let i = 0; i < round.experts.length; i++) {
-        if (abortSignal?.aborted) break;
-        if (i > 0) await delay(400);
+        if (abortSignal?.aborted || quotaExhausted) break;
+        // [OPTIMIZATION]: Increased inter-call delay to 2000ms to prevent RPM spikes
+        if (i > 0) await delay(2000);
 
         let output: ExpertOutput | null = null;
         try {
           output = await callExpert(round.experts[i]);
+          if (output) {
+            results.push(output);
+            allMessages.push(output.message);
+            expertResults.set(output.role, output);
+            
+            // [OPTIMIZATION]: Push the actual reasoning snippet to the UI progress callback
+            onProgress?.({
+              currentRound: roundNum,
+              totalRounds,
+              activeExperts: [round.experts[i]],
+              currentStep: 'reasoning',
+              messages: [...allMessages],
+              lastReasoning: `[${output.role}] ${output.message.content.substring(0, 150)}...`,
+            });
+          }
         } catch (expertErr) {
           if (expertErr instanceof QuotaError) {
-            throw expertErr; // Bubble up quota errors to stop the discussion loop
+            quotaExhausted = true;
+            break; 
           }
           console.error(`[Discussion] Expert ${round.experts[i]} failed:`, expertErr);
           const errorMsg = expertErr instanceof Error ? expertErr.message : String(expertErr);
@@ -452,20 +498,23 @@ export async function startMultiRoundDiscussion(
   const multiRoundResult = aggregateResults(expertResults, backtest, allMessages, analysis);
 
   // --- [PHASE 2 OPTIMIZATION]: Run Judge Agent ---
-  onProgress?.({
-    currentRound: totalRounds,
-    totalRounds,
-    activeExperts: [language === 'zh-CN' ? '逻辑审计引擎' : 'Fact Check Auditor'],
-    currentStep: 'auditing',
-    messages: [...allMessages],
-  });
-  const verificationResults = await runJudgeAgent(ai, analysis, multiRoundResult, config, language);
-  multiRoundResult.dataVerification = verificationResults;
+  // Only run if quota is not exhausted
+  if (!quotaExhausted) {
+    onProgress?.({
+      currentRound: totalRounds,
+      totalRounds,
+      activeExperts: [language === 'zh-CN' ? '逻辑审计引擎' : 'Fact Check Auditor'],
+      currentStep: 'auditing',
+      messages: [...allMessages],
+    });
+    const verificationResults = await runJudgeAgent(ai, analysis, multiRoundResult, config, language);
+    multiRoundResult.dataVerification = verificationResults;
+  }
   // ----------------------------------------------
 
   // Final synthesis: use the standard discussion prompt with multi-round history
   // to generate complete dashboard data (expectedValueOutcome, dataVerification, etc.)
-  if (!abortSignal?.aborted) {
+  if (!abortSignal?.aborted && !quotaExhausted) {
     onProgress?.({
       currentRound: totalRounds,
       totalRounds,

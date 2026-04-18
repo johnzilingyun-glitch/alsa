@@ -27,6 +27,7 @@ export function aggregateResults(
   const valueSage = roundResults.get('Value Investing Sage');
   const growthVisionary = roundResults.get('Growth Visionary');
   const macroTitan = roundResults.get('Macro Hedge Titan');
+  const fundamentalAnalyst = roundResults.get('Fundamental Analyst');
 
   // Collect controversial points from both contrarian and bear researcher
   const controversialPoints: string[] = [];
@@ -72,6 +73,21 @@ export function aggregateResults(
         }
       : undefined;
 
+  // 1. Calculate Consensus Bias (Opinion Drift)
+  let consensusBiasScore = 0;
+  if (chiefStrategist?.structuredData?.expectedValueOutcome?.expectedPrice && baseline?.stockInfo?.price) {
+    const aiExpected = chiefStrategist.structuredData.expectedValueOutcome.expectedPrice;
+    const baselinePrice = baseline.stockInfo.price;
+    // Drift is the % difference between AI expectation and current market anchor
+    const drift = Math.abs((aiExpected - baselinePrice) / baselinePrice) * 100;
+    consensusBiasScore = Math.min(100, Math.round(drift * 2)); // Scaled: 25% drift = 50 bias score
+  }
+
+  // 2. Aggregate SOTP Matrix
+  const sotpMatrix = chiefStrategist?.structuredData?.sotpMatrix 
+    || fundamentalAnalyst?.structuredData?.sotpMatrix 
+    || [];
+
   const discussion: AgentDiscussion = {
     messages,
     finalConclusion: chiefStrategist?.message.content ?? '',
@@ -90,7 +106,11 @@ export function aggregateResults(
       valueSage: valueSageInsights,
       growthVisionary: growthVisionaryInsights,
       macroTitan: macroTitanInsights,
-    }
+    },
+    consensusBiasScore,
+    sotpMatrix: sotpMatrix.length > 0 ? sotpMatrix : undefined,
+    monteCarloData: baseline?.monteCarloData,
+    institutionalRisk: baseline?.institutionalRisk
   };
 
   if (backtest) {

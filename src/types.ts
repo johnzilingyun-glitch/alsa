@@ -292,6 +292,7 @@ export interface AgentMessage {
   type?: "discussion" | "research" | "review" | "user_question" | "fact_check";
   references?: { title: string; url: string }[];
   round?: number;
+  logicFindings?: { rule: string; severity: string; finding: string }[];
 }
 
 export interface MultiRoundProgress {
@@ -419,10 +420,32 @@ export interface AgentDiscussion {
     exitTriggers: string[];
   };
   legendaryInsights?: {
-    valueSage?: { marginOfSafety: string; intrinsicValue: string; moatRating: string };
+    valueSage?: { marginOfSafety: string; intrinsicValue: number; moatRating: string };
     growthVisionary?: { tamEstimate: string; innovationScore: number; disruptionPotential: string };
     macroTitan?: { macroSignal: string; liquidityStatus: string; systemicRiskLevel: string };
   };
+  consensusBiasScore?: number; // 0-100 (Opinion Drift)
+  logicFindings?: { role: string; rule: string; severity: string; finding: string }[];
+  sotpMatrix?: SegmentValuation[];
+  monteCarloData?: {
+    p5: number;
+    p50: number;
+    p95: number;
+    distribution: { price: number; probability: number }[];
+  };
+  institutionalRisk?: {
+    beta: number;
+    sharpeProxy: number;
+    var95: number;
+  };
+}
+
+export interface SegmentValuation {
+  segmentName: string;
+  valuationMethod: string;
+  multiplier: string;
+  fairValue: string;
+  anchorPeer?: string;
 }
 
 export interface DataVerification {

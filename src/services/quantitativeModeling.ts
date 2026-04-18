@@ -55,7 +55,9 @@ export function generateQuantitativeBaseline(analysis: Partial<StockAnalysis>): 
       type: scores.moatRating === "Wide" ? "Structural Advantage" : "Competitive Market",
       strength: scores.moatRating,
       logic: `Based on quantitative metrics (ROE: ${roe}%, Margin: ${margin}%).`
-    }
+    },
+    monteCarloData: runMonteCarloSimulation(price, indicators?.riskMetrics?.annualizedVolatility || 0.25),
+    institutionalRisk: calculateInstitutionalRisks(analysis, scores)
   };
 }
 
@@ -193,4 +195,54 @@ function generateBaselineBusinessModel(analysis: any): BusinessModel {
     projectedProfit: "Aligned with sector average",
     confidenceScore: 70
   };
+}
+
+/**
+ * Monte Carlo Simulation - GBM (Geometric Brownian Motion)
+ */
+function runMonteCarloSimulation(price: number, volatility: number, days: number = 90, iterations: number = 1000) {
+  const dt = 1 / 252;
+  const drift = 0.05; // 5% assumed annual drift
+  const results: number[] = [];
+
+  for (let i = 0; i < iterations; i++) {
+    let currentPrice = price;
+    for (let d = 0; d < days; d++) {
+      const z = (Math.random() + Math.random() + Math.random() + Math.random() + Math.random() + Math.random() - 3) / 1; // Box-Muller approx
+      const change = currentPrice * (drift * dt + volatility * Math.sqrt(dt) * z);
+      currentPrice += change;
+    }
+    results.push(currentPrice);
+  }
+
+  results.sort((a, b) => a - b);
+  const p5 = results[Math.floor(iterations * 0.05)];
+  const p50 = results[Math.floor(iterations * 0.50)];
+  const p95 = results[Math.floor(iterations * 0.95)];
+
+  // Create histogram buckets
+  const min = results[0];
+  const max = results[iterations - 1];
+  const step = (max - min) / 20;
+  const distribution = Array.from({ length: 20 }, (_, i) => {
+    const bucketMin = min + i * step;
+    const bucketMax = bucketMin + step;
+    const count = results.filter(r => r >= bucketMin && r < bucketMax).length;
+    return {
+      price: Math.round(bucketMin + step / 2),
+      probability: (count / iterations) * 100
+    };
+  });
+
+  return { p5, p50, p95, distribution };
+}
+
+function calculateInstitutionalRisks(analysis: any, scores: any) {
+  const vol = analysis.technicalIndicators?.riskMetrics?.annualizedVolatility || 0.25;
+  // Simple Beta Proxy: Volatility Ratio (Stock Vol / Market Vol 15%)
+  const beta = parseFloat((vol / 0.15).toFixed(2));
+  const sharpeProxy = parseFloat((0.08 / vol).toFixed(2)); // Assumed 8% excess return / vol
+  const var95 = parseFloat((vol * 1.65 * Math.sqrt(1/252) * 100).toFixed(2)); // Daily 95% VaR
+
+  return { beta, sharpeProxy, var95 };
 }

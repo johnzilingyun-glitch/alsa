@@ -438,6 +438,8 @@ export const DiscussionPanel: React.FC<DiscussionPanelProps> = ({
             const msgKey = msg.id || `${msg.role}-${msg.timestamp}-${i}`;
             const weightInfo = getWeightInfo(msg.role);
             
+            const verification = dataVerification?.find(v => v.source === msg.role);
+            
             return (
               <ExpertReportCard 
                 key={msgKey}
@@ -445,6 +447,8 @@ export const DiscussionPanel: React.FC<DiscussionPanelProps> = ({
                 isExpert={weightInfo?.isExpert}
                 expertiseArea={weightInfo?.expertiseArea}
                 references={msg.references}
+                isVerified={verification?.isVerified}
+                auditDetail={verification?.discrepancy}
               />
             );
           })}

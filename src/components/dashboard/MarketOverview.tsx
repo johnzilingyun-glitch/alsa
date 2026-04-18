@@ -13,6 +13,7 @@ import { useMarketStore } from '../../stores/useMarketStore';
 import { useAnalysisStore } from '../../stores/useAnalysisStore';
 import { ErrorNotice } from '../ErrorNotice';
 import { getMarketHistoryByDate, getAvailableMarketDates } from '../../services/adminService';
+import { InstitutionalAlertPanel } from './InstitutionalAlertPanel';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -445,6 +446,8 @@ export const MarketOverview = memo(function MarketOverview({ onFetchMarketOvervi
           </>
         )}
       </section>
+
+      <InstitutionalAlertPanel />
 
       <section className="grid grid-cols-1 gap-8 lg:grid-cols-3">
         <div className="space-y-6 lg:col-span-2">

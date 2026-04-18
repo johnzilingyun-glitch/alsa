@@ -40,6 +40,7 @@ from .app.services.market_snapshot_service import MarketSnapshotService
 from .app.services.analysis_job_service import AnalysisJobService
 from .app.db.repositories.watchlist_repo import WatchlistRepository
 from .app.db.repositories.journal_repo import JournalRepository
+from .app.db.repositories.alert_repo import AlertRepository
 
 # Singletons for simplicity in this analytical app
 session_factory = build_session_factory(DATABASE_URL)
@@ -47,6 +48,7 @@ parquet_store = ParquetMarketStore()
 job_repo = JobRepository(session_factory)
 watchlist_repo = WatchlistRepository(session_factory)
 journal_repo = JournalRepository(session_factory)
+alert_repo = AlertRepository(session_factory)
 
 market_snapshot_service = MarketSnapshotService(parquet_store)
 analysis_job_service = AnalysisJobService(job_repo, market_snapshot_service)
@@ -60,6 +62,9 @@ def get_watchlist_repo():
 
 def get_journal_repo():
     return journal_repo
+
+def get_alert_repo():
+    return alert_repo
 
 # --- A-Share Spot Cache (avoids pulling 5000+ rows per request) ---
 _spot_cache: Dict[str, Any] = {"df": None, "ts": 0}

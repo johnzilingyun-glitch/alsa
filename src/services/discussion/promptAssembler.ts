@@ -55,6 +55,14 @@ export async function assembleExpertPrompt(
   sections.push(`\n**Target Analysis**: ${analysis.stockInfo.symbol} - ${analysis.stockInfo.name}`);
   sections.push(`**Latest Price**: ${analysis.stockInfo.price} ${analysis.stockInfo.currency}`);
 
+  // 5. Discussion History (Previous Rounds)
+  if (previousRounds && previousRounds.length > 0) {
+    sections.push(isZh ? `\n**前轮专家分析 (PREVIOUS DISCUSSION)**:` : `\n**PREVIOUS DISCUSSION ROUNDS**:`);
+    previousRounds.forEach(msg => {
+      sections.push(`\n[${msg.role}]: ${msg.content}`);
+    });
+  }
+
   // Base output instruction
   sections.push(`\n**LANGUAGE**: MUST output in ${isZh ? 'Simplified Chinese (简体中文)' : 'English'}.`);
 

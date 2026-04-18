@@ -184,7 +184,8 @@
       "tactical_strategy": "Core Tactical Strategy",
       "version_control": "Trading Plan Version Control",
       "change_reason": "Reason for Change",
-      "mos_combined": "with Margin of Safety"
+      "mos_combined": "with Margin of Safety",
+      "reasoning_snippet": "AI Real-time Reasoning"
     },
     "loading": {
       "reasoning": "AI Intensive Reasoning in Progress",

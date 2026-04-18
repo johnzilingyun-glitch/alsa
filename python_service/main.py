@@ -207,6 +207,38 @@ async def get_financial_news(market: str = "A-Share") -> Dict[str, Any]:
     except Exception as e:
         return {"success": False, "error": str(e)}
 
+@app.get("/api/stock/hk_spot")
+async def get_stock_hk_spot(
+    symbol: str = Query(..., pattern=r"^\d{1,5}$", description="1-5 digit HK stock code")
+) -> Dict[str, Any]:
+    """
+    Fetch real-time HK-Share stock quote from EastMoney via AkShare.
+    """
+    try:
+        # stock_hk_spot_em returns real-time quotes for all HK stocks
+        # We search for the specific symbol
+        df = ak.stock_hk_spot_em()
+        if df.empty:
+            return {"success": False, "error": "No HK data available"}
+            
+        # Symbol in AkShare HK is usually just the code string or zero-padded
+        # EastMoney HK symbols in AkShare are typically strings like '00700'
+        row = df[df['代码'] == symbol.padStart(5, '0') if len(symbol) < 5 else symbol]
+        if row.empty:
+            # Try fuzzy match if exact fails
+            row = df[df['代码'].str.contains(symbol)]
+            
+        if row.empty:
+            return {"success": False, "error": f"Symbol {symbol} not found in HK market"}
+            
+        data = row.iloc[0].to_dict()
+        clean_data = {k: (None if pd.isna(v) else v) for k, v in data.items()}
+        
+        return {"success": True, "data": clean_data}
+    except Exception as e:
+        print(f"Error fetching HK stock spot: {e}")
+        return {"success": False, "error": str(e)}
+
 @app.get("/api/stock/a_spot")
 async def get_stock_a_spot(
     symbol: str = Query(..., pattern=r"^\d{6}$", description="6-digit A-share code")
@@ -334,6 +366,91 @@ async def get_stock_a_valuation(
         return {"success": True, "data": info}
     except Exception as e:
         print(f"Error fetching valuation: {e}")
+        return {"success": False, "error": str(e)}
+
+# --- New Financial Dimension Endpoints ---
+
+@app.get("/api/stock/lhb")
+async def get_stock_lhb(
+    symbol: str = Query(..., description="Stock code"),
+    date: str = Query(None, description="Date in YYYYMMDD format")
+) -> Dict[str, Any]:
+    """
+    Fetch Dragon-Tiger (Longhu Bang) detail info.
+    """
+    try:
+        if date is None:
+            import datetime
+            date = datetime.datetime.now().strftime("%Y%m%d")
+        df = ak.stock_lhb_detail_em(start_date=date, end_date=date)
+        if df.empty:
+            return {"success": False, "error": "No LHB data available"}
+            
+        row = df[df['代码'] == symbol]
+        if row.empty:
+            return {"success": False, "error": f"No LHB data for {symbol} on {date}"}
+            
+        return {"success": True, "data": row.to_dict(orient="records")}
+    except Exception as e:
+        print(f"Error fetching LHB: {e}")
+        return {"success": False, "error": str(e)}
+
+@app.get("/api/stock/margin")
+async def get_stock_margin(
+    symbol: str = Query(..., description="Stock code")
+) -> Dict[str, Any]:
+    """
+    Fetch margin trading detail info.
+    """
+    try:
+        import datetime
+        date = datetime.datetime.now().strftime("%Y%m%d")
+        
+        if symbol.startswith('6'):
+            df = ak.stock_margin_detail_sse(date=date)
+        else:
+            df = ak.stock_margin_detail_szse(date=date)
+            
+        code_cols = [c for c in df.columns if '代码' in c]
+        if code_cols:
+            row = df[df[code_cols[0]] == symbol]
+            if not row.empty:
+                return {"success": True, "data": row.iloc[0].to_dict()}
+                
+        return {"success": False, "error": f"No margin data for {symbol} today"}
+    except Exception as e:
+        print(f"Error fetching margin: {e}")
+        return {"success": False, "error": str(e)}
+
+@app.get("/api/stock/notices")
+async def get_stock_notices(
+    symbol: str = Query(..., description="Stock code")
+) -> Dict[str, Any]:
+    """
+    Fetch recent corporate announcements.
+    """
+    try:
+        # Easy endpoint for A-share notices
+        df = ak.stock_npq_em(symbol=symbol)
+        if df.empty:
+            return {"success": False, "error": "No notices found"}
+        records = df.head(5).to_dict(orient="records")
+        return {"success": True, "data": records}
+    except Exception as e:
+        print(f"Error fetching notices: {e}")
+        return {"success": False, "error": str(e)}
+
+@app.get("/api/market/social_trends")
+async def get_social_trends() -> Dict[str, Any]:
+    """
+    Aggregates economic news and sentiment as a proxy for social trends.
+    """
+    try:
+        df = ak.news_economic_baidu()
+        records = df.head(10).to_dict(orient="records") if hasattr(df, 'head') else []
+        return {"success": True, "data": records}
+    except Exception as e:
+        print(f"Error fetching social trends: {e}")
         return {"success": False, "error": str(e)}
 
 # --- Analysis Job Endpoints ---

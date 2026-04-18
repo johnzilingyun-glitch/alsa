@@ -243,8 +243,9 @@ export async function generateAndParseJsonWithRetry<T>(
 
     // Wait between model switches so RPM window clears (only after a previous model failed)
     if (consecutiveQuotaErrors > 0) {
-      console.warn(`[ModelFallback] Switching to ${model} — waiting 5s for RPM window to clear...`);
-      await delay(5000);
+      const jitterMs = 3000 + Math.random() * 4000;
+      console.warn(`[ModelFallback] Switching to ${model} — waiting ${Math.round(jitterMs/1000)}s for RPM window to clear...`);
+      await delay(jitterMs);
     }
 
     let lastParseError: unknown;
@@ -562,8 +563,10 @@ export function extractJsonBlock(raw: string): string {
   }
   let cleaned = raw.trim();
 
-  // 0. Strip Gemini citation markers like [cite: 1], [cite: analysis], [cite_start]...[cite_end] etc.
+  // 0. Strip Gemini citation markers and diverse search tool artifacts
   cleaned = cleaned.replace(/\[cite(?:_start|_end)?:?[^\]]*\]/gi, '');
+  cleaned = cleaned.replace(/【来源：[^】]*】/g, ''); // Common Chinese citation markers
+  cleaned = cleaned.replace(/Sources?:?\s*\[\d+\]/gi, '');
   
   // 1. Try to find triple backtick blocks
   const tripleBacktickMatch = cleaned.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
@@ -719,9 +722,10 @@ function repairJson(json: string): string {
   // 2. Remove trailing commas before } or ] (with optional whitespace)
   repaired = repaired.replace(/,\s*([\]}])/g, '$1');
 
-  // 3. Replace NaN / Infinity literals with null
+  // 3. Replace NaN / Infinity / undefined literals with null
   repaired = repaired.replace(/:\s*NaN\b/g, ': null');
   repaired = repaired.replace(/:\s*-?Infinity\b/g, ': null');
+  repaired = repaired.replace(/:\s*undefined\b/g, ': null');
 
   // 4. Fix unescaped double quotes inside string values using a state machine
   let result = '';

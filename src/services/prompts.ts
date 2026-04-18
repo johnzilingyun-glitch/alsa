@@ -112,7 +112,7 @@ JSON schema:
 `;
 };
 
-export const getAnalyzeStockPrompt = (symbol: string, market: Market, realtimeData: any, commoditiesData: any[], newsData: any[], history: any[], beijingDate: string, beijingShortDate: string, now: Date, language: Language = "en") => {
+export const getAnalyzeStockPrompt = (symbol: string, market: Market, realtimeData: any, commoditiesData: any[], newsData: any[], history: any[], beijingDate: string, beijingShortDate: string, now: Date, language: Language = "en", extendedMarketData?: any) => {
   const isChinese = language === "zh-CN";
   return `
 Current date and time (UTC): ${now.toISOString()}
@@ -124,6 +124,10 @@ ${realtimeData ? JSON.stringify(realtimeData, null, 2) : "No real-time data prov
 **REAL-TIME NEWS DATA (GROUND TRUTH)**:
 ${newsData && newsData.length > 0 ? JSON.stringify(newsData, null, 2) : "No real-time ticker news provided. Use Google Search to find latest catalysts."}
 **IMPORTANT**: Use THIS news data to populate your "news" array and to inform your "industryAnchors" and "fundamentalAnalysis". Do not invent news.
+
+**DEEP DIMENSION MARKET DATA (LHB, MARGIN, ANNOUNCEMENTS)**:
+${extendedMarketData ? JSON.stringify(extendedMarketData, null, 2) : "No LHB or Margin data provided for this period."}
+**IMPORTANT**: If provided, you MUST use the Dragon-Tiger (LHB) and Margin trading data to enrich your sentiment analysis and "capitalFlow" section. Identify if price action is driven by institutions (LHB) or leverage (Margin).
 
 **REAL-TIME COMMODITY DATA (GROUND TRUTH)**:
 ${formatCommoditiesToMarkdown(commoditiesData)}
@@ -631,10 +635,11 @@ export const getJudgePrompt = (analysis: StockAnalysis, discussion: AgentDiscuss
     Your mission is to perform a rigorous **Fact-Check and Logic Audit** on the expert deliberation results before they reach the user.
 
     **TASKS (CRITICAL)**:
-    1. **Data Consistency Check**: Cross-examine the expert "messages" against the "GROUND TRUTH API DATA" (stockInfo, technicalIndicators, fundamentals).
+    1. **Data Consistency Check**: Cross-examine the expert "messages" against the "GROUND TRUTH API DATA" (stockInfo, technicalIndicators, fundamentals, extendedMarketData).
     2. **Identify Hallucinations**:
        - Did anyone claim a price different from ${analysis.stockInfo.price}?
        - Did anyone mention a support/resistance level that contradicts the Technical Indicators?
+       - Did anyone cite Dragon-Tiger (LHB) or Margin data that contradicts the Ground Truth?
        - Did anyone cite a news event that isn't in the provided news array (unless substantiated by a Google Search citation)?
     3. **Detect Narrative Drift**: Check if experts are using qualitative adjectives (huge, massive) that are not supported by the quantitative exposure data (e.g., calling a 0.5% drop a "crash").
     4. **Output Verification Array**: Create a JSON list of verified data points and flag discrepancies.
@@ -644,6 +649,7 @@ export const getJudgePrompt = (analysis: StockAnalysis, discussion: AgentDiscuss
     - Price: ${analysis.stockInfo.price} ${analysis.stockInfo.currency} (${analysis.stockInfo.changePercent}%)
     - Indicators: ${JSON.stringify(analysis.technicalIndicators)}
     - Fundamentals: ${JSON.stringify(analysis.fundamentals)}
+    - Deep Market Data (LHB/Margin/Notices): ${JSON.stringify(analysis.extendedMarketData)}
 
     **EXPERT DISCUSSION TO AUDIT**:
     ${discussion.messages.map(m => `[${m.role}]: ${m.content.slice(0, 500)}...`).join('\n\n')}
@@ -691,6 +697,9 @@ export const getDiscussionPrompt = (
 
     **REAL-TIME COMMODITY DATA (GROUND TRUTH - ${today})**:
     ${formatCommoditiesToMarkdown(commoditiesData)}
+    
+    **DEEP DIMENSION MARKET DATA (LHB/MARGIN/ANNOUNCEMENTS)**:
+    ${analysis.extendedMarketData ? JSON.stringify(analysis.extendedMarketData, null, 2) : "No extended data available."}
     
     ${memoryContext}
     - **STRICT RELEVANCE CONSTRAINT (CRITICAL)**: Use commodity data ONLY if it is a DIRECT and MATERIAL driver for the industry. 

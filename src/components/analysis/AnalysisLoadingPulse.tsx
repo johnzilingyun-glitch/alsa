@@ -21,6 +21,7 @@ export function AnalysisLoadingPulse() {
   const currentRound = useDiscussionStore(s => s.currentRound);
   const totalRounds = useDiscussionStore(s => s.totalRounds);
   const currentStep = useDiscussionStore(s => s.currentStep);
+  const lastReasoning = useDiscussionStore(s => s.lastReasoning);
   
   const [isExpanded, setIsExpanded] = useState(true);
   const logsEndRef = useRef<HTMLDivElement>(null);
@@ -154,35 +155,53 @@ export function AnalysisLoadingPulse() {
             <div className="h-px w-full bg-gradient-to-r from-transparent via-zinc-200 to-transparent" />
 
             {/* Chain of Thought Logs */}
-            <div className="space-y-3 max-h-[160px] overflow-y-auto pr-2 custom-scrollbar">
-              <AnimatePresence initial={false}>
-                {analysisLogs.map((log, index) => {
-                  const isLatest = index === analysisLogs.length - 1;
-                  return (
-                    <motion.div 
-                      key={log.timestamp + index}
-                      initial={{ opacity: 0, x: -10 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      className="flex items-start gap-3"
-                    >
-                      <div className="mt-1">
-                        {isLatest ? (
-                          <Loader2 className="w-3.5 h-3.5 text-indigo-500 animate-spin" />
-                        ) : (
-                          <CheckCircle2 className="w-3.5 h-3.5 text-green-500" />
-                        )}
-                      </div>
-                      <span className={cn(
-                        "text-xs font-medium leading-relaxed font-mono",
-                        isLatest ? "text-indigo-600" : "text-zinc-500"
-                      )}>
-                        {log.message}
-                      </span>
-                    </motion.div>
-                  );
-                })}
-              </AnimatePresence>
-              <div ref={logsEndRef} />
+            <div className="space-y-4">
+              {lastReasoning && (
+                <motion.div 
+                  initial={{ opacity: 0, scale: 0.95 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  className="p-4 rounded-2xl bg-indigo-50/50 border border-indigo-100/50 shadow-inner"
+                >
+                  <p className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest mb-2 flex items-center gap-1.5">
+                    <Brain size={12} className="animate-pulse" />
+                    {t('analysis.conference.reasoning_snippet')}
+                  </p>
+                  <p className="text-xs text-indigo-900/80 leading-relaxed font-medium italic">
+                    "{lastReasoning}"
+                  </p>
+                </motion.div>
+              )}
+
+              <div className="space-y-3 max-h-[120px] overflow-y-auto pr-2 custom-scrollbar">
+                <AnimatePresence initial={false}>
+                  {analysisLogs.map((log, index) => {
+                    const isLatest = index === analysisLogs.length - 1;
+                    return (
+                      <motion.div 
+                        key={log.timestamp + index}
+                        initial={{ opacity: 0, x: -10 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        className="flex items-start gap-3"
+                      >
+                        <div className="mt-1">
+                          {isLatest ? (
+                            <Loader2 className="w-3.5 h-3.5 text-indigo-500 animate-spin" />
+                          ) : (
+                            <CheckCircle2 className="w-3.5 h-3.5 text-green-500" />
+                          )}
+                        </div>
+                        <span className={cn(
+                          "text-xs font-medium leading-relaxed font-mono",
+                          isLatest ? "text-indigo-600" : "text-zinc-500"
+                        )}>
+                          {log.message}
+                        </span>
+                      </motion.div>
+                    );
+                  })}
+                </AnimatePresence>
+                <div ref={logsEndRef} />
+              </div>
             </div>
           </div>
         ) : (

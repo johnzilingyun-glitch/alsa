@@ -15,11 +15,23 @@ describe('Guardrails (Audit Sentinel)', () => {
         moatRating: 'None',
         verdict: 'Neutral'
       },
-      intrinsicValueEstimate: 80
+      intrinsicValueEstimate: 80,
+      change: 0,
+      changePercent: 0,
+      market: 'A-Share',
+      currency: 'CNY',
+      lastUpdated: '2026-04-18 20:00:00 CST',
+      previousClose: 100
     },
-    fundamentals: {
-      debtToEquity: '250' // High debt
-    }
+    fundamentals: { 
+      pe: "15", 
+      pb: "3", 
+      roe: "20", 
+      eps: "5", 
+      revenueGrowth: "10", 
+      valuationPercentile: "50", 
+      debtToEquity: "250" // High debt ratio (>200% for audit trigger)
+    } as any
   };
 
   it('should flag Growth Integrity warning if AI claims hyper-growth on low scores', () => {
@@ -38,7 +50,13 @@ describe('Guardrails (Audit Sentinel)', () => {
       role: 'Chief Strategist',
       message: { content: 'Bullish case.', role: 'Chief Strategist', id: '2', timestamp: '', type: 'discussion', round: 2 },
       structuredData: {
-        tradingPlan: { targetPrice: '200' } // 250% of intrinsic value (80)
+        tradingPlan: { 
+          entryPrice: "1800", 
+          targetPrice: "1200", // > 100% gap vs 100 price for testing
+          stopLoss: "1700", 
+          strategy: "Buy low", 
+          strategyRisks: "Volatility" 
+        } as any
       }
     };
 

@@ -134,10 +134,9 @@ const ROLE_INSTRUCTIONS_ZH: Record<AgentRole, string> = {
 你必须输出一个 Markdown 表格：
 | 情绪指标 | 最新数值 | 近5日趋势 | 信号判读 | Source |
 要求：
-- 指标至少包括：北向资金净流入、融资余额变化、主力资金流向、散户情绪指数、社交媒体热度
-- 所有数值必须通过 Google Search 获取今天的最新数据
-- Source 列必须标注具体来源和日期
-- 明确区分"机构有序撤离"和"散户恐慌抛售"
+- 指标至少包括：北向资金净流入、融资买入/偿还额 (Margin)、龙虎榜机构净买入 (LHB)、社媒舆情热度 (Social Trends)
+- 必须优先使用 [API数据] 中提供的深度维度行情（龙虎榜、两融、社媒数据）。若缺失则使用 Google Search 获取最新数据。
+- 明确区分"机构有序撤离"和"散户恐慌抛售"，并利用龙虎榜明细（如游资席位 vs 机构席位）来证明你的分析。
 
 **资金流向深度穿透 (CRITICAL)**:
 严禁只看散户情绪。你必须深度拆解资金结构：
@@ -458,9 +457,9 @@ Search via Google (Do not invent data):
 **SENTIMENT QUANTIFICATION TABLE (MANDATORY)**:
 | Sentiment Indicator | Value | 5-Day Trend | Signal Judgment | Source |
 Requirements:
-- Include: Northbound flow, margin changes, main funds flow, retail sentiment, social media heat.
-- Data must be from Google Search for today.
-- Clearly distinguish between "institutional orderly exit" and "retail panic selling".
+- Include: Northbound flow, Margin trading net buys, Dragon-Tiger List (LHB) net institutional buys, Social Trends heat.
+- You MUST prioritize the [API Data] Deep Dimension Market Data (LHB, Margin, Social Trends). Use Google Search only to fill gaps.
+- Clearly distinguish between "institutional orderly exit" and "retail panic selling", utilizing LHB seat details (institutional vs. retail brokerages) to prove your reasoning.
 
 **DEEP CAPITAL FLOW ANALYSIS (CRITICAL)**:
 Do not only look at retail sentiment. You must deeply dissect the capital structure:
@@ -792,6 +791,14 @@ export function getExpertPrompt(
     for (const n of analysis.news.slice(0, 5)) {
       sections.push(`- [${n.source}] ${n.title} (${n.time})`);
     }
+  }
+
+  if (analysis.extendedMarketData) {
+    sections.push(`\n**[API数据] 深度维度的多频次行情 (Extended Market Data)**:`);
+    if (analysis.extendedMarketData.lhb) sections.push(`- 龙虎榜 (LHB): ${JSON.stringify(analysis.extendedMarketData.lhb).slice(0, 1000)}`);
+    if (analysis.extendedMarketData.margin) sections.push(`- 两融数据 (Margin): ${JSON.stringify(analysis.extendedMarketData.margin).slice(0, 800)}`);
+    if (analysis.extendedMarketData.notices) sections.push(`- 最新公告 (Announcements): ${JSON.stringify(analysis.extendedMarketData.notices).slice(0, 1000)}`);
+    if (analysis.extendedMarketData.socialTrends) sections.push(`- 社媒与舆情趋势 (Social Trends): ${JSON.stringify(analysis.extendedMarketData.socialTrends).slice(0, 1000)}`);
   }
 
   // Commodities

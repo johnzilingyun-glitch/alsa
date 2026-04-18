@@ -55,6 +55,14 @@ export async function assembleExpertPrompt(
   sections.push(`\n**Target Analysis**: ${analysis.stockInfo.symbol} - ${analysis.stockInfo.name}`);
   sections.push(`**Latest Price**: ${analysis.stockInfo.price} ${analysis.stockInfo.currency}`);
 
+  if (analysis.extendedMarketData) {
+    sections.push(`\n**[API Data] Deep Dimension Market Data**:`);
+    if (analysis.extendedMarketData.lhb) sections.push(`- Dragon-Tiger List (LHB): ${JSON.stringify(analysis.extendedMarketData.lhb).slice(0, 1000)}`);
+    if (analysis.extendedMarketData.margin) sections.push(`- Margin Trading: ${JSON.stringify(analysis.extendedMarketData.margin).slice(0, 800)}`);
+    if (analysis.extendedMarketData.notices) sections.push(`- Announcements: ${JSON.stringify(analysis.extendedMarketData.notices).slice(0, 1000)}`);
+    if (analysis.extendedMarketData.socialTrends) sections.push(`- Social Trends & Sentiment: ${JSON.stringify(analysis.extendedMarketData.socialTrends).slice(0, 1000)}`);
+  }
+
   // 5. Discussion History (Previous Rounds)
   if (previousRounds && previousRounds.length > 0) {
     sections.push(isZh ? `\n**前轮专家分析 (PREVIOUS DISCUSSION)**:` : `\n**PREVIOUS DISCUSSION ROUNDS**:`);

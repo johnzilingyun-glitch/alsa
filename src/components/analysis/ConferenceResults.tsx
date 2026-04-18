@@ -1,3 +1,8 @@
+import React from 'react';
+import {
+  AlertCircle, Loader2, AlertTriangle, Zap, Award, Target,
+  RefreshCcw, Clock, Layers, Database, History, Coins,
+  ShieldCheck, Search, TrendingUp, BarChart3, Cpu, CheckCircle2,
   Share2, Download, User, ExternalLink, Activity, BarChart,
 } from 'lucide-react';
 import { 
@@ -32,7 +37,7 @@ export function ConferenceResults({ analysis, onSendDiscussionReport }: Conferen
   const isDiscussing = useUIStore(selectIsDiscussing);
   const isReviewing = useUIStore(selectIsReviewing);
   const { isGeneratingReport, isSendingReport, reportStatus } = useUIStore();
-  const { discussionMessages, controversialPoints, tradingPlanHistory } = useDiscussionStore();
+  const { discussionMessages, controversialPoints, tradingPlanHistory, lastReasoning } = useDiscussionStore();
   
   // Destructure with fallbacks to single-shot analysis data if store is empty
   const scenarioResults = useScenarioStore();
@@ -159,6 +164,17 @@ export function ConferenceResults({ analysis, onSendDiscussionReport }: Conferen
                 <div className="absolute inset-0 blur-xl bg-indigo-100 animate-pulse" />
               </div>
               <p className="text-sm font-medium tracking-wide">{t('analysis.conference.status_entering')}</p>
+              {lastReasoning && (
+                <div className="max-w-md p-4 rounded-xl bg-indigo-50/30 border border-indigo-100/50 animate-in fade-in slide-in-from-bottom-2 duration-500">
+                  <p className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest mb-2 flex items-center gap-1.5">
+                    <Cpu size={12} className="animate-pulse" />
+                    {t('analysis.conference.reasoning_snippet')}
+                  </p>
+                  <p className="text-xs text-zinc-500 italic leading-relaxed">
+                    {lastReasoning}
+                  </p>
+                </div>
+              )}
             </div>
           ) : (
             <div className="space-y-6">
@@ -166,7 +182,12 @@ export function ConferenceResults({ analysis, onSendDiscussionReport }: Conferen
               {isDiscussing && discussionMessages.length > 0 && (
                 <div className="p-4 rounded-2xl bg-indigo-50/50 border border-indigo-200/40 flex items-center gap-3">
                   <Loader2 size={16} className="animate-spin text-indigo-500" />
-                  <p className="text-xs font-medium text-indigo-600">{t('analysis.conference.status_in_progress')}</p>
+                  <div className="flex flex-col gap-1">
+                    <p className="text-xs font-medium text-indigo-600">{t('analysis.conference.status_in_progress')}</p>
+                    {lastReasoning && (
+                      <p className="text-[10px] text-zinc-400 italic line-clamp-1">{lastReasoning}</p>
+                    )}
+                  </div>
                 </div>
               )}
 
@@ -280,6 +301,14 @@ export function ConferenceResults({ analysis, onSendDiscussionReport }: Conferen
                         </div>
                       </div>
 
+                      <div className="lg:col-span-5 flex flex-col gap-4">
+                        <div className="p-8 rounded-[2rem] bg-indigo-600 text-white shadow-xl shadow-indigo-600/20 flex flex-col items-center justify-center group-hover:shadow-indigo-600/30 transition-shadow">
+                          <p className="text-[9px] text-indigo-200 font-bold uppercase tracking-[0.3em] mb-4">Unified Target Price</p>
+                          <div className="flex items-baseline gap-2">
+                            <span className="text-6xl font-bold tracking-tighter">
+                              {analysis.expectedValueOutcome?.expectedPrice?.toFixed(2) ?? analysis.stockInfo.price.toFixed(2)}
+                            </span>
+                            <span className="text-lg font-bold text-indigo-200">{analysis.stockInfo.currency}</span>
                           </div>
                         </div>
                       </div>
@@ -321,7 +350,7 @@ export function ConferenceResults({ analysis, onSendDiscussionReport }: Conferen
                                     return (
                                       <div className="bg-white border border-zinc-200 p-2 rounded-lg shadow-xl text-[10px] font-bold">
                                         <p className="text-zinc-500 mb-1 uppercase tracking-widest">Confidence</p>
-                                        <p className="text-indigo-600">{payload[0].value.toFixed(1)}% at {payload[0].payload.price} {analysis.stockInfo.currency}</p>
+                                        <p className="text-indigo-600">{(Number(payload[0].value) || 0).toFixed(1)}% at {payload[0].payload.price} {analysis.stockInfo.currency}</p>
                                       </div>
                                     );
                                   }

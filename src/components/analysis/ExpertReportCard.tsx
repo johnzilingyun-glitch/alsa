@@ -15,6 +15,9 @@ interface ExpertReportCardProps {
   isExpert?: boolean;
   expertiseArea?: string;
   references?: { title: string; url: string }[];
+  isVerified?: boolean;
+  auditDetail?: string;
+  sentiment?: 'bullish' | 'bearish' | 'neutral';
 }
 
 const roleThemes: Record<AgentRole, { color: string; bg: string; border: string; icon: any }> = {
@@ -37,10 +40,16 @@ const roleThemes: Record<AgentRole, { color: string; bg: string; border: string;
   "Moderator": { color: "text-zinc-600", bg: "bg-zinc-50/50", border: "border-zinc-200/60", icon: Search }
 };
 
-export function ExpertReportCard({ message, isExpert, expertiseArea, references }: ExpertReportCardProps) {
+export function ExpertReportCard({ 
+  message, isExpert, expertiseArea, references, isVerified, auditDetail, sentiment 
+}: ExpertReportCardProps) {
   const { t } = useTranslation();
   const theme = roleThemes[message.role] || roleThemes["Moderator"];
   const RoleIcon = theme.icon;
+
+  const activeSentiment = sentiment || 
+    (message.role === 'Bull Researcher' ? 'bullish' : 
+     message.role === 'Bear Researcher' ? 'bearish' : 'neutral');
 
   // Improved parsing logic for sections
   const rawSections = message.content.split(/--- (\d+\. [^:]+):/).filter(s => s !== undefined);
@@ -100,6 +109,12 @@ export function ExpertReportCard({ message, isExpert, expertiseArea, references 
                   {expertiseArea || "Expert Opinion"}
                 </div>
               )}
+              {isVerified && (
+                <div className="px-3 py-1.5 rounded-2xl bg-emerald-500 text-white text-[9px] font-bold uppercase tracking-widest flex items-center gap-2 shadow-lg shadow-emerald-500/20">
+                  <ShieldCheck size={12} />
+                  Verified
+                </div>
+              )}
             </div>
           </div>
           <span className="text-[10px] font-mono text-zinc-400 font-bold bg-zinc-50 px-3 py-1 rounded-lg border border-zinc-100">
@@ -108,8 +123,20 @@ export function ExpertReportCard({ message, isExpert, expertiseArea, references 
         </div>
 
         {/* Content Body */}
-        <div className="bg-white border border-zinc-200/60 rounded-[2.5rem] p-1 shadow-sm group-hover:shadow-md transition-shadow">
-          <div className="p-8 space-y-8">
+        <div className={cn(
+          "relative bg-white/70 backdrop-blur-xl border border-white/60 rounded-[2.5rem] p-1 shadow-[0_8px_32px_rgba(0,0,0,0.04)]",
+          "group-hover:shadow-[0_12px_48px_rgba(0,0,0,0.08)] transition-all duration-500 overflow-hidden",
+          activeSentiment === 'bullish' && "ring-1 ring-emerald-500/20",
+          activeSentiment === 'bearish' && "ring-1 ring-rose-500/20"
+        )}>
+          {/* Background accent */}
+          <div className={cn(
+            "absolute top-0 right-0 w-64 h-64 -mr-32 -mt-32 rounded-full opacity-[0.03] blur-3xl pointer-events-none",
+            activeSentiment === 'bullish' ? "bg-emerald-500" : 
+            activeSentiment === 'bearish' ? "bg-rose-500" : theme.bg.replace('bg-', 'bg-')
+          )} />
+          
+          <div className="p-8 space-y-10 relative z-10">
             {parsedSections.map((section, idx) => {
               const isKelly = section.title.includes("KELLY");
               const isRisk = section.title.includes("RISK");
@@ -208,6 +235,13 @@ export function ExpertReportCard({ message, isExpert, expertiseArea, references 
                 </div>
               );
             })}
+          </div>
+
+          {/* Timestamp Footer for Internal Use */}
+          <div className="px-8 py-2 flex justify-end">
+            <span className="text-[9px] font-mono text-zinc-300 font-medium italic">
+              Verification ID: {message.id || 'ALSA-INT-001'}
+            </span>
           </div>
 
           {/* References */}

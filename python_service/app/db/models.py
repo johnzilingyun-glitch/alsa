@@ -29,3 +29,15 @@ class AnalysisJob(SQLModel, table=True):
     created_at: datetime = Field(default_factory=datetime.utcnow)
     snapshot_path: Optional[str] = None
     result_payload: Optional[str] = None  # JSON string
+
+class SearchAlert(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    symbol: str = Field(index=True)
+    name: Optional[str] = None
+    market: str
+    currency: Optional[str] = "CNY"
+    entry_price: float
+    target_price: float
+    stop_loss: float
+    status: str = Field(default="active")  # active, triggered, closed
+    created_at: datetime = Field(default_factory=datetime.utcnow)

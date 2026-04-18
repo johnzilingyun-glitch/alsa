@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { useTranslation } from 'react-i18next';
 import { Loader2, Database, Brain, Search, Sparkles, Activity, Maximize2, Minimize2, CheckCircle2 } from 'lucide-react';
 import { useUIStore } from '../../stores/useUIStore';
+import { useDiscussionStore } from '../../stores/useDiscussionStore';
 import { cn } from './utils';
 
 const STEPS = [
@@ -17,6 +18,10 @@ export function AnalysisLoadingPulse() {
   const analysisLogs = useUIStore(s => s.analysisLogs || []);
   const analysisActivity = useUIStore(s => s.analysisActivity);
   
+  const currentRound = useDiscussionStore(s => s.currentRound);
+  const totalRounds = useDiscussionStore(s => s.totalRounds);
+  const currentStep = useDiscussionStore(s => s.currentStep);
+  
   const [isExpanded, setIsExpanded] = useState(true);
   const logsEndRef = useRef<HTMLDivElement>(null);
 
@@ -29,12 +34,24 @@ export function AnalysisLoadingPulse() {
 
   // Determine active step based on status text keywords
   const activeStepIndex = useMemo(() => {
+    if (currentRound > 0) {
+      if (currentRound === 1) return 0; // Grounding
+      if (currentRound === totalRounds) return 2; // Finalizing
+      return 1; // Reasoning
+    }
     if (!analysisStatus) return 0;
     const index = STEPS.findIndex(step => 
       step.match.some(keyword => analysisStatus.includes(keyword))
     );
     return index === -1 ? 0 : index;
-  }, [analysisStatus]);
+  }, [analysisStatus, currentRound, totalRounds]);
+
+  const phaseName = useMemo(() => {
+    if (currentRound === 0) return t('loading.reasoning');
+    if (currentRound === 1) return 'Evidence Grounding & Synthesis';
+    if (currentRound === totalRounds) return 'Final Logic Audit & Signing';
+    return `Expert Deliberation Round ${currentRound}`;
+  }, [currentRound, totalRounds, t]);
   
   if (analysisActivity !== 'analyzing') return null;
 
@@ -73,11 +90,30 @@ export function AnalysisLoadingPulse() {
               </div>
               <div>
                 <h3 className="font-bold text-zinc-900 leading-tight">
-                  {t('loading.reasoning')}
+                  {phaseName}
                 </h3>
-                <p className="text-xs text-zinc-500 mt-0.5">ALSA Intelligence Engine</p>
+                <p className="text-xs text-zinc-500 mt-0.5">
+                  {currentRound > 0 ? `Stage ${currentRound} of ${totalRounds}` : 'ALSA Intelligence Engine'}
+                </p>
               </div>
             </div>
+
+            {/* Progress Bar */}
+            {totalRounds > 0 && (
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between text-[10px] font-bold uppercase tracking-widest text-zinc-400">
+                  <span>Engine Progress</span>
+                  <span>{Math.round((currentRound / totalRounds) * 100)}%</span>
+                </div>
+                <div className="h-1.5 w-full bg-zinc-100 rounded-full overflow-hidden">
+                  <motion.div 
+                    initial={{ width: 0 }}
+                    animate={{ width: `${(currentRound / totalRounds) * 100}%` }}
+                    className="h-full bg-indigo-600 rounded-full"
+                  />
+                </div>
+              </div>
+            )}
 
             {/* Dynamic Step Indicators */}
             <div className="flex items-center justify-between px-2 pt-2 pb-4">

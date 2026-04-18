@@ -5,8 +5,8 @@ import { useMarketStore } from '../stores/useMarketStore';
 import { useAnalysisStore } from '../stores/useAnalysisStore';
 import { useDiscussionStore } from '../stores/useDiscussionStore';
 import { useScenarioStore } from '../stores/useScenarioStore';
-import { analyzeStock, sendChatMessage, startAgentDiscussion, startMultiRoundDiscussion, saveAnalysisToHistory, getHistoryContext } from '../services/aiService';
 import { StockAnalysis, AgentMessage, Market } from '../types';
+import { alertsClient } from '../services/api/alertsClient';
 
 export function useStockAnalysis() {
   const geminiConfig = useConfigStore(s => s.config);
@@ -165,6 +165,31 @@ export function useStockAnalysis() {
           setAnalysis(finalAnalysis);
 
           await saveAnalysisToHistory('stock', finalAnalysis);
+
+          // Save to Search Alerts / History Dashboard
+          if (finalAnalysis.tradingPlan && finalAnalysis.stockInfo) {
+            try {
+              const { entryPrice, targetPrice, stopLoss } = finalAnalysis.tradingPlan;
+              // Simple numeric extraction (e.g., "70.5 元" -> 70.5)
+              const parseNum = (s: string) => {
+                const match = s.match(/[\d.]+/);
+                return match ? parseFloat(match[0]) : 0;
+              };
+
+              await alertsClient.create({
+                symbol: finalAnalysis.stockInfo.symbol,
+                name: finalAnalysis.stockInfo.name,
+                market: finalAnalysis.stockInfo.market as Market,
+                entry_price: parseNum(entryPrice),
+                target_price: parseNum(targetPrice),
+                stop_loss: parseNum(stopLoss),
+                currency: finalAnalysis.stockInfo.currency || 'CNY'
+              });
+            } catch (alertErr) {
+              console.warn('Failed to save search alert:', alertErr);
+            }
+          }
+
           void fetchAdminData();
         } catch (err) {
           console.error('Agent discussion failed:', err);

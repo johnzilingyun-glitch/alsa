@@ -10,6 +10,8 @@ interface MarketState {
   recentSearches: { symbol: string; name: string; market: Market }[];
   optimizationLogs: any[];
   overviewMarket: Market;
+  searchAlerts: any[];
+  alertPrices: Record<string, number>;
 
   setMarketOverview: (market: string, overview: MarketOverview | null) => void;
   setMarketLastUpdated: (market: string, timestamp: number | null) => void;
@@ -18,6 +20,8 @@ interface MarketState {
   addRecentSearch: (search: { symbol: string; name: string; market: Market }) => void;
   setOptimizationLogs: (logs: any[]) => void;
   setOverviewMarket: (market: Market) => void;
+  setAlerts: (alerts: any[]) => void;
+  updateAlertPrice: (symbol: string, price: number) => void;
   _hasHydrated: boolean;
   setHasHydrated: (state: boolean) => void;
 }
@@ -40,6 +44,8 @@ export const useMarketStore = create<MarketState>()(
       recentSearches: [],
       optimizationLogs: [],
       overviewMarket: "A-Share",
+      searchAlerts: [],
+      alertPrices: {},
       _hasHydrated: false,
 
       setMarketOverview: (market, overview) => 
@@ -58,6 +64,10 @@ export const useMarketStore = create<MarketState>()(
       }),
       setOptimizationLogs: (optimizationLogs) => set({ optimizationLogs }),
       setOverviewMarket: (overviewMarket) => set({ overviewMarket }),
+      setAlerts: (searchAlerts) => set({ searchAlerts }),
+      updateAlertPrice: (symbol, price) => set((state) => ({ 
+        alertPrices: { ...state.alertPrices, [symbol]: price } 
+      })),
       setHasHydrated: (state) => set({ _hasHydrated: state }),
     }),
     {

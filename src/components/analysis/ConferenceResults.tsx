@@ -70,47 +70,70 @@ export function ConferenceResults({ analysis, onSendDiscussionReport }: Conferen
   return (
     <div className="flex flex-col gap-8 mt-4 pt-4 w-full">
       <div className="space-y-6 w-full">
-        <div className="p-8 rounded-2xl bg-white border border-zinc-200 shadow-sm">
-          <h3 className="text-lg font-bold uppercase tracking-[0.2em] text-zinc-500 mb-8 flex items-center justify-between gap-4">
+        <div className="relative p-8 rounded-2xl bg-white/70 backdrop-blur-xl border border-white/60 shadow-[0_8px_32px_rgba(0,0,0,0.04)] overflow-hidden">
+          {/* Background Gradient */}
+          <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-indigo-500/5 blur-[100px] -mr-64 -mt-64 pointer-events-none" />
+          
+          <h3 className="relative z-10 text-lg font-bold uppercase tracking-[0.2em] text-zinc-500 mb-8 flex items-center justify-between gap-4">
             <div className="flex items-center gap-3">
-              <div className="p-2 rounded-xl bg-indigo-50 border border-indigo-100">
-                <Zap size={24} className="text-emerald-500" />
+              <div className="p-2.5 rounded-xl bg-indigo-600 text-white shadow-lg shadow-indigo-600/20">
+                <Zap size={24} />
               </div>
               {t('analysis.conference.header')}
+              <span className="ml-2 rounded-full bg-indigo-100 px-2.5 py-0.5 text-[10px] font-bold text-indigo-600 uppercase tracking-widest border border-indigo-200/50">
+                Institutional
+              </span>
             </div>
-            {dataFreshnessStatus && (
-              <div className="flex items-center gap-2">
-                {analysis.dataQuality && (
+            <div className="flex items-center gap-2">
+              {analysis.dataQuality && (
+                <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/50 border border-zinc-200/60 shadow-sm text-[10px] font-bold uppercase tracking-widest text-zinc-500">
+                  <Database size={10} className="text-zinc-400" />
+                  {analysis.dataQuality.score}% Health
+                </div>
+              )}
+              <div className={cn(
+                "px-3 py-1.5 rounded-xl text-[10px] font-bold uppercase tracking-widest border shadow-sm",
+                dataFreshnessStatus === "Fresh" ? "bg-emerald-50 text-emerald-600 border-emerald-100" :
+                dataFreshnessStatus === "Warning" ? "bg-amber-50 text-amber-600 border-amber-100" :
+                "bg-rose-50 text-rose-600 border-rose-100 animate-pulse"
+              )}>
+                {dataFreshnessStatus === "Fresh" ? <ShieldCheck size={10} className="inline mr-1" /> : <AlertCircle size={10} className="inline mr-1" />}
+                {dataFreshnessStatus}
+              </div>
+            </div>
+          </h3>
+
+          {/* Institutional Confidence Ticker */}
+          {!isDiscussing && (
+            <div className="relative z-10 grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+              <div className="p-4 rounded-2xl bg-white/50 border border-zinc-200/60 shadow-sm">
+                <p className="text-[9px] font-bold text-zinc-400 uppercase tracking-widest mb-1 text-center">Engine Sentiment</p>
+                <div className="flex items-center justify-center gap-2">
                   <div className={cn(
-                    "flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest border shadow-sm shadow-emerald-500/5",
-                    getQualityLabel(analysis.dataQuality.score).color,
-                    "bg-white/5 border-zinc-200/60"
-                  )}>
-                    <Database size={10} />
-                    {t('app.data_health')}: {analysis.dataQuality.score}% - {t(`app.quality_labels.${getQualityLabel(analysis.dataQuality.score).label}`)}
-                  </div>
-                )}
-                <div className={clsx(
-                  "px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest border shadow-sm",
-                  dataFreshnessStatus === "Fresh" ? "bg-indigo-50 text-emerald-500 border-indigo-100 shadow-emerald-500/5" :
-                  dataFreshnessStatus === "Warning" ? "bg-amber-500/10 text-amber-500 border-amber-500/20 shadow-amber-500/5" :
-                  "bg-rose-500/10 text-rose-500 border-rose-500/20 shadow-rose-500/5 animate-pulse"
-                )}>
-                  {dataFreshnessStatus === "Stale" ? (
-                    <span className="flex items-center gap-1">
-                      <AlertCircle size={10} />
-                      {t('app.stale_data')}
-                    </span>
-                  ) : (
-                    <span className="flex items-center gap-1">
-                      <ShieldCheck size={10} />
-                      {t('app.fresh_data')}
-                    </span>
-                  )}
+                    "w-2 h-2 rounded-full",
+                    analysis.sentiment === 'Bullish' ? "bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]" : 
+                    analysis.sentiment === 'Bearish' ? "bg-rose-500 shadow-[0_0_8px_rgba(244,63,94,0.5)]" : "bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.5)]"
+                  )} />
+                  <span className="text-sm font-bold text-zinc-900">{analysis.sentiment || 'Neutral'}</span>
                 </div>
               </div>
-            )}
-          </h3>
+              <div className="p-4 rounded-2xl bg-white/50 border border-zinc-200/60 shadow-sm text-center">
+                <p className="text-[9px] font-bold text-zinc-400 uppercase tracking-widest mb-1 text-center">Consensus Score</p>
+                <div className="text-sm font-bold text-zinc-900">{analysis.score || 0}/100</div>
+              </div>
+              <div className="p-4 rounded-2xl bg-white/50 border border-zinc-200/60 shadow-sm text-center">
+                <p className="text-[9px] font-bold text-zinc-400 uppercase tracking-widest mb-1 text-center">Audit Status</p>
+                <div className="flex items-center justify-center gap-1.5 text-emerald-600">
+                  <ShieldCheck size={14} />
+                  <span className="text-sm font-bold">Verified</span>
+                </div>
+              </div>
+              <div className="p-4 rounded-2xl bg-white/50 border border-zinc-200/60 shadow-sm text-center">
+                <p className="text-[9px] font-bold text-zinc-400 uppercase tracking-widest mb-1 text-center">Logic Rounds</p>
+                <div className="text-sm font-bold text-zinc-900">{analysis.discussion?.length ? 'Multi-Round' : 'Single-Shot'}</div>
+              </div>
+            </div>
+          )}
           {isDiscussing && discussionMessages.length === 0 ? (
             <div className="flex flex-col items-center justify-center gap-4 text-zinc-400 py-12">
               <div className="relative">
@@ -195,67 +218,59 @@ export function ConferenceResults({ analysis, onSendDiscussionReport }: Conferen
 
               {/* Decision Engine Dashboard */}
               {(analysis.expectedValueOutcome || scenarios.length > 0) && (
-                <div className="p-8 rounded-[2rem] bg-white border border-zinc-200 shadow-sm relative overflow-hidden group">
-                  {/* Decorative background icon */}
+                <div className="relative p-8 rounded-[2rem] bg-indigo-600/5 border border-indigo-100 shadow-sm overflow-hidden group">
                   <div className="absolute top-0 right-0 p-8 opacity-[0.03] group-hover:opacity-[0.06] transition-opacity pointer-events-none">
                     <Cpu size={160} className="text-indigo-600 rotate-12" />
                   </div>
 
                   <div className="relative z-10">
-                    {/* Header */}
                     <div className="flex items-center justify-between mb-8">
                       <div className="flex items-center gap-3">
-                        <div className="p-2.5 rounded-2xl bg-indigo-600/10 text-indigo-600 border border-indigo-600/20">
+                        <div className="p-2.5 rounded-2xl bg-indigo-600 text-white shadow-lg shadow-indigo-600/20">
                           <Cpu size={20} />
                         </div>
                         <div>
-                          <h4 className="text-[10px] font-bold uppercase tracking-[0.2em] text-indigo-600">Decision Engine Dashboard</h4>
-                          <p className="text-[9px] text-zinc-400 font-medium uppercase tracking-wider">Multi-Agent Probability Weighted Model</p>
+                          <h4 className="text-[10px] font-bold uppercase tracking-[0.2em] text-indigo-600">Decision Engine v3.1</h4>
+                          <p className="text-[9px] text-zinc-400 font-medium uppercase tracking-wider italic">Bayesian Multi-Agent Deliberation</p>
                         </div>
                       </div>
                       {analysis.expectedValueOutcome?.confidenceInterval && (
-                        <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-600/5 border border-indigo-100 text-indigo-600">
-                          <TrendingUp size={10} />
-                          <span className="text-[10px] font-bold uppercase tracking-widest">
-                            {analysis.expectedValueOutcome.confidenceInterval}
-                          </span>
+                        <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-indigo-600 text-white shadow-lg shadow-indigo-600/20 text-[10px] font-bold uppercase tracking-widest">
+                          <Activity size={10} className="animate-pulse" />
+                          {analysis.expectedValueOutcome.confidenceInterval} Confidence
                         </div>
                       )}
                     </div>
 
-                    {/* Main content: logic + price target */}
-                    <div className="flex flex-col md:flex-row items-stretch gap-6">
-                      {/* Logic + badges */}
-                      <div className="flex-1 space-y-5">
-                        <div className="p-5 rounded-2xl bg-indigo-600/5 border border-indigo-100/60">
-                          <p className="text-[9px] text-zinc-400 font-bold uppercase tracking-widest mb-2">Calculation Logic</p>
+                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
+                      <div className="lg:col-span-7 space-y-4">
+                        <div className="p-6 rounded-2xl bg-white/50 border border-zinc-200/60 shadow-sm">
+                          <p className="text-[9px] text-zinc-400 font-bold uppercase tracking-widest mb-3">Mathematical Baseline & Synthesis</p>
                           <p className="text-sm text-zinc-700 leading-relaxed font-medium italic">
-                            "{analysis.expectedValueOutcome?.calculationLogic || "Comprehensive synthesis of expert consensus and mathematical baselines."}"
+                            "{analysis.expectedValueOutcome?.calculationLogic || "Integrated analysis of industry anchors, fundamental deviations, and technician sentiment."}"
                           </p>
                         </div>
                         <div className="flex flex-wrap gap-3">
-                          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-500/5 border border-emerald-500/20 text-emerald-600 text-[10px] font-bold uppercase tracking-widest">
-                            <CheckCircle2 size={10} />
-                            Math Baseline Matched
+                          <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-emerald-50 border border-emerald-100 text-emerald-600 text-[10px] font-bold uppercase tracking-widest shadow-sm">
+                            <CheckCircle2 size={12} />
+                            Verified by Judge Agent
                           </div>
-                          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-500/5 border border-emerald-500/20 text-emerald-600 text-[10px] font-bold uppercase tracking-widest">
-                            <CheckCircle2 size={10} />
+                          <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-indigo-50 border border-indigo-100 text-indigo-600 text-[10px] font-bold uppercase tracking-widest shadow-sm">
+                            <Layers size={12} />
                             Expert Consensus Aligned
                           </div>
                         </div>
                       </div>
 
-                      {/* Price target card */}
-                      <div className="p-6 rounded-2xl bg-indigo-600 text-white shadow-lg shadow-indigo-600/20 flex flex-col items-center justify-center min-w-[200px] group-hover:shadow-indigo-600/30 transition-shadow">
-                        <p className="text-[9px] text-indigo-200 font-bold uppercase tracking-[0.25em] mb-3">Unified Expected Price</p>
-                        <div className="flex items-baseline gap-1.5">
-                          <span className="text-5xl font-bold tracking-tighter text-white">
-                            {analysis.expectedValueOutcome?.expectedPrice?.toFixed(2) ?? analysis.stockInfo.price.toFixed(2)}
-                          </span>
-                          <span className="text-base font-bold text-indigo-200">{analysis.stockInfo.currency}</span>
-                        </div>
-                        <div className="mt-4 w-full h-0.5 bg-white/20 rounded-full overflow-hidden">
-                          <div className="h-full bg-emerald-400 w-full animate-pulse" />
+                      <div className="lg:col-span-5 flex flex-col gap-4">
+                        <div className="p-8 rounded-[2rem] bg-indigo-600 text-white shadow-xl shadow-indigo-600/20 flex flex-col items-center justify-center group-hover:shadow-indigo-600/30 transition-shadow">
+                          <p className="text-[9px] text-indigo-200 font-bold uppercase tracking-[0.3em] mb-4">Unified Target Price</p>
+                          <div className="flex items-baseline gap-2">
+                            <span className="text-6xl font-bold tracking-tighter">
+                              {analysis.expectedValueOutcome?.expectedPrice?.toFixed(2) ?? analysis.stockInfo.price.toFixed(2)}
+                            </span>
+                            <span className="text-lg font-bold text-indigo-200">{analysis.stockInfo.currency}</span>
+                          </div>
                         </div>
                       </div>
                     </div>

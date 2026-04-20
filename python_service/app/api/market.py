@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Query
 from typing import List, Optional
 from ..services.market_data_service import market_data_service
+from ..services.search_service import search_service
 
 router = APIRouter(prefix="/market", tags=["market"])
 
@@ -56,4 +57,20 @@ async def get_symbol_history(
     # Remove 'p' prefix from period if present (convenience)
     clean_period = period[1:] if period.startswith('p') else period
     data = await market_data_service.get_history(symbol, period=clean_period, interval=interval)
+    return {"success": True, "data": data}
+
+@router.get("/search")
+async def search_web(query: str, max_results: int = 20):
+    """
+    Perform a general web search using DuckDuckGo.
+    """
+    data = await search_service.search(query, max_results=max_results)
+    return {"success": True, "data": data}
+
+@router.get("/news_search")
+async def search_news(query: str, max_results: int = 20):
+    """
+    Perform a news search index using DuckDuckGo.
+    """
+    data = await search_service.search_news(query, max_results=max_results)
     return {"success": True, "data": data}

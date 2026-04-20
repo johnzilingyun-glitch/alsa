@@ -15,6 +15,37 @@ export const MODEL_FALLBACK_CHAIN: string[] = [
   "gemini-2.0-flash",               // Stable 2.0
 ];
 
+export const DUCKDUCKGO_TOOLS = [
+  {
+    functionDeclarations: [
+      {
+        name: "duckduckgo_search",
+        description: "Search the web for real-time financial data, company news, and market trends using DuckDuckGo.",
+        parameters: {
+          type: "OBJECT",
+          properties: {
+            query: { type: "STRING", description: "The search query" },
+            max_results: { type: "NUMBER", description: "Number of results to return (max 20)" }
+          },
+          required: ["query"]
+        }
+      },
+      {
+        name: "duckduckgo_news",
+        description: "Search for the latest news articles and headlines using DuckDuckGo.",
+        parameters: {
+          type: "OBJECT",
+          properties: {
+            query: { type: "STRING", description: "The search query" },
+            max_results: { type: "NUMBER", description: "Number of results to return (max 20)" }
+          },
+          required: ["query"]
+        }
+      }
+    ]
+  }
+];
+
 /**
  * Relaxed safety settings to prevent false positive blocks in financial/technical analysis prompts.
  */
@@ -85,7 +116,14 @@ export function getApiKey(config?: { apiKey?: string; serviceMode?: ServiceMode 
   }
   
   const envKey = process.env.GEMINI_API_KEY;
-  const viteKey = import.meta.env.VITE_GEMINI_API_KEY;
+  let viteKey = '';
+  try {
+    // Only access import.meta.env if it exists (Vite/Browser environment)
+    // @ts-ignore
+    viteKey = (import.meta as any).env?.VITE_GEMINI_API_KEY || '';
+  } catch (e) {
+    // Fails in pure Node environments without a plugin
+  }
   const apiKey = envKey || viteKey;
 
   if (!apiKey || apiKey.trim() === '') {
@@ -203,6 +241,7 @@ export async function generateAndParseJsonWithRetry<T>(
     tools?: any[];
     role?: string;
     maxOutputTokens?: number;
+    loopCount?: number;
   },
   priority: number = 0
 ): Promise<T> {
@@ -210,6 +249,7 @@ export async function generateAndParseJsonWithRetry<T>(
   const baseDelayMs = options?.baseDelayMs ?? 2000;
   const parseRetries = options?.parseRetries ?? 1;
   const parseDelayMs = options?.parseDelayMs ?? 1200;
+  const maxToolLoops = 3; // Prevent infinite tool loops
 
   // Build fallback model list: start with the requested model, then add alternatives
   const requestedModel = params.model || GEMINI_MODEL;
@@ -284,6 +324,69 @@ export async function generateAndParseJsonWithRetry<T>(
           delete mergedParams.generationConfig;
 
           const result = await generateContentWithUsage(ai, mergedParams, priority);
+          
+          // Robust Recursive Function Calling Loop (DDGS/Search integration)
+          const allParts = result.candidates?.[0]?.content?.parts || [];
+          const functionCalls = allParts.filter((p: any) => p.functionCall);
+          
+          if (functionCalls.length > 0) {
+            const currentLoop = options?.loopCount || 0;
+            if (currentLoop < 3) {
+              const toolResponses: any[] = [];
+              const baseUrl = typeof window !== 'undefined' ? '' : (process.env.BACKEND_URL || 'http://localhost:3000');
+              
+              for (const part of functionCalls) {
+                const { name, args } = part.functionCall;
+                console.log(`[GeminiTools] Executing tool: ${name}`, args);
+                
+                let toolResult: any = null;
+                const start = Date.now();
+                try {
+                  if (name === "duckduckgo_search" || name === "duckduckgo_news") {
+                    const endpoint = name === "duckduckgo_search" ? "/api/market/search" : "/api/market/news_search";
+                    const query = args.query;
+                    const maxResults = args.max_results || 20;
+                    
+                    // Use BACKEND_URL for Node compatibility, or relative for browser
+                    const url = `${baseUrl}${endpoint}?query=${encodeURIComponent(query)}&max_results=${maxResults}`;
+                    const res = await fetch(url);
+                    const payload = await res.json();
+                    toolResult = payload.success ? payload.data : { error: payload.error || "Search failed" };
+                  } else {
+                    toolResult = { error: `Unknown tool: ${name}` };
+                  }
+                } catch (err) {
+                  toolResult = { error: `Tool execution failed: ${err instanceof Error ? err.message : String(err)}` };
+                }
+                
+                const elapsed = Date.now() - start;
+                remoteLog('tool_execution_success', { tool: name, args, elapsed });
+
+                toolResponses.push({ 
+                  functionResponse: {
+                    name,
+                    response: { content: toolResult }
+                  } 
+                });
+              }
+
+              // Feed back all tool results to the model in a single message
+              const toolParams = {
+                ...mergedParams,
+                contents: [
+                  ...mergedParams.contents,
+                  { role: 'model', parts: functionCalls },
+                  { role: 'user', parts: toolResponses } // Role 'user' is standard for function responses in newer @google/genai
+                ]
+              };
+              
+              return await generateAndParseJsonWithRetry<T>(ai, toolParams, { ...options, loopCount: currentLoop + 1 }, priority);
+            } else {
+              console.warn(`[GeminiTools] Tool loop limit reached (${currentLoop})`);
+              remoteLog('tool_loop_limit', { count: currentLoop });
+            }
+          }
+
           if (!result.text && result.text !== '') {
             // Empty response — safety filter, empty candidates, or blocked content
             const candidate = result.candidates?.[0];
@@ -581,12 +684,30 @@ export function extractJsonBlock(raw: string): string {
   }
 
   // 2. Find the start of the JSON object or array
-  const firstBrace = cleaned.indexOf("{");
-  const firstBracket = cleaned.indexOf("[");
-  
   let start = -1;
   let opener = '';
   let closer = '';
+  
+  // Search for the first '{' (always a good candidate)
+  const firstBrace = cleaned.indexOf("{");
+  
+  // Search for the first '[' that is likely a JSON array start (not a citation tag)
+  let firstBracket = -1;
+  let searchIdx = 0;
+  while (true) {
+    const nextBracket = cleaned.indexOf("[", searchIdx);
+    if (nextBracket === -1) break;
+    
+    // Check what's inside or after: JSON arrays usually start with [ { or [ " or [ [ or [ number
+    const after = cleaned.substring(nextBracket + 1).trimStart();
+    const nextChar = after[0];
+    if (nextChar === '{' || nextChar === '"' || nextChar === '[' || (nextChar >= '0' && nextChar <= '9') || nextChar === ']') {
+      firstBracket = nextBracket;
+      break;
+    }
+    // Skip this bracket (likely a citation tag like [1] or [Google Finance])
+    searchIdx = nextBracket + 1;
+  }
   
   if (firstBrace !== -1 && (firstBracket === -1 || firstBrace < firstBracket)) {
     start = firstBrace;

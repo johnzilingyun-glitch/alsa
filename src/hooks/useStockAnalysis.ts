@@ -70,10 +70,10 @@ export function useStockAnalysis() {
     try {
       const isCopilotMode = geminiConfig?.serviceMode === 'copilot_local';
       // Increased timeout to 160s-240s to accommodate Gemini Pro's deep reasoning and Google Search latency
-      const analysisTimeoutMs = isCopilotMode ? 160_000 : 240_000;
+      const analysisTimeoutMs = isCopilotMode ? 160_000 : 600_000;
       const timeoutMsg = isCopilotMode
         ? '分析请求超时：Copilot CLI 推理超时（已等待 160 秒）。请检查 copilot login 状态，或切换到 Gemini (BYOK) 模式。'
-        : '分析请求超时：当前生成深度研讨报告所需时间较长（涉及实时搜索、Pro 模型运算与数据校正，已等待 240 秒）。建议稍后再试，或通过设置选择更快的 Flash 模型。';
+        : '分析请求超时：当前生成深度研讨报告所需时间较长（涉及实时搜索、Pro 模型运算与数据校正，已等待 600 秒）。建议稍后再试，或通过设置选择更快的 Flash 模型。';
 
       const result = await withTimeout(
         analyzeStock(symbol, market, geminiConfig, setAnalysisStatus),

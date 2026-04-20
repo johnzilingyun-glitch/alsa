@@ -5,7 +5,7 @@ import axios from 'axios';
 
 const router = Router();
 const repo = createAnalysisRepository();
-const PYTHON_SERVICE_URL = process.env.PYTHON_SERVICE_URL || 'http://127.0.0.1:8000';
+const PYTHON_SERVICE_URL = process.env.PYTHON_SERVICE_URL || 'http://127.0.0.1:8001';
 
 router.post('/analysis/jobs', async (req, res) => {
   const { symbol, market, model, promptVersion } = req.body;
@@ -56,21 +56,54 @@ router.get('/analysis/jobs/:analysisId/:jobId', async (req, res) => {
     if (!record) return res.status(404).json({ error: 'Analysis not found' });
 
     if (fastApiJob.status === 'completed' && record.status !== 'completed') {
-      // Data is ready, now run LLM analysis
+      // 2. Fetch Brain Context (Facts and Evolved Instructions)
+      let brainFacts = [];
+      let evolvedInstructions = '';
+      try {
+        const brainRes = await axios.get(`${PYTHON_SERVICE_URL}/api/brain/context?user_id=default&query=${record.symbol}`);
+        if (brainRes.data.success) {
+          brainFacts = brainRes.data.data.facts || [];
+          evolvedInstructions = brainRes.data.data.instructions || '';
+        }
+      } catch (brainErr) {
+        console.warn('Failed to fetch brain context, proceeding with defaults:', brainErr);
+      }
+
+      // 3. Data is ready, now run LLM analysis
       const data = fastApiJob.result;
       
-      // Simple prompt for now
-      const prompt = `Analyze this stock snapshot: ${JSON.stringify(data.stockInfo)}. Technicals: ${JSON.stringify(data.technicals)}. Return a JSON summary.`;
-      
+      const prompt = `
+# SYSTEM INSTRUCTIONS
+${evolvedInstructions || 'Analyze the following stock data with institutional-grade rigor. Focus on quantitative discrepancies and risk-adjusted returns.'}
+
+# USER CONTEXT / MEMORY
+${brainFacts.length > 0 ? brainFacts.map(f => `- ${f}`).join('\n') : 'No specific user memory for this symbol.'}
+
+# DATA SNAPSHOT
+Symbol: ${record.symbol} (${record.market})
+Quote: ${JSON.stringify(data.stockInfo)}
+Valuation: ${JSON.stringify(data.valuation)}
+Technicals: ${JSON.stringify(data.technicals)}
+
+# TASK
+Perform a deep-dive analysis. Return a JSON object with the following fields:
+- "summary": A 2-sentence institutional summary.
+- "quantitative_check": Analysis of PE/PB vs historical/industry norms.
+- "technical_outlook": Strategy alignment based on technical indicators.
+- "risk_rating": Low/Medium/High with 1-sentence justification.
+- "actionable_insight": A specific trading or holding recommendation.
+`;
+
       const llmRes = await gatewayGenerate(prompt, record.model);
       
       const finalPayload = {
         ...data,
         analysis: llmRes.text,
-        provider: llmRes.provider
+        provider: llmRes.provider,
+        brain_context: { facts: brainFacts, instructions_applied: !!evolvedInstructions }
       };
 
-      // Update SQLite
+      // 4. Update SQLite
       await repo.save({
         ...record,
         status: 'completed',
@@ -97,6 +130,25 @@ router.get('/analysis/jobs/:analysisId/:jobId', async (req, res) => {
   } catch (err: any) {
     console.error('Failed to poll analysis job:', err);
     res.status(500).json({ error: 'Failed to poll analysis job' });
+  }
+});
+
+router.post('/analysis/feedback', async (req, res) => {
+  const { analysisId, feedback, userId } = req.body;
+  try {
+    const record = await repo.getById(analysisId);
+    
+    // Proxy to Python Brain Service
+    await axios.post(`${PYTHON_SERVICE_URL}/api/brain/feedback`, {
+      user_id: userId || 'default',
+      feedback,
+      context: record ? `${record.symbol} (${record.market}) Analysis` : 'General'
+    });
+
+    res.json({ success: true, message: 'Feedback recorded and brain evolution triggered.' });
+  } catch (err: any) {
+    console.error('Failed to process feedback:', err);
+    res.status(500).json({ error: 'Failed to process feedback' });
   }
 });
 

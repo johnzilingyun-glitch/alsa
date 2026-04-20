@@ -41,7 +41,7 @@ export const InstitutionalAlertPanel = memo(function InstitutionalAlertPanel() {
 
   // Poll for prices every 30 seconds
   useEffect(() => {
-    if (searchAlerts.length === 0) return;
+    if (!searchAlerts || searchAlerts.length === 0) return;
 
     async function updatePrices() {
       // For each alert, fetch current price
@@ -73,7 +73,9 @@ export const InstitutionalAlertPanel = memo(function InstitutionalAlertPanel() {
   const handleDelete = async (id: number) => {
     try {
       await alertsClient.delete(id);
-      setAlerts(searchAlerts.filter(a => a.id !== id));
+      if (searchAlerts) {
+        setAlerts(searchAlerts.filter(a => a.id !== id));
+      }
     } catch (e) {
       console.error(e);
     }
@@ -93,7 +95,7 @@ export const InstitutionalAlertPanel = memo(function InstitutionalAlertPanel() {
     return 'neutral';
   };
 
-  if (searchAlerts.length === 0 && !loading) return null;
+  if (!searchAlerts || (searchAlerts.length === 0 && !loading)) return null;
 
   return (
     <section className="space-y-6">
@@ -113,7 +115,7 @@ export const InstitutionalAlertPanel = memo(function InstitutionalAlertPanel() {
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
         <AnimatePresence mode="popLayout">
-          {searchAlerts.map((alert) => {
+          {Array.isArray(searchAlerts) && searchAlerts.map((alert) => {
             const currentPrice = alertPrices[alert.symbol];
             const status = getAlertStatus(alert);
             const isTargetHit = status === 'target_hit';

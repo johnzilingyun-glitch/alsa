@@ -84,7 +84,7 @@ export const MarketOverviewSchema = z.object({
     change: z.coerce.number(),
     changePercent: z.coerce.number(),
     previousClose: z.coerce.number().optional().default(0),
-  })).min(1),
+  })).catch([]),
   topNews: z.array(z.any()).catch([]),
   sectorAnalysis: z.array(z.any()).catch([]),
   commodityAnalysis: z.array(z.any()).catch([]),

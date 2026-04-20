@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, memo } from 'react';
-import { Download, Bell, History, Clock, Settings, Loader2, Search, TrendingUp, Zap, BarChart3, Microscope, Languages, Menu, X } from 'lucide-react';
+import { Download, Bell, History, Clock, Settings, Loader2, Search, TrendingUp, Zap, BarChart3, Microscope, Languages, Menu, X, Target } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useTranslation } from 'react-i18next';
 import { Market, AnalysisLevel } from '../../types';
@@ -7,24 +7,33 @@ import { useUIStore, selectLoading } from '../../stores/useUIStore';
 import { useMarketStore } from '../../stores/useMarketStore';
 import { useAnalysisStore } from '../../stores/useAnalysisStore';
 import { useConfigStore } from '../../stores/useConfigStore';
+import { clsx, type ClassValue } from 'clsx';
+import { twMerge } from 'tailwind-merge';
+
+function cn(...inputs: ClassValue[]) {
+  return twMerge(clsx(inputs));
+}
 
 interface HeaderProps {
   onSearch: (e: React.FormEvent) => void;
   onResetToHome: () => void;
   onTriggerDailyReport: () => void;
   onOpenHistory: () => void;
+  onOpenSignals: () => void;
   onFetchAdminData: () => void;
 }
 
-export const Header = memo(function Header({ onSearch, onResetToHome, onTriggerDailyReport, onOpenHistory, onFetchAdminData }: HeaderProps) {
+export const Header = memo(function Header({ 
+  onSearch, onResetToHome, onTriggerDailyReport, onOpenHistory, onOpenSignals, onFetchAdminData 
+}: HeaderProps) {
   const { t, i18n } = useTranslation();
   const loading = useUIStore(selectLoading);
   const { isTriggeringReport, showAdminPanel, setShowAdminPanel, setIsSettingsOpen, analysisLevel, setAnalysisLevel, serviceStatus } = useUIStore();
-  const { dailyReport } = useMarketStore();
+  const { dailyReport, activeAlertStatus } = useMarketStore();
   const { symbol, setSymbol, market, setMarket } = useAnalysisStore();
   const { language, setLanguage } = useConfigStore();
 
-  const isComposing = useRef(false);
+  const [isComposing, setIsComposing] = useState(false);
   const [localSymbol, setLocalSymbol] = useState(symbol);
   const [suggestions, setSuggestions] = useState<any[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -47,7 +56,7 @@ export const Header = memo(function Header({ onSearch, onResetToHome, onTriggerD
     const controller = new AbortController();
 
     const fetchSuggestions = async () => {
-      if (!localSymbol || localSymbol.trim().length < 1 || isComposing.current) {
+      if (!localSymbol || localSymbol.trim().length < 1 || isComposing) {
         setSuggestions([]);
         setShowSuggestions(false);
         return;
@@ -72,7 +81,7 @@ export const Header = memo(function Header({ onSearch, onResetToHome, onTriggerD
 
     const timeout = setTimeout(fetchSuggestions, 300);
     return () => { clearTimeout(timeout); controller.abort(); };
-  }, [localSymbol, market]);
+  }, [localSymbol, market, isComposing]);
 
   // Click outside to close
   useEffect(() => {
@@ -215,6 +224,22 @@ export const Header = memo(function Header({ onSearch, onResetToHome, onTriggerD
               <History size={20} strokeWidth={1.5} />
             </button>
             <button
+              onClick={onOpenSignals}
+              className={cn(
+                "btn-secondary w-12 h-12 p-0 flex items-center justify-center rounded-xl relative overflow-hidden group transition-all duration-500",
+                activeAlertStatus === 'gold' ? "bg-yellow-500 text-white border-yellow-400 hover:bg-yellow-600 shadow-[0_0_20px_rgba(234,179,8,0.4)]" :
+                activeAlertStatus === 'red' ? "bg-rose-500 text-white border-rose-400 hover:bg-rose-600 shadow-[0_0_20px_rgba(244,63,94,0.4)]" :
+                activeAlertStatus === 'indigo' ? "bg-indigo-600 text-white border-indigo-500 hover:bg-indigo-700 shadow-[0_0_20px_rgba(79,70,229,0.4)]" : ""
+              )}
+              aria-label="Trade Signals"
+              title="交易信号监控"
+            >
+              <Target size={20} className={cn("transition-transform group-hover:scale-110", activeAlertStatus !== 'neutral' && "animate-pulse")} />
+              {activeAlertStatus !== 'neutral' && (
+                <span className="absolute inset-0 bg-white/20 animate-ping pointer-events-none" />
+              )}
+            </button>
+            <button
               onClick={() => {
                 setShowAdminPanel(!showAdminPanel);
                 if (!showAdminPanel) onFetchAdminData();
@@ -299,9 +324,9 @@ export const Header = memo(function Header({ onSearch, onResetToHome, onTriggerD
             aria-expanded={showSuggestions && suggestions.length > 0}
             aria-controls="search-suggestions"
             role="combobox"
-            onCompositionStart={() => { isComposing.current = true; }}
+            onCompositionStart={() => { setIsComposing(true); }}
             onCompositionEnd={(e) => {
-              isComposing.current = false;
+              setIsComposing(false);
               const val = e.currentTarget.value;
               setLocalSymbol(val);
               // Store as is for suggestions, will uppercase on submit
@@ -309,7 +334,7 @@ export const Header = memo(function Header({ onSearch, onResetToHome, onTriggerD
             onChange={(e) => {
               const val = e.target.value;
               setLocalSymbol(val);
-              if (!isComposing.current) {
+              if (!isComposing) {
                 setSymbol(val);
               }
             }}

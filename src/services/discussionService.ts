@@ -4,6 +4,7 @@ import { useConfigStore } from "../stores/useConfigStore";
 import { getCommoditiesData } from "./marketService";
 import { getPreviousStockAnalysis } from "./adminService";
 import { performBacktest } from "./backtestService";
+import { getBrainContext } from "./brainService";
 import { AgentDiscussionSchema, validateResponse } from "./schemas";
 import { getDiscussionPrompt, getTranslationPrompt } from "./prompts";
 import { buildTopology } from "./discussion/orchestrator";
@@ -452,10 +453,6 @@ export async function startMultiRoundDiscussion(
         try {
           output = await callExpert(round.experts[i]);
           if (output) {
-            results.push(output);
-            allMessages.push(output.message);
-            expertResults.set(output.role, output);
-            
             // [OPTIMIZATION]: Push the actual reasoning snippet to the UI progress callback
             onProgress?.({
               currentRound: roundNum,
@@ -781,7 +778,16 @@ export async function startAgentDiscussion(
   // Store reflection if we have backtest data (learn from this cycle)
   reflectAndRemember(analysis, resolvedBacktest);
 
-  const prompt = getDiscussionPrompt(analysis, commoditiesData, memoryContext + reflectionMemory, historyContext, currentLanguage);
+  const brainContext = await getBrainContext(analysis.stockInfo.symbol);
+
+  const prompt = getDiscussionPrompt(
+    analysis, 
+    commoditiesData, 
+    memoryContext + reflectionMemory, 
+    historyContext, 
+    currentLanguage,
+    brainContext // New parameter
+  );
   
   const raw = await generateAndParseJsonWithRetry<AgentDiscussion>(ai, {
     model: config?.model || GEMINI_MODEL,

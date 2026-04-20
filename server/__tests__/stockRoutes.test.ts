@@ -3,26 +3,33 @@ import express from 'express';
 import request from 'supertest';
 import stockRoutes from '../stockRoutes';
 
-const fetchMock = vi.fn();
-// @ts-ignore
-global.fetch = fetchMock;
-// @ts-ignore
-globalThis.fetch = fetchMock;
+import axios from 'axios';
+vi.mock('axios');
+const mockedAxios = axios as vi.Mocked<typeof axios>;
 
 vi.mock('yahoo-finance2', () => {
+  const mockInstance = {
+    setOptions: vi.fn(),
+    quote: vi.fn(async (symbol) => {
+      if (symbol === '00700.Fail') {
+        throw new Error('Yahoo Fails');
+      }
+      return {
+        regularMarketPrice: 400.0,
+        regularMarketChange: 5.0,
+        regularMarketChangePercent: 1.25,
+        currency: 'HKD'
+      };
+    })
+  };
+  
   return {
-    default: {
-      quote: vi.fn(async (symbol) => {
-        if (symbol === '00700.Fail') {
-          throw new Error('Yahoo Fails');
-        }
-        return {
-          regularMarketPrice: 400.0,
-          regularMarketChange: 5.0,
-          regularMarketChangePercent: 1.25,
-          currency: 'HKD'
-        };
-      })
+    default: class {
+      constructor() {
+        return mockInstance;
+      }
+      setOptions = mockInstance.setOptions;
+      quote = mockInstance.quote;
     }
   };
 });
@@ -37,15 +44,18 @@ describe('stockRoutes /api/stock/realtime', () => {
   });
 
   it('should prioritize AkShare HK Spot for HK-Share and fallback to Yahoo if AkShare fails', async () => {
-    fetchMock.mockImplementation(async (url: string) => {
+    mockedAxios.get.mockImplementation(async (url: string) => {
       if (url.includes('/api/stock/hk_spot')) {
-        return { ok: false, status: 500 };
+        return { status: 500 };
       }
       return { 
-        ok: true, 
-        json: async () => ({}),
-        text: async () => 'var hq_str_rt_hk00700="腾讯控股,400.0,400.0,..."'
+        status: 200, 
+        data: { success: true, data: { status: 'ok' } } // mock for sina fallback if it was axios
       };
+    });
+    // @ts-ignore
+    global.fetch = vi.fn().mockResolvedValue({ 
+      text: async () => 'var hq_str_rt_hk00700="腾讯控股,400.0,400.0,..."' 
     });
 
     const res = await request(app).get('/api/stock/realtime?symbol=00700&market=HK-Share');
@@ -55,28 +65,21 @@ describe('stockRoutes /api/stock/realtime', () => {
   });
 
   it('should use AkShare HK Spot if it succeeds', async () => {
-    fetchMock.mockImplementation(async (url: string) => {
-      if (url.includes('/api/stock/hk_spot')) {
-        return {
-          ok: true,
-          json: async () => ({
-            success: true,
-            data: {
-              "代码": "00700",
-              "名称": "腾讯控股",
-              "最新价": 412.5,
-              "涨跌幅": 1.2,
-              "成交量": 12345,
-              "昨收": 400
-            }
-          })
-        };
-      }
-      return { 
-        ok: true, 
-        json: async () => ([]),
-        text: async () => 'var hq_str_rt_hk00700="腾讯控股,400.0,400.0,..."'
-      };
+    // Mock fetch for the internal call to Python service
+    // @ts-ignore
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        success: true,
+        data: {
+          "代码": "00700",
+          "名称": "腾讯控股",
+          "最新价": 412.5,
+          "涨跌幅": 1.2,
+          "成交量": 12345,
+          "昨收": 400
+        }
+      })
     });
 
     const res = await request(app).get('/api/stock/realtime?symbol=00700&market=HK-Share');

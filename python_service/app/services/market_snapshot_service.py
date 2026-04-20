@@ -1,5 +1,6 @@
 from ..lake.parquet_store import ParquetMarketStore
 from typing import List, Dict, Any
+import asyncio
 import akshare as ak
 import pandas as pd
 
@@ -13,8 +14,11 @@ class MarketSnapshotService:
         """
         # In a real setup, we'd have robust fetching. Reuse some akshare logic.
         try:
-            # Fetch daily history (A-Share example)
-            df = ak.stock_zh_a_hist(symbol=symbol, period="daily", adjust="qfq")
+            # Fetch daily history (A-Share example) with 15s timeout
+            df = await asyncio.wait_for(
+                asyncio.to_thread(ak.stock_zh_a_hist, symbol=symbol, period="daily", adjust="qfq"),
+                timeout=15.0
+            )
             if df.empty:
                 return {}
             
@@ -30,13 +34,21 @@ class MarketSnapshotService:
             # Save to Parquet
             self.store.write_ohlc("ohlc", market, symbol, rows)
             
-            # Fetch valuation
-            val_df = ak.stock_individual_info_em(symbol=symbol)
+            # Fetch valuation with 10s timeout
+            val_df = await asyncio.wait_for(
+                asyncio.to_thread(ak.stock_individual_info_em, symbol=symbol),
+                timeout=10.0
+            )
             valuation = dict(zip(val_df['item'], val_df['value']))
+            
+            # Fetch comprehensive financials (Market Cap, Net Profit, Dividends)
+            from .market_data_service import market_data_service
+            financials = await market_data_service.get_financial_summary(symbol, market)
             
             return {
                 "history": rows,
-                "valuation": valuation
+                "valuation": valuation,
+                "financials": financials
             }
         except Exception as e:
             print(f"Snapshot creation failed for {symbol}: {e}")

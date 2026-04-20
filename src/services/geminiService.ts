@@ -8,11 +8,11 @@ export const GEMINI_MODEL = "gemini-3.1-pro-preview";
 
 // Fallback chain: primary + backup model for resilience.
 export const MODEL_FALLBACK_CHAIN: string[] = [
-  "gemini-3.1-pro-preview",         // Ultimate logic engine (Primary)
-  "gemini-3.1-flash-lite-preview",  // High-throughput backup
-  "gemini-2.0-flash-exp",           // Cutting-edge experimental fallback
-  "gemini-1.5-pro",                 // Stable logic fallback
-  "gemini-1.5-flash",               // Lightweight high-speed fallback
+  "gemini-3.1-pro-preview",         // High-reasoning 3.1
+  "gemini-3.1-flash-lite-preview",  // Lightweight 3.1
+  "gemini-2.5-pro",                 // 2.5 Logic
+  "gemini-2.5-flash",               // 2.5 Speed
+  "gemini-2.0-flash",               // Stable 2.0
 ];
 
 /**

@@ -9,15 +9,15 @@ try:
     from .technicals import analyze as analyze_technicals
     from .snapshot_manager import save_market_snapshot, SNAPSHOT_DIR
     from .app.api.router import api_router
-except ImportError:
+except (ImportError, ValueError):
     from technicals import analyze as analyze_technicals
     from snapshot_manager import save_market_snapshot, SNAPSHOT_DIR
     from app.api.router import api_router
 
+
 import polars as pl
 import duckdb
 import uuid
-import os
 
 app = FastAPI(title="AI Daily Financial Backend", version="1.0.0")
 
@@ -38,8 +38,10 @@ from .app.lake.parquet_store import ParquetMarketStore
 from .app.db.repositories.job_repo import JobRepository
 from .app.services.market_snapshot_service import MarketSnapshotService
 from .app.services.analysis_job_service import AnalysisJobService
+from .app.services.brain_manager import brain_manager
 from .app.db.repositories.watchlist_repo import WatchlistRepository
 from .app.db.repositories.journal_repo import JournalRepository
+from .app.services.market_data_service import market_data_service
 from .app.db.repositories.alert_repo import AlertRepository
 
 # Singletons for simplicity in this analytical app
@@ -368,6 +370,19 @@ async def get_stock_a_valuation(
         print(f"Error fetching valuation: {e}")
         return {"success": False, "error": str(e)}
 
+@app.get("/api/stock/comprehensive_financials")
+async def get_comprehensive_financials(
+    symbol: str,
+    market: str = "A-Share"
+) -> Dict[str, Any]:
+    """
+    Fetch unified financial metrics: Market Cap, Net Profit history, Dividends.
+    """
+    data = await market_data_service.get_financial_summary(symbol, market)
+    if "error" in data:
+        return {"success": False, "error": data["error"]}
+    return {"success": True, "data": data}
+
 # --- New Financial Dimension Endpoints ---
 
 @app.get("/api/stock/lhb")
@@ -453,69 +468,7 @@ async def get_social_trends() -> Dict[str, Any]:
         print(f"Error fetching social trends: {e}")
         return {"success": False, "error": str(e)}
 
-# --- Analysis Job Endpoints ---
-
-@app.post("/api/analysis/jobs")
-async def create_analysis_job(payload: Dict[str, Any]):
-    job_id = f"job_{uuid.uuid4().hex[:8]}"
-    symbol = payload.get("symbol")
-    market = payload.get("market", "A-Share")
-    
-    analysis_jobs[job_id] = {
-        "id": job_id,
-        "symbol": symbol,
-        "market": market,
-        "status": "queued",
-        "created_at": datetime.now().isoformat(),
-        "result": None
-    }
-    
-    # Run in background (simple async task for now)
-    asyncio.create_task(run_analysis_job(job_id, symbol, market))
-    
-    return {"jobId": job_id, "status": "queued"}
-
-@app.get("/api/analysis/jobs/{job_id}")
-async def get_job_status(job_id: str):
-    job = analysis_jobs.get(job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
-    return job
-
-async def run_analysis_job(job_id: str, symbol: str, market: str):
-    job = analysis_jobs[job_id]
-    job["status"] = "running"
-    
-    try:
-        # 1. Fetch data
-        history = await get_stock_a_history(symbol=symbol)
-        valuation = await get_stock_a_valuation(symbol=symbol)
-        spot = await get_stock_a_spot(symbol=symbol)
-        
-        # 2. Save snapshot
-        snapshot_data = {
-            "history": history.get("data", []),
-            "valuation": valuation.get("data", {}),
-            "spot": spot.get("data", {})
-        }
-        snapshot_path = save_market_snapshot(job_id, snapshot_data)
-        
-        # 3. Compute technicals using Polars acceleration (leveraged in technicals.py)
-        # For now, we reuse the existing technicals logic
-        tech_res = await get_technicals(symbol=symbol)
-        
-        # 4. Final Result (LLM part will be handled by Node or here if we have a client)
-        job["status"] = "completed"
-        job["result"] = {
-            "snapshot_path": snapshot_path,
-            "stockInfo": snapshot_data["spot"],
-            "technicals": tech_res.get("data"),
-            "valuation": snapshot_data["valuation"]
-        }
-    except Exception as e:
-        job["status"] = "failed"
-        job["error"] = str(e)
-        print(f"Job {job_id} failed: {e}")
+# Analysis Job Endpoints handled via api_router / analysis_router
 
 @app.get("/api/analysis/query")
 async def query_historical_analysis(query_sql: str):
@@ -531,8 +484,10 @@ async def query_historical_analysis(query_sql: str):
     except Exception as e:
         return {"success": False, "error": str(e)}
 
+# --- Brain & Evolution handled via router ---
+
 from datetime import datetime
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)
+    uvicorn.run("main:app", host="127.0.0.1", port=8001, reload=True)

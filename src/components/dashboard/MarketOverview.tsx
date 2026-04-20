@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, memo } from 'react';
 import { 
   Globe, Settings, Loader2, ExternalLink, TrendingUp, Share2, CheckCircle2,
-  LayoutGrid, Coins, Star, Newspaper, Search, RefreshCw, Calendar
+  LayoutGrid, Coins, Star, Newspaper, Search, RefreshCw, Calendar, BarChart3, ChevronRight
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { useTranslation } from 'react-i18next';
@@ -14,6 +14,8 @@ import { useAnalysisStore } from '../../stores/useAnalysisStore';
 import { ErrorNotice } from '../ErrorNotice';
 import { getMarketHistoryByDate, getAvailableMarketDates } from '../../services/adminService';
 import { InstitutionalAlertPanel } from './InstitutionalAlertPanel';
+import { alertsClient } from '../../services/api/alertsClient';
+import { Target, Activity, Star as StarIcon, Heart } from 'lucide-react';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -31,9 +33,44 @@ export const MarketOverview = memo(function MarketOverview({ onFetchMarketOvervi
     autoRefreshInterval, setAutoRefreshInterval, setIsSettingsOpen,
   } = useUIStore();
   const { 
-    marketOverviews, marketLastUpdatedTimes, overviewMarket, setOverviewMarket 
+    marketOverviews, marketLastUpdatedTimes, overviewMarket, setOverviewMarket,
+    searchAlerts, alertPrices, watchlist, recentSearches, updateAlertPrice, refreshActiveAlertStatus
   } = useMarketStore();
   const { setSymbol, setMarket } = useAnalysisStore();
+
+  // Price Sync Engine
+  useEffect(() => {
+    const syncPrices = async () => {
+      const allSymbols = [
+        ...searchAlerts.map(a => a.symbol),
+        ...watchlist.map(w => w.symbol),
+        ...recentSearches.map(s => s.symbol)
+      ].filter((s, i, self) => self.indexOf(s) === i);
+
+      if (allSymbols.length === 0) return;
+
+      try {
+        const res = await fetch(`/api/market/quotes?symbols=${allSymbols.join(',')}`);
+        if (res.ok) {
+          const result = await res.json();
+          if (result.success && result.data) {
+            result.data.forEach((quote: any) => {
+              if (quote.price) {
+                updateAlertPrice(quote.symbol, quote.price);
+              }
+            });
+            refreshActiveAlertStatus();
+          }
+        }
+      } catch (err) {
+        console.error('Price sync failed:', err);
+      }
+    };
+
+    syncPrices(); // Initial sync
+    const interval = setInterval(syncPrices, 30000); // 30s poll
+    return () => clearInterval(interval);
+  }, [searchAlerts, watchlist, recentSearches, updateAlertPrice, refreshActiveAlertStatus]);
 
   // History date picker state
   const [selectedDate, setSelectedDate] = useState<string>('');
@@ -269,9 +306,107 @@ export const MarketOverview = memo(function MarketOverview({ onFetchMarketOvervi
           </div>
         )}
 
-        {isHistoryMode && !historyLoading && !historyData && (
-          <div className="text-center py-8 text-zinc-400 text-sm">
-            {t('market.no_history')}
+        {/* Favorites & Intelligent Watchlist Section */}
+        {!isHistoryMode && (
+          <div className="space-y-6">
+            <div className="flex items-center justify-between">
+              <h3 className="flex items-center gap-2 text-sm font-bold uppercase tracking-widest text-zinc-400">
+                <Heart size={16} className="text-rose-500 fill-rose-500/10" />
+                我的关注与智能库
+              </h3>
+              <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest bg-zinc-100 px-2 py-1 rounded-md">
+                Dual-Logic Tracking
+              </span>
+            </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {/* Combine Watchlist and Top Recent Searches */}
+              {[...watchlist, ...recentSearches.slice(0, 5)]
+                .filter((item, index, self) => self.findIndex(t => t.symbol === item.symbol) === index)
+                .map((stock) => {
+                  const alert = searchAlerts.find(a => a.symbol === stock.symbol);
+                  const price = alertPrices[stock.symbol];
+                  
+                  let status = 'neutral';
+                  let hint = '持仓待机';
+                  let statusColor = 'text-zinc-600 bg-zinc-50';
+                  
+                  if (alert && price) {
+                    if (price >= alert.target_price) {
+                      status = 'gold';
+                      hint = '目标达成！🚀';
+                      statusColor = 'text-yellow-700 bg-yellow-100 border-yellow-200';
+                    } else if (price <= alert.stop_loss) {
+                      status = 'red';
+                      hint = '跌破止损！⚠️';
+                      statusColor = 'text-rose-700 bg-rose-100 border-rose-200';
+                    } else if (Math.abs(price - alert.entry_price) / alert.entry_price <= 0.02) {
+                      status = 'indigo';
+                      hint = '最佳入手 ✨';
+                      statusColor = 'text-indigo-700 bg-indigo-100 border-indigo-200';
+                    }
+                  }
+
+                  return (
+                    <button
+                      key={`fav-${stock.symbol}`}
+                      onClick={() => { setSymbol(stock.symbol); setMarket(stock.market); }}
+                      className="group flex flex-col justify-between rounded-2xl border border-zinc-100 bg-white p-5 text-left transition-all hover:border-indigo-600/30 hover:shadow-md relative overflow-hidden"
+                    >
+                      <div className="flex items-start justify-between mb-4">
+                        <div>
+                          <div className="flex items-center gap-2">
+                             <div className="w-8 h-8 rounded-lg bg-zinc-50 border border-zinc-100 flex items-center justify-center text-zinc-400 group-hover:text-indigo-600 group-hover:bg-indigo-50 transition-all">
+                               <BarChart3 size={16} />
+                             </div>
+                             <div>
+                                <p className="font-bold text-zinc-950 truncate max-w-[120px]">{stock.name}</p>
+                                <p className="font-mono text-[9px] text-zinc-400 uppercase tracking-widest">{stock.symbol} · {stock.market}</p>
+                             </div>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-sm font-bold text-zinc-950 font-mono">{price ? price.toFixed(2) : '---'}</p>
+                          <span className="text-[9px] uppercase font-bold text-zinc-300">Live Quote</span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between mt-auto">
+                        {alert ? (
+                          <div className={cn(
+                            "flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[9px] font-black uppercase tracking-wider border",
+                            statusColor
+                          )}>
+                            <Activity size={10} className={cn(status !== 'neutral' && "animate-pulse")} />
+                            {hint}
+                          </div>
+                        ) : (
+                          <div className="text-[10px] text-zinc-400 font-medium">
+                            暂无监控计划
+                          </div>
+                        )}
+                        <ChevronRight size={14} className="text-zinc-200 group-hover:text-indigo-400 group-hover:translate-x-1 transition-all" />
+                      </div>
+                      
+                      {status !== 'neutral' && (
+                        <div className={cn(
+                          "absolute top-0 right-0 w-12 h-12 flex items-center justify-center -mr-4 -mt-4 rotate-45",
+                          status === 'gold' ? "bg-yellow-500" : status === 'red' ? "bg-rose-500" : "bg-indigo-600"
+                        )}>
+                          <Target size={12} className="text-white -rotate-45 ml-1 mt-1" />
+                        </div>
+                      )}
+                    </button>
+                  );
+                })}
+              
+              {watchlist.length === 0 && recentSearches.length === 0 && (
+                <div className="md:col-span-full py-12 border-2 border-dashed border-zinc-100 rounded-2xl flex flex-col items-center justify-center text-zinc-300 gap-2">
+                   <StarIcon size={32} strokeWidth={1} />
+                   <p className="text-xs font-bold uppercase tracking-[0.2em]">智能记录尚未沉淀</p>
+                </div>
+              )}
+            </div>
           </div>
         )}
 

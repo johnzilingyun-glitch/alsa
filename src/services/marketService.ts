@@ -86,21 +86,48 @@ export async function getMarketOverview(config?: GeminiConfig, market: Market = 
   const [indicesData, newsData, sectorsData, northboundData, commoditiesData] = await Promise.all([
     fetch(`/api/stock/indices?market=${market}`).then(r => r.ok ? r.json() : []).catch(() => []),
     fetch(`/api/stock/news?market=${market}`).then(r => r.ok ? r.json() : []).catch(() => []),
-    needsSectors ? fetch('/api/stock/sectors').then(r => r.ok ? r.json() : null).catch(() => null) : Promise.resolve(null),
-    needsNorthbound ? fetch('/api/stock/northbound').then(r => r.ok ? r.json() : null).catch(() => null) : Promise.resolve(null),
+    needsSectors ? fetch('/api/stock/sectors').then(r => (r.ok ? r.json() : { topInflows: [], topOutflows: [] })).catch(() => ({ topInflows: [], topOutflows: [] })) : Promise.resolve(null),
+    needsNorthbound ? fetch('/api/stock/northbound').then(r => (r.ok ? r.json() : [])).catch(() => []) : Promise.resolve(null),
     getCommoditiesData(),
   ]);
   const prompt = getMarketOverviewPrompt(indicesData, commoditiesData, newsData, sectorsData, northboundData, history, beijingDate, now, market, language);
 
-  const raw = await generateAndParseJsonWithRetry<MarketOverview>(ai, {
-    model: config?.model || GEMINI_MODEL,
-    contents: prompt,
-    config: { 
-      responseMimeType: "application/json"
-    }
-  }, { transportRetries: 1, parseRetries: 1 }, priority);
+  let overview: MarketOverview;
+  
+  try {
+    const raw = await generateAndParseJsonWithRetry<MarketOverview>(ai, {
+      model: config?.model || GEMINI_MODEL,
+      contents: prompt,
+      config: { 
+        responseMimeType: "application/json"
+      }
+    }, { transportRetries: 1, parseRetries: 1 }, priority);
 
-  const overview = validateResponse(MarketOverviewSchema, raw, 'MarketOverview') as MarketOverview;
+    overview = validateResponse(MarketOverviewSchema, raw, 'MarketOverview') as MarketOverview;
+  } catch (e) {
+    console.warn('[Market] AI Analysis failed, falling back to Degraded Mode (Raw Data Only):', e);
+    
+    // Construct robust degraded overview using all fetched raw data
+    overview = {
+      indices: indicesData.map((d: any) => ({
+        name: d.name,
+        symbol: d.symbol,
+        price: d.price ?? 0,
+        change: d.change ?? 0,
+        changePercent: d.changePercent ?? 0,
+        previousClose: d.previousClose ?? 0,
+      })),
+      topNews: newsData || [],
+      sectorAnalysis: [], // Raw sectors are available in state but we don't have the AI synthesis here
+      commodityAnalysis: (commoditiesData || []).map((d: any) => ({
+        name: d.name,
+        trend: d.changePercent > 0 ? '上涨' : d.changePercent < 0 ? '下跌' : '持平',
+        expectation: `${d.price} (${d.changePercent}%)`,
+      })),
+      recommendations: [],
+      marketSummary: "AI 分析服务暂时不可用 (配额用尽)。正在为您显示实时市场数据与资讯。",
+    } as MarketOverview;
+  }
 
   // Anti-hallucination: enforce API indices data over AI-generated values
   if (indicesData.length > 0 && overview.indices) {
@@ -110,8 +137,8 @@ export async function getMarketOverview(config?: GeminiConfig, market: Market = 
       const apiIdx: any = apiMap.get(aiIdx.symbol);
       if (apiIdx && apiIdx.price != null && apiIdx.price > 0) {
         const indexDriftPct = Math.abs(aiIdx.price - apiIdx.price) / apiIdx.price;
-        if (indexDriftPct > 0.02) { // 2% threshold for indices (large numbers, qualitative context)
-          console.warn(`[AntiHallucination] Market index ${aiIdx.symbol}: AI=${aiIdx.price}, API=${apiIdx.price} (${(indexDriftPct * 100).toFixed(2)}%). Correcting.`);
+        if (indexDriftPct > 0.02) { 
+          console.warn(`[AntiHallucination] Market index ${aiIdx.symbol}: AI=${aiIdx.price}, API=${apiIdx.price}. Correcting.`);
           driftDetected = true;
         }
         aiIdx.price = Number(apiIdx.price);
@@ -120,14 +147,14 @@ export async function getMarketOverview(config?: GeminiConfig, market: Market = 
         if (apiIdx.previousClose != null) aiIdx.previousClose = Number(apiIdx.previousClose);
       }
     }
-    if (driftDetected && overview.marketSummary) {
-      overview.marketSummary += '\n\n⚠️ 注意：AI分析中的部分指数数据已由实时API数据修正。';
+    if (driftDetected && overview.marketSummary && !overview.marketSummary.includes('不可用')) {
+      overview.marketSummary += '\n\n⚠️ 注意：部分指数数据已由实时 API 修正。';
     }
   }
 
   overview.id = `market-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
   overview.generatedAt = Date.now();
-  overview.market = market; // Tag market type for history recovery
+  overview.market = market; 
   
   if (overview.indices && overview.indices.length > 0) {
     await saveAnalysisToHistory('market', overview);

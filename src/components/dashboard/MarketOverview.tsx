@@ -42,9 +42,9 @@ export const MarketOverview = memo(function MarketOverview({ onFetchMarketOvervi
   useEffect(() => {
     const syncPrices = async () => {
       const allSymbols = [
-        ...searchAlerts.map(a => a.symbol),
-        ...watchlist.map(w => w.symbol),
-        ...recentSearches.map(s => s.symbol)
+        ...(Array.isArray(searchAlerts) ? searchAlerts.map(a => a.symbol) : []),
+        ...(Array.isArray(watchlist) ? watchlist.map(w => w.symbol) : []),
+        ...(Array.isArray(recentSearches) ? recentSearches.map(s => s.symbol) : [])
       ].filter((s, i, self) => self.indexOf(s) === i);
 
       if (allSymbols.length === 0) return;
@@ -321,10 +321,10 @@ export const MarketOverview = memo(function MarketOverview({ onFetchMarketOvervi
             
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {/* Combine Watchlist and Top Recent Searches */}
-              {[...watchlist, ...recentSearches.slice(0, 5)]
+              {Array.isArray(watchlist) && Array.isArray(recentSearches) && [...watchlist, ...recentSearches.slice(0, 5)]
                 .filter((item, index, self) => self.findIndex(t => t.symbol === item.symbol) === index)
                 .map((stock) => {
-                  const alert = searchAlerts.find(a => a.symbol === stock.symbol);
+                  const alert = Array.isArray(searchAlerts) ? searchAlerts.find(a => a.symbol === stock.symbol) : undefined;
                   const price = alertPrices[stock.symbol];
                   
                   let status = 'neutral';

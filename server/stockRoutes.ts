@@ -272,8 +272,11 @@ router.get('/stock/news', async (req, res) => {
       fetchTasks.push((async () => {
         const start = Date.now();
         try {
-          const yfSym = appendMarketSuffix(symbolKey, marketKey);
-          const searchResult = await yf.search(yfSym, { newsCount: 8 });
+          // [OPTIMIZATION]: Wrap yf.search in a timeout to prevent hanging the whole news pipe
+          const searchPromise = yf.search(yfSym, { newsCount: 8 });
+          const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Yahoo Search Timeout')), 4000));
+          const searchResult = await Promise.race([searchPromise, timeoutPromise]) as any;
+          
           const items = (searchResult?.news || []).map((n: any) => ({
             title: n.title,
             url: n.link,
@@ -283,7 +286,7 @@ router.get('/stock/news', async (req, res) => {
           logDebug('performance', { source: 'yahoo_ticker', latency: Date.now() - start, count: items.length });
           return items;
         } catch (e) {
-          logError(e, `Ticker News Fetch Failed for ${symbolKey}`);
+          logError(e, `Ticker News Fetch Failed or Timed Out for ${symbolKey}`);
           return [];
         }
       })());
@@ -344,7 +347,11 @@ router.get('/stock/news', async (req, res) => {
       const start = Date.now();
       try {
         const query = marketKey === 'A-Share' ? '000001.SS' : marketKey === 'HK-Share' ? '0700.HK' : 'SPY';
-        const searchResult = await yf.search(query, { newsCount: 5 });
+        // [OPTIMIZATION]: Wrap global yf.search in a timeout
+        const searchPromise = yf.search(query, { newsCount: 5 });
+        const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Global Yahoo Search Timeout')), 3500));
+        const searchResult = await Promise.race([searchPromise, timeoutPromise]) as any;
+        
         const items = (searchResult?.news || []).map((n: any) => ({
           title: n.title,
           url: n.link,
@@ -426,11 +433,16 @@ router.get('/stock/northbound', async (req, res) => {
 router.get('/stock/lhb', async (req, res) => {
   const { symbol, date } = req.query;
   try {
+    // [HARDENING]: Only attempt LHB for A-Shares (6 digits)
+    if (!/^\d{6}$/.test(symbol as string)) {
+      return res.json({ success: true, data: [], message: 'LHB not applicable for this market' });
+    }
     const url = `http://127.0.0.1:8001/api/stock/lhb?symbol=${symbol}${date ? `&date=${date}` : ''}`;
     const data = await fetchJsonWithTimeout(url, 7000);
     res.json(data);
   } catch (error) {
-    res.status(500).json({ success: false, error: 'Failed to fetch LHB' });
+    console.warn(`LHB fetch failed for ${symbol}:`, error instanceof Error ? error.message : String(error));
+    res.json({ success: false, data: [], error: 'Failed to fetch LHB' });
   }
 });
 
@@ -442,7 +454,8 @@ router.get('/stock/margin', async (req, res) => {
     const data = await fetchJsonWithTimeout(url, 7000);
     res.json(data);
   } catch (error) {
-    res.status(500).json({ success: false, error: 'Failed to fetch margin' });
+    console.warn(`Margin fetch failed for ${symbol}:`, error instanceof Error ? error.message : String(error));
+    res.json({ success: false, data: [] });
   }
 });
 
@@ -454,7 +467,8 @@ router.get('/stock/announcements', async (req, res) => {
     const data = await fetchJsonWithTimeout(url, 7000);
     res.json(data);
   } catch (error) {
-    res.status(500).json({ success: false, error: 'Failed to fetch announcements' });
+    console.warn(`Announcements fetch failed for ${symbol}:`, error instanceof Error ? error.message : String(error));
+    res.json({ success: false, data: [] });
   }
 });
 

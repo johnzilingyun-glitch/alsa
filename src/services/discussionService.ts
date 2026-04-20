@@ -242,7 +242,7 @@ export async function startMultiRoundDiscussion(
         'Value Investing Sage',
         'Growth Visionary',
       ]);
-      const needsSearch = SEARCH_ROLES.has(role);
+      const needsSearch = SEARCH_ROLES.has(role) && roundNum === 1; // Only search in the first research round
 
       const invokeExpert = async (inputPrompt: string) => {
         // Determine model based on role criticality
@@ -368,8 +368,7 @@ export async function startMultiRoundDiscussion(
     let results: (ExpertOutput | null)[] = [];
 
     // Execute experts based on round's parallel flag.
-    // [OPTIMIZATION]: Force sequential execution for Standard level to save RPM (Rate Limit)
-    const isStandardOrResilient = level === 'standard' || level === 'quick';
+    const isStandardOrResilient = level === 'quick'; // Only Quick is strictly serial for all experts
     
     if (round.parallel && round.experts.length > 1 && !isStandardOrResilient) {
       // Parallel execution — all experts see the same allMessages snapshot
@@ -446,8 +445,8 @@ export async function startMultiRoundDiscussion(
       // Sequential execution — each expert sees the previous one's output
       for (let i = 0; i < round.experts.length; i++) {
         if (abortSignal?.aborted || quotaExhausted) break;
-        // [OPTIMIZATION]: Increased inter-call delay to 2000ms to prevent RPM spikes
-        if (i > 0) await delay(2000);
+        // [OPTIMIZATION]: Reduced inter-call delay to 800ms
+        if (i > 0) await delay(800);
 
         let output: ExpertOutput | null = null;
         try {

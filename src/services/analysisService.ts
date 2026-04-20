@@ -46,7 +46,7 @@ export async function analyzeStock(
       .catch(() => [])
   ]);
 
-  onStatus?.(isChinese ? "正在拉取龙虎榜、两融与最新公告..." : "Fetching LHB, Margin & Announcements...");
+  onStatus?.(isChinese ? "正在加载龙虎榜、两融与最新公告..." : "Loading LHB, Margin & Announcements...");
   const [lhbRes, marginRes, noticesRes, socialRes] = await Promise.all([
     fetch(`/api/stock/lhb?symbol=${encodeURIComponent(symbol)}`).catch(() => null),
     fetch(`/api/stock/margin?symbol=${encodeURIComponent(symbol)}`).catch(() => null),
@@ -113,39 +113,48 @@ export async function analyzeStock(
 
   let analysis = validateResponse(StockAnalysisSchema, sanitizedRaw, 'StockAnalysis') as StockAnalysis;
   
+  onStatus?.(isChinese ? "正在核校数据偏差与幻觉..." : "Validating data drift & hallucinations...");
+  
   // Anti-hallucination: multi-field drift detection and correction re-analysis
   if (realtimeData?.price != null) {
-    const { hasDrift, correctedData } = detectDrift(analysis, realtimeData, commoditiesData);
+    const { hasDrift, correctedData, signals } = detectDrift(analysis, realtimeData, commoditiesData);
 
     if (hasDrift) {
-      onStatus?.(isChinese ? "检测到数据偏差，正在进行逻辑重构..." : "Drift detected. Re-reasoning logic...");
-      const correctionPrompt = getCorrectionPrompt(analysis, correctedData, language);
-      try {
-        const correctedRaw = await generateAndParseJsonWithRetry<StockAnalysis>(
-          ai,
-          {
-            model: config?.model || GEMINI_MODEL,
-            contents: correctionPrompt,
-            config: { responseMimeType: "application/json" }
-          },
-          { transportRetries: 2, baseDelayMs: 2000, parseRetries: 1, parseDelayMs: 1000 }
-        );
-        
-        const sanitizedCorrection = {
-          ...correctedRaw,
-          stockInfo: {
-            ...(correctedRaw?.stockInfo || analysis.stockInfo),
-            price: correctedData.price ?? analysis.stockInfo.price,
-            change: correctedData.change ?? analysis.stockInfo.change,
-            changePercent: correctedData.changePercent ?? analysis.stockInfo.changePercent,
-            previousClose: correctedData.previousClose ?? analysis.stockInfo.previousClose,
-          }
-        };
-        
-        analysis = validateResponse(StockAnalysisSchema, sanitizedCorrection, 'StockAnalysis (corrected)') as StockAnalysis;
-        console.log(`[AntiHallucination] Correction re-analysis completed successfully`);
-      } catch (correctionErr) {
-        console.warn(`[AntiHallucination] Correction re-analysis failed, falling back to field override:`, correctionErr);
+      const maxDrift = Math.max(...signals.map(s => s.driftPct));
+      const SIGNIFICANT_DRIFT_THRESHOLD = 0.05; // 5%
+
+      if (maxDrift > SIGNIFICANT_DRIFT_THRESHOLD) {
+        onStatus?.(isChinese ? "检测到显著数据偏差，正在进行逻辑重构..." : "Significant drift detected. Re-reasoning logic...");
+        const correctionPrompt = getCorrectionPrompt(analysis, correctedData, language);
+        try {
+          const correctedRaw = await generateAndParseJsonWithRetry<StockAnalysis>(
+            ai,
+            {
+              model: config?.model || GEMINI_MODEL,
+              contents: correctionPrompt,
+              config: { responseMimeType: "application/json" }
+            },
+            { transportRetries: 2, baseDelayMs: 2000, parseRetries: 1, parseDelayMs: 1000 }
+          );
+          
+          const sanitizedCorrection = {
+            ...correctedRaw,
+            stockInfo: {
+              ...(correctedRaw?.stockInfo || analysis.stockInfo),
+              price: correctedData.price ?? analysis.stockInfo.price,
+              change: correctedData.change ?? analysis.stockInfo.change,
+              changePercent: correctedData.changePercent ?? analysis.stockInfo.changePercent,
+              previousClose: correctedData.previousClose ?? analysis.stockInfo.previousClose,
+            }
+          };
+          
+          analysis = validateResponse(StockAnalysisSchema, sanitizedCorrection, 'StockAnalysis (corrected)') as StockAnalysis;
+          console.log(`[AntiHallucination] Correction re-analysis completed (Max Drift: ${(maxDrift * 100).toFixed(1)}%)`);
+        } catch (correctionErr) {
+          console.warn(`[AntiHallucination] Correction re-analysis failed, falling back to field override:`, correctionErr);
+        }
+      } else {
+        console.log(`[AntiHallucination] Minor drift detected (${(maxDrift * 100).toFixed(1)}%), applying fast field override.`);
       }
     }
 

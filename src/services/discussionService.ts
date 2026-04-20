@@ -1,4 +1,4 @@
-import { createAI, withRetry, generateContentWithUsage, GEMINI_MODEL, delay, generateAndParseJsonWithRetry, QuotaError } from "./geminiService";
+import { createAI, withRetry, generateContentWithUsage, GEMINI_MODEL, delay, generateAndParseJsonWithRetry, QuotaError, DUCKDUCKGO_TOOLS } from "./geminiService";
 import { StockAnalysis, AgentMessage, AgentDiscussion, GeminiConfig, AnalysisLevel, AgentRole, ExpertOutput, Language, MultiRoundProgress, DataVerification } from "../types";
 import { useConfigStore } from "../stores/useConfigStore";
 import { getCommoditiesData } from "./marketService";
@@ -255,6 +255,17 @@ export async function startMultiRoundDiscussion(
           'Fundamental Analyst'
         ]);
         const model = CRITICAL_ROLES.has(role) ? CRITICAL_MODEL : (config?.model || DRAFTING_MODEL);
+        
+        // Define tool based on model and role needs
+        let tools: any[] | undefined = undefined;
+        if (needsSearch) {
+          // Only premium models (containing "pro") use the high-cost googleSearch tool
+          if (model.includes('pro') || model.includes('ultra')) {
+            tools = [{ googleSearch: {} }];
+          } else {
+            tools = DUCKDUCKGO_TOOLS;
+          }
+        }
 
         return generateAndParseJsonWithRetry<any>(ai, {
           model: model, 
@@ -264,10 +275,11 @@ export async function startMultiRoundDiscussion(
           baseDelayMs: 3000,
           responseMimeType: "application/json",
           responseSchema: getExpertResponseSchema(role),
-          ...(needsSearch ? { tools: [{ googleSearch: {} }] } : {}),
+          tools,
           role
         });
       };
+
       let parsed = await invokeExpert(prompt);
       let content = String(parsed?.content || '').trim();
 

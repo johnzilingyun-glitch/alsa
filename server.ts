@@ -71,14 +71,22 @@ async function startServer() {
   app.use('/api', stockRoutes);
   app.use('/api', analysisRoutes);
 
-  // Proxy to FastAPI for new routes (or all handled by FastAPI later)
-  // This will handle /api/analysis/ jobs and others once they are moved to Python
-  app.use('/api', createProxyMiddleware({ 
+  // Proxy to FastAPI (Port 8001) for paths not handled by Node
+  // We use a non-stripping proxy to ensure /api prefix is preserved for FastAPI
+  app.use(createProxyMiddleware({ 
     target: 'http://127.0.0.1:8001', 
     changeOrigin: true,
     pathFilter: (path) => {
-      // Proxy if not handled by existing routes or if explicitly for analytics/market/journal/watchlist
-      return path.match(/^\/api\/(analysis|market|journal|watchlist)/) !== null;
+      const targets = [
+        '/api/brain', 
+        '/api/evolution', 
+        '/api/market', 
+        '/api/journal', 
+        '/api/watchlist', 
+        '/api/alerts',
+        '/api/analysis'
+      ];
+      return targets.some(t => path.startsWith(t));
     }
   }));
 

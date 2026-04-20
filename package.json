@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
-    "dev:py": ".\\.venv\\Scripts\\python -m uvicorn python_service.main:app --port 8000 --reload",
+    "dev:py": ".\\.venv\\Scripts\\python -m uvicorn python_service.main:app --port 8001 --reload",
     "build": "vite build",
     "preview": "vite preview",
     "clean": "rm -rf dist",

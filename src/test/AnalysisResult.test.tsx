@@ -11,7 +11,7 @@ vi.mock('lucide-react', () => {
     'AlertTriangle', 'Cpu', 'Award', 'Target', 'RefreshCcw', 'Clock', 'Layers',
     'Database', 'History', 'Coins', 'ShieldCheck', 'Search', 'LayoutGrid', 'User',
     'UserCheck', 'X', 'Maximize2', 'Minimize2', 'RotateCcw', 'Calculator', 'Table',
-    'Activity', 'ArrowRight'
+    'Activity', 'ArrowRight', 'Brain', 'PenTool', 'Database', 'ShieldCheck', 'Check'
   ];
   const mocks: Record<string, any> = {};
   icons.forEach(icon => {

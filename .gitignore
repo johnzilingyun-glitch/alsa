@@ -6,3 +6,14 @@ coverage/
 *.log
 .env*
 !/.env.example
+
+# Data and Cache
+data/
+python_service/data/
+**/__pycache__/
+*.pyc
+.ipynb_checkpoints/
+.vscode/
+.idea/
+*.db
+*.parquet

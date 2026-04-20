@@ -3,7 +3,7 @@ import {
   BarChart3, PieChart, TrendingUp, TrendingDown, Clock, Info,
   Award, ShieldCheck, MessageSquare, History, RefreshCcw,
   LayoutGrid, CheckCircle2, Coins, AlertTriangle,
-  ExternalLink,
+  ExternalLink, Star
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { cn } from './utils';
@@ -11,6 +11,8 @@ import type { StockAnalysis } from '../../types';
 
 interface StockHeroCardProps {
   analysis: StockAnalysis;
+  isStarred?: boolean;
+  onToggleWatchlist?: () => void;
 }
 
 const parseStructuralText = (text: string) => {
@@ -45,7 +47,7 @@ const parseStructuralText = (text: string) => {
   return <div className="space-y-1">{elements}</div>;
 };
 
-export function StockHeroCard({ analysis }: StockHeroCardProps) {
+export function StockHeroCard({ analysis, isStarred, onToggleWatchlist }: StockHeroCardProps) {
   const { t } = useTranslation();
 
   return (
@@ -63,6 +65,20 @@ export function StockHeroCard({ analysis }: StockHeroCardProps) {
             </span>
             <h2 className="text-3xl sm:text-5xl font-bold tracking-tighter text-zinc-950">{analysis.stockInfo?.name}</h2>
             <span className="font-mono text-lg sm:text-2xl font-medium text-zinc-400 tracking-tighter">{analysis.stockInfo?.symbol}</span>
+            {onToggleWatchlist && (
+              <button
+                onClick={(e) => { e.stopPropagation(); onToggleWatchlist(); }}
+                className={cn(
+                  "ml-4 p-2 rounded-xl border transition-all duration-300",
+                  isStarred 
+                    ? "bg-amber-500 text-white border-amber-400 shadow-lg shadow-amber-500/20" 
+                    : "bg-white text-zinc-300 border-zinc-200 hover:border-amber-400 hover:text-amber-500"
+                )}
+                title={isStarred ? "从收藏中移除" : "添加到收藏"}
+              >
+                <Star size={20} fill={isStarred ? "currentColor" : "none"} strokeWidth={2} />
+              </button>
+            )}
           </div>
           <div className="flex flex-wrap items-center gap-3">
             {analysis.isDeepValue && (

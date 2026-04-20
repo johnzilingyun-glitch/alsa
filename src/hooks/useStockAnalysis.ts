@@ -17,7 +17,7 @@ export function useStockAnalysis() {
   const { setAnalysis, setSymbol, setMarket, symbol, market, analysis, resetAnalysis } = useAnalysisStore();
   const { setDiscussionResults: setDiscussionStoreResults, resetDiscussion, setRoundProgress, setAbortController, setDiscussionMessages } = useDiscussionStore();
   const { setScenarioResults, resetScenario } = useScenarioStore();
-  const { setHistoryItems, setOptimizationLogs, addRecentSearch } = useMarketStore();
+  const { setHistoryItems, setOptimizationLogs, addRecentSearch, watchlist, setWatchlist } = useMarketStore();
 
   const withTimeout = useCallback(async <T,>(promise: Promise<T>, ms: number, message: string): Promise<T> => {
     let timer: ReturnType<typeof setTimeout> | null = null;
@@ -210,11 +210,33 @@ export function useStockAnalysis() {
     }
   }, [symbol, market, geminiConfig, analysisLevel, setLoading, resetAnalysis, resetDiscussion, resetScenario, resetErrors, setAnalysis, setShowDiscussion, setIsDiscussing, setDiscussionStoreResults, setScenarioResults, setAnalysisError, setRoundProgress, setAbortController, setDiscussionMessages, fetchAdminData, withTimeout]);
 
+  const toggleWatchlist = useCallback(async (stock: { symbol: string; name: string; market: Market }) => {
+    const isStarred = watchlist.some(w => w.symbol === stock.symbol);
+    try {
+      if (isStarred) {
+        const res = await fetch(`/api/watchlist/${stock.symbol}?market=${stock.market}`, { method: 'DELETE' });
+        if (res.ok) setWatchlist(watchlist.filter(w => w.symbol !== stock.symbol));
+      } else {
+        const res = await fetch('/api/watchlist/', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(stock)
+        });
+        if (res.ok) {
+          const newItem = await res.json();
+          setWatchlist([...watchlist, newItem]);
+        }
+      }
+    } catch (err) {
+      console.error('Failed to toggle watchlist:', err);
+    }
+  }, [watchlist, setWatchlist]);
+
   const resetToHome = useCallback(() => {
     resetAnalysis();
     resetDiscussion();
     resetScenario();
   }, [resetAnalysis, resetDiscussion, resetScenario]);
 
-  return { handleSearch, resetToHome, fetchAdminData };
+  return { handleSearch, resetToHome, fetchAdminData, toggleWatchlist };
 }

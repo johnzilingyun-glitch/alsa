@@ -112,9 +112,22 @@ JSON schema:
 `;
 };
 
-export const getAnalyzeStockPrompt = (symbol: string, market: Market, realtimeData: any, commoditiesData: any[], newsData: any[], history: any[], beijingDate: string, beijingShortDate: string, now: Date, language: Language = "en", extendedMarketData?: any) => {
+export const getAnalyzeStockPrompt = (symbol: string, market: Market, realtimeData: any, commoditiesData: any[], newsData: any[], history: any[], beijingDate: string, beijingShortDate: string, now: Date, language: Language = "en", extendedMarketData?: any, brainContext?: any) => {
   const isChinese = language === "zh-CN";
+  
+  const memorySection = brainContext?.facts?.length > 0 
+    ? `**LONG-TERM SYSTEM MEMORY (MEM0 - Institutional Knowledge)**:
+${brainContext.facts.map((f: string) => ` - ${f}`).join('\n')}
+` : '';
+
+  const evolvedInstructions = brainContext?.instructions 
+    ? `**EVOLVED SYSTEM PROTOCOLS (EvolveR - Policy Overrides)**:
+${brainContext.instructions}
+` : '';
+
   return `
+${memorySection}
+${evolvedInstructions}
 Current date and time (UTC): ${now.toISOString()}
 Current date and time (China Standard Time): ${now.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}
 
@@ -677,12 +690,26 @@ export const getDiscussionPrompt = (
   commoditiesData: any[],
   memoryContext: string,
   historyContext: string,
-  language: Language = "en"
+  language: Language = "en",
+  brainContext?: any
 ) => {
   const isChinese = language === "zh-CN";
   const now = new Date().toISOString();
   const today = now.split('T')[0];
+
+  const evolvedInstructions = brainContext?.instructions 
+    ? `**EVOLVED SYSTEM PROTOCOLS (EvolveR - Policy Overrides)**:
+${brainContext.instructions}
+` : '';
+
+  const facts = brainContext?.facts?.length > 0 
+    ? `**LONG-TERM SYSTEM MEMORY (MEM0)**:
+${brainContext.facts.map((f: string) => ` - ${f}`).join('\n')}
+` : '';
+
   return `
+${evolvedInstructions}
+${facts}
     You are a professional team of 12 elite financial analysts conducting a high-level joint meeting to provide institutional-grade research on the following stock.
     This is not a simple report, but a realistic, multi-round professional deliberation with intense debate and data cross-examination.
 

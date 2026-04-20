@@ -22,15 +22,38 @@ const HistoryModal = lazy(() => import('./components/HistoryModal').then(m => ({
 const AnalysisResult = lazy(() => import('./components/analysis/AnalysisResult').then(m => ({ default: m.AnalysisResult })));
 const AdminPanel = lazy(() => import('./components/admin/AdminPanel').then(m => ({ default: m.AdminPanel })));
 const AnalysisLoadingPulse = lazy(() => import('./components/analysis/AnalysisLoadingPulse').then(m => ({ default: m.AnalysisLoadingPulse })));
+const SignalCenter = lazy(() => import('./components/dashboard/SignalCenter').then(m => ({ default: m.SignalCenter })));
 
 export default function App() {
   console.log('App is rendering');
   const { t, i18n } = useTranslation();
   const language = useConfigStore(s => s.language);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const [isSignalsOpen, setIsSignalsOpen] = useState(false);
 
-  // Enable dynamic AI content translation on language change
-  useI18nSync();
+  const { watchlist, setWatchlist, setAlerts, setHistoryItems } = useMarketStore();
+
+  useEffect(() => {
+    const initData = async () => {
+      try {
+        const [wlRes, alRes] = await Promise.all([
+          fetch('/api/watchlist/'),
+          fetch('/api/alerts/')
+        ]);
+        if (wlRes.ok) {
+          const wlData = await wlRes.ok && await wlRes.json();
+          if (wlData?.items) setWatchlist(wlData.items);
+        }
+        if (alRes.ok) {
+          const alData = await alRes.json();
+          setAlerts(alData);
+        }
+      } catch (e) {
+        console.error('Failed to initialize market data:', e);
+      }
+    };
+    initData();
+  }, [setWatchlist, setAlerts]);
 
   useEffect(() => {
     i18n.changeLanguage(language);
@@ -133,6 +156,10 @@ export default function App() {
             setIsHistoryOpen(false);
           }}
         />
+        <SignalCenter
+          isOpen={isSignalsOpen}
+          onClose={() => setIsSignalsOpen(false)}
+        />
         </Suspense>
 
         <Header
@@ -140,6 +167,7 @@ export default function App() {
           onResetToHome={resetToHome}
           onTriggerDailyReport={handleTriggerDailyReport}
           onOpenHistory={() => setIsHistoryOpen(true)}
+          onOpenSignals={() => setIsSignalsOpen(true)}
           onFetchAdminData={fetchAdminData}
         />
 

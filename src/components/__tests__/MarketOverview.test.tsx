@@ -7,7 +7,8 @@ vi.mock('lucide-react', () => {
   const icons = [
     'Globe', 'Settings', 'Loader2', 'ExternalLink', 'TrendingUp', 'Share2',
     'CheckCircle2', 'LayoutGrid', 'Coins', 'Star', 'Newspaper', 'Search',
-    'RefreshCw', 'Calendar',
+    'RefreshCw', 'Calendar', 'Heart', 'Target', 'Activity', 'BarChart3', 'ChevronRight',
+    'Bell', 'ShieldAlert', 'Trash2', 'ArrowRight'
   ];
   const mocks: Record<string, any> = {};
   icons.forEach(icon => {
@@ -21,6 +22,7 @@ vi.mock('motion/react', () => ({
   motion: {
     div: ({ children, ...props }: any) => <div {...props}>{children}</div>,
   },
+  AnimatePresence: ({ children }: any) => <>{children}</>,
 }));
 
 // Mock react-i18next
@@ -66,6 +68,12 @@ vi.mock('../../stores/useMarketStore', () => ({
       marketLastUpdatedTimes: { 'A-Share': Date.now() },
       overviewMarket: 'A-Share',
       setOverviewMarket: vi.fn(),
+      searchAlerts: [],
+      alertPrices: {},
+      watchlist: [],
+      recentSearches: [],
+      updateAlertPrice: vi.fn(),
+      refreshActiveAlertStatus: vi.fn(),
     };
     return typeof selector === 'function' ? selector(state) : state;
   }),

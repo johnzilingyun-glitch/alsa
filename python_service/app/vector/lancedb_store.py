@@ -6,7 +6,7 @@ class LanceResearchStore:
     def __init__(self, db_path: str = "python_service/data/lancedb"):
         self.db = lancedb.connect(db_path)
         # Check if table exists, otherwise create it
-        if "research_chunks" not in self.db.table_names():
+        if "research_chunks" not in self.db.list_tables():
             # Initial schema: doc_id, symbol, text, embedding
             # Note: embeddings usually have a fixed dimension (e.g. 768 or 1536)
             # For bootstrap, we use a small dimension

@@ -8,6 +8,7 @@ import { getCommoditiesData } from "./marketService";
 import { calculateQualityScore } from "./dataQualityService";
 import { StockAnalysisSchema, validateResponse } from "./schemas";
 import { detectDrift, enforceGroundTruth } from "./driftDetection";
+import { getBrainContext } from "./brainService";
 
 export async function analyzeStock(
   symbol: string, 
@@ -35,12 +36,15 @@ export async function analyzeStock(
   const realtimeData = data.resolvedMarket ? data : data;
   const resolvedMarket = data.resolvedMarket || market;
 
-  onStatus?.(isChinese ? "正在同步全球大宗商品与宏观锚点..." : "Syncing global commodities & macro anchors...");
-  const commoditiesData = await getCommoditiesData();
+  onStatus?.(isChinese ? "正在并行聚合全球宏观、记忆与舆情数据..." : "Parallelizing macro, memory & sentiment aggregation...");
   
-  onStatus?.(isChinese ? "正在合成新闻资讯与市场舆情..." : "Synthesizing market news & sentiment...");
-  const newsRes = await fetch(`/api/stock/news?symbol=${encodeURIComponent(symbol)}&market=${market}`).catch(() => null);
-  const newsData = newsRes && newsRes.ok ? await newsRes.json() : [];
+  const [commoditiesData, brainContext, newsData] = await Promise.all([
+    getCommoditiesData(),
+    getBrainContext(symbol),
+    fetch(`/api/stock/news?symbol=${encodeURIComponent(symbol)}&market=${market}`)
+      .then(res => res.ok ? res.json() : [])
+      .catch(() => [])
+  ]);
 
   onStatus?.(isChinese ? "正在拉取龙虎榜、两融与最新公告..." : "Fetching LHB, Margin & Announcements...");
   const [lhbRes, marginRes, noticesRes, socialRes] = await Promise.all([
@@ -58,7 +62,20 @@ export async function analyzeStock(
   };
 
   onStatus?.(isChinese ? "深度研判引擎正在思考中..." : "Deep Reasoning Engine is thinking...");
-  const prompt = getAnalyzeStockPrompt(symbol, resolvedMarket, realtimeData, commoditiesData, newsData, history, beijingDate, beijingShortDate, now, language, extendedMarketData);
+  const prompt = getAnalyzeStockPrompt(
+    symbol, 
+    resolvedMarket, 
+    realtimeData, 
+    commoditiesData, 
+    newsData, 
+    history, 
+    beijingDate, 
+    beijingShortDate, 
+    now, 
+    language, 
+    extendedMarketData,
+    brainContext // New parameter
+  );
 
   const raw = await generateAndParseJsonWithRetry<StockAnalysis>(
     ai,
@@ -76,7 +93,25 @@ export async function analyzeStock(
       parseDelayMs: 1200,
     }
   );
-  let analysis = validateResponse(StockAnalysisSchema, raw, 'StockAnalysis') as StockAnalysis;
+
+  // Pre-validation hardening: Ensure stockInfo exists and has ground truth
+  const sanitizedRaw = {
+    ...raw,
+    stockInfo: {
+      ...(raw?.stockInfo || {}),
+      symbol: realtimeData?.symbol || symbol,
+      name: realtimeData?.name || raw?.stockInfo?.name || symbol,
+      price: realtimeData?.price ?? raw?.stockInfo?.price ?? 0,
+      change: realtimeData?.change ?? raw?.stockInfo?.change ?? 0,
+      changePercent: realtimeData?.changePercent ?? raw?.stockInfo?.changePercent ?? 0,
+      market: resolvedMarket,
+      currency: realtimeData?.currency || raw?.stockInfo?.currency || 'CNY',
+      lastUpdated: realtimeData?.lastUpdated || raw?.stockInfo?.lastUpdated || new Date().toISOString(),
+      previousClose: realtimeData?.previousClose ?? raw?.stockInfo?.previousClose ?? 0,
+    }
+  };
+
+  let analysis = validateResponse(StockAnalysisSchema, sanitizedRaw, 'StockAnalysis') as StockAnalysis;
   
   // Anti-hallucination: multi-field drift detection and correction re-analysis
   if (realtimeData?.price != null) {
@@ -95,7 +130,19 @@ export async function analyzeStock(
           },
           { transportRetries: 2, baseDelayMs: 2000, parseRetries: 1, parseDelayMs: 1000 }
         );
-        analysis = validateResponse(StockAnalysisSchema, correctedRaw, 'StockAnalysis (corrected)') as StockAnalysis;
+        
+        const sanitizedCorrection = {
+          ...correctedRaw,
+          stockInfo: {
+            ...(correctedRaw?.stockInfo || analysis.stockInfo),
+            price: correctedData.price ?? analysis.stockInfo.price,
+            change: correctedData.change ?? analysis.stockInfo.change,
+            changePercent: correctedData.changePercent ?? analysis.stockInfo.changePercent,
+            previousClose: correctedData.previousClose ?? analysis.stockInfo.previousClose,
+          }
+        };
+        
+        analysis = validateResponse(StockAnalysisSchema, sanitizedCorrection, 'StockAnalysis (corrected)') as StockAnalysis;
         console.log(`[AntiHallucination] Correction re-analysis completed successfully`);
       } catch (correctionErr) {
         console.warn(`[AntiHallucination] Correction re-analysis failed, falling back to field override:`, correctionErr);

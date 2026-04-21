@@ -27,6 +27,21 @@ interface UIState {
   reportStatus: 'idle' | 'success' | 'error';
   serviceStatus: 'available' | 'quota_exhausted' | 'error';
 
+  // Global Components
+  confirmDialog: {
+    isOpen: boolean;
+    title: string;
+    message: string;
+    type: 'danger' | 'warning' | 'info';
+    onConfirm: () => void;
+  } | null;
+  toast: {
+    isOpen: boolean;
+    message: string;
+    type: 'success' | 'error' | 'info';
+    id: number;
+  } | null;
+
   // Config
   autoRefreshInterval: number;
   analysisStatus: string;
@@ -61,6 +76,12 @@ interface UIState {
   setAutoRefreshInterval: (interval: number) => void;
   setAnalysisLevel: (level: AnalysisLevel) => void;
   setServiceStatus: (status: 'available' | 'quota_exhausted' | 'error') => void;
+
+  // Global Component Actions
+  showConfirm: (title: string, message: string, onConfirm: () => void, type?: 'danger' | 'warning' | 'info') => void;
+  hideConfirm: () => void;
+  showToast: (message: string, type?: 'success' | 'error' | 'info') => void;
+  hideToast: () => void;
 }
 
 export const useUIStore = create<UIState>()(
@@ -129,9 +150,33 @@ export const useUIStore = create<UIState>()(
       setShowAdminPanel: (showAdminPanel) => set({ showAdminPanel }),
       setSelectedDetail: (selectedDetail) => set({ selectedDetail }),
       setAutoRefreshInterval: (autoRefreshInterval) => set({ autoRefreshInterval }),
-      analysisLevel: 'standard' as AnalysisLevel,
       setAnalysisLevel: (analysisLevel: AnalysisLevel) => set({ analysisLevel }),
       setServiceStatus: (serviceStatus) => set({ serviceStatus }),
+
+      // Global Component Actions
+      confirmDialog: null,
+      toast: null,
+      showConfirm: (title, message, onConfirm, type = 'info') => set({
+        confirmDialog: { isOpen: true, title, message, onConfirm, type }
+      }),
+      hideConfirm: () => set((s) => ({
+        confirmDialog: s.confirmDialog ? { ...s.confirmDialog, isOpen: false } : null
+      })),
+      showToast: (message, type = 'success') => {
+        const id = Date.now();
+        set({ toast: { isOpen: true, message, type, id } });
+        setTimeout(() => {
+          set((state) => {
+            if (state.toast?.id === id) {
+              return { toast: { ...state.toast, isOpen: false } };
+            }
+            return state;
+          });
+        }, 3000);
+      },
+      hideToast: () => set((s) => ({
+        toast: s.toast ? { ...s.toast, isOpen: false } : null
+      })),
     }),
     {
       name: 'ui-storage',

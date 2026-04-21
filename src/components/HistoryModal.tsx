@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { X, Search, Clock, BarChart3, ChevronRight, History as HistoryIcon } from 'lucide-react';
+import { X, Search, Clock, BarChart3, ChevronRight, Trash2, History as HistoryIcon } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { getHistoryContext } from '../services/aiService';
+import { getHistoryContext, deleteHistoryItem } from '../services/aiService';
+import { useUIStore } from '../stores/useUIStore';
 import { generateHistoryItemKey } from '../services/dateUtils';
 
 interface HistoryModalProps {
@@ -14,6 +15,7 @@ export function HistoryModal({ isOpen, onClose, onSelect }: HistoryModalProps) {
   const [history, setHistory] = useState<any[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [loading, setLoading] = useState(false);
+  const { showConfirm, showToast } = useUIStore();
 
   useEffect(() => {
     if (isOpen) {
@@ -37,6 +39,29 @@ export function HistoryModal({ isOpen, onClose, onSelect }: HistoryModalProps) {
     item.stockInfo?.symbol?.toLowerCase().includes(searchTerm.toLowerCase()) ||
     item.stockInfo?.name?.toLowerCase().includes(searchTerm.toLowerCase())
   );
+
+  const handleDelete = async (e: React.MouseEvent, id: string) => {
+    e.stopPropagation();
+    showConfirm(
+      '删除研判记录',
+      '确定要永久删除这条研判记录吗？此操作无法撤销。',
+      async () => {
+        try {
+          const success = await deleteHistoryItem(id);
+          if (success) {
+            setHistory(prev => prev.filter(item => item.id !== id));
+            showToast('研判记录已永久删除');
+          } else {
+            showToast('删除失败，请重试', 'error');
+          }
+        } catch (err) {
+          console.error('Delete error:', err);
+          showToast('发生未知错误', 'error');
+        }
+      },
+      'danger'
+    );
+  };
 
   return (
     <AnimatePresence>
@@ -152,7 +177,16 @@ export function HistoryModal({ isOpen, onClose, onSelect }: HistoryModalProps) {
                             {item.stockInfo?.lastUpdated?.split(' ')[0] || '--'}
                           </p>
                         </div>
-                        <ChevronRight size={16} className="text-zinc-300 group-hover:text-indigo-600 transition-all group-hover:translate-x-1" />
+                        <div className="flex items-center gap-1">
+                          <button
+                            onClick={(e) => handleDelete(e, item.id)}
+                            className="p-2 text-zinc-300 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-all opacity-0 group-hover:opacity-100"
+                            title="删除记录"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                          <ChevronRight size={16} className="text-zinc-300 group-hover:text-indigo-600 transition-all group-hover:translate-x-1" />
+                        </div>
                       </div>
                     </button>
                   );

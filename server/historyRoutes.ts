@@ -215,6 +215,44 @@ router.post('/history/save', (req, res) => {
   console.log('--- SAVE REQUEST END ---');
 });
 
+router.delete('/history/:id', (req, res) => {
+  const { id } = req.params;
+  console.log(`DELETE /api/history/${id} called`);
+  
+  if (!id) {
+    return res.status(400).json({ error: 'ID is required' });
+  }
+
+  try {
+    const files = fs.readdirSync(HISTORY_DIR);
+    let deleted = false;
+
+    for (const f of files) {
+      const filePath = path.join(HISTORY_DIR, f);
+      try {
+        const data = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+        if (data.id === id) {
+          fs.unlinkSync(filePath);
+          console.log(`[History] Deleted file: ${f} (ID: ${id})`);
+          deleted = true;
+          break;
+        }
+      } catch (err) {
+        console.error(`Failed to parse history file ${f} during deletion check:`, err);
+      }
+    }
+
+    if (deleted) {
+      res.json({ success: true, message: `History item ${id} deleted` });
+    } else {
+      res.status(404).json({ error: `History item ${id} not found` });
+    }
+  } catch (err) {
+    console.error('Failed to delete history item:', err);
+    res.status(500).json({ error: 'Failed to delete history item' });
+  }
+});
+
 router.post('/logs/add', (req, res) => {
   const { field, oldValue, newValue, description } = req.body;
   if (!field || !description) {

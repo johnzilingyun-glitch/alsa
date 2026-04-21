@@ -101,6 +101,18 @@ export async function saveAnalysisToHistory(type: 'market' | 'stock', data: any)
   }
 }
 
+export async function deleteHistoryItem(id: string): Promise<boolean> {
+  try {
+    const response = await fetch(`/api/history/${id}`, {
+      method: 'DELETE'
+    });
+    return response.ok;
+  } catch (err) {
+    console.error('Failed to delete history item:', err);
+    return false;
+  }
+}
+
 export async function logOptimization(field: string, oldValue: any, newValue: any, description: string) {
   try {
     await fetch('/api/logs/add', {

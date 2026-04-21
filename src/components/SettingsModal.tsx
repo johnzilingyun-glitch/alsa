@@ -30,7 +30,7 @@ const COPILOT_LOCAL_MODELS = [
 export function SettingsModal() {
   const { t } = useTranslation();
   const { config, setConfig, tokenUsage, availableModels, setAvailableModels, feishuWebhookUrl, setFeishuWebhookUrl, debugMode, setDebugMode } = useConfigStore();
-  const { isSettingsOpen, setIsSettingsOpen } = useUIStore();
+  const { isSettingsOpen, setIsSettingsOpen, showConfirm } = useUIStore();
   const [isFetchingModels, setIsFetchingModels] = useState(false);
   const [fetchMessage, setFetchMessage] = useState<{type: 'error' | 'success', text: string} | null>(null);
   const [showApiKey, setShowApiKey] = useState(false);
@@ -545,9 +545,15 @@ export function SettingsModal() {
                         {t('settings.diagnosis.view_logs')}
                       </a>
                       <button 
-                        onClick={async () => {
-                          if (!confirm(t('errors.confirm_clear_logs'))) return;
-                          await fetch('/api/logs/debug', { method: 'DELETE' });
+                        onClick={() => {
+                          showConfirm(
+                            t('settings.diagnosis.clear_logs'),
+                            t('errors.confirm_clear_logs'),
+                            async () => {
+                              await fetch('/api/logs/debug', { method: 'DELETE' });
+                            },
+                            'danger'
+                          );
                         }}
                         className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white border border-zinc-200 text-[10px] font-bold text-rose-500 hover:bg-rose-50"
                       >

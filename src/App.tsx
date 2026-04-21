@@ -15,6 +15,8 @@ import { TokenUsage } from './components/dashboard/TokenUsage';
 import { Header } from './components/layout/Header';
 import { MarketOverview } from './components/dashboard/MarketOverview';
 import { DetailModal } from './components/shared/DetailModal';
+import { ConfirmDialog } from './components/shared/ConfirmDialog';
+import { Toast } from './components/shared/Toast';
 
 // Lazy-load conditionally rendered large components
 const SettingsModal = lazy(() => import('./components/SettingsModal').then(m => ({ default: m.SettingsModal })));
@@ -239,6 +241,10 @@ export default function App() {
           </div>
         </div>
       </footer>
+
+      {/* Global Overlays */}
+      <ConfirmDialog />
+      <Toast />
     </div>
   );
 }

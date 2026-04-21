@@ -15,7 +15,7 @@ import { ErrorNotice } from '../ErrorNotice';
 import { getMarketHistoryByDate, getAvailableMarketDates } from '../../services/adminService';
 import { InstitutionalAlertPanel } from './InstitutionalAlertPanel';
 import { alertsClient } from '../../services/api/alertsClient';
-import { Target, Activity, Star as StarIcon, Heart } from 'lucide-react';
+import { Target, Activity, Star as StarIcon, Heart, Trash2 } from 'lucide-react';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -31,10 +31,12 @@ export const MarketOverview = memo(function MarketOverview({ onFetchMarketOvervi
   const { 
     overviewLoading, overviewError, isGeneratingReport, isSendingReport, reportStatus,
     autoRefreshInterval, setAutoRefreshInterval, setIsSettingsOpen,
+    showConfirm, showToast
   } = useUIStore();
   const { 
     marketOverviews, marketLastUpdatedTimes, overviewMarket, setOverviewMarket,
-    searchAlerts, alertPrices, watchlist, recentSearches, updateAlertPrice, refreshActiveAlertStatus
+    searchAlerts, alertPrices, watchlist, recentSearches, 
+    updateAlertPrice, refreshActiveAlertStatus, setWatchlist, removeRecentSearch
   } = useMarketStore();
   const { setSymbol, setMarket } = useAnalysisStore();
 
@@ -347,11 +349,45 @@ export const MarketOverview = memo(function MarketOverview({ onFetchMarketOvervi
                     }
                   }
 
-                  return (
-                    <button
+                  const handleDeleteItem = async (e: React.MouseEvent, stock: { symbol: string; market: Market }) => {
+    e.stopPropagation();
+    
+    const isWatchlist = watchlist.some(w => w.symbol === stock.symbol);
+    const isRecent = recentSearches.some(s => s.symbol === stock.symbol);
+    
+    if (isWatchlist || isRecent) {
+      showConfirm(
+        '移除记录',
+        `确定要将 ${stock.symbol} 从库中移除吗？此操作不可撤销。`,
+        async () => {
+          if (isWatchlist) {
+            try {
+              const res = await fetch(`/api/watchlist/${stock.symbol}?market=${stock.market}`, { method: 'DELETE' });
+              if (res.ok) {
+                setWatchlist(watchlist.filter(w => w.symbol !== stock.symbol));
+                showToast(`${stock.symbol} 已从自选移除`);
+              }
+            } catch (err) {
+              console.error('Failed to remove from watchlist:', err);
+              showToast('移除失败，请重试', 'error');
+            }
+          }
+
+          if (isRecent) {
+            removeRecentSearch(stock.symbol);
+            if (!isWatchlist) showToast(`${stock.symbol} 已从列表移除`);
+          }
+        },
+        'danger'
+      );
+    }
+  };
+
+  return (
+                    <div
                       key={`fav-${stock.symbol}`}
                       onClick={() => { setSymbol(stock.symbol); setMarket(stock.market); }}
-                      className="group flex flex-col justify-between rounded-2xl border border-zinc-100 bg-white p-5 text-left transition-all hover:border-indigo-600/30 hover:shadow-md relative overflow-hidden"
+                      className="group flex flex-col justify-between rounded-2xl border border-zinc-100 bg-white p-5 text-left transition-all hover:border-indigo-600/30 hover:shadow-md relative overflow-hidden cursor-pointer"
                     >
                       <div className="flex items-start justify-between mb-4">
                         <div>
@@ -365,9 +401,18 @@ export const MarketOverview = memo(function MarketOverview({ onFetchMarketOvervi
                              </div>
                           </div>
                         </div>
-                        <div className="text-right">
-                          <p className="text-sm font-bold text-zinc-950 font-mono">{price ? price.toFixed(2) : '---'}</p>
-                          <span className="text-[9px] uppercase font-bold text-zinc-300">Live Quote</span>
+                        <div className="flex flex-col items-end gap-1">
+                          <button
+                            onClick={(e) => handleDeleteItem(e, stock)}
+                            className="p-1.5 text-zinc-300 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-all opacity-0 group-hover:opacity-100 z-10"
+                            title="从关注移除"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                          <div className="text-right">
+                            <p className="text-sm font-bold text-zinc-950 font-mono">{price ? price.toFixed(2) : '---'}</p>
+                            <span className="text-[9px] uppercase font-bold text-zinc-300">Live Quote</span>
+                          </div>
                         </div>
                       </div>
 
@@ -396,7 +441,7 @@ export const MarketOverview = memo(function MarketOverview({ onFetchMarketOvervi
                           <Target size={12} className="text-white -rotate-45 ml-1 mt-1" />
                         </div>
                       )}
-                    </button>
+                    </div>
                   );
                 })}
               

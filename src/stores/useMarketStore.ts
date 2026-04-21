@@ -20,7 +20,9 @@ interface MarketState {
   setDailyReport: (report: string | null) => void;
   setHistoryItems: (items: any[]) => void;
   setWatchlist: (items: any[]) => void;
+  setRecentSearches: (items: any[]) => void;
   addRecentSearch: (search: { symbol: string; name: string; market: Market }) => void;
+  removeRecentSearch: (symbol: string) => void;
   setOptimizationLogs: (logs: any[]) => void;
   setOverviewMarket: (market: Market) => void;
   setAlerts: (alerts: any[]) => void;
@@ -65,10 +67,14 @@ export const useMarketStore = create<MarketState>()(
       setDailyReport: (dailyReport) => set({ dailyReport }),
       setHistoryItems: (historyItems) => set({ historyItems }),
       setWatchlist: (watchlist) => set({ watchlist }),
+      setRecentSearches: (recentSearches) => set({ recentSearches }),
       addRecentSearch: (search) => set((state) => {
         const filtered = state.recentSearches.filter(s => s.symbol !== search.symbol);
         return { recentSearches: [search, ...filtered].slice(0, 10) };
       }),
+      removeRecentSearch: (symbol) => set((state) => ({
+        recentSearches: state.recentSearches.filter(s => s.symbol !== symbol)
+      })),
       setOptimizationLogs: (optimizationLogs) => set({ optimizationLogs }),
       setOverviewMarket: (overviewMarket) => set({ overviewMarket }),
       setAlerts: (searchAlerts) => {

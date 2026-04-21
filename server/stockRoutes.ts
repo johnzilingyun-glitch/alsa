@@ -43,7 +43,11 @@ async function fetchAShareSpotFallbackFromSina(symbol: string): Promise<any | nu
   const response = await fetch(url, {
     headers: { Referer: 'https://finance.sina.com.cn' }
   });
-  const text = await response.text();
+  
+  // Sina returns GBK-encoded text, decode properly
+  const buffer = await response.arrayBuffer();
+  const text = new TextDecoder('gbk').decode(buffer);
+  
   const match = text.match(/="([^"]*)"/);
   if (!match?.[1]) return null;
 
@@ -90,7 +94,11 @@ async function fetchHKSpotFallbackFromSina(symbol: string): Promise<any | null> 
     const response = await fetch(url, {
       headers: { Referer: 'https://finance.sina.com.cn' }
     });
-    const text = await response.text();
+    
+    // Sina returns GBK-encoded text, decode properly
+    const buffer = await response.arrayBuffer();
+    const text = new TextDecoder('gbk').decode(buffer);
+    
     const match = text.match(/="([^"]*)"/);
     if (!match?.[1]) return null;
 
@@ -321,7 +329,10 @@ router.get('/stock/news', async (req, res) => {
             headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' },
             signal: AbortSignal.timeout(3000)
           });
-          const text = await response.text();
+          
+          // Sina RSS rolls are typically GBK
+          const buffer = await response.arrayBuffer();
+          const text = new TextDecoder('gbk').decode(buffer);
           const itemRegex = /<item>[\s\S]*?<title>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?<\/title>[\s\S]*?<link>(.*?)<\/link>[\s\S]*?<pubDate>(.*?)<\/pubDate>[\s\S]*?<\/item>/g;
           let match;
           const items = [];

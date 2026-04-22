@@ -102,6 +102,7 @@ export const useUIStore = create<UIState>()(
       reportStatus: 'idle',
       serviceStatus: 'available',
       autoRefreshInterval: 0,
+      analysisLevel: 'standard',
       analysisStatus: '',
       analysisLogs: [],
       setAnalysisStatus: (analysisStatus) => set((state) => {

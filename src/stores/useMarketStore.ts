@@ -105,7 +105,7 @@ export const useMarketStore = create<MarketState>()(
             break; 
           }
           if (price <= alert.stop_loss) {
-            if (highestStatus !== 'gold') highestStatus = 'red';
+            if ((highestStatus as string) !== 'gold') highestStatus = 'red';
           } else {
             const entryDiff = Math.abs(price - alert.entry_price) / alert.entry_price;
             if (entryDiff <= 0.02 && highestStatus === 'neutral') {

@@ -281,7 +281,7 @@ router.get('/stock/news', async (req, res) => {
         const start = Date.now();
         try {
           // [OPTIMIZATION]: Wrap yf.search in a timeout to prevent hanging the whole news pipe
-          const searchPromise = yf.search(yfSym, { newsCount: 8 });
+          const searchPromise = yf.search(symbolKey, { newsCount: 8 });
           const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Yahoo Search Timeout')), 4000));
           const searchResult = await Promise.race([searchPromise, timeoutPromise]) as any;
           
@@ -795,8 +795,8 @@ router.get('/stock/realtime', async (req, res) => {
 
     // Step 2: Fallback or Non-A-Share: Use Python Yahoo Proxy
     if (!result || result.regularMarketPrice === 0 || result.regularMarketPrice === undefined) {
+      const symWithSuffix = appendMarketSuffix(resolution.symbol, resolution.market);
       try {
-        const symWithSuffix = appendMarketSuffix(resolution.symbol, resolution.market);
         const pythonQuote = await axios.get(`${PYTHON_SERVICE_URL}/api/market/quote/${symWithSuffix}`);
         if (pythonQuote.data.success && pythonQuote.data.data) {
            result = pythonQuote.data.data;

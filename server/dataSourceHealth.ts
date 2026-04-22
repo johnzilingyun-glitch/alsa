@@ -1,4 +1,4 @@
-export type SourceName = 'eastmoney_new' | 'eastmoney_old' | 'sina' | 'yahoo';
+export type SourceName = 'eastmoney_new' | 'eastmoney_old' | 'sina' | 'yahoo' | 'python_market';
 export type SourceStatus = 'healthy' | 'degraded' | 'down';
 
 export interface SourceHealth {
@@ -117,5 +117,5 @@ export class DataSourceMonitor {
 }
 
 export const monitor = new DataSourceMonitor([
-  'eastmoney_new', 'eastmoney_old', 'sina', 'yahoo',
+  'eastmoney_new', 'eastmoney_old', 'sina', 'yahoo', 'python_market'
 ]);

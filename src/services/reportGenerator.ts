@@ -1,195 +1,412 @@
-import type {
-  StockAnalysis,
-  AgentDiscussion,
-  ReportPreference,
-  TradingPlan,
-  Scenario,
-  QuantifiedRisk,
-  AgentMessage,
-} from '../types';
+import { StockAnalysis, AgentMessage, Scenario, CoreVariable } from "../types";
 
-const DEFAULT_PREFERENCE: ReportPreference = {
-  detailLevel: 'analyst',
-  focusAreas: ['fundamental', 'technical', 'risk', 'scenario'],
-  includeBacktest: true,
-  includeExpertDebate: true,
-  maxLength: 'standard',
-};
+/**
+ * ReportGeneratorService
+ * Generates professional, standalone HTML reports for equity research.
+ * Inspired by FinRobot and institutional standards.
+ */
 
-export function generateReport(
-  analysis: StockAnalysis,
-  discussion: AgentDiscussion | undefined,
-  preference: ReportPreference = DEFAULT_PREFERENCE
-): string {
-  const sections: string[] = [];
+export class ReportGeneratorService {
+  /**
+   * Generates a complete standalone HTML string for a stock analysis.
+   */
+  public static generateProfessionalHtmlReport(analysis: StockAnalysis, language: 'en' | 'zh-CN' = 'zh-CN'): string {
+    const isChinese = language === 'zh-CN';
+    const t = (zh: string, en: string) => (isChinese ? zh : en);
 
-  sections.push(renderHeader(analysis));
-  sections.push(renderDecisionSummary(analysis));
-  if (analysis.tradingPlan) {
-    sections.push(renderTradingPlan(analysis.tradingPlan));
-  }
+    const { stockInfo, fundamentals, summary, scenarios, discussion, finalConclusion, tradingPlan, coreVariables } = analysis;
 
-  if (preference.detailLevel === 'trader') {
-    sections.push(renderPriceDistances(analysis));
-    if (preference.focusAreas.includes('scenario') && analysis.scenarios?.length) {
-      sections.push(renderScenariosCompact(analysis.scenarios));
+    // Helper for formatting currency/numbers
+    // const formatNum = (val: any) => (val !== undefined && val !== null ? val : 'N/A');
+
+    // Extract Tagline and Thesis from finalConclusion if possible (assuming structured output from refined prompts)
+    let tagline = analysis.stockInfo.name + " " + t("个股深度研报", "Equity Research Report");
+    let thesis = finalConclusion || summary;
+
+    // Simple pattern matching for Tagline if AI included it
+    if (finalConclusion?.includes("Tagline:") || finalConclusion?.includes("一句话:")) {
+       // Optional: Parse out cleaner tagline
     }
-    return joinSections(sections, preference.maxLength);
+
+    const html = `
+<!DOCTYPE html>
+<html lang="${language}">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>${stockInfo.name} (${stockInfo.symbol}) - ${t("深度研究报告", "Research Report")}</title>
+    <style>
+        :root {
+            --primary: #1a365d;
+            --secondary: #2c5282;
+            --accent: #3182ce;
+            --text-main: #1a202c;
+            --text-muted: #4a5568;
+            --bg-light: #f7fafc;
+            --border: #e2e8f0;
+            --bull: #e53e3e;
+            --bear: #38a169;
+            --white: #ffffff;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { 
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            line-height: 1.6;
+            color: var(--text-main);
+            background-color: #f0f2f5;
+            padding: 40px 20px;
+        }
+
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            background: var(--white);
+            padding: 50px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.05);
+            border-radius: 8px;
+        }
+
+        /* Header */
+        header {
+            border-bottom: 2px solid var(--primary);
+            padding-bottom: 20px;
+            margin-bottom: 30px;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+        }
+
+        .header-main h1 {
+            font-size: 32px;
+            color: var(--primary);
+            margin-bottom: 5px;
+        }
+
+        .header-main .symbol {
+            font-size: 18px;
+            color: var(--text-muted);
+            font-weight: 500;
+        }
+
+        .header-meta {
+            text-align: right;
+            font-size: 14px;
+            color: var(--text-muted);
+        }
+
+        .header-price {
+            font-size: 24px;
+            font-weight: 700;
+            color: var(--text-main);
+        }
+
+        .change-up { color: var(--bull); }
+        .change-down { color: var(--bear); }
+
+        /* Tagline Block */
+        .tagline-box {
+            background: var(--bg-light);
+            border-left: 5px solid var(--accent);
+            padding: 20px;
+            margin-bottom: 30px;
+        }
+
+        .tagline-box h2 {
+            font-size: 22px;
+            color: var(--secondary);
+            margin-bottom: 10px;
+        }
+
+        /* Grid Layout sections */
+        .section-grid {
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 30px;
+            margin-bottom: 40px;
+        }
+
+        h3 {
+            font-size: 18px;
+            color: var(--primary);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 15px;
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 5px;
+        }
+
+        /* Tables */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 20px;
+            font-size: 14px;
+        }
+
+        th {
+            background: var(--bg-light);
+            text-align: left;
+            padding: 10px;
+            border: 1px solid var(--border);
+            color: var(--text-muted);
+        }
+
+        td {
+            padding: 10px;
+            border: 1px solid var(--border);
+        }
+
+        .metrics-card {
+            background: var(--white);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            padding: 15px;
+        }
+
+        /* Expert Discussion */
+        .discussion-log {
+            background: #fdfdfd;
+            border: 1px solid var(--border);
+            padding: 20px;
+            border-radius: 4px;
+            margin-top: 20px;
+            max-height: 800px;
+            overflow-y: auto;
+        }
+
+        .message {
+            margin-bottom: 15px;
+            padding-bottom: 15px;
+            border-bottom: 1px dashed var(--border);
+        }
+
+        .message:last-child { border-bottom: none; }
+
+        .message-role {
+            font-weight: 700;
+            font-size: 13px;
+            color: var(--accent);
+            margin-bottom: 5px;
+            display: block;
+        }
+
+        .message-content {
+            font-size: 14px;
+            color: var(--text-main);
+        }
+
+        /* Scenarios */
+        .scenario-container {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 15px;
+            margin-bottom: 30px;
+        }
+
+        .scenario-card {
+            border: 1px solid var(--border);
+            padding: 15px;
+            border-radius: 4px;
+            text-align: center;
+        }
+
+        .scenario-card.bull { border-top: 4px solid var(--bull); }
+        .scenario-card.base { border-top: 4px solid var(--accent); }
+        .scenario-card.stress { border-top: 4px solid var(--text-muted); }
+
+        .scenario-prob {
+            font-size: 12px;
+            color: var(--text-muted);
+            margin-bottom: 5px;
+        }
+
+        .scenario-price {
+            font-size: 20px;
+            font-weight: 700;
+            margin-bottom: 5px;
+        }
+
+        /* Footer */
+        footer {
+            margin-top: 50px;
+            padding-top: 20px;
+            border-top: 1px solid var(--border);
+            font-size: 12px;
+            color: var(--text-muted);
+            text-align: center;
+        }
+
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            padding: 2px 10px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 700;
+            text-transform: uppercase;
+            background: var(--bg-light);
+            border: 1px solid var(--border);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="header-main">
+                <h1>${stockInfo.name}</h1>
+                <span class="symbol">${stockInfo.symbol} | ${stockInfo.market} | ${stockInfo.currency}</span>
+            </div>
+            <div class="header-meta">
+                <div class="header-price">
+                    ${stockInfo.price} 
+                    <span class="${stockInfo.changePercent > 0 ? 'change-up' : 'change-down'}">
+                        (${stockInfo.changePercent > 0 ? '+' : ''}${stockInfo.changePercent}%)
+                    </span>
+                </div>
+                <div>${t("报告生成", "Report Date")}: ${new Date().toLocaleDateString(language)}</div>
+            </div>
+        </header>
+
+        <section class="tagline-box">
+             <h2>${tagline}</h2>
+             <div style="white-space: pre-wrap;">${thesis}</div>
+        </section>
+
+        <section class="section-grid">
+            <div class="main-report">
+                <h3>${t("核心驱动变量与行业锚点", "Core Anchors & Market Drivers")}</h3>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>${t("变量", "Variable")}</th>
+                            <th>${t("实时值", "Value")}</th>
+                            <th>${t("趋势", "Trend")}</th>
+                            <th>${t("逻辑指向", "Logic")}</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${coreVariables?.map((v: CoreVariable) => `
+                            <tr>
+                                <td>${v.name}</td>
+                                <td>${v.value} ${v.unit}</td>
+                                <td>${v.delta}</td>
+                                <td>${v.reason}</td>
+                            </tr>
+                        `).join('') || `<tr><td colspan="4" style="text-align:center">${t("未提供定量锚点数据", "No quantitative anchors provided")}</td></tr>`}
+                    </tbody>
+                </table>
+
+                ${analysis.expectedValueOutcome ? `
+                <h3>${t("期望价值模型与定价逻辑", "Expected Value & Pricing Model")}</h3>
+                <div class="metrics-card" style="margin-bottom:20px; border-left: 4px solid var(--accent);">
+                    <div style="font-size: 24px; font-weight: 700; color: var(--primary); margin-bottom:10px;">
+                        ${analysis.expectedValueOutcome.expectedPrice} ${stockInfo.currency}
+                        <span style="font-size:12px; color:var(--text-muted); font-weight:400; margin-left:10px;">
+                            ${t("期望目标价", "Expected Target Price")} (${analysis.expectedValueOutcome.confidenceInterval} ${t("置信区间", "Confidence")})
+                        </span>
+                    </div>
+                    <p style="font-size:14px; font-style:italic;">"${analysis.expectedValueOutcome.calculationLogic}"</p>
+                </div>
+                ` : ''}
+
+                ${analysis.businessModel ? `
+                <h3>${t("商业模式与盈利公式", "Business Model & Profit Formula")}</h3>
+                <div class="metrics-card" style="margin-bottom:20px;">
+                    <div style="background:var(--bg-light); padding:10px; border-radius:4px; font-family:monospace; text-align:center; margin-bottom:15px; border:1px dashed var(--border);">
+                        ${analysis.businessModel.formula}
+                    </div>
+                    <div style="display:grid; grid-template-columns: repeat(2, 1fr); gap:10px;">
+                        ${Object.entries(analysis.businessModel.drivers || {}).map(([k, v]) => `
+                            <div style="font-size:12px; display:flex; justify-content:space-between; border-bottom:1px solid #eee; padding:5px 0;">
+                                <span style="color:var(--text-muted)">${k}</span>
+                                <span style="font-weight:600">${v}</span>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+                ` : ''}
+
+                <h3>${t("场景模拟与收益概率", "Scenario & ROI Probability")}</h3>
+                <div class="scenario-container">
+                    ${scenarios?.map((s: Scenario) => `
+                        <div class="scenario-card ${s.case === 'Bull' ? 'bull' : s.case === 'Base' ? 'base' : 'stress'}">
+                            <div class="scenario-prob">${s.case} (${s.probability}%)</div>
+                            <div class="scenario-price">${s.targetPrice}</div>
+                            <div style="font-size:11px; color:var(--text-muted); line-height:1.3;">${s.logic}</div>
+                        </div>
+                    `).join('') || `<p>${t("未生成场景模拟", "No scenario simulation generated")}</p>`}
+                </div>
+            </div>
+
+            <div class="side-panel">
+                <h3>${t("机构级评分", "Institutional Ratings")}</h3>
+                <div class="metrics-card">
+                    <div style="margin-bottom:12px; display:flex; justify-content:space-between; align-items:center;">
+                        <span style="font-size:14px; color:var(--text-muted);">${t("综合评分", "Overall")}</span>
+                        <span style="font-size:24px; font-weight:800; color:var(--accent);">${analysis.score}</span>
+                    </div>
+                    <div style="margin-bottom:10px; display:flex; justify-content:space-between;">
+                        <span>PE (TTM)</span>
+                        <span>${fundamentals?.pe || 'N/A'}</span>
+                    </div>
+                    <div style="margin-bottom:10px; display:flex; justify-content:space-between;">
+                        <span>ROE</span>
+                        <span>${fundamentals?.roe || 'N/A'}</span>
+                    </div>
+                    <div style="margin-bottom:10px; display:flex; justify-content:space-between;">
+                        <span>${t("护城河", "Economic Moat")}</span>
+                        <span class="badge" style="background:${analysis.moatAnalysis?.strength === 'Wide' ? '#c6f6d5' : '#bee3f8'}">${analysis.moatRating || analysis.moatAnalysis?.strength || 'Narrow'}</span>
+                    </div>
+                    ${analysis.moatAnalysis ? `<p style="font-size:11px; color:var(--text-muted); margin-top:5px; border-top:1px solid #eee; pt:5px;">${analysis.moatAnalysis.logic}</p>` : ''}
+                </div>
+
+                <h3 style="margin-top:25px">${t("交易执行指南", "Trading Execution")}</h3>
+                <div class="metrics-card">
+                    <p style="margin-bottom:10px;"><strong>${t("评级", "Rating")}:</strong> <span style="color:var(--accent); font-weight:800;">${analysis.recommendation}</span></p>
+                    <div style="background:var(--bg-light); padding:12px; border-radius:4px; font-size:13px;">
+                        <p style="margin-bottom:5px;"><strong>${t("参考入场", "Entry")}:</strong> ${tradingPlan?.entryPrice || 'N/A'}</p>
+                        <p style="margin-bottom:5px;"><strong>${t("参考止盈", "Target")}:</strong> ${tradingPlan?.targetPrice || 'N/A'}</p>
+                        <p style="margin-bottom:2px;"><strong>${t("参考止损", "Stop Loss")}:</strong> ${tradingPlan?.stopLoss || 'N/A'}</p>
+                    </div>
+                    <p style="font-size:12px; color:var(--text-muted); margin-top:10px; line-height:1.4;">${tradingPlan?.strategy || ''}</p>
+                </div>
+            </div>
+        </section>
+
+        <h3>${t("AI 专家组研讨记录与逻辑辩论", "AI Expert Group Deliberation & Logic Debate")}</h3>
+        <div class="discussion-log">
+            ${discussion?.map((m: AgentMessage) => `
+                <div class="message">
+                    <span class="message-role">${m.role}</span>
+                    <div class="message-content">${m.content.replace(/\n/g, '<br>')}</div>
+                </div>
+            `).join('') || `<p>${t("研讨记录提取失败", "Failed to extract discussion logs")}</p>`}
+        </div>
+
+        <footer>
+            <p>Generated by ALSA Professional - Institutional Equity Research Pipeline</p>
+            <p>${t("本报告仅供参考。投资有风险，入市需谨慎。", "Disclaimer: For information only. Investing involves high risk.")}</p>
+        </footer>
+    </div>
+</body>
+</html>
+    `;
+    return html;
   }
 
-  // executive + analyst
-  if (preference.focusAreas.includes('scenario') && analysis.scenarios?.length) {
-    sections.push(renderScenarios(analysis.scenarios));
+  /**
+   * Triggers a browser download of the report.
+   */
+  public static downloadReport(html: string, filename: string): void {
+    const blob = new Blob([html], { type: 'text/html' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
   }
-  if (preference.focusAreas.includes('risk') && analysis.quantifiedRisks?.length) {
-    sections.push(renderRiskMatrix(analysis.quantifiedRisks));
-  }
-
-  if (preference.detailLevel === 'executive') {
-    return joinSections(sections, preference.maxLength);
-  }
-
-  // analyst only
-  if (preference.focusAreas.includes('fundamental')) {
-    sections.push(renderFundamentals(analysis));
-  }
-  if (preference.focusAreas.includes('technical')) {
-    sections.push(renderTechnicalAnalysis(analysis));
-  }
-  if (preference.focusAreas.includes('sentiment') && analysis.capitalFlow) {
-    sections.push(renderCapitalFlow(analysis));
-  }
-  if (preference.includeBacktest && analysis.backtestResult) {
-    sections.push(renderBacktest(analysis));
-  }
-  if (preference.includeExpertDebate && discussion?.messages?.length) {
-    sections.push(renderExpertDebate(discussion.messages));
-  }
-
-  return joinSections(sections, preference.maxLength);
-}
-
-function joinSections(sections: string[], maxLength: 'brief' | 'standard' | 'full'): string {
-  const joined = sections.join('\n\n---\n\n');
-  const limits: Record<string, number> = { brief: 3000, standard: 12000, full: 28000 };
-  const limit = limits[maxLength];
-  return joined.length > limit
-    ? joined.slice(0, limit) + '\n\n... (已截断)'
-    : joined;
-}
-
-function renderHeader(analysis: StockAnalysis): string {
-  const { stockInfo } = analysis;
-  return `## ${stockInfo.name} (${stockInfo.symbol})\n\n` +
-    `价格: ${stockInfo.currency} ${stockInfo.price} | ` +
-    `涨跌: ${stockInfo.changePercent >= 0 ? '+' : ''}${stockInfo.changePercent.toFixed(2)}% | ` +
-    `市场: ${stockInfo.market}`;
-}
-
-function renderDecisionSummary(analysis: StockAnalysis): string {
-  return `### 决策摘要\n\n` +
-    `**评级**: ${analysis.recommendation} | **评分**: ${analysis.score}/100 | **情绪**: ${analysis.sentiment}\n\n` +
-    `${analysis.summary}`;
-}
-
-function renderTradingPlan(plan: TradingPlan): string {
-  const lines = [
-    `### 交易计划`,
-    `| 项目 | 值 |`,
-    `|------|------|`,
-    `| 入场价 | ${plan.entryPrice} |`,
-    `| 目标价 | ${plan.targetPrice} |`,
-    `| 止损价 | ${plan.stopLoss} |`,
-    `| 策略 | ${plan.strategy} |`,
-  ];
-  if (plan.riskRewardRatio != null) {
-    lines.push(`| 风险回报比 | ${plan.riskRewardRatio.toFixed(2)} |`);
-  }
-  if (plan.strategyRisks) {
-    lines.push(`| 策略风险 | ${plan.strategyRisks} |`);
-  }
-  return lines.join('\n');
-}
-
-function renderPriceDistances(analysis: StockAnalysis): string {
-  const price = analysis.stockInfo.price;
-  const plan = analysis.tradingPlan;
-  if (!plan) return '### 价格距离\n\n无交易计划';
-
-  const entry = parseFloat(plan.entryPrice);
-  const target = parseFloat(plan.targetPrice);
-  const stop = parseFloat(plan.stopLoss);
-
-  const toEntry = ((entry - price) / price * 100).toFixed(2);
-  const toTarget = ((target - price) / price * 100).toFixed(2);
-  const toStop = ((stop - price) / price * 100).toFixed(2);
-
-  return `### 价格距离\n\n` +
-    `| 方向 | 价格 | 距离 |\n` +
-    `|------|------|------|\n` +
-    `| 入场 | ${plan.entryPrice} | ${toEntry}% |\n` +
-    `| 目标 | ${plan.targetPrice} | ${toTarget}% |\n` +
-    `| 止损 | ${plan.stopLoss} | ${toStop}% |`;
-}
-
-function renderScenarios(scenarios: Scenario[]): string {
-  const rows = scenarios.map(s =>
-    `| ${s.case} | ${s.probability}% | ${s.targetPrice} | ${s.expectedReturn} | ${s.keyInputs} |`
-  );
-  return `### 情景分析\n\n` +
-    `| 情景 | 概率 | 目标价 | 预期回报 | 关键假设 |\n` +
-    `|------|------|--------|----------|----------|\n` +
-    rows.join('\n');
-}
-
-function renderScenariosCompact(scenarios: Scenario[]): string {
-  const rows = scenarios.map(s =>
-    `- **${s.case}** (${s.probability}%): ${s.targetPrice} → ${s.expectedReturn}`
-  );
-  return `### 情景\n\n` + rows.join('\n');
-}
-
-function renderRiskMatrix(risks: QuantifiedRisk[]): string {
-  const rows = risks.map(r =>
-    `| ${r.name} | ${r.probability}% | ${r.impactPercent}% | ${r.expectedLoss.toFixed(2)} | ${r.mitigation} |`
-  );
-  return `### 风险矩阵\n\n` +
-    `| 风险 | 概率 | 影响 | 期望损失 | 对冲 |\n` +
-    `|------|------|------|----------|------|\n` +
-    rows.join('\n');
-}
-
-function renderFundamentals(analysis: StockAnalysis): string {
-  return `### 基本面分析\n\n${analysis.fundamentalAnalysis}`;
-}
-
-function renderTechnicalAnalysis(analysis: StockAnalysis): string {
-  return `### 技术分析\n\n${analysis.technicalAnalysis}`;
-}
-
-function renderCapitalFlow(analysis: StockAnalysis): string {
-  const cf = analysis.capitalFlow;
-  if (!cf) return '';
-  return `### 资金流向\n\n` +
-    `- 北向资金: ${cf.northboundFlow}\n` +
-    `- 机构持仓: ${cf.institutionalHoldings}\n` +
-    (cf.ahPremium ? `- AH溢价: ${cf.ahPremium}\n` : '') +
-    `- 市场情绪: ${cf.marketSentiment}`;
-}
-
-function renderBacktest(analysis: StockAnalysis): string {
-  const bt = analysis.backtestResult;
-  if (!bt) return '';
-  return `### 回测结果\n\n` +
-    `- 前次日期: ${bt.previousDate}\n` +
-    `- 前次建议: ${bt.previousRecommendation}\n` +
-    `- 实际回报: ${bt.actualReturn}\n` +
-    `- 经验总结: ${bt.learningPoint}`;
-}
-
-function renderExpertDebate(messages: AgentMessage[]): string {
-  const lines = messages.slice(-5).map(m =>
-    `**${m.role}** (${m.timestamp}):\n> ${m.content.slice(0, 300)}${m.content.length > 300 ? '...' : ''}`
-  );
-  return `### 专家讨论（最近 ${Math.min(messages.length, 5)} 条）\n\n` + lines.join('\n\n');
 }

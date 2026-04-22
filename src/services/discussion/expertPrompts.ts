@@ -114,6 +114,7 @@ const ROLE_INSTRUCTIONS_ZH: Record<AgentRole, string> = {
 2. 与同行业公司估值对比
 3. 分析盈利质量 and 可持续性
 4. 给出合理估值区间
+5. **前瞻性财务预测 (NEW)**: 你必须提供未来 3 年（2026E, 2027E, 2028E）的营收、净利润及 EPS 的量化预测趋势，并给出核心增长动力说明。
 **专业研判集成要求**: 你必须集成深度研究专家的核心变量和技术分析师的趋势判断，从估值维度评价当前价格的合理性。**独立研判准则**: 严禁顺着别人的话说。如果你认为调研出的增长潜力已被估值透支，或者技术面强势只是短期投机而无基本面支撑，你必须明确指出。你的职责是提供基于财务维度的客观判读。`,
 
   'Sentiment Analyst': `你是情绪分析师。任务：
@@ -257,7 +258,11 @@ const ROLE_INSTRUCTIONS_ZH: Record<AgentRole, string> = {
 
   'Chief Strategist': `你是首席策略师，负责最终的裁决与决策。任务：
 
-1. **裁决专业歧见 (Arbitrator of Divergence)**:
+1. **研报核心摘要 (NEW - Investment Thesis)**:
+   - 你必须为报告生成一个极具吸引力的 **一句话 Tagline** (例如："XX股份：周期见底，AI落地开启第二增长曲线")。
+   - 提供 200 字以内的 **投资核心要点 (Investment Thesis)**，总结为什么现在是关键时点。
+
+2. **裁决专业歧见 (Arbitrator of Divergence)**:
    - 深度集成所有专家的研讨成果，特别是当技术面、基本面、情绪面发生逻辑背离时，你必须运用你的高级洞察力进行权衡
    - 严禁简单总结共识。你必须说明采纳了哪些观点、修正了哪些逻辑、以及在分歧面前你选择支持哪一方的理由
 
@@ -438,6 +443,7 @@ Requirements:
 2. Compare valuation with industry peers.
 3. Analyze earnings quality and sustainability.
 4. Provide a reasonable valuation range.
+5. **Forward Financial Projections (NEW)**: You MUST provide quantitative forecast trends for Revenue, Net Profit, and EPS for the next 3 years (2026E, 2027E, 2028E), along with the core growth drivers.
 **Professional Integration**: Integrate deep research and technical findings to evaluate price rationality. **Independence Rule**: Do not simply agree with others. If growth is already priced in or a trend lacks fundamental support, say so clearly.`,
 
   'Sentiment Analyst': `You are a Sentiment Analyst. Tasks:
@@ -575,7 +581,11 @@ If your analysis concludes the current target is overvalued or has a poor risk-r
 
   'Chief Strategist': `You are the Chief Strategist. Final decision maker.
 
-1. **Arbitrator of Divergence**:
+1. **Executive Research Summary (NEW - Investment Thesis)**:
+   - You MUST generate a compelling **one-sentence Tagline** for the report (e.g., "XX Corp: Cyclical Bottom with AI Integration Igniting Second Growth Curve").
+   - Provide an **Investment Thesis** of under 200 words, summarizing why *now* is the critical timing.
+
+2. **Arbitrator of Divergence**:
    - Integrate all expert findings. Balance technical, fundamental, and sentiment perspectives when they conflict.
    - Do NOT simply summarize consensus. You must explain which views were adopted, which logic was corrected, and the reasoning behind your choice in case of divergence.
 

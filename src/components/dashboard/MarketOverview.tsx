@@ -349,39 +349,40 @@ export const MarketOverview = memo(function MarketOverview({ onFetchMarketOvervi
                     }
                   }
 
-                  const handleDeleteItem = async (e: React.MouseEvent, stock: { symbol: string; market: Market }) => {
-    e.stopPropagation();
-    
-    const isWatchlist = watchlist.some(w => w.symbol === stock.symbol);
-    const isRecent = recentSearches.some(s => s.symbol === stock.symbol);
-    
-    if (isWatchlist || isRecent) {
-      showConfirm(
-        '移除记录',
-        `确定要将 ${stock.symbol} 从库中移除吗？此操作不可撤销。`,
-        async () => {
-          if (isWatchlist) {
-            try {
-              const res = await fetch(`/api/watchlist/${stock.symbol}?market=${stock.market}`, { method: 'DELETE' });
-              if (res.ok) {
-                setWatchlist(watchlist.filter(w => w.symbol !== stock.symbol));
-                showToast(`${stock.symbol} 已从自选移除`);
-              }
-            } catch (err) {
-              console.error('Failed to remove from watchlist:', err);
-              showToast('移除失败，请重试', 'error');
-            }
-          }
+                  const handleDeleteItem = async (e: React.MouseEvent, stock: { symbol: string; name?: string; market: Market }) => {
+                    e.stopPropagation();
+                    
+                    const normalizedSymbol = stock.symbol.toUpperCase();
+                    const isWatchlist = watchlist.some(w => w.symbol.toUpperCase() === normalizedSymbol);
+                    const isRecent = recentSearches.some(s => s.symbol.toUpperCase() === normalizedSymbol);
+                    
+                    if (isWatchlist || isRecent) {
+                      showConfirm(
+                        '移除记录',
+                        `确定要将 ${stock.symbol} ${stock.name || ''} 从列表中移除吗？`,
+                        async () => {
+                          if (isWatchlist) {
+                            try {
+                              const res = await fetch(`/api/watchlist/${stock.symbol}?market=${stock.market}`, { method: 'DELETE' });
+                              if (res.ok) {
+                                setWatchlist(watchlist.filter(w => w.symbol.toUpperCase() !== normalizedSymbol));
+                                showToast(`${stock.symbol} 已从自选移除`);
+                              }
+                            } catch (err) {
+                              console.error('Failed to remove from watchlist:', err);
+                              showToast('移除失败，请重试', 'error');
+                            }
+                          }
 
-          if (isRecent) {
-            removeRecentSearch(stock.symbol);
-            if (!isWatchlist) showToast(`${stock.symbol} 已从列表移除`);
-          }
-        },
-        'danger'
-      );
-    }
-  };
+                          if (isRecent) {
+                            removeRecentSearch(stock.symbol);
+                            if (!isWatchlist) showToast(`${stock.symbol} 已从历史记录移除`);
+                          }
+                        },
+                        'danger'
+                      );
+                    }
+                  };
 
   return (
                     <div

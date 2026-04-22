@@ -7,6 +7,7 @@ import { useDiscussionStore } from '../stores/useDiscussionStore';
 import { useScenarioStore } from '../stores/useScenarioStore';
 import { getStockReport, getChatReport, getDiscussionReport, getDailyReport } from '../services/aiService';
 import { sendAnalysisToFeishu } from '../services/feishuService';
+import { ReportGeneratorService } from '../services/reportGenerator';
 
 export function useReporting(fetchAdminData: () => Promise<void>) {
   const geminiConfig = useConfigStore(s => s.config);
@@ -174,63 +175,24 @@ export function useReporting(fetchAdminData: () => Promise<void>) {
   const handleExportFullReport = useCallback(() => {
     if (!analysis) return;
 
-    const date = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
-    const md: string[] = [];
-
-    md.push(`# 📊 ${analysis.stockInfo?.name} (${analysis.stockInfo?.symbol}) 深度研报`);
-    md.push(`**生成时间**: ${date} | **市场**: ${analysis.stockInfo?.market} | **现价**: ${analysis.stockInfo?.price} ${analysis.stockInfo?.currency}`);
-    md.push(`**评级**: ${analysis.recommendation || '暂无'} | **得分**: ${analysis.score || 0}/100\n`);
-
-    md.push(`## 🎯 核心结论`);
-    md.push(`> ${analysis.finalConclusion || analysis.summary}\n`);
-
-    if (analysis.tradingPlan) {
-      md.push(`### 📈 交易计划`);
-      md.push(`- **买入区间**: ${analysis.tradingPlan.entryPrice}`);
-      md.push(`- **目标价**: ${analysis.tradingPlan.targetPrice}`);
-      md.push(`- **止损位**: ${analysis.tradingPlan.stopLoss}`);
-      md.push(`- **策略**: ${analysis.tradingPlan.strategy}\n`);
-    }
-
-    if (analysis.moatAnalysis && analysis.moatAnalysis.strength !== 'None') {
-      md.push(`### 🛡️ 护城河分析`);
-      md.push(`- **类型**: ${analysis.moatAnalysis.type}`);
-      md.push(`- **强度**: ${analysis.moatAnalysis.strength === 'Wide' ? '宽阔' : '狭窄'}`);
-      md.push(`- **逻辑**: ${analysis.moatAnalysis.logic}\n`);
-    }
-
-    md.push(`## 📖 维度分析`);
-    md.push(`### 基本面\n${analysis.fundamentalAnalysis}\n`);
-    md.push(`### 技术面\n${analysis.technicalAnalysis}\n`);
-
-    if (discussionMessages && discussionMessages.length > 0) {
-      md.push(`---\n## 🎙️ AI 专家组研讨记录`);
-      discussionMessages.forEach(msg => {
-        md.push(`\n### 🧔 ${msg.role}`);
-        md.push(`${msg.content}`);
-      });
-      md.push(`\n`);
-    }
-
-    if (chatHistory.length > 0) {
-      md.push(`---\n## 💬 深度追问会话 (Q&A)`);
-      chatHistory.forEach(c => {
-        if (c.role === 'user') md.push(`\n**🙋 投资人**: ${c.content}`);
-        if (c.role === 'ai') md.push(`**🤖 分析师**: ${c.content}`);
-      });
-      md.push(`\n`);
-    }
-
-    const blob = new Blob([md.join('\n')], { type: 'text/markdown' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `DeepResearch_${analysis.stockInfo?.symbol}_${new Date().toISOString().split('T')[0]}.md`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  }, [analysis, discussionMessages, chatHistory]);
+    const language = useConfigStore.getState().language === 'en' ? 'en' : 'zh-CN';
+    const htmlReport = ReportGeneratorService.generateProfessionalHtmlReport(analysis, language);
+    const filename = `EquityResearch_${analysis.stockInfo?.symbol}_${new Date().toISOString().split('T')[0]}.html`;
+    
+    ReportGeneratorService.downloadReport(htmlReport, filename);
+    
+    // Log Export
+    void fetch('/api/logs/add', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        field: 'export_html_report',
+        oldValue: 'markdown',
+        newValue: 'pro_html',
+        description: `成功导出专业 HTML 研报: ${analysis.stockInfo?.name}`
+      })
+    });
+  }, [analysis]);
 
   return {
     sendReport,

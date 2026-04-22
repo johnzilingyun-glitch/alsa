@@ -359,6 +359,11 @@ def analyze(df: pd.DataFrame) -> dict:
             "error": f"Insufficient data: {len(df)} rows (need ≥30)",
         }
 
+    # Calculate MAs for the experts - ensure they return a value even if history is short
+    ma5 = df["close"].rolling(window=5, min_periods=1).mean().iloc[-1]
+    ma20 = df["close"].rolling(window=20, min_periods=1).mean().iloc[-1]
+    ma60 = df["close"].rolling(window=min(60, len(df)), min_periods=1).mean().iloc[-1]
+
     # Calculate all 5 strategies
     trend = calculate_trend_signals(df)
     mean_rev = calculate_mean_reversion_signals(df)
@@ -380,6 +385,9 @@ def analyze(df: pd.DataFrame) -> dict:
         "signal": combined["signal"],
         "confidence": round(combined["confidence"] * 100),
         "weighted_score": combined["weighted_score"],
+        "ma5": round(safe_float(ma5), 2),
+        "ma20": round(safe_float(ma20), 2),
+        "ma60": round(safe_float(ma60), 2),
         "strategies": {
             "trend_following": {
                 "signal": trend["signal"],

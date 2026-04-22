@@ -3,6 +3,7 @@ import akshare as ak
 import yfinance as yf
 from datetime import datetime, timedelta
 from typing import List, Dict, Any
+from ..utils.network import safe_ak_call
 
 class MarketDataService:
     def __init__(self):
@@ -65,7 +66,7 @@ class MarketDataService:
             if market == "A-Share":
                 # For A-Shares, AkShare (EastMoney) is far more reliable than yfinance
                 try:
-                    df = await loop.run_in_executor(None, lambda: ak.stock_zh_index_spot_em())
+                    df = await safe_ak_call(ak.stock_zh_index_spot_em)
                 except Exception as e:
                     print(f"AkShare index fetch failed: {e}")
                     df = None
@@ -171,8 +172,10 @@ class MarketDataService:
         try:
             if market == "A-Share":
                 # Use akshare for A-Share news
-                loop = asyncio.get_event_loop()
-                df = await loop.run_in_executor(None, lambda: ak.stock_news_em(symbol="300750")) # Example symbol for general news
+                try:
+                    df = await safe_ak_call(ak.stock_news_em, symbol="300750")
+                except:
+                    df = None
                 if df.empty:
                     return []
                 
@@ -231,27 +234,100 @@ class MarketDataService:
                 }
             elif market == "A-Share":
                 clean_symbol = symbol[:6]
-                info_df = await loop.run_in_executor(None, lambda: ak.stock_individual_info_em(symbol=clean_symbol))
-                info = dict(zip(info_df['item'], info_df['value']))
+                yf_symbol = f"{clean_symbol}.SS" if clean_symbol.startswith('6') else f"{clean_symbol}.SZ"
                 
-                # Fetch financial indicator for net profit and growth
-                indicator_df = await loop.run_in_executor(None, lambda: ak.stock_financial_analysis_indicator_em(symbol=clean_symbol))
+                info = {}
+                try:
+                    info_df = await safe_ak_call(ak.stock_individual_info_em, symbol=clean_symbol)
+                    info = dict(zip(info_df['item'], info_df['value']))
+                except Exception as e:
+                    print(f"AkShare info failed for {clean_symbol}, trying yfinance: {e}")
+                    try:
+                        ticker = yf.Ticker(yf_symbol)
+                        yf_info = ticker.info
+                        info = {
+                            "总市值": yf_info.get("marketCap"),
+                            "流通市值": yf_info.get("marketCap"), # Approximation
+                            "市盈率-动态": yf_info.get("forwardPE"),
+                            "市净率": yf_info.get("priceToBook"),
+                            "股息率": yf_info.get("dividendYield")
+                        }
+                    except:
+                        info = {}
                 
+                # Fetch financial indicator
                 financials = {}
-                if not indicator_df.empty:
-                    # columns like "净利润", "净利润同比增长率", "每股收益", etc.
-                    latest = indicator_df.head(5).to_dict(orient="records")
-                    financials = {
-                        "history": latest,
-                        "latestNetProfit": latest[0].get("净利润") if latest else None,
-                        "latestGrowth": latest[0].get("净利润同比增长率") if latest else None
-                    }
+                try:
+                    indicator_df = await safe_ak_call(ak.stock_financial_analysis_indicator_em, symbol=clean_symbol)
+                    if not indicator_df.empty:
+                        latest = indicator_df.head(5).to_dict(orient="records")
+                        financials = {
+                            "history": latest,
+                            "latestNetProfit": latest[0].get("净利润"),
+                            "latestGrowth": latest[0].get("净利润同比增长率"),
+                            "latestRevenue": latest[0].get("营业收入"),
+                            "latestNonGaapNetProfit": latest[0].get("扣除非经常性损益后的净利润"),
+                            "latestRoe": latest[0].get("净资产收益率"),
+                            "latestGrossMargin": latest[0].get("销售毛利率"),
+                            "latestDebtRatio": latest[0].get("资产负债率"),
+                        }
+                except Exception as e:
+                    print(f"AkShare financials failed for {clean_symbol}, trying yfinance: {e}")
+                    try:
+                        ticker = yf.Ticker(yf_symbol)
+                        financials = {
+                            "latestNetProfit": ticker.info.get("netIncomeToCommon"),
+                            "latestRevenue": ticker.info.get("totalRevenue"),
+                            "latestRoe": ticker.info.get("returnOnEquity"),
+                            "latestGrossMargin": ticker.info.get("grossMargins"),
+                        }
+                    except:
+                        financials = {}
                 
+                # Fetch dividend info
+                latest_dividend = {}
+                try:
+                    dividend_df = await safe_ak_call(ak.stock_history_dividend_detail, symbol=clean_symbol)
+                    latest_dividend = dividend_df.iloc[0].to_dict() if not dividend_df.empty else {}
+                except:
+                    pass
+
+                # Valuation logic
+                pe = info.get("市盈率-动态")
+                valuation_explanation = ""
+                valuation_percentile = "50%"
+                
+                if pe is not None:
+                    try:
+                        pe_val = float(pe)
+                        if pe_val < 15:
+                            valuation_explanation = "当前动态市盈率处于历史低位区间，具备较高安全边际。"
+                            valuation_percentile = "15%"
+                        elif pe_val > 50:
+                            valuation_explanation = "当前动态市盈率偏高，反映了市场极高的增长预期，需警惕估值回调风险。"
+                            valuation_percentile = "85%"
+                        else:
+                            valuation_explanation = "估值处于行业合理中枢水平。"
+                            valuation_percentile = "50%"
+                    except:
+                        pass
+
                 return {
                     "marketCap": info.get("总市值"),
                     "circulatingMarketCap": info.get("流通市值"),
-                    "pe": info.get("市盈率-动态"),
+                    "pe": pe,
                     "pb": info.get("市净率"),
+                    "roe": financials.get("latestRoe"),
+                    "grossMargin": financials.get("latestGrossMargin"),
+                    "debtRatio": financials.get("latestDebtRatio"),
+                    "revenue": financials.get("latestRevenue"),
+                    "netProfit": financials.get("latestNetProfit"),
+                    "netProfitGrowth": financials.get("latestGrowth"),
+                    "nonGaapNetProfit": financials.get("latestNonGaapNetProfit"),
+                    "dividend": latest_dividend.get("派息") if latest_dividend else None,
+                    "dividendYield": info.get("股息率"),
+                    "valuationPercentile": valuation_percentile,
+                    "valuationExplanation": valuation_explanation,
                     "financials": financials
                 }
         except Exception as e:

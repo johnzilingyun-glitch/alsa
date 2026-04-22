@@ -50,19 +50,19 @@ describe('fundamentalScoring', () => {
 
   describe('calculateIntrinsicValueEstimate', () => {
     it('should return 0 for zero/negative ROE', () => {
-      expect(calculateIntrinsicValueEstimate(100, 0, 10)).toBe(0);
-      expect(calculateIntrinsicValueEstimate(100, -5, 10)).toBe(0);
+      expect(calculateIntrinsicValueEstimate(100, 0, 10).value).toBe(0);
+      expect(calculateIntrinsicValueEstimate(100, -5, 10).value).toBe(0);
     });
 
     it('should estimate value higher than price for high ROE/Growth combinations', () => {
       const price = 100;
-      const estimate = calculateIntrinsicValueEstimate(price, 20, 15);
+      const estimate = calculateIntrinsicValueEstimate(price, 20, 15).value;
       expect(estimate).toBeGreaterThan(price);
     });
 
     it('should cap the multiplier between 0.5 and 2.0', () => {
-      const lowEstimate = calculateIntrinsicValueEstimate(100, 1, 1);
-      const highEstimate = calculateIntrinsicValueEstimate(100, 100, 100);
+      const lowEstimate = calculateIntrinsicValueEstimate(100, 1, 1).value;
+      const highEstimate = calculateIntrinsicValueEstimate(100, 100, 100).value;
       
       expect(lowEstimate).toBeCloseTo(100 * 0.5);
       expect(highEstimate).toBeCloseTo(100 * 2.0);

@@ -12,6 +12,7 @@ export interface FundamentalScores {
   intrinsicValue?: number;
   moatRating: "Wide" | "Narrow" | "None";
   verdict: string;
+  methodology: string;
 }
 
 /**
@@ -59,12 +60,16 @@ export function calculateFundamentalScores(data: {
   if (data.roe > 20 && data.grossMargin > 40) moatRating = "Wide";
   else if (data.roe > 12 && data.grossMargin > 20) moatRating = "Narrow";
 
+  // Methodology Description
+  const methodology = `价值评分基于格雷厄姆原则（PE<25, PB<3）；成长评分基于净利润增速；安全评分基于巴菲特准则（ROE>15%, 负债率<50%, 高毛利）。当前使用：PE=${data.pe.toFixed(2)}, PB=${data.pb.toFixed(2)}, ROE=${data.roe.toFixed(2)}%, 毛利=${data.grossMargin.toFixed(2)}%`;
+
   return {
     valueScore: Math.min(100, valueScore),
     growthScore: Math.min(100, growthScore),
     safetyScore: Math.min(100, safetyScore),
     moatRating,
-    verdict: generateVerdict(valueScore, growthScore, safetyScore, moatRating)
+    verdict: generateVerdict(valueScore, growthScore, safetyScore, moatRating),
+    methodology
   };
 }
 
@@ -80,15 +85,18 @@ function generateVerdict(v: number, g: number, s: number, m: string): string {
 /**
  * Simplified Owner Earnings / DCF
  */
-export function calculateIntrinsicValueEstimate(currentPrice: number, roe: number, growth: number): number {
+export function calculateIntrinsicValueEstimate(currentPrice: number, roe: number, growth: number): { value: number; methodology: string } {
   // Very simplified: Benjamin Graham Formula approx: V = EPS * (8.5 + 2g)
   // Here we use a simpler yield-based approach for AI grounding
-  if (roe <= 0) return 0;
+  if (roe <= 0) return { value: 0, methodology: "ROE为负，无法评估内在价值" };
   const discountRate = 0.10; // 10% Hurdle rate
   const terminalGrowth = 0.03; // 3% Perpetual growth
   
   // Estimate intrinsic value relative to price based on ROE/Growth
-  // This is a heuristic for the AI to have a number to debate
   const intrinsicMultiplier = (roe / 100) / (discountRate - (growth / 100 > 0.08 ? 0.08 : growth / 100));
-  return currentPrice * Math.min(2.0, Math.max(0.5, intrinsicMultiplier));
+  const value = currentPrice * Math.min(2.0, Math.max(0.5, intrinsicMultiplier));
+  
+  const methodology = `内在价值估算采用简化版戈登增长模型。计算参数：折现率(Hurdle Rate)=10%, 永续增长率上限=8%, 当前ROE=${roe.toFixed(2)}%, 预期增速=${growth.toFixed(2)}%。公式：P = (ROE/100) / (r - g)`;
+
+  return { value, methodology };
 }

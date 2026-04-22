@@ -678,10 +678,10 @@ router.get('/stock/realtime', async (req, res) => {
     // A-Share: Prioritize Python Microservice (AkShare)
     if (resolution.market === 'A-Share' && /^\d{6}$/.test(resolution.symbol)) {
       try {
-        const [spotRes, histRes, valRes, techRes] = await Promise.all([
+        const [spotRes, histRes, finRes, techRes] = await Promise.all([
           fetchJsonWithTimeout(`http://127.0.0.1:8001/api/stock/a_spot?symbol=${resolution.symbol}`, 7000).catch(() => ({ success: false })),
           fetchJsonWithTimeout(`http://127.0.0.1:8001/api/stock/a_history?symbol=${resolution.symbol}`, 9000).catch(() => ({ success: false })),
-          fetchJsonWithTimeout(`http://127.0.0.1:8001/api/stock/a_valuation?symbol=${resolution.symbol}`, 7000).catch(() => ({ success: false })),
+          fetchJsonWithTimeout(`http://127.0.0.1:8001/api/stock/comprehensive_financials?symbol=${resolution.symbol}&market=A-Share`, 8000).catch(() => ({ success: false })),
           fetchJsonWithTimeout(`http://127.0.0.1:8001/api/technicals/${resolution.symbol}`, 9000).catch(() => ({ success: false }))
         ]);
 
@@ -706,24 +706,39 @@ router.get('/stock/realtime', async (req, res) => {
           };
           source = 'AkShare (Local Python API)';
 
-          // Enrich with valuation data (already fetched, previously unused)
-          if (valRes.success && valRes.data) {
-            const v = valRes.data;
-            if (v['行业']) result.industry = v['行业'];
-            if (v['总股本']) result.sharesOutstanding = v['总股本'];
+          // Enrich with comprehensive financial data
+          if (finRes.success && finRes.data) {
+            const f = finRes.data;
+            result.fundamentals = {
+              marketCap: f.marketCap,
+              pe: f.pe,
+              pb: f.pb,
+              roe: f.roe,
+              grossMargin: f.grossMargin,
+              revenue: f.revenue,
+              netProfit: f.netProfit,
+              netProfitGrowth: f.netProfitGrowth,
+              dividend: f.dividend,
+              dividendYield: f.dividendYield,
+              valuationPercentile: f.valuationPercentile,
+              valuationExplanation: f.valuationExplanation
+            };
 
-            // Calculate quantitative fundamental scores
-            const pe = parseFloat(v['动态市盈率']) || 0;
-            const pb = parseFloat(v['市净率']) || 0;
-            const roe = parseFloat(v['加权净资产收益率']) || parseFloat(v['净资产收益率']) || 10; // Default 10%
-            const growth = parseFloat(v['净利润同期预计增幅']) || 10; // Default 10%
-            const margin = parseFloat(v['毛利率']) || 20; // Default 20%
-            const d2e = 0.5; // Placeholder for Debt-to-Equity if not easily available from spot
-
+            // Calculate quantitative fundamental scores using enriched data
+            const pe = parseFloat(f.pe) || 0;
+            const pb = parseFloat(f.pb) || 0;
+            const roe = parseFloat(f.roe) || 12; // Default 12% if missing
+            const growth = parseFloat(f.netProfitGrowth) || 10;
+            const margin = parseFloat(f.grossMargin) || 20;
+            const debtRatio = parseFloat(f.debtRatio) || 50;
+            
             result.fundamentalScores = calculateFundamentalScores({
-              pe, pb, roe, grossMargin: margin, netProfitGrowth: growth, debtToEquity: d2e
+              pe, pb, roe, grossMargin: margin, netProfitGrowth: growth, debtToEquity: debtRatio / 100
             });
-            result.intrinsicValueEstimate = calculateIntrinsicValueEstimate(result.regularMarketPrice, roe, growth);
+            
+            const intrinsicResult = calculateIntrinsicValueEstimate(result.regularMarketPrice, roe, growth);
+            result.intrinsicValueEstimate = intrinsicResult.value;
+            result.intrinsicValueMethodology = intrinsicResult.methodology;
           }
         }
 
@@ -736,9 +751,14 @@ router.get('/stock/realtime', async (req, res) => {
 
           indicators = calcIndicators(prices, volumes, highs, lows);
           
-          // Add the 5-strategy quantitative technical ensemble if available
+          // Add the 5-strategy quantitative technical ensemble from Python
           if (techRes.success && techRes.data) {
-            indicators.quantSignals = techRes.data;
+            const t = techRes.data;
+            indicators.quantSignals = t;
+            // Override with Python calculated MAs if present (higher precision/reliability)
+            if (t.ma5) indicators.ma5 = t.ma5;
+            if (t.ma20) indicators.ma20 = t.ma20;
+            if (t.ma60) indicators.ma60 = t.ma60;
           }
 
           // Calculate quantitative risk metrics

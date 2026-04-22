@@ -9,10 +9,12 @@ try:
     from .technicals import analyze as analyze_technicals
     from .snapshot_manager import save_market_snapshot, SNAPSHOT_DIR
     from .app.api.router import api_router
+    from .app.utils.network import safe_ak_call
 except (ImportError, ValueError):
     from technicals import analyze as analyze_technicals
     from snapshot_manager import save_market_snapshot, SNAPSHOT_DIR
     from app.api.router import api_router
+    from app.utils.network import safe_ak_call
 
 
 import polars as pl
@@ -104,6 +106,10 @@ async def get_sector_fund_flow() -> Dict[str, Any]:
             df: pd.DataFrame = ak.stock_sector_fund_flow_rank(indicator="今日", sector_type="行业资金流")
             
             if df.empty:
+                # Fallback to 5-day flow if today is empty (weekends/holidays)
+                df = ak.stock_sector_fund_flow_rank(indicator="5日", sector_type="行业资金流")
+                
+            if df.empty:
                 raise ValueError("AkShare returned empty dataframe for sector flow")
 
             # Sort by Net Inflow Amount descending to get the "Hot" money destinations
@@ -149,11 +155,20 @@ async def get_northbound_flow() -> Dict[str, Any]:
     try:
         # Get real-time northbound flow summary
         # Columns usually contain: 涨跌幅, 净流入, etc.
-        df = ak.stock_hsgt_fund_flow_summary_em()
+        df = await safe_ak_call(ak.stock_hsgt_fund_flow_summary_em)
         
-        # We look for "北向" or "沪深港通" aggregate or just return the list
-        records = df.to_dict(orient="records")
+        if df.empty:
+            # Fallback to historical daily flow to get the "recent" flow
+            df_hist = await safe_ak_call(ak.stock_hsgt_board_rank_em, board="北上")
+            records = df_hist.head(5).to_dict(orient="records")
+        else:
+            records = df.to_dict(orient="records")
         
+        # Check for "暂停" (Paused) status and annotate
+        for r in records:
+            if "暂停" in str(r.get("当日成交净买入", "")) or "暂停" in str(r.get("当日实时额度", "")):
+                r["status_note"] = "A股通当前处于暂停交易或额度受限状态（可能为非交易时段或节假日）。"
+
         return {
             "success": True,
             "data": records
@@ -219,7 +234,7 @@ async def get_stock_hk_spot(
     try:
         # stock_hk_spot_em returns real-time quotes for all HK stocks
         # We search for the specific symbol
-        df = ak.stock_hk_spot_em()
+        df = await safe_ak_call(ak.stock_hk_spot_em)
         if df.empty:
             return {"success": False, "error": "No HK data available"}
             
@@ -253,7 +268,13 @@ async def get_stock_a_spot(
     try:
         now = time.time()
         if _spot_cache["df"] is None or now - _spot_cache["ts"] > SPOT_CACHE_TTL:
-            _spot_cache = {"df": ak.stock_zh_a_spot_em(), "ts": now}
+            try:
+                df = await safe_ak_call(ak.stock_zh_a_spot_em)
+                _spot_cache = {"df": df, "ts": now}
+            except Exception as e:
+                print(f"Failed to refresh spot cache: {e}")
+                if _spot_cache["df"] is None:
+                    return {"success": False, "error": f"Data source unavailable: {e}"}
         
         row = _spot_cache["df"][_spot_cache["df"]['代码'] == symbol]
         if row.empty:
@@ -289,7 +310,7 @@ async def get_technicals(
         
         # Try a-share first
         try:
-            df = ak.stock_zh_a_hist(symbol=symbol[:6], period="daily", start_date=start_date, end_date=end_date, adjust="qfq")
+            df = await safe_ak_call(ak.stock_zh_a_hist, symbol=symbol[:6], period="daily", start_date=start_date, end_date=end_date, adjust="qfq")
         except:
             df = pd.DataFrame()
             
@@ -342,7 +363,7 @@ async def get_stock_a_history(
         end_date = datetime.datetime.now().strftime("%Y%m%d")
         start_date = (datetime.datetime.now() - datetime.timedelta(days=days*1.5)).strftime("%Y%m%d")
         
-        df = ak.stock_zh_a_hist(symbol=symbol, period=period, start_date=start_date, end_date=end_date, adjust="qfq")
+        df = await safe_ak_call(ak.stock_zh_a_hist, symbol=symbol, period=period, start_date=start_date, end_date=end_date, adjust="qfq")
         if df.empty:
             return {"success": False, "error": "Empty history"}
         
@@ -362,7 +383,7 @@ async def get_stock_a_valuation(
     """
     try:
         # stock_individual_info_em provides basic info including industry, PE, etc.
-        df = ak.stock_individual_info_em(symbol=symbol)
+        df = await safe_ak_call(ak.stock_individual_info_em, symbol=symbol)
         info = dict(zip(df['item'], df['value']))
         
         return {"success": True, "data": info}
@@ -394,18 +415,31 @@ async def get_stock_lhb(
     Fetch Dragon-Tiger (Longhu Bang) detail info.
     """
     try:
-        if date is None:
-            import datetime
-            date = datetime.datetime.now().strftime("%Y%m%d")
+        import datetime
+        now = datetime.datetime.now()
+        # If it's before 18:00, today's LHB might not be out yet, try yesterday
+        if now.hour < 18:
+            date = (now - datetime.timedelta(days=1)).strftime("%Y%m%d")
+        elif date is None:
+            date = now.strftime("%Y%m%d")
+            
         df = ak.stock_lhb_detail_em(start_date=date, end_date=date)
+        
+        # If still empty, try back up to 3 days (handling weekends)
+        max_back = 3
+        while df.empty and max_back > 0:
+            date = (datetime.datetime.strptime(date, "%Y%m%d") - datetime.timedelta(days=1)).strftime("%Y%m%d")
+            df = ak.stock_lhb_detail_em(start_date=date, end_date=date)
+            max_back -= 1
+
         if df.empty:
-            return {"success": False, "error": "No LHB data available"}
+            return {"success": False, "error": "No LHB data available for the last few days"}
             
         row = df[df['代码'] == symbol]
         if row.empty:
             return {"success": False, "error": f"No LHB data for {symbol} on {date}"}
             
-        return {"success": True, "data": row.to_dict(orient="records")}
+        return {"success": True, "data": row.to_dict(orient="records"), "date": date}
     except Exception as e:
         print(f"Error fetching LHB: {e}")
         return {"success": False, "error": str(e)}
@@ -419,20 +453,36 @@ async def get_stock_margin(
     """
     try:
         import datetime
-        date = datetime.datetime.now().strftime("%Y%m%d")
+        now = datetime.datetime.now()
+        # Margin data usually updates late at night or next morning. Try yesterday if today fails.
+        date = now.strftime("%Y%m%d")
         
-        if symbol.startswith('6'):
-            df = ak.stock_margin_detail_sse(date=date)
-        else:
-            df = ak.stock_margin_detail_szse(date=date)
+        def _get_df(d):
+            if symbol.startswith('6'):
+                return ak.stock_margin_detail_sse(date=d)
+            else:
+                return ak.stock_margin_detail_szse(date=d)
+
+        df = _get_df(date)
+        if df.empty:
+            date = (now - datetime.timedelta(days=1)).strftime("%Y%m%d")
+            df = _get_df(date)
             
+        # Try one more day back for weekends
+        if df.empty:
+            date = (now - datetime.timedelta(days=2)).strftime("%Y%m%d")
+            df = _get_df(date)
+
+        if df.empty:
+            return {"success": False, "error": "No margin data available for the last 3 days"}
+
         code_cols = [c for c in df.columns if '代码' in c]
         if code_cols:
             row = df[df[code_cols[0]] == symbol]
             if not row.empty:
-                return {"success": True, "data": row.iloc[0].to_dict()}
+                return {"success": True, "data": row.iloc[0].to_dict(), "date": date}
                 
-        return {"success": False, "error": f"No margin data for {symbol} today"}
+        return {"success": False, "error": f"No margin data for {symbol} on {date}"}
     except Exception as e:
         print(f"Error fetching margin: {e}")
         return {"success": False, "error": str(e)}

@@ -3,6 +3,7 @@ from typing import List, Dict, Any
 import asyncio
 import akshare as ak
 import pandas as pd
+from ..utils.network import safe_ak_call
 
 class MarketSnapshotService:
     def __init__(self, store: ParquetMarketStore):
@@ -14,11 +15,12 @@ class MarketSnapshotService:
         """
         # In a real setup, we'd have robust fetching. Reuse some akshare logic.
         try:
-            # Fetch daily history (A-Share example) with 15s timeout
-            df = await asyncio.wait_for(
-                asyncio.to_thread(ak.stock_zh_a_hist, symbol=symbol, period="daily", adjust="qfq"),
-                timeout=15.0
-            )
+            # Fetch daily history (A-Share example) with robust retry
+            try:
+                df = await safe_ak_call(ak.stock_zh_a_hist, symbol=symbol, period="daily", adjust="qfq")
+            except Exception as e:
+                print(f"History fetch failed for {symbol}: {e}")
+                return {}
             if df.empty:
                 return {}
             
@@ -34,12 +36,13 @@ class MarketSnapshotService:
             # Save to Parquet
             self.store.write_ohlc("ohlc", market, symbol, rows)
             
-            # Fetch valuation with 10s timeout
-            val_df = await asyncio.wait_for(
-                asyncio.to_thread(ak.stock_individual_info_em, symbol=symbol),
-                timeout=10.0
-            )
-            valuation = dict(zip(val_df['item'], val_df['value']))
+            # Fetch valuation with robust retry
+            try:
+                val_df = await safe_ak_call(ak.stock_individual_info_em, symbol=symbol)
+                valuation = dict(zip(val_df['item'], val_df['value']))
+            except Exception as e:
+                print(f"Valuation fetch failed for {symbol}: {e}")
+                valuation = {}
             
             # Fetch comprehensive financials (Market Cap, Net Profit, Dividends)
             from .market_data_service import market_data_service

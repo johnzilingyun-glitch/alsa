@@ -26,9 +26,22 @@ class MarketSnapshotService:
                             '最高': 'high', '最低': 'low', '成交量': 'volume'
                         }
                         df = df.rename(columns={k: v for k, v in col_map.items() if k in df.columns})
+                    else:
+                        print(f"AkShare history returned empty for {symbol}, trying yfinance fallback...")
+                        raise ValueError("Empty AkShare data")
                 except Exception as e:
-                    print(f"AkShare history fetch failed for {symbol}: {e}")
-                    df = pd.DataFrame()
+                    print(f"AkShare history fetch failed for {symbol}: {e}. Attempting yfinance fallback...")
+                    import yfinance as yf
+                    yf_symbol = f"{symbol}.SS" if symbol.startswith('6') else f"{symbol}.SZ"
+                    ticker = yf.Ticker(yf_symbol)
+                    df = ticker.history(period="6mo")
+                    if not df.empty:
+                        df = df.reset_index()
+                        df = df.rename(columns={'Date': 'trade_date', 'Open': 'open', 'High': 'high', 'Low': 'low', 'Close': 'close', 'Volume': 'volume'})
+                        if 'trade_date' in df.columns:
+                            df['trade_date'] = pd.to_datetime(df['trade_date']).dt.strftime('%Y-%m-%d')
+                    else:
+                        print(f"yfinance also returned empty for {yf_symbol}")
             else:
                 # Use yfinance for US/HK
                 import yfinance as yf

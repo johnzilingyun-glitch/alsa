@@ -14,6 +14,17 @@ def compute_indicator_frame(rows: List[Dict[str, Any]]) -> pl.DataFrame:
     df = df.with_columns([
         pl.col("close").rolling_mean(5).alias("ma_5"),
         pl.col("close").rolling_mean(20).alias("ma_20"),
+        pl.col("close").rolling_mean(60).alias("ma_60"),
+        pl.col("volume").rolling_mean(5).alias("avg_volume_5"),
+        pl.col("volume").rolling_mean(20).alias("avg_volume_20"),
+    ])
+
+    # Resistance/Support (Rolling Max/Min)
+    df = df.with_columns([
+        pl.col("high").rolling_max(20).alias("resistance_short"),
+        pl.col("low").rolling_min(20).alias("support_short"),
+        pl.col("high").rolling_max(60).alias("resistance_long"),
+        pl.col("low").rolling_min(60).alias("support_long"),
     ])
 
     # 2. MACD (12, 26, 9)

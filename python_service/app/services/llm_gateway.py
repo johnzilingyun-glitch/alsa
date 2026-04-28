@@ -60,7 +60,9 @@ class LLMGateway:
             if not client:
                 raise ValueError("Gemini client not initialized (missing API key?)")
                 
-            response = client.models.generate_content(
+            import asyncio
+            response = await asyncio.to_thread(
+                client.models.generate_content,
                 model=model,
                 contents=prompt,
                 config={
@@ -78,20 +80,22 @@ class LLMGateway:
             print(f"Gemini Error ({model}): {e}")
             # Fallback to DeepSeek if Gemini fails and we have a key
             if self.deepseek_api_key:
-                print("Gemini failed, falling back to DeepSeek (deepseek-v4-flash)...")
-                return await self._generate_deepseek(prompt, "deepseek-v4-flash", temperature)
+                print("Gemini failed, falling back to DeepSeek (deepseek-v4-pro)...")
+                return await self._generate_deepseek(prompt, "deepseek-v4-pro", temperature)
             raise e
 
     async def _generate_deepseek(self, prompt: str, model: str, temperature: float) -> str:
         try:
             # Map legacy aliases to V4 equivalents for future-proofing
             model_map = {
-                "deepseek-chat": "deepseek-v4-flash",
+                "deepseek-chat": "deepseek-v4-pro",
                 "deepseek-reasoner": "deepseek-v4-pro"
             }
             final_model = model_map.get(model, model)
             
-            response = self.deepseek_client.chat.completions.create(
+            import asyncio
+            response = await asyncio.to_thread(
+                self.deepseek_client.chat.completions.create,
                 model=final_model,
                 messages=[
                     {"role": "system", "content": "You are a professional financial analyst expert."},

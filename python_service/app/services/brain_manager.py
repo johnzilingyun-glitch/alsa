@@ -4,7 +4,7 @@ from jinja2 import Template
 from mem0 import Memory
 from dotenv import load_dotenv
 from google import genai
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 from .gep_models import EvolutionaryState, Genome, Gene
 
 
@@ -52,7 +52,7 @@ class BrainManager:
                 "llm": {
                     "provider": "gemini" if self.api_key else "openai",
                     "config": {
-                        "model": "gemini-3.1-flash-lite-preview" if self.api_key else "deepseek-v4-flash",
+                        "model": "gemini-3.1-flash-lite-preview" if self.api_key else "deepseek-v4-pro",
                         "api_key": self.api_key or os.getenv("DEEPSEEK_API_KEY"),
                         "base_url": None if self.api_key else "https://api.deepseek.com"
                     }
@@ -121,6 +121,12 @@ class BrainManager:
         if genome and genome.alpha:
             return genome.alpha.content
         return DEFAULT_GENOMES.get(role, DEFAULT_GENOMES["global"])
+
+    def get_evolved_instructions(self) -> Dict[str, Any]:
+        """
+        Public API to get current evolved instructions.
+        """
+        return {role: genome.alpha.content for role, genome in self.state.genomes.items() if genome.alpha}
 
     def _load_genome_state(self) -> EvolutionaryState:
         if not os.path.exists(EVOLVED_GENOME_FILE):

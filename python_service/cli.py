@@ -81,15 +81,27 @@ async def run_analysis_flow(query, market, level, output_path):
     
     service = AnalysisJobService(job_repo, market_snapshot_service)
     
-    # 2. Resolve Symbol (simple placeholder logic, can be improved with search_service)
-    # If query is a code, use it. If name, search.
+    # 2. Resolve Symbol
     symbol = query
     resolved_market = market or "US-Share"
     
     if any('\u4e00' <= char <= '\u9fff' for char in query):
         # Chinese name, likely A-Share
         resolved_market = market or "A-Share"
-        # Search would go here
+        click.echo(f"Resolving A-Share symbol for: {query}...")
+        try:
+            import akshare as ak
+            from python_service.app.utils.network import safe_ak_call
+            code_name_df = await safe_ak_call(ak.stock_info_a_code_name)
+            if code_name_df is not None and not code_name_df.empty:
+                match = code_name_df[code_name_df['name'].str.contains(query, na=False)]
+                if not match.empty:
+                    symbol = match.iloc[0]['code']
+                    click.echo(f"Resolved to code: {symbol}")
+                else:
+                    click.echo(f"Warning: Could not resolve '{query}' to a code. Using name as-is.")
+        except Exception as e:
+            click.echo(f"Symbol resolution error: {e}")
     
     # 3. Start Job
     click.echo("Fetching data and running expert discussion...")

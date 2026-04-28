@@ -19,6 +19,7 @@ export const db = new sqlite3.Database(DB_PATH, (err) => {
     console.error('Error opening database', err.message);
   } else {
     console.log('Connected to the SQLite database at', DB_PATH);
+    db.run('PRAGMA journal_mode = WAL;');
     initializeSchema();
   }
 });
@@ -84,9 +85,11 @@ export function query<T>(sql: string, params: any[] = []): Promise<T[]> {
 
 export function run(sql: string, params: any[] = []): Promise<{ lastID: number; changes: number }> {
   return new Promise((resolve, reject) => {
-    db.run(sql, params, function (err) {
-      if (err) reject(err);
-      else resolve({ lastID: this.lastID, changes: this.changes });
+    db.serialize(() => {
+      db.run(sql, params, function (err) {
+        if (err) reject(err);
+        else resolve({ lastID: this.lastID, changes: this.changes });
+      });
     });
   });
 }

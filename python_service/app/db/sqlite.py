@@ -1,7 +1,7 @@
 from sqlmodel import SQLModel, create_engine, Session
 import os
 
-DATABASE_URL = os.getenv("SQLITE_PATH", "python_service/data/app.db")
+DATABASE_URL = os.getenv("SQLITE_PATH", "python_service/data/app_v3.db")
 # Ensure directory exists
 os.makedirs(os.path.dirname(DATABASE_URL), exist_ok=True)
 

@@ -15,44 +15,69 @@ class MarketSnapshotService:
         """
         # In a real setup, we'd have robust fetching. Reuse some akshare logic.
         try:
-            # Fetch daily history (A-Share example) with robust retry
-            try:
-                df = await safe_ak_call(ak.stock_zh_a_hist, symbol=symbol, period="daily", adjust="qfq")
-            except Exception as e:
-                print(f"History fetch failed for {symbol}: {e}")
-                return {}
+            # 1. Fetch daily history
+            if market == "A-Share":
+                try:
+                    df = await safe_ak_call(ak.stock_zh_a_hist, symbol=symbol, period="daily", adjust="qfq")
+                    if df is not None and not df.empty:
+                        # Map columns to standard names
+                        col_map = {
+                            '日期': 'trade_date', '开盘': 'open', '收盘': 'close', 
+                            '最高': 'high', '最低': 'low', '成交量': 'volume'
+                        }
+                        df = df.rename(columns={k: v for k, v in col_map.items() if k in df.columns})
+                except Exception as e:
+                    print(f"AkShare history fetch failed for {symbol}: {e}")
+                    df = pd.DataFrame()
+            else:
+                # Use yfinance for US/HK
+                import yfinance as yf
+                ticker = yf.Ticker(symbol)
+                df = ticker.history(period="6mo")
+                df = df.reset_index()
+                df = df.rename(columns={'Date': 'trade_date', 'Open': 'open', 'High': 'high', 'Low': 'low', 'Close': 'close', 'Volume': 'volume'})
+                df['trade_date'] = df['trade_date'].dt.strftime('%Y-%m-%d')
+
             if df.empty:
                 return {}
-            
-            # Map columns to standard names
-            col_map = {
-                '日期': 'trade_date', '开盘': 'open', '收盘': 'close', 
-                '最高': 'high', '最低': 'low', '成交量': 'volume'
-            }
-            df = df.rename(columns={k: v for k, v in col_map.items() if k in df.columns})
             
             rows = df.tail(120).to_dict(orient="records")
             
             # Save to Parquet
             self.store.write_ohlc("ohlc", market, symbol, rows)
             
-            # Fetch valuation with robust retry
-            try:
-                val_df = await safe_ak_call(ak.stock_individual_info_em, symbol=symbol)
-                valuation = dict(zip(val_df['item'], val_df['value']))
-            except Exception as e:
-                print(f"Valuation fetch failed for {symbol}: {e}")
-                valuation = {}
+            # Fetch valuation
+            valuation = {}
+            if market == "A-Share":
+                try:
+                    val_df = await safe_ak_call(ak.stock_individual_info_em, symbol=symbol)
+                    valuation = dict(zip(val_df['item'], val_df['value']))
+                except Exception as e:
+                    print(f"Valuation fetch failed for {symbol}: {e}")
             
             # Fetch comprehensive financials (Market Cap, Net Profit, Dividends)
             from .market_data_service import market_data_service
             financials = await market_data_service.get_financial_summary(symbol, market)
             
+            # Fetch real-time quotes
+            quotes = await market_data_service.get_quotes([symbol])
+            quote = quotes[0] if quotes else {}
+            
             return {
+                "name": quote.get("name", symbol),
+                "price": quote.get("price"),
+                "changePercent": quote.get("changePercent"),
+                "currency": quote.get("currency"),
                 "history": rows,
                 "valuation": valuation,
-                "financials": financials
+                "financials": financials,
+                "quote": quote
             }
         except Exception as e:
             print(f"Snapshot creation failed for {symbol}: {e}")
             return {}
+
+# Singleton instance
+from ..lake.parquet_store import ParquetMarketStore
+parquet_store = ParquetMarketStore()
+market_snapshot_service = MarketSnapshotService(parquet_store)

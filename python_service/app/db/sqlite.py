@@ -19,3 +19,5 @@ def build_session_factory(db_path: str):
     test_engine = create_engine(f"sqlite:///{db_path}", connect_args={"check_same_thread": False})
     SQLModel.metadata.create_all(test_engine)
     return lambda: Session(test_engine)
+
+session_factory = lambda: Session(engine)

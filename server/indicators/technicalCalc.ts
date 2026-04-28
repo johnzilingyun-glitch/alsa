@@ -1,6 +1,10 @@
-/**
- * Technical indicator calculations — shared across AkShare and Yahoo data paths.
- */
+import axios from 'axios';
+
+// Configure axios for the python service
+const pythonService = axios.create({
+  baseURL: process.env.PYTHON_SERVICE_URL || 'http://127.0.0.1:8001',
+  timeout: 5000,
+});
 
 export interface TechnicalIndicators {
   ma5: number | null;
@@ -16,59 +20,53 @@ export interface TechnicalIndicators {
 }
 
 /**
- * Simple Moving Average.
- * Returns null if the array has fewer than `days` elements.
+ * Calculate all technical indicators from OHLCV arrays by offloading to Python/Polars service.
  */
-export function calcMA(arr: number[], days: number): number | null {
-  if (arr.length < days) return null;
-  const slice = arr.slice(-days);
-  return parseFloat((slice.reduce((a, b) => a + b, 0) / days).toFixed(2));
-}
-
-/**
- * Safe max — avoids RangeError from spreading into Math.max for large arrays.
- */
-function safeMax(arr: number[]): number {
-  return arr.reduce((a, b) => Math.max(a, b), -Infinity);
-}
-
-/**
- * Safe min — avoids RangeError from spreading into Math.min for large arrays.
- */
-function safeMin(arr: number[]): number {
-  return arr.reduce((a, b) => Math.min(a, b), Infinity);
-}
-
-/**
- * Calculate all technical indicators from OHLCV arrays.
- * 
- * Expects arrays sorted chronologically (oldest → newest).
- * Null-safeguards: filters out null/undefined values before calculation.
- */
-export function calcIndicators(
+export async function calcIndicators(
   prices: number[],
   volumes: number[],
   highs: number[],
   lows: number[],
   options?: { roundVolume?: boolean }
-): TechnicalIndicators | null {
+): Promise<TechnicalIndicators | null> {
   if (prices.length < 5) return null;
 
-  const roundVol = options?.roundVolume ?? false;
+  try {
+    // 1. Prepare data for Polars (chronological order)
+    const data = prices.map((price, i) => ({
+      trade_date: i, // Placeholder date index
+      close: price,
+      volume: volumes[i],
+      high: highs[i],
+      low: lows[i]
+    }));
 
-  const avgVolume5 = calcMA(volumes, 5);
-  const avgVolume20 = calcMA(volumes, 20);
+    // 2. Call Python Service
+    const response = await pythonService.post('/api/indicators/calculate', { data });
 
-  return {
-    ma5: calcMA(prices, 5),
-    ma20: calcMA(prices, 20),
-    ma60: calcMA(prices, 60),
-    avgVolume5: roundVol ? Math.round(avgVolume5 || 0) : avgVolume5,
-    avgVolume20: roundVol ? Math.round(avgVolume20 || 0) : avgVolume20,
-    resistanceShort: parseFloat(safeMax(highs.slice(-20)).toFixed(2)),
-    supportShort: parseFloat(safeMin(lows.slice(-20)).toFixed(2)),
-    resistanceLong: parseFloat(safeMax(highs.slice(-60)).toFixed(2)),
-    supportLong: parseFloat(safeMin(lows.slice(-60)).toFixed(2)),
-    lastClose: prices[prices.length - 1],
-  };
+    if (!response.data.success) {
+      console.error('Indicator calculation failed in Python:', response.data.error);
+      return null;
+    }
+
+    const res = response.data.data;
+    const last = res[res.length - 1];
+
+    // 3. Map Polars result to expected format
+    return {
+      ma5: last.ma_5,
+      ma20: last.ma_20,
+      ma60: last.ma_60,
+      avgVolume5: last.avg_volume_5,
+      avgVolume20: last.avg_volume_20,
+      resistanceShort: last.resistance_short,
+      supportShort: last.support_short,
+      resistanceLong: last.resistance_long,
+      supportLong: last.support_long,
+      lastClose: prices[prices.length - 1],
+    };
+  } catch (err) {
+    console.error('Error calling indicators service:', err);
+    return null;
+  }
 }

@@ -36,6 +36,11 @@ class ReportGeneratorService:
         currency = quote.get("currency", "USD" if "US" in market else "CNY")
         fundamentals = self._compile_fundamentals(snapshot, currency, ui_data)
         
+        # Parallelize normalization for performance
+        normalized_contents = await asyncio.gather(*[
+            self._normalize_log_style(m["content"]) for m in discussion_msgs
+        ])
+        
         data = {
             "info": {
                 "name": quote.get("name", symbol),
@@ -61,8 +66,8 @@ class ReportGeneratorService:
             "score": ui_data.get("score", 75),
             "recommendation": ui_data.get("recommendation", "WATCH"),
             "discussion": [
-                {"role": m["role"], "content": await self._normalize_log_style(m["content"])}
-                for m in discussion_msgs
+                {"role": m["role"], "content": content}
+                for m, content in zip(discussion_msgs, normalized_contents)
             ]
         }
         
@@ -117,13 +122,23 @@ OUTPUT ONLY THE JSON OBJECT.
     async def _normalize_log_style(self, content: str) -> str:
         # Reformat headers to use the 1️⃣ 2️⃣ style without losing text
         prompt = """Reformat the following analyst report to use '1️⃣ Title', '2️⃣ Title' etc. for the main section headers (e.g. change '### 1. Title' or '### Title' to '### 1️⃣ Title'). 
-CRITICAL: DO NOT REMOVE, SUMMARIZE, OR CHANGE ANY OTHER TEXT. KEEP ALL TABLES, BULLETS, AND DETAILS EXACTLY AS THEY ARE.
-ONLY CHANGE THE HEADER PREFIXES.
+
+STRICT GUIDELINES:
+1. DO NOT REMOVE, SUMMARIZE, OR CHANGE ANY OTHER TEXT. KEEP ALL TABLES, BULLETS, AND DETAILS EXACTLY AS THEY ARE.
+2. ONLY CHANGE THE HEADER PREFIXES.
+3. REMOVE ALL CONVERSATIONAL OPENINGS, ACKNOWLEDGMENTS, OR "AS AN ANALYST..." INTROS (e.g. "好的", "好的，作为...", "Here is the report..."). THE OUTPUT MUST START DIRECTLY WITH THE REPORT CONTENT.
+4. RETURN ONLY THE REFORMATTED MARKDOWN CONTENT.
+5. IF THE INPUT ALREADY USES THE 1️⃣ 2️⃣ STYLE AND HAS NO CHATTER, RETURN IT AS IS.
 """
         try:
-            # Use a more powerful model if possible for high fidelity, but flash is okay if instructed well
+            # Use gemini-1.5-flash for fast and reliable reformatting
             res = await llm_gateway.generate_content(f"{prompt}\n\nCONTENT:\n{content}", model="gemini-1.5-flash")
-            return markdown2.markdown(res, extras=["tables", "fenced-code-blocks", "break-on-newline"])
+            if not res: return markdown2.markdown(content, extras=["tables", "fenced-code-blocks", "break-on-newline"])
+            
+            # Clean up any potential markdown code blocks if the LLM wrapped the response
+            res = re.sub(r"^```markdown\n", "", res)
+            res = re.sub(r"\n```$", "", res)
+            return markdown2.markdown(res.strip(), extras=["tables", "fenced-code-blocks", "break-on-newline"])
         except:
             return markdown2.markdown(content, extras=["tables", "fenced-code-blocks", "break-on-newline"])
 
@@ -143,6 +158,8 @@ ONLY CHANGE THE HEADER PREFIXES.
                 "metrics": [
                     ("总市值", "Market Cap"),
                     ("企业价值 (EV)", "含债务的真实估值"),
+                    ("净利润", "最近一期净利润"),
+                    ("扣非净利润", "剔除非经常损益后净利润"),
                     ("市盈率 (PE)", "TTM市盈率"),
                     ("市净率 (PB)", "资产价格倍数"),
                     ("PEG", "判断估值是否被成长性消化"),
@@ -165,7 +182,11 @@ ONLY CHANGE THE HEADER PREFIXES.
                 "title": "成长动力 (Growth)",
                 "metrics": [
                     ("营收同比增长 (YoY)", "收入扩张速度"),
+                    ("营收环比增长 (QoQ)", "近期经营动能"),
                     ("净利润同比增长 (YoY)", "盈利增长速度"),
+                    ("净利润环比增长 (QoQ)", "近期盈利弹性"),
+                    ("扣非净利润同比增长 (YoY)", "核心业务增长"),
+                    ("扣非净利润环比增长 (QoQ)", "核心业务动能"),
                     ("营收3年复合增长 (CAGR)", "长期成长稳定性"),
                     ("净利润3年复合增长 (CAGR)", "长期获利稳定性")
                 ]
@@ -493,6 +514,8 @@ ONLY CHANGE THE HEADER PREFIXES.
         # 1. Valuation
         m["总市值"] = money(get_val("marketCap"))
         m["企业价值 (EV)"] = money(get_val("enterpriseValue"))
+        m["净利润"] = money(get_val("netProfit"))
+        m["扣非净利润"] = money(get_val("netProfitDeduct"))
         m["市盈率 (PE)"] = ratio(get_val("trailingPE") or get_val("pe") or get_val("forwardPE"))
         m["市净率 (PB)"] = ratio(get_val("priceToBook") or get_val("pb"))
         m["PEG"] = ratio(get_val("pegRatio"))
@@ -508,8 +531,12 @@ ONLY CHANGE THE HEADER PREFIXES.
         m["每股收益 (EPS)"] = ratio(get_val("eps"))
 
         # 3. Growth
-        m["营收同比增长 (YoY)"] = pct(get_val("revenueGrowth"))
-        m["净利润同比增长 (YoY)"] = pct(get_val("earningsGrowth") or get_val("netProfitGrowth"))
+        m["营收同比增长 (YoY)"] = pct(get_val("revenueYoY") or get_val("revenueGrowth"))
+        m["营收环比增长 (QoQ)"] = pct(get_val("revenueQoQ"))
+        m["净利润同比增长 (YoY)"] = pct(get_val("netProfitYoY") or get_val("earningsGrowth") or get_val("netProfitGrowth"))
+        m["净利润环比增长 (QoQ)"] = pct(get_val("netProfitQoQ"))
+        m["扣非净利润同比增长 (YoY)"] = pct(get_val("netProfitDeductYoY"))
+        m["扣非净利润环比增长 (QoQ)"] = pct(get_val("netProfitDeductQoQ"))
         m["营收3年复合增长 (CAGR)"] = pct(get_val("revenueCagr3y"))
         m["净利润3年复合增长 (CAGR)"] = pct(get_val("incomeCagr3y"))
 

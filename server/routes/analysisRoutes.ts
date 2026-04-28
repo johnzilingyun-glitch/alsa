@@ -1,7 +1,9 @@
 import { Router } from 'express';
 import { createAnalysisRepository } from '../repositories/analysisRepository.js';
 import { gatewayGenerate } from '../llmGateway.js';
-import axios from 'axios';
+const axiosClient = axios.create({
+  timeout: 5000, // 5 second timeout
+});
 
 const router = Router();
 const repo = createAnalysisRepository();
@@ -25,7 +27,7 @@ router.post('/analysis/jobs', async (req, res) => {
     });
 
     // 2. Trigger FastAPI job
-    const fastApiRes = await axios.post(`${PYTHON_SERVICE_URL}/api/analysis/jobs`, {
+    const fastApiRes = await axiosClient.post(`${PYTHON_SERVICE_URL}/api/analysis/jobs`, {
       symbol,
       market,
       analysisId // We pass our ID to link them
@@ -38,9 +40,10 @@ router.post('/analysis/jobs', async (req, res) => {
       jobId,
       status: 'queued'
     });
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('Failed to create analysis job:', err);
-    res.status(500).json({ error: 'Failed to create analysis job', details: err.message });
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    res.status(500).json({ error: 'Failed to create analysis job', details: message });
   }
 });
 
@@ -49,7 +52,7 @@ router.get('/analysis/jobs/:analysisId/:jobId', async (req, res) => {
 
   try {
     // 1. Poll FastAPI for status
-    const fastApiRes = await axios.get(`${PYTHON_SERVICE_URL}/api/analysis/jobs/${jobId}`);
+    const fastApiRes = await axiosClient.get(`${PYTHON_SERVICE_URL}/api/analysis/jobs/${jobId}`);
     const fastApiJob = fastApiRes.data;
 
     const record = await repo.getById(analysisId);
@@ -60,7 +63,7 @@ router.get('/analysis/jobs/:analysisId/:jobId', async (req, res) => {
       let brainFacts = [];
       let evolvedInstructions = '';
       try {
-        const brainRes = await axios.get(`${PYTHON_SERVICE_URL}/api/brain/context?user_id=default&query=${record.symbol}`);
+        const brainRes = await axiosClient.get(`${PYTHON_SERVICE_URL}/api/brain/context?user_id=default&query=${record.symbol}`);
         if (brainRes.data.success) {
           brainFacts = brainRes.data.data.facts || [];
           evolvedInstructions = brainRes.data.data.instructions || '';
@@ -111,6 +114,8 @@ Perform a deep-dive analysis. Return a JSON object with the following fields:
         outputPayload: finalPayload
       });
 
+      req.app.get('io').to(analysisId).emit('statusUpdate', { status: 'completed', result: finalPayload });
+
       return res.json({
         analysisId,
         status: 'completed',
@@ -120,16 +125,23 @@ Perform a deep-dive analysis. Return a JSON object with the following fields:
 
     if (fastApiJob.status === 'failed') {
        await repo.save({ ...record, status: 'failed' });
+       req.app.get('io').to(analysisId).emit('statusUpdate', { status: 'failed', error: fastApiJob.error });
        return res.json({ analysisId, status: 'failed', error: fastApiJob.error });
+    }
+
+    if (fastApiJob.status !== record.status) {
+      await repo.save({ ...record, status: fastApiJob.status });
+      req.app.get('io').to(analysisId).emit('statusUpdate', { status: fastApiJob.status });
     }
 
     res.json({
       analysisId,
       status: fastApiJob.status
     });
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('Failed to poll analysis job:', err);
-    res.status(500).json({ error: 'Failed to poll analysis job' });
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    res.status(500).json({ error: 'Failed to poll analysis job', details: message });
   }
 });
 
@@ -137,18 +149,19 @@ router.post('/analysis/feedback', async (req, res) => {
   const { analysisId, feedback, userId } = req.body;
   try {
     const record = await repo.getById(analysisId);
-    
+
     // Proxy to Python Brain Service
-    await axios.post(`${PYTHON_SERVICE_URL}/api/brain/feedback`, {
+    await axiosClient.post(`${PYTHON_SERVICE_URL}/api/brain/feedback`, {
       user_id: userId || 'default',
       feedback,
       context: record ? `${record.symbol} (${record.market}) Analysis` : 'General'
     });
 
     res.json({ success: true, message: 'Feedback recorded and brain evolution triggered.' });
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('Failed to process feedback:', err);
-    res.status(500).json({ error: 'Failed to process feedback' });
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    res.status(500).json({ error: 'Failed to process feedback', details: message });
   }
 });
 

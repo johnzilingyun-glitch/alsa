@@ -32,9 +32,21 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(api_router, prefix="/api")
+@app.on_event("startup")
+async def startup_event():
+    async def precompute_loop():
+        while True:
+            try:
+                # 获取 watchlist 默认列表中的所有股票
+                items = watchlist_repo.list_items()
+                for item in items:
+                    await market_data_service.precompute_financial_summary(item.symbol, item.market)
+                await asyncio.sleep(300) # 每5分钟更新一次
+            except Exception as e:
+                print(f"Precompute loop error: {e}")
+                await asyncio.sleep(60)
 
-# --- Infrastructure Initialization ---
+    asyncio.create_task(precompute_loop())
 from .app.db.sqlite import build_session_factory, DATABASE_URL
 from .app.lake.parquet_store import ParquetMarketStore
 from .app.db.repositories.job_repo import JobRepository
@@ -112,15 +124,16 @@ async def get_sector_fund_flow() -> Dict[str, Any]:
             if df.empty:
                 raise ValueError("AkShare returned empty dataframe for sector flow")
 
-            # Sort by Net Inflow Amount descending to get the "Hot" money destinations
-            # Column mapping check
-            inflow_col = "主力净流入-净额" if "主力净流入-净额" in df.columns else df.columns[4]
-            
+            # Sort by Net Inflow Amount descending
             df = df.sort_values(by=inflow_col, ascending=False)
-            
+
+            # 【增强校验】如果获取到的记录太少，视为数据质量故障
+            if len(df) < 5:
+                raise ValueError("AkShare data insufficient")
+
             # Get Top 5 sectors
             top_sectors = df.head(5).to_dict(orient="records")
-            # Get Bottom 3 sectors (Most outflow)
+            # Get Bottom 3 sectors
             bottom_sectors = df.tail(3).to_dict(orient="records")
             
             return {

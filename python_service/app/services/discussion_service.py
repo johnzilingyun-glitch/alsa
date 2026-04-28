@@ -2,7 +2,7 @@ import os
 import asyncio
 from typing import List, Dict, Any, Optional
 from datetime import datetime
-from ..prompting.registry import prompt_registry
+from ..prompting.runtime import prompt_runtime
 from .llm_gateway import llm_gateway
 from .brain_manager import brain_manager
 
@@ -17,7 +17,7 @@ DEEP_TOPOLOGY = [
     {"round": 6, "experts": ["Contrarian Strategist"], "parallel": False},
     {"round": 7, "experts": ["Professional Reviewer"], "parallel": False},
     {"round": 8, "experts": ["Bull Researcher", "Bear Researcher"], "parallel": True},
-    {"round": 9, "experts": ["Value Investing Sage", "Growth Visionary", "Macro Hedge Titan"], "parallel": True},
+    {"round": 9, "experts": ["Soros-style Financial Philosopher", "Growth Visionary", "Macro Hedge Titan"], "parallel": True},
     {"round": 10, "experts": ["Chief Strategist"], "parallel": False},
 ]
 
@@ -27,7 +27,7 @@ STANDARD_TOPOLOGY = [
     {"round": 3, "experts": ["Bull Researcher", "Bear Researcher"], "parallel": True},
     {"round": 4, "experts": ["Risk Manager"], "parallel": False},
     {"round": 5, "experts": ["Professional Reviewer"], "parallel": False},
-    {"round": 6, "experts": ["Value Investing Sage", "Growth Visionary", "Macro Hedge Titan"], "parallel": True},
+    {"round": 6, "experts": ["Soros-style Financial Philosopher", "Growth Visionary", "Macro Hedge Titan"], "parallel": True},
     {"round": 7, "experts": ["Chief Strategist"], "parallel": False},
 ]
 
@@ -85,43 +85,54 @@ class DiscussionService:
         
         return messages
 
-    async def _call_expert(self, role: str, symbol: str, name: str, snapshot: Dict[str, Any], history: List[Dict[str, Any]], language: str) -> Dict[str, Any]:
+    async def _call_expert(self, role: str, symbol: str, name: str, snapshot: Dict[str, Any], history: List[Dict[str, Any]], language: str, job_id: str = "temp_job_id", prompt_version_id: str = "v1") -> Dict[str, Any]:
         """
         Assembles prompt and calls the LLM for a single expert role.
         """
-        # 1. Get Template
-        template = prompt_registry.get_template(role, language)
-        
-        # 2. Get Brain Context (evolved instructions + long-term memory)
+        # 1. Fetch Template
+        prompt_name = role.lower().replace(" ", "_")
+        try:
+            prompt_data = prompt_runtime.get_prompt(prompt_name, version="v1")
+            template = prompt_data["template"]
+        except:
+            # Fallback to simple instruction if prompt not found in DB
+            template = f"You are a {role}. Provide professional institutional research analysis for {symbol}."
+
+        # 2. Get Brain Context
         brain_context = brain_manager.get_brain_context("default", query=f"{symbol} {name}", role=role.lower())
         
-        # 3. Assemble Prompt (simplified port of promptAssembler.ts)
-        prompt = self._assemble_prompt(role, symbol, name, snapshot, history, template, brain_context, language)
+        # 3. Get Macro Data (Exchange Rates, etc.)
+        from .macro_service import macro_service
+        macro_data = await macro_service.get_latest_fx()
+
+        # 4. Assemble Prompt
+        prompt = self._assemble_prompt(role, symbol, name, snapshot, history, template, brain_context, language, macro_data)
         
-        # 4. Call LLM
-        # Default model logic
-        model = "gemini-3.1-flash-lite-preview"
-        
-        # Expert-specific model selection
-        if role == "Deep Research Specialist":
-            # DeepSeek V4-Pro (successor to R1) is excellent for initial deep research
-            model = "deepseek-v4-pro"
-        elif role in ["Chief Strategist", "Risk Manager"]:
-            model = "gemini-3.1-pro-preview" 
-        elif os.getenv("DEFAULT_LLM_PROVIDER") == "deepseek":
-            model = "deepseek-v4-flash"
-            
-        print(f"Calling expert: {role}...", flush=True)
+        # 5. Call LLM
+        model = "deepseek-v4-pro"
+
+        start_time = datetime.now()
         content = await llm_gateway.generate_content(prompt, model=model)
-        print(f"Expert {role} responded.", flush=True)
-        
+        latency = (datetime.now() - start_time).total_seconds() * 1000
+
+        # 5. Record Metrics
+        prompt_runtime.record_run({
+            "job_id": "temp_job_id", # 需要从 snapshot 或其他上下文获取
+            "prompt_version_id": "v1", # 需要从 registry 获取
+            "model": model,
+            "provider": "gemini" if "gemini" in model else "deepseek",
+            "input_tokens": len(prompt) // 4,
+            "output_tokens": len(content) // 4,
+            "latency_ms": int(latency)
+        })
+
         return {
             "role": role,
             "content": content,
             "timestamp": datetime.now().isoformat()
         }
 
-    def _assemble_prompt(self, role: str, symbol: str, name: str, snapshot: Dict[str, Any], history: List[Dict[str, Any]], template: str, brain_ctx: Dict[str, Any], language: str) -> str:
+    def _assemble_prompt(self, role: str, symbol: str, name: str, snapshot: Dict[str, Any], history: List[Dict[str, Any]], template: str, brain_ctx: Dict[str, Any], language: str, macro_data: Dict[str, Any] = None) -> str:
         is_zh = language == "zh-CN"
         
         sections = []
@@ -137,10 +148,26 @@ class DiscussionService:
             sections.append("\n--- LONG-TERM MEMORY ---")
             sections.append("\n".join(brain_ctx["facts"]))
 
+        sections.append("\n--- REAL-TIME MACRO DATA ---")
+        if macro_data:
+            for k, v in macro_data.items():
+                sections.append(f"{k}: {v}")
+        else:
+            sections.append("USD/CNY: 7.24 (Estimated)")
+
         sections.append("\n--- CONTEXT ---")
         sections.append(f"Current Date: {datetime.now().strftime('%Y-%m-%d')}")
         sections.append(f"Target: {symbol} ({name})")
-        sections.append(f"Price Snapshot: {json.dumps(snapshot.get('indicators', {}), indent=2, default=str)}")
+
+        # Comprehensive Market Data Context
+        market_context = {
+            "quote": snapshot.get("quote", {}),
+            "indicators": snapshot.get("indicators", {}),
+            "financials": snapshot.get("financials", {}),
+            "valuation": snapshot.get("valuation", {})
+        }
+        sections.append("\n--- [API DATA / MARKET SNAPSHOT] ---")
+        sections.append(json.dumps(market_context, indent=2, default=str))
         
         if history:
             sections.append("\n--- PREVIOUS DISCUSSION ---")

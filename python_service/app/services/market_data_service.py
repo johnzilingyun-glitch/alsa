@@ -4,6 +4,7 @@ import yfinance as yf
 from datetime import datetime, timedelta
 from typing import List, Dict, Any
 from ..utils.network import safe_ak_call
+from ..utils.data_validation import validate_ak_data
 
 class MarketDataService:
     def __init__(self):
@@ -106,7 +107,7 @@ class MarketDataService:
                     print(f"AkShare index fetch failed: {e}")
                     df = None
 
-                if df is None or df.empty:
+                if not validate_ak_data(df, min_rows=1):
                     # Fallback to yfinance if AkShare fails
                     return await self.get_quotes(["000001.SS", "399001.SZ", "399006.SZ"])
                 
@@ -211,7 +212,7 @@ class MarketDataService:
                     df = await safe_ak_call(ak.stock_news_em, symbol="300750")
                 except:
                     df = None
-                if df.empty:
+                if not validate_ak_data(df, min_rows=1):
                     return []
                 
                 # Transform to standard format
@@ -242,11 +243,24 @@ class MarketDataService:
             return []
 
     async def get_financial_summary(self, symbol: str, market: str = "US-Share") -> Dict[str, Any]:
+        cache_key = f"{market}:{symbol}"
+        if cache_key in self._cache:
+            return self._cache[cache_key]
+
+        result = await self._fetch_financial_summary(symbol, market)
+        self._cache[cache_key] = result
+        return result
+
+    async def precompute_financial_summary(self, symbol: str, market: str = "US-Share") -> Dict[str, Any]:
         """
-        Fetch net profit, dividends, and other key financial indicators.
+        Public method to trigger pre-computation and update cache.
         """
+        result = await self._fetch_financial_summary(symbol, market)
+        self._cache[f"{market}:{symbol}"] = result
+        return result
+    async def _fetch_financial_summary(self, symbol: str, market: str) -> Dict[str, Any]:
+        loop = asyncio.get_event_loop()
         try:
-            loop = asyncio.get_event_loop()
             if market == "US-Share" or symbol.startswith("^") or "=" in symbol:
                 ticker = yf.Ticker(symbol)
                 info = ticker.info
@@ -292,12 +306,18 @@ class MarketDataService:
                     "eps": info.get("trailingEps"),
                     "freeCashflow": info.get("freeCashflow"),
                     "operatingCashflow": info.get("operatingCashflow"),
+                    "capitalExpenditure": info.get("capitalExpenditure"),
                     "debtToEquity": info.get("debtToEquity"),
                     "currentRatio": info.get("currentRatio"),
                     "quickRatio": info.get("quickRatio"),
                     "payoutRatio": info.get("payoutRatio"),
                     "heldPercentInsiders": info.get("heldPercentInsiders"),
                     "heldPercentInstitutions": info.get("heldPercentInstitutions"),
+                    "inventoryTurnover": info.get("inventoryTurnover"),
+                    "assetTurnover": info.get("assetTurnover"),
+                    "fiftyTwoWeekHigh": info.get("fiftyTwoWeekHigh"),
+                    "fiftyTwoWeekLow": info.get("fiftyTwoWeekLow"),
+                    "price": info.get("currentPrice") or info.get("regularMarketPrice"),
                     "netIncomeHistory": net_income,
                     "currency": info.get("currency")
                 }
@@ -316,9 +336,16 @@ class MarketDataService:
 
                 # Fetch financials for history
                 financials_history = await loop.run_in_executor(None, lambda: ticker.financials)
+                quarterly_financials = await loop.run_in_executor(None, lambda: ticker.quarterly_financials)
+                
                 net_income_history = {}
                 revenue_cagr_3y = None
                 income_cagr_3y = None
+                revenue_qoq = None
+                net_profit_qoq = None
+                revenue_yoy = None
+                net_profit_yoy = None
+
                 if financials_history is not None and not financials_history.empty:
                     if 'Net Income' in financials_history.index:
                         series = financials_history.loc['Net Income']
@@ -328,10 +355,28 @@ class MarketDataService:
                         rev_series = financials_history.loc['Total Revenue']
                         revenue_cagr_3y = self._calculate_cagr(rev_series)
 
+                if quarterly_financials is not None and not quarterly_financials.empty:
+                    try:
+                        if 'Total Revenue' in quarterly_financials.index:
+                            q_rev = quarterly_financials.loc['Total Revenue']
+                            if len(q_rev) >= 2:
+                                revenue_qoq = (q_rev.iloc[0] - q_rev.iloc[1]) / abs(q_rev.iloc[1]) if q_rev.iloc[1] != 0 else None
+                            if len(q_rev) >= 5:
+                                revenue_yoy = (q_rev.iloc[0] - q_rev.iloc[4]) / abs(q_rev.iloc[4]) if q_rev.iloc[4] != 0 else None
+                        
+                        if 'Net Income' in quarterly_financials.index:
+                            q_inc = quarterly_financials.loc['Net Income']
+                            if len(q_inc) >= 2:
+                                net_profit_qoq = (q_inc.iloc[0] - q_inc.iloc[1]) / abs(q_inc.iloc[1]) if q_inc.iloc[1] != 0 else None
+                            if len(q_inc) >= 5:
+                                net_profit_yoy = (q_inc.iloc[0] - q_inc.iloc[4]) / abs(q_inc.iloc[4]) if q_inc.iloc[4] != 0 else None
+                    except:
+                        pass
+
                 ak_info = {}
                 try:
                     info_df = await safe_ak_call(ak.stock_individual_info_em, symbol=clean_symbol)
-                    if info_df is not None and not info_df.empty:
+                    if validate_ak_data(info_df, min_rows=1):
                         ak_info = dict(zip(info_df['item'], info_df['value']))
                 except Exception as e:
                     print(f"AkShare info failed for {clean_symbol}: {e}")
@@ -340,16 +385,23 @@ class MarketDataService:
                 ak_financials = {}
                 try:
                     indicator_df = await safe_ak_call(ak.stock_financial_analysis_indicator_em, symbol=clean_symbol)
-                    if indicator_df is not None and not indicator_df.empty:
+                    if validate_ak_data(indicator_df, min_rows=1):
                         latest = indicator_df.head(5).to_dict(orient="records")
+                        l0 = latest[0]
                         ak_financials = {
                             "history": latest,
-                            "latestNetProfit": latest[0].get("净利润"),
-                            "latestGrowth": latest[0].get("净利润同比增长率"),
-                            "latestRevenue": latest[0].get("营业收入"),
-                            "latestRoe": latest[0].get("净资产收益率"),
-                            "latestGrossMargin": latest[0].get("销售毛利率"),
-                            "latestDebtRatio": latest[0].get("资产负债率"),
+                            "latestNetProfit": l0.get("净利润"),
+                            "latestNetProfitDeduct": l0.get("扣除非经常性损益后的净利润") or l0.get("扣非净利润"),
+                            "latestGrowth": l0.get("净利润同比增长率"),
+                            "latestRevenue": l0.get("营业收入"),
+                            "latestRoe": l0.get("净资产收益率"),
+                            "latestGrossMargin": l0.get("销售毛利率"),
+                            "latestDebtRatio": l0.get("资产负债率"),
+                            "latestAssetTurnover": l0.get("总资产周转率(次)") or l0.get("总资产周转率"),
+                            "latestInventoryTurnover": l0.get("存货周转率(次)") or l0.get("存货周转率"),
+                            "latestCurrentRatio": l0.get("流动比率"),
+                            "latestQuickRatio": l0.get("速动比率"),
+                            "latestCapex": l0.get("每股经营现金流(元)") # Estimate Capex if not direct
                         }
                 except:
                     pass
@@ -358,7 +410,7 @@ class MarketDataService:
                 latest_dividend = {}
                 try:
                     dividend_df = await safe_ak_call(ak.stock_history_dividend_detail, symbol=clean_symbol)
-                    latest_dividend = dividend_df.iloc[0].to_dict() if not dividend_df.empty else {}
+                    latest_dividend = dividend_df.iloc[0].to_dict() if validate_ak_data(dividend_df, min_rows=1) else {}
                 except:
                     pass
 
@@ -378,19 +430,27 @@ class MarketDataService:
                     "operatingMargin": yf_info.get("operatingMargins"),
                     "profitMargin": yf_info.get("profitMargins"),
                     "revenue": yf_info.get("totalRevenue") or ak_financials.get("latestRevenue"),
-                    "revenueGrowth": yf_info.get("revenueGrowth"),
-                    "earningsGrowth": yf_info.get("earningsGrowth"),
+                    "revenueGrowth": yf_info.get("revenueGrowth") or revenue_yoy,
+                    "revenueYoY": revenue_yoy,
+                    "revenueQoQ": revenue_qoq,
+                    "earningsGrowth": yf_info.get("earningsGrowth") or net_profit_yoy,
                     "netProfit": ak_financials.get("latestNetProfit") or yf_info.get("netIncomeToCommon"),
-                    "netProfitGrowth": ak_financials.get("latestGrowth"),
+                    "netProfitDeduct": ak_financials.get("latestNetProfitDeduct"),
+                    "netProfitYoY": net_profit_yoy or ak_financials.get("latestGrowth"),
+                    "netProfitQoQ": net_profit_qoq,
+                    "netProfitGrowth": ak_financials.get("latestGrowth") or net_profit_yoy,
                     "revenueCagr3y": revenue_cagr_3y,
                     "incomeCagr3y": income_cagr_3y,
                     "eps": yf_info.get("trailingEps"),
                     "debtToEquity": yf_info.get("debtToEquity"),
                     "debtRatio": ak_financials.get("latestDebtRatio"),
-                    "currentRatio": yf_info.get("currentRatio"),
-                    "quickRatio": yf_info.get("quickRatio"),
+                    "currentRatio": ak_financials.get("latestCurrentRatio") or yf_info.get("currentRatio"),
+                    "quickRatio": ak_financials.get("latestQuickRatio") or yf_info.get("quickRatio"),
+                    "inventoryTurnover": ak_financials.get("latestInventoryTurnover") or yf_info.get("inventoryTurnover"),
+                    "assetTurnover": ak_financials.get("latestAssetTurnover") or yf_info.get("assetTurnover"),
                     "freeCashflow": yf_info.get("freeCashflow"),
-                    "operatingCashflow": yf_info.get("operatingCashflow"),
+                    "operatingCashflow": ak_financials.get("latestCapex") or yf_info.get("operatingCashflow"),
+                    "capitalExpenditure": yf_info.get("capitalExpenditure"),
                     "payoutRatio": yf_info.get("payoutRatio"),
                     "dividend": latest_dividend.get("派息"),
                     "dividendYield": ak_info.get("股息率") or yf_info.get("dividendYield"),

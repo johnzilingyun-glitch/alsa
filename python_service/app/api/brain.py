@@ -36,7 +36,7 @@ async def get_evolution_instructions():
     Query the current evolved instructions.
     """
     try:
-        instructions = brain_manager._load_evolved_instructions()
+        instructions = brain_manager.get_evolved_instructions()
         return {"success": True, "data": instructions}
     except Exception as e:
         return {"success": False, "error": str(e)}

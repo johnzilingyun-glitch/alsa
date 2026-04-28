@@ -1,3 +1,4 @@
+import { Server } from 'socket.io';
 import express from 'express';
 import { createServer as createViteServer } from 'vite';
 import path from 'path';
@@ -126,6 +127,17 @@ async function startServer() {
     console.log(`Server running on http://localhost:${PORT}`);
     console.log(`GEMINI_API_KEY configured: ${!!process.env.GEMINI_API_KEY}`);
     addLogEntry('server', 'startup', 'active', 'Server started and background tasks initialized');
+  });
+
+  const io = new Server(server, { cors: { origin: '*' } });
+  app.set('io', io);
+
+  io.on('connection', (socket) => {
+    console.log('Client connected:', socket.id);
+    socket.on('joinRoom', (room) => {
+      socket.join(room);
+      console.log(`Socket ${socket.id} joined room: ${room}`);
+    });
   });
 
   server.on('error', (e: any) => {

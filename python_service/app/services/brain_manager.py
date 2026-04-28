@@ -50,12 +50,16 @@ class BrainManager:
                     "config": {"path": QDRANT_PATH}
                 },
                 "llm": {
-                    "provider": "gemini",
-                    "config": {"model": "gemini-3.1-flash", "api_key": self.api_key}
+                    "provider": "gemini" if self.api_key else "openai",
+                    "config": {
+                        "model": "gemini-3.1-flash-lite-preview" if self.api_key else "deepseek-v4-flash",
+                        "api_key": self.api_key or os.getenv("DEEPSEEK_API_KEY"),
+                        "base_url": None if self.api_key else "https://api.deepseek.com"
+                    }
                 },
                 "embedder": {
-                    "provider": "gemini",
-                    "config": {"model": "text-embedding-004", "api_key": self.api_key}
+                    "provider": "gemini" if self.api_key else "fastembed", 
+                    "config": {"model": "models/gemini-embedding-2" if self.api_key else "BAAI/bge-small-en-v1.5", "api_key": self.api_key}
                 }
             }
             try:

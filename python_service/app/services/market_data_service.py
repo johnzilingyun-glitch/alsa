@@ -13,16 +13,26 @@ class MarketDataService:
     async def get_quotes(self, symbols: List[str]) -> List[Dict[str, Any]]:
         """
         Fetch real-time quotes for multiple symbols using yfinance.
+        Handles A-Share symbol normalization (.SS/.SZ).
         """
+        processed_symbols = []
+        symbol_map = {}
+        for s in symbols:
+            if s.isdigit() and len(s) == 6:
+                suffixed = f"{s}.SS" if s.startswith('6') else f"{s}.SZ"
+                processed_symbols.append(suffixed)
+                symbol_map[suffixed] = s
+            else:
+                processed_symbols.append(s)
+                symbol_map[s] = s
+
         results = []
         try:
-            # yfinance is synchronous, but we can run it in a thread pool to avoid blocking FastAPI
             loop = asyncio.get_event_loop()
-            data = await loop.run_in_executor(None, lambda: yf.download(symbols, period="1d", interval="1m", group_by='ticker', progress=False))
-            
-            for symbol in symbols:
+            # Note: yf.download is better for batches but let's keep the ticker info logic for detail
+            for ps in processed_symbols:
                 try:
-                    ticker = yf.Ticker(symbol)
+                    ticker = yf.Ticker(ps)
                     info = ticker.info
                     
                     price = info.get("currentPrice") or info.get("regularMarketPrice")
@@ -34,9 +44,10 @@ class MarketDataService:
                         change = price - prev_close
                         change_percent = (change / prev_close) * 100
                     
+                    orig_symbol = symbol_map[ps]
                     results.append({
-                        "symbol": symbol,
-                        "name": info.get("shortName") or info.get("longName") or symbol,
+                        "symbol": orig_symbol,
+                        "name": info.get("shortName") or info.get("longName") or orig_symbol,
                         "price": price,
                         "change": round(change, 4) if change else 0,
                         "changePercent": round(change_percent, 2) if change_percent else 0,
@@ -44,13 +55,37 @@ class MarketDataService:
                         "marketCap": info.get("marketCap"),
                         "dividendYield": info.get("dividendYield"),
                         "dividendRate": info.get("dividendRate"),
+                        "trailingPE": info.get("trailingPE"),
+                        "forwardPE": info.get("forwardPE"),
+                        "priceToBook": info.get("priceToBook"),
+                        "pegRatio": info.get("pegRatio"),
+                        "priceToSales": info.get("priceToSalesTrailing12Months"),
+                        "enterpriseToEbitda": info.get("enterpriseToEbitda"),
+                        "enterpriseValue": info.get("enterpriseValue"),
+                        "returnOnEquity": info.get("returnOnEquity"),
+                        "returnOnAssets": info.get("returnOnAssets"),
+                        "grossMargins": info.get("grossMargins"),
+                        "operatingMargins": info.get("operatingMargins"),
+                        "profitMargins": info.get("profitMargins"),
+                        "totalRevenue": info.get("totalRevenue"),
+                        "revenueGrowth": info.get("revenueGrowth"),
+                        "earningsGrowth": info.get("earningsGrowth"),
+                        "eps": info.get("trailingEps"),
+                        "freeCashflow": info.get("freeCashflow"),
+                        "operatingCashflow": info.get("operatingCashflow"),
+                        "debtToEquity": info.get("debtToEquity"),
+                        "currentRatio": info.get("currentRatio"),
+                        "quickRatio": info.get("quickRatio"),
+                        "payoutRatio": info.get("payoutRatio"),
+                        "heldPercentInsiders": info.get("heldPercentInsiders"),
+                        "heldPercentInstitutions": info.get("heldPercentInstitutions"),
                         "currency": info.get("currency"),
                         "marketState": info.get("marketState"),
                         "lastUpdated": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                     })
                 except Exception as e:
-                    print(f"Error fetching quote for {symbol}: {e}")
-                    results.append({"symbol": symbol, "error": str(e)})
+                    print(f"Error fetching quote for {ps}: {e}")
+                    results.append({"symbol": symbol_map[ps], "error": str(e)})
                     
         except Exception as e:
             print(f"Batch fetch failed: {e}")
@@ -216,19 +251,53 @@ class MarketDataService:
                 ticker = yf.Ticker(symbol)
                 info = ticker.info
                 
-                # Fetch financials for net income
+                # Fetch financials for net income and revenue history
                 financials = await loop.run_in_executor(None, lambda: ticker.financials)
                 
                 net_income = {}
-                if financials is not None and not financials.empty and 'Net Income' in financials.index:
-                    series = financials.loc['Net Income']
-                    # Convert index (dates) to strings
-                    net_income = {str(k)[:10]: v for k, v in series.items()}
+                revenue_cagr_3y = None
+                income_cagr_3y = None
+                
+                if financials is not None and not financials.empty:
+                    if 'Net Income' in financials.index:
+                        series = financials.loc['Net Income']
+                        net_income = {str(k)[:10]: v for k, v in series.items()}
+                        income_cagr_3y = self._calculate_cagr(series)
+                    
+                    if 'Total Revenue' in financials.index:
+                        rev_series = financials.loc['Total Revenue']
+                        revenue_cagr_3y = self._calculate_cagr(rev_series)
                 
                 return {
                     "marketCap": info.get("marketCap"),
                     "dividendYield": info.get("dividendYield"),
                     "dividendRate": info.get("dividendRate"),
+                    "trailingPE": info.get("trailingPE"),
+                    "forwardPE": info.get("forwardPE"),
+                    "priceToBook": info.get("priceToBook"),
+                    "pegRatio": info.get("pegRatio"),
+                    "priceToSales": info.get("priceToSalesTrailing12Months"),
+                    "enterpriseToEbitda": info.get("enterpriseToEbitda"),
+                    "enterpriseValue": info.get("enterpriseValue"),
+                    "returnOnEquity": info.get("returnOnEquity"),
+                    "returnOnAssets": info.get("returnOnAssets"),
+                    "grossMargins": info.get("grossMargins"),
+                    "operatingMargins": info.get("operatingMargins"),
+                    "profitMargins": info.get("profitMargins"),
+                    "totalRevenue": info.get("totalRevenue"),
+                    "revenueGrowth": info.get("revenueGrowth"),
+                    "earningsGrowth": info.get("earningsGrowth"),
+                    "revenueCagr3y": revenue_cagr_3y,
+                    "incomeCagr3y": income_cagr_3y,
+                    "eps": info.get("trailingEps"),
+                    "freeCashflow": info.get("freeCashflow"),
+                    "operatingCashflow": info.get("operatingCashflow"),
+                    "debtToEquity": info.get("debtToEquity"),
+                    "currentRatio": info.get("currentRatio"),
+                    "quickRatio": info.get("quickRatio"),
+                    "payoutRatio": info.get("payoutRatio"),
+                    "heldPercentInsiders": info.get("heldPercentInsiders"),
+                    "heldPercentInstitutions": info.get("heldPercentInstitutions"),
                     "netIncomeHistory": net_income,
                     "currency": info.get("currency")
                 }
@@ -236,53 +305,54 @@ class MarketDataService:
                 clean_symbol = symbol[:6]
                 yf_symbol = f"{clean_symbol}.SS" if clean_symbol.startswith('6') else f"{clean_symbol}.SZ"
                 
-                info = {}
+                # Use yfinance as the primary source for ratios and complex metrics for A-Shares too
+                # since AkShare's ratio endpoint has been unstable
+                ticker = yf.Ticker(yf_symbol)
+                yf_info = {}
+                try:
+                    yf_info = ticker.info
+                except:
+                    pass
+
+                # Fetch financials for history
+                financials_history = await loop.run_in_executor(None, lambda: ticker.financials)
+                net_income_history = {}
+                revenue_cagr_3y = None
+                income_cagr_3y = None
+                if financials_history is not None and not financials_history.empty:
+                    if 'Net Income' in financials_history.index:
+                        series = financials_history.loc['Net Income']
+                        net_income_history = {str(k)[:10]: v for k, v in series.items()}
+                        income_cagr_3y = self._calculate_cagr(series)
+                    if 'Total Revenue' in financials_history.index:
+                        rev_series = financials_history.loc['Total Revenue']
+                        revenue_cagr_3y = self._calculate_cagr(rev_series)
+
+                ak_info = {}
                 try:
                     info_df = await safe_ak_call(ak.stock_individual_info_em, symbol=clean_symbol)
-                    info = dict(zip(info_df['item'], info_df['value']))
+                    if info_df is not None and not info_df.empty:
+                        ak_info = dict(zip(info_df['item'], info_df['value']))
                 except Exception as e:
-                    print(f"AkShare info failed for {clean_symbol}, trying yfinance: {e}")
-                    try:
-                        ticker = yf.Ticker(yf_symbol)
-                        yf_info = ticker.info
-                        info = {
-                            "总市值": yf_info.get("marketCap"),
-                            "流通市值": yf_info.get("marketCap"), # Approximation
-                            "市盈率-动态": yf_info.get("forwardPE"),
-                            "市净率": yf_info.get("priceToBook"),
-                            "股息率": yf_info.get("dividendYield")
-                        }
-                    except:
-                        info = {}
+                    print(f"AkShare info failed for {clean_symbol}: {e}")
                 
-                # Fetch financial indicator
-                financials = {}
+                # Fetch financial indicator (AkShare fallback)
+                ak_financials = {}
                 try:
                     indicator_df = await safe_ak_call(ak.stock_financial_analysis_indicator_em, symbol=clean_symbol)
-                    if not indicator_df.empty:
+                    if indicator_df is not None and not indicator_df.empty:
                         latest = indicator_df.head(5).to_dict(orient="records")
-                        financials = {
+                        ak_financials = {
                             "history": latest,
                             "latestNetProfit": latest[0].get("净利润"),
                             "latestGrowth": latest[0].get("净利润同比增长率"),
                             "latestRevenue": latest[0].get("营业收入"),
-                            "latestNonGaapNetProfit": latest[0].get("扣除非经常性损益后的净利润"),
                             "latestRoe": latest[0].get("净资产收益率"),
                             "latestGrossMargin": latest[0].get("销售毛利率"),
                             "latestDebtRatio": latest[0].get("资产负债率"),
                         }
-                except Exception as e:
-                    print(f"AkShare financials failed for {clean_symbol}, trying yfinance: {e}")
-                    try:
-                        ticker = yf.Ticker(yf_symbol)
-                        financials = {
-                            "latestNetProfit": ticker.info.get("netIncomeToCommon"),
-                            "latestRevenue": ticker.info.get("totalRevenue"),
-                            "latestRoe": ticker.info.get("returnOnEquity"),
-                            "latestGrossMargin": ticker.info.get("grossMargins"),
-                        }
-                    except:
-                        financials = {}
+                except:
+                    pass
                 
                 # Fetch dividend info
                 latest_dividend = {}
@@ -292,48 +362,67 @@ class MarketDataService:
                 except:
                     pass
 
-                # Valuation logic
-                pe = info.get("市盈率-动态")
-                valuation_explanation = ""
-                valuation_percentile = "50%"
-                
-                if pe is not None:
-                    try:
-                        pe_val = float(pe)
-                        if pe_val < 15:
-                            valuation_explanation = "当前动态市盈率处于历史低位区间，具备较高安全边际。"
-                            valuation_percentile = "15%"
-                        elif pe_val > 50:
-                            valuation_explanation = "当前动态市盈率偏高，反映了市场极高的增长预期，需警惕估值回调风险。"
-                            valuation_percentile = "85%"
-                        else:
-                            valuation_explanation = "估值处于行业合理中枢水平。"
-                            valuation_percentile = "50%"
-                    except:
-                        pass
-
+                # Combine data
                 return {
-                    "marketCap": info.get("总市值"),
-                    "circulatingMarketCap": info.get("流通市值"),
-                    "pe": pe,
-                    "pb": info.get("市净率"),
-                    "roe": financials.get("latestRoe"),
-                    "grossMargin": financials.get("latestGrossMargin"),
-                    "debtRatio": financials.get("latestDebtRatio"),
-                    "revenue": financials.get("latestRevenue"),
-                    "netProfit": financials.get("latestNetProfit"),
-                    "netProfitGrowth": financials.get("latestGrowth"),
-                    "nonGaapNetProfit": financials.get("latestNonGaapNetProfit"),
-                    "dividend": latest_dividend.get("派息") if latest_dividend else None,
-                    "dividendYield": info.get("股息率"),
-                    "valuationPercentile": valuation_percentile,
-                    "valuationExplanation": valuation_explanation,
-                    "financials": financials
+                    "marketCap": ak_info.get("总市值") or yf_info.get("marketCap"),
+                    "circulatingMarketCap": ak_info.get("流通市值"),
+                    "pe": yf_info.get("trailingPE") or ak_info.get("市盈率-动态"),
+                    "pb": yf_info.get("priceToBook") or ak_info.get("市净率"),
+                    "pegRatio": yf_info.get("pegRatio"),
+                    "priceToSales": yf_info.get("priceToSalesTrailing12Months"),
+                    "enterpriseToEbitda": yf_info.get("enterpriseToEbitda"),
+                    "enterpriseValue": yf_info.get("enterpriseValue"),
+                    "roe": yf_info.get("returnOnEquity") or ak_financials.get("latestRoe"),
+                    "roa": yf_info.get("returnOnAssets"),
+                    "grossMargin": yf_info.get("grossMargins") or ak_financials.get("latestGrossMargin"),
+                    "operatingMargin": yf_info.get("operatingMargins"),
+                    "profitMargin": yf_info.get("profitMargins"),
+                    "revenue": yf_info.get("totalRevenue") or ak_financials.get("latestRevenue"),
+                    "revenueGrowth": yf_info.get("revenueGrowth"),
+                    "earningsGrowth": yf_info.get("earningsGrowth"),
+                    "netProfit": ak_financials.get("latestNetProfit") or yf_info.get("netIncomeToCommon"),
+                    "netProfitGrowth": ak_financials.get("latestGrowth"),
+                    "revenueCagr3y": revenue_cagr_3y,
+                    "incomeCagr3y": income_cagr_3y,
+                    "eps": yf_info.get("trailingEps"),
+                    "debtToEquity": yf_info.get("debtToEquity"),
+                    "debtRatio": ak_financials.get("latestDebtRatio"),
+                    "currentRatio": yf_info.get("currentRatio"),
+                    "quickRatio": yf_info.get("quickRatio"),
+                    "freeCashflow": yf_info.get("freeCashflow"),
+                    "operatingCashflow": yf_info.get("operatingCashflow"),
+                    "payoutRatio": yf_info.get("payoutRatio"),
+                    "dividend": latest_dividend.get("派息"),
+                    "dividendYield": ak_info.get("股息率") or yf_info.get("dividendYield"),
+                    "heldPercentInsiders": yf_info.get("heldPercentInsiders"),
+                    "heldPercentInstitutions": yf_info.get("heldPercentInstitutions"),
+                    "currency": "CNY",
+                    "financials": ak_financials
                 }
         except Exception as e:
             print(f"Financial summary fetch failed for {symbol}: {e}")
             return {"error": str(e)}
         return {}
+
+    def _calculate_cagr(self, series) -> float:
+        try:
+            if series is None or len(series) < 2: return None
+            # Values are typically in reverse chronological order
+            vals = series.tolist()
+            if len(vals) >= 4: # 3 years difference
+                start_val = vals[3]
+                end_val = vals[0]
+                if start_val > 0 and end_val > 0:
+                    return (end_val / start_val) ** (1/3) - 1
+            elif len(vals) >= 2:
+                start_val = vals[-1]
+                end_val = vals[0]
+                years = len(vals) - 1
+                if start_val > 0 and end_val > 0:
+                    return (end_val / start_val) ** (1/years) - 1
+        except:
+            pass
+        return None
 
 # Singleton instance
 market_data_service = MarketDataService()

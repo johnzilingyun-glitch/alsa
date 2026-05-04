@@ -17,7 +17,7 @@ DEEP_TOPOLOGY = [
     {"round": 6, "experts": ["Contrarian Strategist"], "parallel": False},
     {"round": 7, "experts": ["Professional Reviewer"], "parallel": False},
     {"round": 8, "experts": ["Bull Researcher", "Bear Researcher"], "parallel": True},
-    {"round": 9, "experts": ["Soros-style Financial Philosopher", "Growth Visionary", "Macro Hedge Titan"], "parallel": True},
+    {"round": 9, "experts": ["Soros-style Financial Philosopher", "Growth Visionary", "Macro Hedge Titan", "Value Investing Sage"], "parallel": True},
     {"round": 10, "experts": ["Chief Strategist"], "parallel": False},
 ]
 
@@ -27,7 +27,7 @@ STANDARD_TOPOLOGY = [
     {"round": 3, "experts": ["Bull Researcher", "Bear Researcher"], "parallel": True},
     {"round": 4, "experts": ["Risk Manager"], "parallel": False},
     {"round": 5, "experts": ["Professional Reviewer"], "parallel": False},
-    {"round": 6, "experts": ["Soros-style Financial Philosopher", "Growth Visionary", "Macro Hedge Titan"], "parallel": True},
+    {"round": 6, "experts": ["Soros-style Financial Philosopher", "Growth Visionary", "Macro Hedge Titan", "Value Investing Sage"], "parallel": True},
     {"round": 7, "experts": ["Chief Strategist"], "parallel": False},
 ]
 

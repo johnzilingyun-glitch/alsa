@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 from typing import List, Dict, Any
 from ..utils.network import safe_ak_call
 from ..utils.data_validation import validate_ak_data
+from .search_service import search_service
 
 class MarketDataService:
     def __init__(self):
@@ -21,6 +22,10 @@ class MarketDataService:
         for s in symbols:
             if s.isdigit() and len(s) == 6:
                 suffixed = f"{s}.SS" if s.startswith('6') else f"{s}.SZ"
+                processed_symbols.append(suffixed)
+                symbol_map[suffixed] = s
+            elif s.isdigit() and len(s) <= 5:
+                suffixed = f"{s.zfill(4)}.HK"
                 processed_symbols.append(suffixed)
                 symbol_map[suffixed] = s
             else:
@@ -261,12 +266,18 @@ class MarketDataService:
     async def _fetch_financial_summary(self, symbol: str, market: str) -> Dict[str, Any]:
         loop = asyncio.get_event_loop()
         try:
-            if market == "US-Share" or symbol.startswith("^") or "=" in symbol:
-                ticker = yf.Ticker(symbol)
+            if market in ["US-Share", "HK-Share"] or symbol.startswith("^") or "=" in symbol:
+                yf_symbol = symbol
+                if market == "HK-Share":
+                    clean_symbol = symbol.replace(".HK", "").zfill(4)
+                    yf_symbol = f"{clean_symbol}.HK"
+                ticker = yf.Ticker(yf_symbol)
                 info = ticker.info
                 
-                # Fetch financials for net income and revenue history
+                # Fetch financials (annual + quarterly + balance sheet) for growth & turnover
                 financials = await loop.run_in_executor(None, lambda: ticker.financials)
+                quarterly_financials = await loop.run_in_executor(None, lambda: ticker.quarterly_financials)
+                balance_sheet = await loop.run_in_executor(None, lambda: ticker.balance_sheet)
                 
                 net_income = {}
                 revenue_cagr_3y = None
@@ -282,6 +293,101 @@ class MarketDataService:
                         rev_series = financials.loc['Total Revenue']
                         revenue_cagr_3y = self._calculate_cagr(rev_series)
                 
+                # QoQ / YoY from quarterly data
+                revenue_qoq = None
+                net_profit_qoq = None
+                revenue_yoy_q = None
+                net_profit_yoy_q = None
+                if quarterly_financials is not None and not quarterly_financials.empty:
+                    if 'Total Revenue' in quarterly_financials.index:
+                        q_rev = quarterly_financials.loc['Total Revenue'].dropna()
+                        if len(q_rev) >= 2 and q_rev.iloc[1] != 0:
+                            revenue_qoq = (q_rev.iloc[0] - q_rev.iloc[1]) / abs(q_rev.iloc[1])
+                        if len(q_rev) >= 5 and q_rev.iloc[4] != 0:
+                            revenue_yoy_q = (q_rev.iloc[0] - q_rev.iloc[4]) / abs(q_rev.iloc[4])
+                    if 'Net Income' in quarterly_financials.index:
+                        q_ni = quarterly_financials.loc['Net Income'].dropna()
+                        if len(q_ni) >= 2 and q_ni.iloc[1] != 0:
+                            net_profit_qoq = (q_ni.iloc[0] - q_ni.iloc[1]) / abs(q_ni.iloc[1])
+                        if len(q_ni) >= 5 and q_ni.iloc[4] != 0:
+                            net_profit_yoy_q = (q_ni.iloc[0] - q_ni.iloc[4]) / abs(q_ni.iloc[4])
+                
+                # Turnover ratios from balance sheet + income statement
+                asset_turnover = None
+                inventory_turnover = None
+                if balance_sheet is not None and not balance_sheet.empty and financials is not None and not financials.empty:
+                    try:
+                        if 'Total Assets' in balance_sheet.index and 'Total Revenue' in financials.index:
+                            total_assets = balance_sheet.loc['Total Assets'].iloc[0]
+                            total_revenue_val = financials.loc['Total Revenue'].iloc[0]
+                            if total_assets and total_assets != 0:
+                                asset_turnover = total_revenue_val / total_assets
+                    except Exception:
+                        pass
+                    try:
+                        if 'Inventory' in balance_sheet.index and 'Cost Of Revenue' in financials.index:
+                            inventory_val = balance_sheet.loc['Inventory'].iloc[0]
+                            cogs = financials.loc['Cost Of Revenue'].iloc[0]
+                            if inventory_val and inventory_val != 0:
+                                inventory_turnover = cogs / inventory_val
+                    except Exception:
+                        pass
+                
+                # Search fallback for missing HK/US financials
+                search_context = ""
+                if not info.get("marketCap") or not info.get("totalRevenue") or not info.get("netIncomeToCommon"):
+                    try:
+                        # Improved query for HK/US stocks with specific missing fields
+                        company_name = info.get("longName") or info.get("shortName") or symbol
+                        query = f"{company_name} ({yf_symbol}) 2024 2025 financials net profit adjusted net profit Non-GAAP 扣非净利润 营收环比 QoQ growth capex"
+                        search_context = await search_service.quick_search(query)
+                    except:
+                        pass
+                
+                # Detect currency mismatch for ADR/foreign stocks
+                listing_currency = info.get("currency") or "USD"
+                financial_currency = info.get("financialCurrency") or listing_currency
+                
+                # If listing and financial currencies differ (e.g. NVO: USD vs DKK),
+                # yfinance's pre-computed ratios (PS, EV/EBITDA) may be wrong.
+                # Recompute them using consistent units.
+                price_to_sales = info.get("priceToSalesTrailing12Months")
+                ev_to_ebitda = info.get("enterpriseToEbitda")
+                enterprise_value = info.get("enterpriseValue")
+                
+                if listing_currency != financial_currency:
+                    # yfinance returns EV and financial values in financialCurrency,
+                    # but marketCap and price in listing currency.
+                    # The pre-computed ratios mix currencies and are unreliable.
+                    market_cap = info.get("marketCap")
+                    total_revenue = info.get("totalRevenue")
+                    ebitda = info.get("ebitda")
+                    
+                    # Recompute PS: both marketCap and totalRevenue should be in same currency
+                    # yfinance marketCap is in listing_currency, totalRevenue in financial_currency
+                    # We cannot fix without exchange rate, so mark as needing financial_currency
+                    # For display: use the pre-computed value ONLY if currencies match
+                    price_to_sales = None  # Mark unreliable
+                    ev_to_ebitda = None     # Mark unreliable
+                    
+                    # Recompute using ebitda (in financial_currency) and EV (in financial_currency)
+                    if enterprise_value and ebitda and ebitda != 0:
+                        ev_to_ebitda = enterprise_value / ebitda
+                    
+                    # Recompute PS using totalRevenue and enterpriseValue to infer
+                    # market cap in financial_currency
+                    if market_cap and total_revenue and total_revenue != 0:
+                        # EV is in financial_currency from yfinance for foreign stocks
+                        # We need market_cap in financial_currency too
+                        # Approximate: use totalDebt and totalCash which are in financial_currency
+                        total_debt = info.get("totalDebt") or 0
+                        total_cash = info.get("totalCash") or 0
+                        if enterprise_value:
+                            # market_cap_fc = EV - debt + cash (all in financial_currency)
+                            market_cap_fc = enterprise_value - total_debt + total_cash
+                            if market_cap_fc > 0:
+                                price_to_sales = market_cap_fc / total_revenue
+                
                 return {
                     "marketCap": info.get("marketCap"),
                     "dividendYield": info.get("dividendYield"),
@@ -290,9 +396,9 @@ class MarketDataService:
                     "forwardPE": info.get("forwardPE"),
                     "priceToBook": info.get("priceToBook"),
                     "pegRatio": info.get("pegRatio"),
-                    "priceToSales": info.get("priceToSalesTrailing12Months"),
-                    "enterpriseToEbitda": info.get("enterpriseToEbitda"),
-                    "enterpriseValue": info.get("enterpriseValue"),
+                    "priceToSales": price_to_sales,
+                    "enterpriseToEbitda": ev_to_ebitda,
+                    "enterpriseValue": enterprise_value,
                     "returnOnEquity": info.get("returnOnEquity"),
                     "returnOnAssets": info.get("returnOnAssets"),
                     "grossMargins": info.get("grossMargins"),
@@ -301,6 +407,10 @@ class MarketDataService:
                     "totalRevenue": info.get("totalRevenue"),
                     "revenueGrowth": info.get("revenueGrowth"),
                     "earningsGrowth": info.get("earningsGrowth"),
+                    "revenueYoY": revenue_yoy_q or info.get("revenueGrowth"),
+                    "netProfitYoY": net_profit_yoy_q or info.get("earningsGrowth"),
+                    "revenueQoQ": revenue_qoq,
+                    "netProfitQoQ": net_profit_qoq,
                     "revenueCagr3y": revenue_cagr_3y,
                     "incomeCagr3y": income_cagr_3y,
                     "eps": info.get("trailingEps"),
@@ -313,13 +423,15 @@ class MarketDataService:
                     "payoutRatio": info.get("payoutRatio"),
                     "heldPercentInsiders": info.get("heldPercentInsiders"),
                     "heldPercentInstitutions": info.get("heldPercentInstitutions"),
-                    "inventoryTurnover": info.get("inventoryTurnover"),
-                    "assetTurnover": info.get("assetTurnover"),
+                    "inventoryTurnover": inventory_turnover or info.get("inventoryTurnover"),
+                    "assetTurnover": asset_turnover or info.get("assetTurnover"),
                     "fiftyTwoWeekHigh": info.get("fiftyTwoWeekHigh"),
                     "fiftyTwoWeekLow": info.get("fiftyTwoWeekLow"),
                     "price": info.get("currentPrice") or info.get("regularMarketPrice"),
                     "netIncomeHistory": net_income,
-                    "currency": info.get("currency")
+                    "currency": listing_currency,
+                    "financialCurrency": financial_currency,
+                    "financials": {"searchContext": search_context}
                 }
             elif market == "A-Share":
                 clean_symbol = symbol[:6]
@@ -401,8 +513,27 @@ class MarketDataService:
                             "latestInventoryTurnover": l0.get("存货周转率(次)") or l0.get("存货周转率"),
                             "latestCurrentRatio": l0.get("流动比率"),
                             "latestQuickRatio": l0.get("速动比率"),
-                            "latestCapex": l0.get("每股经营现金流(元)") # Estimate Capex if not direct
+                            "latestOcfPerShare": l0.get("每股经营现金流(元)"),
                         }
+                        # Calculate 扣非净利润 YoY/QoQ from history
+                        npd_key = "扣除非经常性损益后的净利润"
+                        npd_alt = "扣非净利润"
+                        if len(latest) >= 2:
+                            npd0 = l0.get(npd_key) or l0.get(npd_alt)
+                            npd1 = latest[1].get(npd_key) or latest[1].get(npd_alt)
+                            if npd0 is not None and npd1 is not None and npd1 != 0:
+                                try:
+                                    ak_financials["latestNetProfitDeductQoQ"] = (float(npd0) - float(npd1)) / abs(float(npd1))
+                                except (ValueError, TypeError):
+                                    pass
+                        if len(latest) >= 5:
+                            npd0 = l0.get(npd_key) or l0.get(npd_alt)
+                            npd4 = latest[4].get(npd_key) or latest[4].get(npd_alt)
+                            if npd0 is not None and npd4 is not None and npd4 != 0:
+                                try:
+                                    ak_financials["latestNetProfitDeductYoY"] = (float(npd0) - float(npd4)) / abs(float(npd4))
+                                except (ValueError, TypeError):
+                                    pass
                 except:
                     pass
                 
@@ -413,6 +544,17 @@ class MarketDataService:
                     latest_dividend = dividend_df.iloc[0].to_dict() if validate_ak_data(dividend_df, min_rows=1) else {}
                 except:
                     pass
+
+                # Fallback to search if critical metrics are missing
+                if not ak_financials.get("latestNetProfitDeduct"):
+                    try:
+                        print(f"Critical financials missing for {symbol}, falling back to search...")
+                        query = f"{symbol} 最新财报 净利润 扣非净利润 营收环比 净利润同比 资本开支"
+                        search_res = await search_service.quick_search(query)
+                        ak_financials["searchContext"] = search_res
+                    except Exception as e:
+                        print(f"Search fallback for financials failed: {e}")
+
 
                 # Combine data
                 return {
@@ -438,6 +580,8 @@ class MarketDataService:
                     "netProfitDeduct": ak_financials.get("latestNetProfitDeduct"),
                     "netProfitYoY": net_profit_yoy or ak_financials.get("latestGrowth"),
                     "netProfitQoQ": net_profit_qoq,
+                    "netProfitDeductYoY": ak_financials.get("latestNetProfitDeductYoY"),
+                    "netProfitDeductQoQ": ak_financials.get("latestNetProfitDeductQoQ"),
                     "netProfitGrowth": ak_financials.get("latestGrowth") or net_profit_yoy,
                     "revenueCagr3y": revenue_cagr_3y,
                     "incomeCagr3y": income_cagr_3y,
@@ -449,14 +593,18 @@ class MarketDataService:
                     "inventoryTurnover": ak_financials.get("latestInventoryTurnover") or yf_info.get("inventoryTurnover"),
                     "assetTurnover": ak_financials.get("latestAssetTurnover") or yf_info.get("assetTurnover"),
                     "freeCashflow": yf_info.get("freeCashflow"),
-                    "operatingCashflow": ak_financials.get("latestCapex") or yf_info.get("operatingCashflow"),
+                    "operatingCashflow": yf_info.get("operatingCashflow"),
                     "capitalExpenditure": yf_info.get("capitalExpenditure"),
                     "payoutRatio": yf_info.get("payoutRatio"),
                     "dividend": latest_dividend.get("派息"),
                     "dividendYield": ak_info.get("股息率") or yf_info.get("dividendYield"),
                     "heldPercentInsiders": yf_info.get("heldPercentInsiders"),
                     "heldPercentInstitutions": yf_info.get("heldPercentInstitutions"),
+                    "fiftyTwoWeekHigh": yf_info.get("fiftyTwoWeekHigh"),
+                    "fiftyTwoWeekLow": yf_info.get("fiftyTwoWeekLow"),
+                    "price": yf_info.get("currentPrice") or yf_info.get("regularMarketPrice"),
                     "currency": "CNY",
+                    "financialCurrency": "CNY",
                     "financials": ak_financials
                 }
         except Exception as e:
@@ -467,19 +615,17 @@ class MarketDataService:
     def _calculate_cagr(self, series) -> float:
         try:
             if series is None or len(series) < 2: return None
-            # Values are typically in reverse chronological order
             vals = series.tolist()
-            if len(vals) >= 4: # 3 years difference
-                start_val = vals[3]
-                end_val = vals[0]
-                if start_val > 0 and end_val > 0:
-                    return (end_val / start_val) ** (1/3) - 1
-            elif len(vals) >= 2:
-                start_val = vals[-1]
-                end_val = vals[0]
-                years = len(vals) - 1
-                if start_val > 0 and end_val > 0:
-                    return (end_val / start_val) ** (1/years) - 1
+            if len(vals) >= 4:
+                start_val, end_val, years = vals[3], vals[0], 3
+            else:
+                start_val, end_val, years = vals[-1], vals[0], len(vals) - 1
+            
+            if start_val > 0 and end_val > 0:
+                return (end_val / start_val) ** (1/years) - 1
+            # Handle negative→positive (turnaround): use absolute values and flag as positive growth
+            if start_val < 0 and end_val > 0:
+                return (end_val / abs(start_val)) ** (1/years) - 1
         except:
             pass
         return None

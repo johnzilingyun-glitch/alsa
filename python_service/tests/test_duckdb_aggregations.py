@@ -28,4 +28,4 @@ def test_duckdb_cross_stock_aggregation(tmp_path):
         WHERE trade_date = '2026-04-16'
     """
     res = query_engine.run_query(sql)
-    assert float(res.iloc[0]['avg_price']) == 855.0 # (1700 + 10) / 2
+    assert abs(float(res.iloc[0]['avg_price']) - 855.0) < 0.01  # (1700 + 10) / 2

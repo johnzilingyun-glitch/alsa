@@ -1,4 +1,6 @@
 import os
+import json
+import asyncio
 from google import genai
 from openai import OpenAI
 from typing import Optional, List, Dict, Any
@@ -45,72 +47,425 @@ class LLMGateway:
                 raise ValueError("DEEPSEEK_API_KEY is missing.")
         return self._deepseek_client
 
-    async def generate_content(self, prompt: str, model: str = "gemini-3.1-pro-preview", temperature: float = 0.7) -> str:
+    async def generate_content(self, prompt: str, model: str = "gemini-3.1-pro-preview", temperature: float = 0.3) -> str:
         """
-        Generate content using the specified model (Gemini or DeepSeek).
+        Generate content with built-in quality-gate retry.
+        Retries up to 2 extra times if response is truncated or garbage.
         """
-        if "deepseek" in model.lower():
-            return await self._generate_deepseek(prompt, model, temperature)
-        else:
-            return await self._generate_gemini(prompt, model, temperature)
+        max_quality_retries = 2
+        for quality_attempt in range(max_quality_retries + 1):
+            if "deepseek" in model.lower():
+                result = await self._generate_deepseek(prompt, model, temperature)
+            else:
+                result = await self._generate_gemini(prompt, model, temperature)
+
+            # Quality gate: detect truncated responses
+            if result and len(result) < 150:
+                if quality_attempt < max_quality_retries:
+                    print(f"WARNING: Very short response ({len(result)} chars) — quality retry {quality_attempt+1}/{max_quality_retries}")
+                    continue
+                else:
+                    print(f"WARNING: Very short response ({len(result)} chars) after {max_quality_retries} retries — using anyway")
+
+            # Quality gate: detect off-topic garbage
+            if result and any(keyword in result[:200].lower() for keyword in
+                              ["h2020", "erasmus", "empowering women", "stem education"]):
+                if quality_attempt < max_quality_retries:
+                    print(f"WARNING: Off-topic response — quality retry {quality_attempt+1}/{max_quality_retries}")
+                    continue
+                else:
+                    print(f"WARNING: Off-topic response persists after retries — using anyway")
+
+            if result and len(result) < 200:
+                print(f"WARNING: Short response ({len(result)} chars) — may be truncated")
+
+            return result
+
+        return result  # fallback
 
     async def _generate_gemini(self, prompt: str, model: str, temperature: float) -> str:
-        try:
-            client = self.gemini_client
-            if not client:
-                raise ValueError("Gemini client not initialized (missing API key?)")
-                
-            import asyncio
-            response = await asyncio.to_thread(
-                client.models.generate_content,
-                model=model,
-                contents=prompt,
-                config={
-                    "temperature": temperature,
-                }
-            )
+        client = self.gemini_client
+        if not client:
+            raise ValueError("Gemini client not initialized (missing API key?)")
             
-            if response and hasattr(response, 'text'):
-                return response.text
-            elif response and isinstance(response, str):
-                return response
+        max_retries = 20
+        retry_delay = 10 # Initial delay in seconds
+        max_delay = 3600 # 1 hour
+        
+        # User defined fallback chain for Gemini
+        model_chain = [model]
+        if model.startswith("gemini-3"):
+            # Fixed priority chain
+            base_chain = ["gemini-3.1-pro-preview", "gemini-3-flash-preview", "gemini-3.1-flash-lite-preview"]
+            if model in base_chain:
+                model_chain = [model] + [m for m in base_chain if m != model]
             else:
-                raise ValueError(f"Unexpected response type from Gemini: {type(response)}")
-        except Exception as e:
-            print(f"Gemini Error ({model}): {e}")
-            # Fallback to DeepSeek if Gemini fails and we have a key
-            if self.deepseek_api_key:
-                print("Gemini failed, falling back to DeepSeek (deepseek-v4-pro)...")
-                return await self._generate_deepseek(prompt, "deepseek-v4-pro", temperature)
-            raise e
+                model_chain = [model] + base_chain
+        
+        for current_model in model_chain:
+            for attempt in range(max_retries):
+                # CHECK FOR USER STOP SIGNAL
+                if os.path.exists(".stop"):
+                    print("User stop signal detected (.stop file). Aborting analysis...")
+                    raise Exception("Analysis stopped by user.")
+
+                try:
+                    # Assemble generation config
+                    config = {
+                        "temperature": temperature,
+                        "max_output_tokens": 8192,
+                    }
+                    if current_model == "gemini-3.1-pro-preview":
+                        config["tools"] = [{"google_search": {}}]
+
+                    response = await asyncio.to_thread(
+                        client.models.generate_content,
+                        model=current_model,
+                        contents=prompt,
+                        config=config
+                    )
+                    
+                    if response and hasattr(response, 'text'):
+                        return response.text
+                    elif response and isinstance(response, str):
+                        return response
+                    else:
+                        raise ValueError(f"Unexpected response type from Gemini: {type(response)}")
+                except Exception as e:
+                    error_msg = str(e)
+                    print(f"Gemini Error ({current_model}) on attempt {attempt + 1}/{max_retries}: {error_msg}")
+                    
+                    # Retry on 429 Quota Exceeded or 503 Service Unavailable
+                    if "429" in error_msg or "quota" in error_msg.lower() or "503" in error_msg:
+                        if attempt < max_retries - 1:
+                            print(f"Rate limit or quota hit. Waiting {retry_delay} seconds before retrying (Max wait 1 hour)...")
+                            # Interruptible sleep
+                            for _ in range(int(retry_delay)):
+                                await asyncio.sleep(1)
+                                if os.path.exists(".stop"):
+                                    print("User stop signal detected during wait. Aborting...")
+                                    raise Exception("Analysis stopped by user.")
+                            
+                            retry_delay = min(retry_delay * 2, max_delay)
+                            continue
+                    
+                    print(f"Failed to generate with {current_model}. Attempting next model in chain...")
+                    break # Break inner attempt loop to go to next model
+            else:
+                # This executes if the inner loop finishes without breaking (should not happen unless max_retries=0)
+                pass
+                
+        raise Exception(f"Failed to generate content after trying model chain {model_chain} due to API errors.")
 
     async def _generate_deepseek(self, prompt: str, model: str, temperature: float) -> str:
-        try:
-            # Map legacy aliases to V4 equivalents for future-proofing
-            model_map = {
-                "deepseek-chat": "deepseek-v4-pro",
-                "deepseek-reasoner": "deepseek-v4-pro"
-            }
-            final_model = model_map.get(model, model)
-            
-            import asyncio
-            response = await asyncio.to_thread(
-                self.deepseek_client.chat.completions.create,
+        max_retries = 3
+        retry_delay = 5
+        
+        # Map legacy aliases to V4 equivalents for future-proofing
+        model_map = {
+            "deepseek-chat": "deepseek-v4-pro",
+            "deepseek-reasoner": "deepseek-v4-pro"
+        }
+        final_model = model_map.get(model, model)
+        
+        def _stream_generate():
+            """Blocking streaming call — runs in thread for async compatibility."""
+            response = self.deepseek_client.chat.completions.create(
                 model=final_model,
                 messages=[
                     {"role": "system", "content": "You are a professional financial analyst expert."},
                     {"role": "user", "content": prompt}
                 ],
                 temperature=temperature,
-                stream=False
+                max_tokens=16384,
+                stream=True
             )
-            return response.choices[0].message.content
-        except Exception as e:
-            print(f"DeepSeek Error ({model}): {e}")
-            # Fallback to Gemini if DeepSeek fails and we have a key
-            if self.gemini_api_key:
-                print("DeepSeek failed, falling back to Gemini (gemini-3.1-flash-lite-preview)...")
-                return await self._generate_gemini(prompt, "gemini-3.1-flash-lite-preview", temperature)
-            raise e
+            content_parts = []
+            char_count = 0
+            for chunk in response:
+                if chunk.choices and chunk.choices[0].delta and chunk.choices[0].delta.content:
+                    text = chunk.choices[0].delta.content
+                    content_parts.append(text)
+                    char_count += len(text)
+                    # Print progress dot every ~200 chars for real-time feedback
+                    if char_count % 200 < len(text):
+                        print(".", end="", flush=True)
+            print(flush=True)  # newline after streaming dots
+            return "".join(content_parts)
+        
+        for attempt in range(max_retries):
+            try:
+                result = await asyncio.to_thread(_stream_generate)
+                if not result:
+                    raise ValueError("DeepSeek returned empty streaming response")
+                return result
+            except Exception as e:
+                error_msg = str(e)
+                print(f"DeepSeek Error ({final_model}) on attempt {attempt + 1}/{max_retries}: {error_msg}")
+                
+                # Retry on transient errors: 429 Quota, 503/524 Server, empty response, connection errors
+                if "429" in error_msg or "quota" in error_msg.lower() or "503" in error_msg or "524" in error_msg or "500" in error_msg or "502" in error_msg or "empty response" in error_msg.lower() or "connection" in error_msg.lower() or "timeout" in error_msg.lower():
+                    if attempt < max_retries - 1:
+                        print(f"Retryable error. Waiting {retry_delay} seconds before retrying...")
+                        await asyncio.sleep(retry_delay)
+                        retry_delay *= 2
+                        continue
+                
+                # Strict mode: Do not fallback or downgrade
+                print(f"Strict model mode enforced. Failed to generate with {final_model}. Raising error without fallback.")
+                raise e
+                
+        raise Exception(f"Failed to generate content with {final_model} after {max_retries} attempts due to rate limits.")
+
+    async def generate_with_native_tools(self, prompt: str, model: str, temperature: float = 0.3, max_tool_rounds: int = 3) -> str:
+        """
+        Generate content using DeepSeek's native OpenAI-compatible function calling API.
+        
+        Instead of text-based <tool_call> parsing, uses the `tools` parameter
+        for structured function calling with streaming progress output.
+        """
+        from .expert_tools import get_openai_tools, tool_executor
+        
+        model_map = {
+            "deepseek-chat": "deepseek-v4-pro",
+            "deepseek-reasoner": "deepseek-v4-pro"
+        }
+        final_model = model_map.get(model, model)
+        
+        tools = get_openai_tools()
+        messages = [
+            {"role": "system", "content": "You are a professional financial analyst expert."},
+            {"role": "user", "content": prompt}
+        ]
+        
+        # Guard against prompt size explosion
+        prompt_chars = len(prompt)
+        prompt_tokens_est = prompt_chars // 4
+        if prompt_tokens_est > 60000:
+            print(f"  [ToolLoop] WARNING: Prompt exceeds 60k tokens, truncating search enrichment...")
+            enrichment_start = prompt.find("[SEARCH ENRICHMENT]")
+            enrichment_end = prompt.find("[MANDATORY] GROUND TRUTH")
+            if enrichment_start > 0 and enrichment_end > enrichment_start:
+                prompt = prompt[:enrichment_start] + "[SEARCH ENRICHMENT - truncated due to prompt size]\n" + prompt[enrichment_end:]
+                messages[1]["content"] = prompt
+        
+        all_content_parts = []
+        
+        for round_num in range(max_tool_rounds + 1):
+            total_chars = sum(len(m.get("content") or "") for m in messages)
+            total_tokens_est = total_chars // 4
+            print(f"  [ToolLoop] Prompt size: ~{total_tokens_est} tokens ({total_chars} chars)")
+            
+            # Last round: force completion without tools
+            use_tools = round_num < max_tool_rounds
+            
+            def _stream_with_tools():
+                """Blocking streaming call with native tool support."""
+                kwargs = {
+                    "model": final_model,
+                    "messages": messages,
+                    "temperature": temperature,
+                    "max_tokens": 16384,
+                    "stream": True,
+                }
+                if use_tools:
+                    kwargs["tools"] = tools
+                
+                response = self.deepseek_client.chat.completions.create(**kwargs)
+                
+                content_parts = []
+                reasoning_parts = []  # capture reasoning_content for thinking mode
+                tool_calls_acc = []  # accumulated tool calls from streaming deltas
+                char_count = 0
+                
+                for chunk in response:
+                    if not chunk.choices:
+                        continue
+                    delta = chunk.choices[0].delta
+                    
+                    # Accumulate reasoning_content (thinking mode)
+                    reasoning_text = getattr(delta, "reasoning_content", None)
+                    if reasoning_text:
+                        reasoning_parts.append(reasoning_text)
+                    
+                    # Accumulate content
+                    if delta.content:
+                        content_parts.append(delta.content)
+                        char_count += len(delta.content)
+                        if char_count % 200 < len(delta.content):
+                            print(".", end="", flush=True)
+                    
+                    # Accumulate tool calls from streaming deltas
+                    if delta.tool_calls:
+                        for tc_delta in delta.tool_calls:
+                            idx = tc_delta.index
+                            while len(tool_calls_acc) <= idx:
+                                tool_calls_acc.append({"id": "", "function": {"name": "", "arguments": ""}})
+                            if tc_delta.id:
+                                tool_calls_acc[idx]["id"] = tc_delta.id
+                            if tc_delta.function:
+                                if tc_delta.function.name:
+                                    tool_calls_acc[idx]["function"]["name"] += tc_delta.function.name
+                                if tc_delta.function.arguments:
+                                    tool_calls_acc[idx]["function"]["arguments"] += tc_delta.function.arguments
+                
+                print(flush=True)
+                reasoning_content = "".join(reasoning_parts) if reasoning_parts else None
+                return "".join(content_parts), tool_calls_acc, reasoning_content
+            
+            try:
+                content, tool_calls_data, reasoning_content = await asyncio.to_thread(_stream_with_tools)
+            except Exception as e:
+                error_msg = str(e)
+                print(f"DeepSeek Native Tool Error: {error_msg}")
+                if all_content_parts:
+                    break
+                raise
+            
+            # No tool calls — final response
+            if not tool_calls_data:
+                if content:
+                    all_content_parts.append(content)
+                break
+            
+            print(f"  [ToolLoop] Round {round_num + 1}: {len(tool_calls_data)} native tool call(s)")
+            
+            # Skip content during tool-call rounds — DeepSeek puts DSML markup
+            # (raw tool call tokens) in content field alongside native tool_calls.
+            # Only keep content that doesn't contain DSML tokens.
+            if content and 'DSML' not in content:
+                all_content_parts.append(content)
+            
+            # Build assistant message with tool_calls for conversation history
+            # Must include reasoning_content when model uses thinking mode
+            assistant_msg = {"role": "assistant", "content": content or None, "tool_calls": [
+                {
+                    "id": tc["id"],
+                    "type": "function",
+                    "function": {
+                        "name": tc["function"]["name"],
+                        "arguments": tc["function"]["arguments"]
+                    }
+                }
+                for tc in tool_calls_data
+            ]}
+            if reasoning_content:
+                assistant_msg["reasoning_content"] = reasoning_content
+            messages.append(assistant_msg)
+            
+            # Execute each tool and append result as role:tool message
+            for tc_data in tool_calls_data:
+                func_name = tc_data["function"]["name"]
+                try:
+                    args = json.loads(tc_data["function"]["arguments"])
+                except json.JSONDecodeError:
+                    args = {}
+                
+                # Convert to our ToolExecutor format
+                tool_call = {"tool": func_name, "reason": "native function call"}
+                if func_name == "deep_scrape":
+                    tool_call["url"] = args.get("url", "")
+                    tool_call["query"] = args.get("query", "")
+                else:
+                    tool_call["query"] = args.get("query", "")
+                
+                label = tool_call.get('url', tool_call.get('query', ''))[:60]
+                print(f"  [ToolExecutor] {func_name}: {label}...")
+                
+                obs = await tool_executor.execute(tool_call)
+                # Strip XML tags — native tool API uses plain content in messages
+                obs_clean = obs.replace("<tool_observation>", "").replace("</tool_observation>", "").strip()
+                
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": tc_data["id"],
+                    "content": obs_clean
+                })
+        
+        result = "\n".join(all_content_parts) if all_content_parts else content or ""
+        # Safety net: strip any remaining DSML tokens that may have leaked
+        if 'DSML' in result:
+            import re
+            result = re.sub(r'<[｜|]*DSML[｜|]*[^>]*>', '', result)
+            result = re.sub(r'</[｜|]*DSML[｜|]*[^>]*>', '', result)
+            # Clean up leftover whitespace from stripped tokens
+            result = re.sub(r'\n{3,}', '\n\n', result).strip()
+        return result
+
+    async def generate_with_tools(self, prompt: str, model: str = "gemini-3.1-pro-preview", temperature: float = 0.3, max_tool_rounds: int = 3) -> str:
+        """
+        Generate content with tool-calling loop.
+        
+        For DeepSeek: uses native OpenAI-compatible function calling API.
+        For other models: uses text-based <tool_call> parsing.
+        """
+        # For DeepSeek, use native OpenAI-compatible function calling
+        if "deepseek" in model.lower():
+            return await self.generate_with_native_tools(prompt, model, temperature, max_tool_rounds)
+        
+        from .expert_tools import parse_tool_calls, has_tool_calls, tool_executor
+        
+        current_prompt = prompt
+        all_content_parts = []
+        
+        for round_num in range(max_tool_rounds + 1):
+            # Guard against prompt size explosion
+            prompt_chars = len(current_prompt)
+            prompt_tokens_est = prompt_chars // 4
+            print(f"  [ToolLoop] Prompt size: ~{prompt_tokens_est} tokens ({prompt_chars} chars)")
+            if prompt_tokens_est > 60000:
+                print(f"  [ToolLoop] WARNING: Prompt exceeds 60k tokens, truncating search enrichment...")
+                # Truncate the enrichment section if present
+                enrichment_start = current_prompt.find("[SEARCH ENRICHMENT]")
+                enrichment_end = current_prompt.find("[MANDATORY] GROUND TRUTH")
+                if enrichment_start > 0 and enrichment_end > enrichment_start:
+                    current_prompt = current_prompt[:enrichment_start] + "[SEARCH ENRICHMENT - truncated due to prompt size]\n" + current_prompt[enrichment_end:]
+
+            # Generate
+            result = await self.generate_content(current_prompt, model=model, temperature=temperature)
+            
+            if not result:
+                break
+            
+            # Check for tool calls
+            if not has_tool_calls(result):
+                # No tool calls — final response
+                all_content_parts.append(result)
+                break
+            
+            # Parse tool calls
+            tool_calls = parse_tool_calls(result)
+            if not tool_calls:
+                # Has <tool_call> tag but couldn't parse — treat as final
+                all_content_parts.append(result)
+                break
+            
+            print(f"  [ToolLoop] Round {round_num + 1}: {len(tool_calls)} tool call(s)")
+            
+            # Extract text before first tool call (the LLM's reasoning so far)
+            first_call_pos = result.find("<tool_call>")
+            if first_call_pos > 0:
+                reasoning_before = result[:first_call_pos].strip()
+                if reasoning_before:
+                    all_content_parts.append(reasoning_before)
+            
+            # Execute tools
+            observations = await tool_executor.execute_all(tool_calls)
+            
+            # Build continuation prompt
+            tool_section = "\n\n--- TOOL RESULTS ---\n"
+            for tc, obs in zip(tool_calls, observations):
+                tool_section += f"\n[Tool: {tc['tool']} | Query: {tc['query']}]\n"
+                tool_section += obs + "\n"
+            tool_section += "\n--- END TOOL RESULTS ---\n"
+            tool_section += "\nContinue your analysis using the tool results above. Do NOT repeat previous analysis. Build on it with the new data.\n"
+            
+            current_prompt = current_prompt + "\n\n--- ASSISTANT PARTIAL RESPONSE ---\n" + result + "\n" + tool_section
+            
+            if round_num == max_tool_rounds:
+                # Last round — force completion without tools
+                current_prompt += "\nIMPORTANT: This is your final response round. Do NOT make any more tool calls. Complete your analysis now.\n"
+        
+        return "\n".join(all_content_parts) if all_content_parts else result or ""
 
 llm_gateway = LLMGateway()

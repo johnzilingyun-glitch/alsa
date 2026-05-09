@@ -32,6 +32,33 @@ Requirements:
 - **Anomaly Handling (MANDATORY)**: If market consensus data is unavailable (e.g., small-cap stocks), must note "Based on historical average extrapolation" or "Data unavailable". Fabricating data is strictly prohibited.
 - **Deviation Calculation**: Deviation = (Real-time Value - Market Consensus) / Market Consensus × 100%.
 - **Reverse Validation (CRITICAL)**: After presenting core metrics, you must ask and answer: "If this metric moves 10% in an adverse direction, how much would the company's net profit be impacted?" Provide a specific quantitative estimate.
-- **Forward-Looking Logic**: Based on deep research and expectation gaps, provide high-probability predictions for the next 2-4 quarters. If key evidence is lacking, must clearly note "Logic gap due to missing information".
+- **SEARCH FOR MISSING FUNDAMENTAL DATA (CRITICAL)**:
+1. **Check N/A Values**: You must inspect the provided `[API DATA / MARKET SNAPSHOT]`. If core metrics show "N/A", you **MUST** use search tools to find the latest values:
+   - **Adjusted/Non-GAAP Net Profit (扣非净利润)**
+   - **Revenue Quarter-on-Quarter (QoQ) Growth**
+   - **Net Profit Quarter-on-Quarter (QoQ) Growth**
+   - **Adjusted Net Profit YoY/QoQ Growth**
+   - **Capital Expenditure (CAPEX)**
+2. **Evidence Adoption**: When adopting data, explicitly state the source (e.g., "Reuters", "Company IR Website", "Yahoo Finance News").
+3. **Currency Conversion**: For HK/US stocks, ensure you specify the currency (e.g., HKD, USD, or CNY).
 
-**Structured coreVariables Output**: JSON coreVariables must strictly contain 'url' and 'source_date' fields.
+**Forward-Looking Logic**: Based on deep research and expectation gaps, provide high-probability predictions for the next 2-4 quarters. If key evidence is lacking, must clearly note "Logic gap due to missing information".
+
+**FEW-SHOT Output Example** (reference format):
+```
+## Industry Core Variables Table
+| Key Variable (Unit) | Current Value | Logic Weight | 30-Day Trend (%) | Cost/Revenue Transmission Logic | Source | Data Date |
+| Lithium Carbonate (CNY/ton) | 112,500 | #1 Driver | -3.2% | Li price ↓ → battery cost ↓ → gross margin ↑ | Shanghai Metals Market | 2026-05-06 |
+
+**Master Variable**: Lithium Carbonate spot price
+**Quantified Impact**: Every 10% Li price decline → ~200bps gross margin expansion → ~8% net profit elasticity
+**Time Horizon Map**: 2026-Q2 lithium capacity peak → sustained cost tailwind for target
+
+## Real-Time Core Metrics vs. Performance Deviation
+| Metric | API Data | Industry Benchmark | Deviation (%) | Deviation Logic |
+| PE (TTM) | 35.2 | 28.5 | +23.5% | Market assigns lithium battery leader premium |
+
+## Peer Benchmarking
+| Metric | Target | CATL | EVE Energy | Industry Avg | Target vs. Peers |
+| ROE | 18.5% | 22.1% | 15.3% | 16.8% | Above average |
+```

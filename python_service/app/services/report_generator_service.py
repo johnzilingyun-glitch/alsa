@@ -78,70 +78,260 @@ class ReportGeneratorService:
 
     async def _run_ui_data_expert(self, symbol: str, market: str, snapshot: dict, discussion: str) -> dict:
         prompt = f"""You are the ALSA UI Data Expert. Your task is to extract and organize the core insights from the expert discussion for {symbol}.
+        
+FIELDS TO EXTRACT:
+- summary: Short executive summary (2-3 sentences)
+- moat_summary: Summary of competitive advantages
+- moat_points: List of specific moat factors
+- macro_summary: Summary of macro environment
+- macro_points: List of macro indicators
+- trading_plan: Overall strategy summary
+- net_profit: Latest annual or quarterly net profit (e.g., "11.24亿HKD")
+- net_profit_deduct: Non-recurring net profit
+- revenue_qoq: Revenue Quarter-on-Quarter growth percentage
+- net_profit_yoy: Net Profit Year-on-Year growth percentage
+- net_profit_qoq: Net Profit Quarter-on-Quarter growth percentage
+- net_profit_deduct_yoy: Adjusted Net Profit YoY growth
+- net_profit_deduct_qoq: Adjusted Net Profit QoQ growth
+- capex: Capital Expenditure (CAPEX)
+- pe_percentile: Current PE ratio percentile in history
+- asset_turnover: Asset turnover ratio
+- inventory_turnover: Inventory turnover ratio
+- recommendation: BUY, HOLD, or SELL
+- score: 0-100 score
+- trading_steps: List of objects with level, price, weight, logic
+- risks_points: List of risk factors
+- upside: List of bull drivers
+- downside: List of bear risks
+- scenarios: List of objects with case, probability, targetPrice, logic
 
-STRICT JSON STRUCTURE (MUST BE VALID JSON):
+CRITICAL INSTRUCTIONS:
+1. PRIORITIZE extracting financial data (profit, capex, growth) from the FINANCIAL SEARCH CONTEXT if provided.
+2. Output in VALID JSON format ONLY.
+3. If a value is missing, use null.
+4. DO NOT provide "N/A" as a value. Use strings like "11.24亿HKD" or "+5.2%".
+
+JSON STRUCTURE:
 {{
   "summary": "...",
   "moat_summary": "...",
-  "moat_points": ["Concise factor 1", "Concise factor 2", "..."],
+  "moat_points": ["...", "..."],
   "macro_summary": "...",
-  "macro_points": ["Concise indicator 1", "Concise indicator 2", "..."],
+  "macro_points": ["...", "..."],
   "trading_plan": "...",
   "trading_steps": [
-    {{"level": "第一层", "price": "$410", "weight": "30%", "logic": "..."}},
-    {{"level": "第二层", "price": "$395", "weight": "40%", "logic": "..."}}
+    {{"level": "第一层", "price": "...", "weight": "...", "logic": "..."}}
   ],
-  "risks_points": ["Risk point 1", "Risk point 2", "..."],
-  "upside": ["Bull driver 1", "2", "3"],
-  "downside": ["Bear risk 1", "2", "3"],
-  "scenarios": [
-    {{"case": "Bull", "probability": 25, "targetPrice": "$500", "logic": "..."}},
-    {{"case": "Base", "probability": 50, "targetPrice": "$410", "logic": "..."}},
-    {{"case": "Bear", "probability": 25, "targetPrice": "$350", "logic": "..."}}
-  ],
-  "pe_percentile": "Current PE percentile (e.g. 45%)",
-  "asset_turnover": "Asset turnover ratio",
-  "inventory_turnover": "Inventory turnover ratio",
-  "capex": "CAPEX value",
-  "score": 80,
+  "net_profit": "...",
+  "revenue_qoq": "...",
+  "net_profit_yoy": "...",
+  "score": 85,
   "recommendation": "BUY"
 }}
 
 OUTPUT ONLY THE JSON OBJECT.
 """
+        # Append search context if available to help fill missing fundamental data
+        search_ctx = snapshot.get("financials", {}).get("searchContext", "")
+        if search_ctx:
+            prompt += f"\n\nFINANCIAL SEARCH CONTEXT (Use this to extract missing financial metrics):\n{search_ctx}"
+
         try:
-            res = await llm_gateway.generate_content(prompt + f"\n\nEXPERT DISCUSSION:\n{discussion}", model="gemini-1.5-flash")
-            match = re.search(r'\{.*\}', res, re.DOTALL)
+            # Use default provider (respects DEFAULT_LLM_PROVIDER env var)
+            provider = os.getenv("DEFAULT_LLM_PROVIDER", "deepseek").lower()
+            model = os.getenv("DEEPSEEK_MODEL", "deepseek-v4-pro") if provider == "deepseek" else os.getenv("GEMINI_MODEL", "gemini-3.1-pro-preview")
+            res = await llm_gateway.generate_content(prompt + f"\n\nEXPERT DISCUSSION:\n{discussion}", model=model)
+            # Clean markdown code blocks and extract JSON
+            cleaned = re.sub(r'```(?:json)?\s*\n?', '', res)
+            cleaned = re.sub(r'\n?```\s*$', '', cleaned)
+            cleaned = cleaned.strip()
+            match = re.search(r'\{.*\}', cleaned, re.DOTALL)
             if match:
-                return json.loads(match.group(0))
+                json_str = match.group(0)
+                # Robust JSON parsing with repair for common LLM output issues
+                try:
+                    return json.loads(json_str)
+                except json.JSONDecodeError:
+                    # Fix common LLM JSON issues: trailing commas
+                    fixed = re.sub(r',(\s*[}\]])', r'\1', json_str)
+                    try:
+                        return json.loads(fixed)
+                    except json.JSONDecodeError:
+                        # Try json5-style relaxed parsing with ast.literal_eval
+                        pass
             return {}
         except Exception as e:
             print(f"UI Data Expert Pass Failed: {e}")
             return {}
 
     async def _normalize_log_style(self, content: str) -> str:
-        # Reformat headers to use the 1️⃣ 2️⃣ style without losing text
-        prompt = """Reformat the following analyst report to use '1️⃣ Title', '2️⃣ Title' etc. for the main section headers (e.g. change '### 1. Title' or '### Title' to '### 1️⃣ Title'). 
+        stripped = content.strip()
 
-STRICT GUIDELINES:
-1. DO NOT REMOVE, SUMMARIZE, OR CHANGE ANY OTHER TEXT. KEEP ALL TABLES, BULLETS, AND DETAILS EXACTLY AS THEY ARE.
-2. ONLY CHANGE THE HEADER PREFIXES.
-3. REMOVE ALL CONVERSATIONAL OPENINGS, ACKNOWLEDGMENTS, OR "AS AN ANALYST..." INTROS (e.g. "好的", "好的，作为...", "Here is the report..."). THE OUTPUT MUST START DIRECTLY WITH THE REPORT CONTENT.
-4. RETURN ONLY THE REFORMATTED MARKDOWN CONTENT.
-5. IF THE INPUT ALREADY USES THE 1️⃣ 2️⃣ STYLE AND HAS NO CHATTER, RETURN IT AS IS.
+        # Strip DeepSeek DSML tokens (native tool call markup that may leak)
+        if 'DSML' in stripped:
+            import re
+            stripped = re.sub(r'<[｜|]*DSML[｜|]*[^>]*>', '', stripped)
+            stripped = re.sub(r'</[｜|]*DSML[｜|]*[^>]*>', '', stripped)
+            stripped = re.sub(r'\n{3,}', '\n\n', stripped).strip()
+            if not stripped:
+                return "<p><em>(Tool-calling round — no text content)</em></p>"
+
+        # Detect JSON-containing content — use LLM to convert to 1️⃣2️⃣ styled markdown
+        has_json = stripped.startswith("{") or stripped.startswith("```json")
+        if has_json:
+            # Try local JSON-to-markdown first (faster, more reliable)
+            local_md = self._json_to_markdown(stripped)
+            if local_md:
+                return markdown2.markdown(local_md, extras=["tables", "fenced-code-blocks"])
+            # Fallback to LLM conversion
+            prompt = f"""Convert this analyst output to professional markdown using '1️⃣ Title', '2️⃣ Title' style.
+
+STRICT RULES:
+1. PRESERVE ALL numerical values, prices, percentages, and data EXACTLY as-is.
+2. DO NOT add, remove, or modify any factual content — only reformat.
+3. Convert JSON fields to markdown tables or bullet lists as appropriate.
+4. NO conversational openings. Output starts directly with the report content.
+
+CONTENT:
+{stripped[:12000]}
+"""
+            try:
+                provider = os.getenv("DEFAULT_LLM_PROVIDER", "deepseek").lower()
+                model = os.getenv("DEEPSEEK_MODEL", "deepseek-v4-pro") if provider == "deepseek" else os.getenv("GEMINI_MODEL", "gemini-3.1-pro-preview")
+                res = await llm_gateway.generate_content(prompt, model=model, temperature=0.2)
+                if res and len(res) > 100:
+                    return markdown2.markdown(res.strip(), extras=["tables", "fenced-code-blocks"])
+            except Exception as e:
+                print(f"JSON-to-markdown conversion failed: {e}")
+
+        # Templates already enforce clean format — use fast local cleanup.
+        has_chatter = any(content.strip().startswith(prefix) for prefix in
+            ["好的", "好的，", "Here is", "As a", "As an", "收到", "OK", "Okay,"])
+
+        if not has_chatter:
+            return markdown2.markdown(content, extras=["tables", "fenced-code-blocks"])
+
+        prompt = """Reformat the following analyst report. STRICT RULES:
+1. REMOVE ALL conversational openings (e.g. "好的", "好的，作为...", "Here is the report...", "As an analyst...").
+2. DO NOT remove, summarize, or change any other text. KEEP ALL tables, bullets, and details EXACTLY AS IS.
+3. Return ONLY the cleaned markdown content — no code blocks.
 """
         try:
-            # Use gemini-1.5-flash for fast and reliable reformatting
-            res = await llm_gateway.generate_content(f"{prompt}\n\nCONTENT:\n{content}", model="gemini-1.5-flash")
-            if not res: return markdown2.markdown(content, extras=["tables", "fenced-code-blocks", "break-on-newline"])
-            
-            # Clean up any potential markdown code blocks if the LLM wrapped the response
+            provider = os.getenv("DEFAULT_LLM_PROVIDER", "deepseek").lower()
+            model = os.getenv("DEEPSEEK_MODEL", "deepseek-v4-pro") if provider == "deepseek" else os.getenv("GEMINI_MODEL", "gemini-3.1-pro-preview")
+            res = await llm_gateway.generate_content(f"{prompt}\n\nCONTENT:\n{content}", model=model, temperature=0.2)
+            if not res: return markdown2.markdown(content, extras=["tables", "fenced-code-blocks"])
+
             res = re.sub(r"^```markdown\n", "", res)
             res = re.sub(r"\n```$", "", res)
-            return markdown2.markdown(res.strip(), extras=["tables", "fenced-code-blocks", "break-on-newline"])
+            return markdown2.markdown(res.strip(), extras=["tables", "fenced-code-blocks"])
         except:
-            return markdown2.markdown(content, extras=["tables", "fenced-code-blocks", "break-on-newline"])
+            return markdown2.markdown(content, extras=["tables", "fenced-code-blocks"])
+    def _json_to_markdown(self, text: str) -> str:
+        """Convert structured JSON analyst output to readable markdown locally (no LLM needed)."""
+        try:
+            clean = text.strip()
+            if clean.startswith("```json"):
+                clean = clean[7:]
+            if clean.endswith("```"):
+                clean = clean[:-3]
+            data = json.loads(clean.strip())
+        except (json.JSONDecodeError, ValueError):
+            return ""
 
+        lines = []
+        # Field name → display label mapping
+        labels = {
+            "tagline": "📌 核心论点",
+            "investmentThesis": "📋 投资论题",
+            "sentiment": "🎯 投资建议",
+            "masterVariable": "🔑 核心变量",
+            "coreContradiction": "⚡ 核心矛盾",
+            "credibilityScore": "📊 可信度评分",
+        }
+        for key, label in labels.items():
+            if key in data:
+                val = data[key]
+                if isinstance(val, str):
+                    lines.append(f"### {label}\n\n{val}\n")
+
+        # Expected price
+        if "expectedPrice" in data and isinstance(data["expectedPrice"], dict):
+            ep = data["expectedPrice"]
+            lines.append("### 💰 预期价格计算\n")
+            lines.append(f"- **计算公式**: {ep.get('calculation', 'N/A')}")
+            lines.append(f"- **预期价格**: ${ep.get('result', 'N/A')}")
+            lines.append(f"- **当前价格**: ${ep.get('currentPrice', 'N/A')}")
+            lines.append(f"- **预期回报**: {ep.get('expectedReturn', 'N/A')}")
+            lines.append(f"- **决策规则**: {ep.get('decisionRuleCheck', 'N/A')}\n")
+
+        # Trading plan
+        if "tradingPlan" in data and isinstance(data["tradingPlan"], dict):
+            tp = data["tradingPlan"]
+            lines.append("### 📈 交易计划\n")
+            for k, v in tp.items():
+                if isinstance(v, str):
+                    lines.append(f"- **{k}**: {v}")
+            lines.append("")
+
+        # Kelly position
+        if "kellyPosition" in data and isinstance(data["kellyPosition"], dict):
+            kp = data["kellyPosition"]
+            lines.append("### 🎲 Kelly仓位\n")
+            for k, v in kp.items():
+                lines.append(f"- **{k}**: {v}")
+            lines.append("")
+
+        # Time horizon
+        if "timeHorizon" in data and isinstance(data["timeHorizon"], dict):
+            lines.append("### ⏰ 时间维度策略\n")
+            for period, info in data["timeHorizon"].items():
+                if isinstance(info, dict):
+                    lines.append(f"**{info.get('period', period)}** — {info.get('action', '')}")
+                    lines.append(f"  - 逻辑: {info.get('logic', '')}\n")
+
+        # Build plan
+        if "buildPlan" in data and isinstance(data["buildPlan"], list):
+            lines.append("### 🏗️ 建仓计划\n")
+            lines.append("| 阶段 | 价格 | 仓位 | 累计仓位 | 逻辑 |")
+            lines.append("|------|------|------|----------|------|")
+            for step in data["buildPlan"]:
+                if isinstance(step, dict):
+                    lines.append(f"| {step.get('level','')} | {step.get('price','')} | {step.get('weight','')} | {step.get('cumulativeWeight','')} | {step.get('logic','')} |")
+            lines.append("")
+
+        # Exit mechanism
+        if "exitMechanism" in data and isinstance(data["exitMechanism"], dict):
+            em = data["exitMechanism"]
+            lines.append("### 🚪 退出机制\n")
+            if "takeProfit" in em:
+                lines.append("**止盈:**")
+                for tp_item in em["takeProfit"]:
+                    lines.append(f"- {tp_item}")
+            if "stopLoss" in em:
+                lines.append("\n**止损:**")
+                for sl_item in em["stopLoss"]:
+                    lines.append(f"- {sl_item}")
+            if "thesisFalsification" in em:
+                lines.append("\n**论题证伪条件:**")
+                for tf_item in em["thesisFalsification"]:
+                    lines.append(f"- {tf_item}")
+            lines.append("")
+
+        # Critical risks
+        if "criticalRisks" in data and isinstance(data["criticalRisks"], list):
+            lines.append("### ⚠️ 关键风险\n")
+            for risk in data["criticalRisks"]:
+                lines.append(f"- {risk}")
+            lines.append("")
+
+        # Fallback: any unhandled keys
+        handled = set(labels.keys()) | {"expectedPrice", "tradingPlan", "kellyPosition", "timeHorizon", "buildPlan", "exitMechanism", "criticalRisks"}
+        for key, val in data.items():
+            if key not in handled and isinstance(val, str):
+                lines.append(f"### {key}\n\n{val}\n")
+
+        return "\n".join(lines) if lines else ""
     def _render_html(self, d: dict) -> str:
         info = d["info"]
         fund = d["fund"]
@@ -493,17 +683,25 @@ STRICT GUIDELINES:
         if not isinstance(snapshot, dict): return m
         v, f, q = snapshot.get("valuation", {}), snapshot.get("financials", {}), snapshot.get("quote", {})
         
+        # Determine financial currency (may differ from listing currency for ADRs)
+        fin_currency = f.get("financialCurrency") or q.get("financialCurrency") or currency
+        
         def ratio(val): return f"{round(val, 2)}" if val is not None and isinstance(val, (int, float)) else "N/A"
-        def pct(val): 
+        def pct(val):
             if val is None or not isinstance(val, (int, float)): return "N/A"
-            if abs(val) <= 2.0: return f"{round(val * 100, 2)}%"
+            # If value is clearly a decimal ratio (e.g. 0.15 for 15%), convert to percentage
+            # Use a more robust threshold: ratios from yfinance are typically < 1.0
+            # AkShare returns percentage values directly (e.g. 15.5 for 15.5%)
+            if abs(val) < 1.0:
+                return f"{round(val * 100, 2)}%"
             return f"{round(val, 2)}%"
-        def money(val):
+        def money(val, use_currency=None):
+            c = use_currency or currency
             if val is None or not isinstance(val, (int, float)): return "N/A"
-            if abs(val) >= 1e12: return f"{round(val/1e12, 2)}万亿 {currency}"
-            if abs(val) >= 1e8: return f"{round(val/1e8, 2)}亿 {currency}"
-            if abs(val) >= 1e6: return f"{round(val/1e6, 2)}百万 {currency}"
-            return f"{round(val, 2)} {currency}"
+            if abs(val) >= 1e12: return f"{round(val/1e12, 2)}万亿 {c}"
+            if abs(val) >= 1e8: return f"{round(val/1e8, 2)}亿 {c}"
+            if abs(val) >= 1e6: return f"{round(val/1e6, 2)}百万 {c}"
+            return f"{round(val, 2)} {c}"
 
         # Combine sources (f, q, v)
         def get_val(key, sources=[f, q, v]):
@@ -513,9 +711,14 @@ STRICT GUIDELINES:
 
         # 1. Valuation
         m["总市值"] = money(get_val("marketCap"))
-        m["企业价值 (EV)"] = money(get_val("enterpriseValue"))
-        m["净利润"] = money(get_val("netProfit"))
-        m["扣非净利润"] = money(get_val("netProfitDeduct"))
+        # EV is reported in financialCurrency by yfinance for foreign stocks
+        m["企业价值 (EV)"] = money(get_val("enterpriseValue"), use_currency=fin_currency)
+        
+        np_val = money(get_val("netProfit"), use_currency=fin_currency)
+        m["净利润"] = np_val if np_val != "N/A" else (ui_data.get("net_profit") or "N/A")
+        
+        npd_val = money(get_val("netProfitDeduct"), use_currency=fin_currency)
+        m["扣非净利润"] = npd_val if npd_val != "N/A" else (ui_data.get("net_profit_deduct") or "N/A")
         m["市盈率 (PE)"] = ratio(get_val("trailingPE") or get_val("pe") or get_val("forwardPE"))
         m["市净率 (PB)"] = ratio(get_val("priceToBook") or get_val("pb"))
         m["PEG"] = ratio(get_val("pegRatio"))
@@ -532,28 +735,55 @@ STRICT GUIDELINES:
 
         # 3. Growth
         m["营收同比增长 (YoY)"] = pct(get_val("revenueYoY") or get_val("revenueGrowth"))
-        m["营收环比增长 (QoQ)"] = pct(get_val("revenueQoQ"))
-        m["净利润同比增长 (YoY)"] = pct(get_val("netProfitYoY") or get_val("earningsGrowth") or get_val("netProfitGrowth"))
-        m["净利润环比增长 (QoQ)"] = pct(get_val("netProfitQoQ"))
-        m["扣非净利润同比增长 (YoY)"] = pct(get_val("netProfitDeductYoY"))
-        m["扣非净利润环比增长 (QoQ)"] = pct(get_val("netProfitDeductQoQ"))
+        
+        rev_qoq = pct(get_val("revenueQoQ"))
+        m["营收环比增长 (QoQ)"] = rev_qoq if rev_qoq != "N/A" else (ui_data.get("revenue_qoq") or "N/A")
+        
+        np_yoy = pct(get_val("netProfitYoY") or get_val("earningsGrowth") or get_val("netProfitGrowth"))
+        m["净利润同比增长 (YoY)"] = np_yoy if np_yoy != "N/A" else (ui_data.get("net_profit_yoy") or "N/A")
+        
+        np_qoq = pct(get_val("netProfitQoQ"))
+        m["净利润环比增长 (QoQ)"] = np_qoq if np_qoq != "N/A" else (ui_data.get("net_profit_qoq") or "N/A")
+        
+        npd_yoy = pct(get_val("netProfitDeductYoY"))
+        m["扣非净利润同比增长 (YoY)"] = npd_yoy if npd_yoy != "N/A" else (ui_data.get("net_profit_deduct_yoy") or "N/A")
+        
+        npd_qoq = pct(get_val("netProfitDeductQoQ"))
+        m["扣非净利润环比增长 (QoQ)"] = npd_qoq if npd_qoq != "N/A" else (ui_data.get("net_profit_deduct_qoq") or "N/A")
+        
         m["营收3年复合增长 (CAGR)"] = pct(get_val("revenueCagr3y"))
         m["净利润3年复合增长 (CAGR)"] = pct(get_val("incomeCagr3y"))
 
         # 4. Financial Health
-        m["资产负债率"] = pct(get_val("debtRatio") or (get_val("debtToEquity")/100 if get_val("debtToEquity") else None))
+        # Asset-Liability Ratio (资产负债率) = Total Liabilities / Total Assets
+        # debtToEquity from yfinance is (Total Debt / Total Equity) * 100
+        # Correct conversion: if D/E = x, then Debt Ratio = x / (x + 100)
+        debt_ratio = get_val("debtRatio")
+        if debt_ratio is None:
+            de = get_val("debtToEquity")
+            if de is not None:
+                # debtToEquity is in percentage form (e.g. 72.09 means 72.09%)
+                # Asset-Liability Ratio = D/E / (1 + D/E) = (de/100) / (1 + de/100)
+                debt_ratio = (de / 100) / (1 + de / 100)
+        m["资产负债率"] = pct(debt_ratio)
         m["流动比率"] = ratio(get_val("currentRatio"))
         m["速动比率"] = ratio(get_val("quickRatio"))
 
-        # 5. Cash Flow & Dividends
-        m["经营现金流"] = money(get_val("operatingCashflow"))
-        m["自由现金流 (FCF)"] = money(get_val("freeCashflow"))
-        m["资本开支 (CAPEX)"] = money(get_val("capitalExpenditure")) or ui_data.get("capex") or "N/A"
+        # 5. Cash Flow & Dividends (use financialCurrency for absolute values)
+        m["经营现金流"] = money(get_val("operatingCashflow"), use_currency=fin_currency)
+        m["自由现金流 (FCF)"] = money(get_val("freeCashflow"), use_currency=fin_currency)
+        
+        capex_val = money(get_val("capitalExpenditure"), use_currency=fin_currency)
+        m["资本开支 (CAPEX)"] = capex_val if capex_val != "N/A" else (ui_data.get("capex") or "N/A")
+        
         m["分红率"] = pct(get_val("payoutRatio"))
         
-        div = get_val("dividendYield") or get_val("dividend")
+        div = get_val("dividendYield")
+        if div is None:
+            div = get_val("dividend")
         if div is not None and isinstance(div, (int, float)):
-            if div > 0.5 and div < 100: m["股息率"] = f"{round(div, 2)}%"
+            if div == 0: m["股息率"] = "0.0%"
+            elif div > 0.5 and div < 100: m["股息率"] = f"{round(div, 2)}%"
             else: m["股息率"] = f"{round(div*100, 2)}%"
         else: m["股息率"] = "N/A"
 

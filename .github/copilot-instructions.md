@@ -76,3 +76,7 @@ APP_URL                 # Injected by AI Studio at runtime
 ```
 
 Copy `.env.example` to `.env` and set `GEMINI_API_KEY`.
+
+## Workflow Rules
+
+- **每次完成用户任务后**，必须通过 `#tool:askQuestion` 询问用户是否还有其他需求需要完成。

@@ -249,7 +249,9 @@ class LLMGateway:
                 prompt = prompt[:enrichment_start] + "[SEARCH ENRICHMENT - truncated due to prompt size]\n" + prompt[enrichment_end:]
                 messages[1]["content"] = prompt
         
-        all_content_parts = []
+        final_content = ""        # The actual analysis from the final (no-tools) round
+        tool_round_text = []     # Thinking text from tool-call rounds (fallback only)
+        had_tool_rounds = False  # Whether any tool calls were made
         
         for round_num in range(max_tool_rounds + 1):
             total_chars = sum(len(m.get("content") or "") for m in messages)
@@ -258,6 +260,17 @@ class LLMGateway:
             
             # Last round: force completion without tools
             use_tools = round_num < max_tool_rounds
+            
+            # For the final round after tool calls, add explicit completion instruction
+            if not use_tools and had_tool_rounds:
+                # Manage context: truncate long tool observations to prevent context overflow
+                for i, msg in enumerate(messages):
+                    if msg.get("role") == "tool" and len(msg.get("content", "")) > 3000:
+                        messages[i]["content"] = msg["content"][:3000] + "\n\n... [content truncated for context management]"
+                messages.append({
+                    "role": "user",
+                    "content": "All data gathering is complete. Based on ALL the information you've gathered from tool calls above, now produce your COMPLETE and DETAILED expert analysis report. Do NOT make any more tool calls. Do NOT repeat tool call queries. Write your full, comprehensive analysis now with all sections, tables, and conclusions."
+                })
             
             def _stream_with_tools():
                 """Blocking streaming call with native tool support."""
@@ -317,24 +330,40 @@ class LLMGateway:
                 content, tool_calls_data, reasoning_content = await asyncio.to_thread(_stream_with_tools)
             except Exception as e:
                 error_msg = str(e)
-                print(f"DeepSeek Native Tool Error: {error_msg}")
-                if all_content_parts:
-                    break
-                raise
+                print(f"DeepSeek Native Tool Error (round {round_num}): {error_msg}")
+                if use_tools:
+                    # Error in tool round — continue to next round (may reach final round)
+                    print(f"  [ToolLoop] Tool round {round_num} failed, continuing...")
+                    continue
+                # Error in final (no-tools) round — try with aggressively truncated context
+                print(f"  [ToolLoop] Final round failed. Retrying with truncated context...")
+                for i, msg in enumerate(messages):
+                    if msg.get("role") == "tool" and len(msg.get("content", "")) > 1000:
+                        messages[i]["content"] = msg["content"][:1000] + "\n[truncated]"
+                try:
+                    content, tool_calls_data, reasoning_content = await asyncio.to_thread(_stream_with_tools)
+                    if content:
+                        final_content = content
+                except Exception as e2:
+                    print(f"  [ToolLoop] Retry also failed: {e2}")
+                break
             
             # No tool calls — final response
             if not tool_calls_data:
                 if content:
-                    all_content_parts.append(content)
+                    final_content = content
+                else:
+                    print(f"  [ToolLoop] WARNING: Final round produced empty content")
                 break
             
+            had_tool_rounds = True
             print(f"  [ToolLoop] Round {round_num + 1}: {len(tool_calls_data)} native tool call(s)")
             
-            # Skip content during tool-call rounds — DeepSeek puts DSML markup
-            # (raw tool call tokens) in content field alongside native tool_calls.
-            # Only keep content that doesn't contain DSML tokens.
+            # During tool-call rounds, DON'T include thinking text in output.
+            # It's just "let me search for X" filler, not actual analysis.
+            # Save as fallback in case the final round fails to produce content.
             if content and 'DSML' not in content:
-                all_content_parts.append(content)
+                tool_round_text.append(content)
             
             # Build assistant message with tool_calls for conversation history
             # Must include reasoning_content when model uses thinking mode
@@ -382,7 +411,14 @@ class LLMGateway:
                     "content": obs_clean
                 })
         
-        result = "\n".join(all_content_parts) if all_content_parts else content or ""
+        # Prefer final analysis content; fall back to tool-round thinking text if final round failed
+        if final_content:
+            result = final_content
+        elif tool_round_text:
+            print(f"  [ToolLoop] WARNING: No final analysis produced. Using {len(tool_round_text)} tool-round text fragments as fallback.")
+            result = "\n".join(tool_round_text)
+        else:
+            result = content or ""
         # Safety net: strip any remaining DSML tokens that may have leaked
         if 'DSML' in result:
             import re

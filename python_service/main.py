@@ -253,7 +253,7 @@ async def get_stock_hk_spot(
             
         # Symbol in AkShare HK is usually just the code string or zero-padded
         # EastMoney HK symbols in AkShare are typically strings like '00700'
-        row = df[df['代码'] == symbol.padStart(5, '0') if len(symbol) < 5 else symbol]
+        row = df[df['代码'] == (symbol.zfill(5) if len(symbol) < 5 else symbol)]
         if row.empty:
             # Try fuzzy match if exact fails
             row = df[df['代码'].str.contains(symbol)]
@@ -537,9 +537,23 @@ async def get_social_trends() -> Dict[str, Any]:
 async def query_historical_analysis(query_sql: str):
     """
     Example DuckDB query over the Parquet data lake.
+    Only allows SELECT queries for safety.
     """
     try:
-        con = duckdb.connect()
+        # Sanitize: only allow SELECT statements, block DDL/DML
+        normalized = query_sql.strip().upper()
+        if not normalized.startswith("SELECT"):
+            return {"success": False, "error": "Only SELECT queries are allowed"}
+        
+        # Block dangerous keywords
+        dangerous_keywords = ["DROP", "DELETE", "INSERT", "UPDATE", "ALTER", "CREATE TABLE", 
+                            "TRUNCATE", "EXEC", "EXECUTE", "COPY", "ATTACH", "DETACH",
+                            "PRAGMA", "LOAD", "INSTALL"]
+        for kw in dangerous_keywords:
+            if kw in normalized:
+                return {"success": False, "error": f"Query contains forbidden keyword: {kw}"}
+        
+        con = duckdb.connect(read_only=True)
         # Create a view over the Parquet snapshots
         con.execute(f"CREATE VIEW snapshots AS SELECT * FROM read_parquet('{SNAPSHOT_DIR}/*.parquet')")
         res = con.execute(query_sql).pl()

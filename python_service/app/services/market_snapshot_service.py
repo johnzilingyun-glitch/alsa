@@ -10,46 +10,64 @@ class MarketSnapshotService:
         self.store = store
 
     async def create_snapshot(self, market: str, symbol: str) -> Dict[str, Any]:
+        print(f"Creating snapshot for {market} stock: {symbol}")
         """
         Fetches market data and saves it to the Parquet lake.
         """
-        # In a real setup, we'd have robust fetching. Reuse some akshare logic.
         try:
             # 1. Fetch daily history
-            if market == "A-Share":
-                try:
-                    df = await safe_ak_call(ak.stock_zh_a_hist, symbol=symbol, period="daily", adjust="qfq")
-                    if df is not None and not df.empty:
-                        # Map columns to standard names
-                        col_map = {
-                            '日期': 'trade_date', '开盘': 'open', '收盘': 'close', 
-                            '最高': 'high', '最低': 'low', '成交量': 'volume'
-                        }
-                        df = df.rename(columns={k: v for k, v in col_map.items() if k in df.columns})
-                    else:
-                        print(f"AkShare history returned empty for {symbol}, trying yfinance fallback...")
-                        raise ValueError("Empty AkShare data")
-                except Exception as e:
-                    print(f"AkShare history fetch failed for {symbol}: {e}. Attempting yfinance fallback...")
+            df = pd.DataFrame()
+            try:
+                if market == "A-Share":
+                    try:
+                        df = await safe_ak_call(ak.stock_zh_a_hist, symbol=symbol, period="daily", adjust="qfq")
+                        if df is not None and not df.empty:
+                            # Map columns to standard names
+                            col_map = {
+                                '日期': 'trade_date', '开盘': 'open', '收盘': 'close', 
+                                '最高': 'high', '最低': 'low', '成交量': 'volume'
+                            }
+                            df = df.rename(columns={k: v for k, v in col_map.items() if k in df.columns})
+                        else:
+                            print(f"AkShare history returned empty for {symbol}, trying yfinance fallback...")
+                            df = pd.DataFrame() 
+                    except Exception as e:
+                        print(f"AkShare history fetch failed for {symbol}: {e}. Attempting yfinance fallback...")
+                        df = pd.DataFrame()
+
+                    # A-Share Fallback to yfinance
+                    if df.empty:
+                        import yfinance as yf
+                        yf_symbol = f"{symbol}.SS" if symbol.startswith('6') else f"{symbol}.SZ"
+                        ticker = yf.Ticker(yf_symbol)
+                        df = ticker.history(period="6mo")
+                        if not df.empty:
+                            df = df.reset_index()
+                            df = df.rename(columns={'Date': 'trade_date', 'Open': 'open', 'High': 'high', 'Low': 'low', 'Close': 'close', 'Volume': 'volume'})
+                else:
+                    # Use yfinance for US/HK
                     import yfinance as yf
-                    yf_symbol = f"{symbol}.SS" if symbol.startswith('6') else f"{symbol}.SZ"
+                    yf_symbol = symbol
+                    if market == "HK-Share":
+                        clean_symbol = symbol.replace(".HK", "").zfill(4)
+                        yf_symbol = f"{clean_symbol}.HK"
                     ticker = yf.Ticker(yf_symbol)
                     df = ticker.history(period="6mo")
                     if not df.empty:
                         df = df.reset_index()
                         df = df.rename(columns={'Date': 'trade_date', 'Open': 'open', 'High': 'high', 'Low': 'low', 'Close': 'close', 'Volume': 'volume'})
-                        if 'trade_date' in df.columns:
-                            df['trade_date'] = pd.to_datetime(df['trade_date']).dt.strftime('%Y-%m-%d')
-                    else:
-                        print(f"yfinance also returned empty for {yf_symbol}")
-            else:
-                # Use yfinance for US/HK
-                import yfinance as yf
-                ticker = yf.Ticker(symbol)
-                df = ticker.history(period="6mo")
-                df = df.reset_index()
-                df = df.rename(columns={'Date': 'trade_date', 'Open': 'open', 'High': 'high', 'Low': 'low', 'Close': 'close', 'Volume': 'volume'})
-                df['trade_date'] = df['trade_date'].dt.strftime('%Y-%m-%d')
+
+                # Standardize trade_date for all sources
+                if not df.empty and 'trade_date' in df.columns:
+                    # Convert to datetime then to string
+                    trade_dates = pd.to_datetime(df['trade_date'], errors='coerce')
+                    df['trade_date'] = trade_dates.dt.strftime('%Y-%m-%d')
+                    # Drop rows where date conversion failed
+                    df = df.dropna(subset=['trade_date'])
+
+            except Exception as e:
+                print(f"Market data fetch logic error for {symbol}: {e}")
+                df = pd.DataFrame()
 
             if df.empty:
                 return {}

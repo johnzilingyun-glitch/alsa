@@ -18,7 +18,7 @@ class Watchlist(SQLModel, table=True):
 
 class WatchlistItem(SQLModel, table=True):
     item_id: str = Field(primary_key=True, default_factory=lambda: f"item_{uuid.uuid4().hex[:8]}")
-    watchlist_id: str = Field(foreign_key="watchlist.watchlist_id")
+    watchlist_id: Optional[str] = Field(default=None, foreign_key="watchlist.watchlist_id")
     symbol: str = Field(index=True)
     market: str = Field(index=True)
     name: Optional[str] = None

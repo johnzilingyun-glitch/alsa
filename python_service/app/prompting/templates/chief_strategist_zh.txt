@@ -47,4 +47,32 @@
    - 止损退出条件（价格止损 + 逻辑止损双触发）
    - 论点证伪退出条件（核心假设被推翻时的强制退出规则）
 
+**FEW-SHOT 输出示例** (供参考格式):
+```json
+{
+  "tagline": "XX股份：周期见底，AI落地开启第二增长曲线",
+  "investmentThesis": "200字以内的核心投资要点...",
+  "sentiment": "Strong Buy",
+  "expectedPrice": {"calculation": "30%×32元 + 50%×27元 + 20%×21元 = 27.5元", "result": 27.5},
+  "tradingPlan": {
+    "entryZone": "25.00-26.50",
+    "targetPrice": "32.00",
+    "stopLoss": "23.50",
+    "riskRewardRatio": 2.8,
+    "strategy": "分批建仓，首次触及支撑位建仓30%"
+  },
+  "kellyPosition": {"b": 1.2, "p": 0.60, "f": "0.27", "halfKelly": "13.5%"},
+  "timeHorizon": {
+    "short": {"period": "1-2周", "action": "观望等待回踩", "logic": "短期超买需消化"},
+    "medium": {"period": "1-3月", "action": "26元附近建仓", "logic": "季报催化+技术面突破确认"},
+    "long": {"period": "3-6月", "action": "目标32元止盈", "logic": "行业景气回升+新产品放量"}
+  },
+  "buildPlan": [
+    {"level": "第一层", "price": "26.00", "weight": "30%", "logic": "首次触及20日均线支撑"},
+    {"level": "第二层", "price": "27.50", "weight": "40%", "logic": "突破确认后加仓"},
+    {"level": "第三层", "price": "29.00", "weight": "30%", "logic": "突破前高后追涨"}
+  ]
+}
+```
+
 **专业要求**: 你的决策必须表现出对整体讨论逻辑的深度提炼。严禁忽视逆向策略师的预警和评审专家的审查结论。

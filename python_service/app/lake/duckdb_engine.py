@@ -13,6 +13,13 @@ class DuckDBMarketQuery:
             cls._instance._cache = {}
         return cls._instance
 
+    def run_query(self, sql: str):
+        """
+        Execute an arbitrary SQL query against the in-memory DuckDB connection.
+        Returns a pandas DataFrame.
+        """
+        return self.con.execute(sql).df()
+
     def latest_close(self, parquet_glob: str) -> Dict[str, Any]:
         """
         Query the latest close price with a 30s TTL cache.

@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import axios from 'axios';
 import { createAnalysisRepository } from '../repositories/analysisRepository.js';
 import { gatewayGenerate } from '../llmGateway.js';
 const axiosClient = axios.create({

@@ -245,12 +245,18 @@ class DiscussionService:
         )
         
         sections.append("\n--- [API] MACRO & COMMODITY DATA ---")
-        sections.append("以下数据来自权威数据源 (CFETS/期货交易所/AkShare)，为辅助参考数据。")
+        sections.append("以下数据来自权威数据源 (CFETS/期货交易所/AkShare/yfinance)，为辅助参考数据。")
         if macro_data:
+            # Prominently display FX rate at the top
+            fx_rate = macro_data.get("USD/CNY")
+            fx_source = macro_data.get("Source", "")
+            fx_date = macro_data.get("Date", "")
+            if fx_rate is not None:
+                sections.append(f"★ 实时汇率 USD/CNY: {fx_rate} — {fx_source} [{fx_date}]")
+                sections.append(f"  >>> 所有涉及USD↔CNY换算必须使用此汇率 {fx_rate}，严禁使用估算值 <<<")
             for k, v in macro_data.items():
-                if k == "SearchContext":
-                    # Legacy search context — deprecated, skip
-                    pass
+                if k in ("SearchContext", "USD/CNY", "Source", "Date", "Note"):
+                    continue
                 elif isinstance(v, dict):
                     sections.append(f"{k}: {v.get('price', v.get('USD/CNY', 'N/A'))} ({v.get('unit', '')}) — {v.get('source', '')} [{v.get('date', '')}]")
                     if v.get("error"):
@@ -259,13 +265,15 @@ class DiscussionService:
                     sections.append(f"{k}: {v}")
 
         if commodity_data:
+            sections.append("--- [API] 大宗商品实时报价 (权威数据源，优先级高于搜索结果) ---")
             for k, v in commodity_data.items():
                 if isinstance(v, dict):
                     if v.get("error"):
                         sections.append(f"⚠ {k}: 数据获取失败 — {v['error']}")
                         sections.append(f"   >>> 严禁使用训练数据中的{k}价格。必须标注'数据缺失'。<<<")
                     elif v.get("price") is not None:
-                        sections.append(f"{k}: {v['price']} {v.get('unit', '')} — {v.get('source', '')} [{v.get('date', '')}]")
+                        sections.append(f"★ {k}: {v['price']} {v.get('unit', '')} — {v.get('source', '')} [{v.get('date', '')}]")
+                        sections.append(f"  >>> 此为交易所实时报价，比搜索结果更准确。分析{k}影响时必须使用此价格 {v['price']}，严禁使用搜索到的过期价格 <<<")
                     else:
                         sections.append(f"⚠ {k}: 暂无权威报价")
                 elif isinstance(v, str):
@@ -395,13 +403,27 @@ class DiscussionService:
         sections.append(f"- PEG: {get_val('pegRatio')} | EV/EBITDA: {get_val('enterpriseToEbitda')} | EV: {get_val('enterpriseValue')}")
         sections.append(f"- ROE: {get_val('returnOnEquity', 'roe')} | ROA: {get_val('returnOnAssets', 'roa')}")
         sections.append(f"- 毛利率: {get_val('grossMargins', 'grossMargin')} | 营业利润率: {get_val('operatingMargins', 'operatingMargin')} | 净利率: {get_val('profitMargins', 'profitMargin')}")
-        sections.append(f"- 营收增速 (YoY): {get_val('revenueGrowth', 'revenueYoY')} | 净利润增速 (YoY): {get_val('earningsGrowth', 'netProfitYoY', 'netProfitGrowth')}")
+        sections.append(f"- 营收增速-单季YoY: {get_val('revenueGrowth', 'revenueYoY')} | 营收增速-全年YoY: {get_val('revenueYoY_annual')} | 净利润增速 (YoY): {get_val('earningsGrowth', 'netProfitYoY', 'netProfitGrowth')}")
         sections.append(f"- 资产负债率(D/E): {get_val('debtToEquity', 'debtRatio')} | 流动比率: {get_val('currentRatio')} | 速动比率: {get_val('quickRatio')}")
-        sections.append(f"- 经营现金流: {get_val('operatingCashflow')} | 自由现金流: {get_val('freeCashflow')} | CAPEX: {get_val('capitalExpenditure')}")
+        sections.append(f"- 经营现金流(TTM): {get_val('operatingCashflow')} | 自由现金流(TTM): {get_val('freeCashflow')} | CAPEX: {get_val('capitalExpenditure')}")
+        sections.append(f"- 总现金(含短投): {get_val('totalCash')} | 总有息负债: {get_val('totalDebt')} | 净现金(=总现金-总负债): {get_val('netCash')}")
+        sections.append(f"- 每股净现金({get_val('financialCurrency')}): {get_val('netCashPerShare')} | 流通股数: {get_val('sharesOutstanding')}")
         sections.append(f"- EPS(TTM): {get_val('eps', 'trailingEps')} | 股息率: {get_val('dividendYield')} | 分红率: {get_val('payoutRatio')}")
-        sections.append(f"- 内部人持股: {get_val('heldPercentInsiders')} | 机构持股: {get_val('heldPercentInstitutions')}")
+        sections.append(f"- 内部人持股(ADS口径): {get_val('heldPercentInsiders')} | 机构持股(ADS口径): {get_val('heldPercentInstitutions')}")
         sections.append(f"- 52周高: {get_val('fiftyTwoWeekHigh')} | 52周低: {get_val('fiftyTwoWeekLow')}")
         sections.append(f"- 营收3年CAGR: {get_val('revenueCagr3y')} | 净利润3年CAGR: {get_val('incomeCagr3y')}")
+        sections.append("")
+        sections.append("--- [MANDATORY] DATA VALIDATION WARNINGS ---")
+        sections.append(
+            "⚠ **数据口径警告（所有专家必读）**:\n"
+            "1. **净现金**: 上方'净现金(=总现金-总负债)'已由API直接计算，请直接引用此值。严禁自行推算或使用搜索到的不同口径数据。注意：'总现金'含现金等价物+短期投资，口径偏宽；如需纯现金口径需搜索年报。\n"
+            "2. **每股净现金**: 单位为报表货币（见括号标注），ADR股票需要除以汇率才能换算为上市货币。例如CNY口径需÷汇率换算为USD。\n"
+            "3. **持股比例**: '内部人持股'和'机构持股'来自yfinance，对于ADR/港股仅反映ADS层面数据，严重低估真实比例。如分析创始人实际持股或全口径机构持仓，必须搜索SEC 20-F/proxy statement或港交所披露。\n"
+            "4. **营收增速**: 提供了'单季YoY'和'全年YoY'两个口径。分析增长趋势时应以全年YoY为主，单季YoY受季节性影响大。严禁将单季数据当作全年趋势。\n"
+            "5. **自由现金流**: 为TTM(过去12个月)口径，可能包含已过时的季度。如需判断最新趋势，应搜索最近一个季度的FCF数据。\n"
+            "6. **EV(企业价值)**: 对于跨币种股票(ADR/港股)，EV已通过实时汇率重新计算: EV = 市值×汇率 + 有息负债 - 总现金。如仍显示N/A则数据暂不可用，严禁自行推算。\n"
+            "7. **月度交付量环比**: 季度末月（3/6/9/12月）通常有冲量效应，次月（4/7/10/1月）回调属正常。判断趋势需看同比，不能仅凭环比下滑就断言增长放缓。"
+        )
         if fin_currency != "N/A" and listing_currency != "N/A" and fin_currency != listing_currency:
             sections.append(f"- ⚠ 币种提示: 该股票上市货币为{listing_currency}，但财务报表以{fin_currency}计价。经营现金流、自由现金流、CAPEX、EV等绝对值均为{fin_currency}单位。")
         if indicators:

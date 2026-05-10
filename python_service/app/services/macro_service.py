@@ -77,11 +77,28 @@ class MacroService:
         except Exception as e:
             print(f"FX CFETS Fix failed: {e}")
 
-        # 数据源全部失败，返回 None
+        # 数据源全部失败，使用 yfinance 作为最终回退
+        try:
+            import yfinance as yf
+            fx_ticker = yf.Ticker("USDCNY=X")
+            fx_info = fx_ticker.info
+            yf_rate = fx_info.get("regularMarketPrice")
+            if yf_rate and 5.0 < yf_rate < 9.0:
+                res = {
+                    "USD/CNY": yf_rate,
+                    "Source": "Yahoo Finance (yfinance USDCNY=X)",
+                    "Date": datetime.now().strftime("%Y-%m-%d"),
+                }
+                self._cache["fx_rate"] = res
+                return res
+        except Exception as e:
+            print(f"FX yfinance fallback failed: {e}")
+
+        # 所有数据源全部失败，返回 None
         res = {
             "USD/CNY": None,
             "Source": "N/A",
-            "Note": "权威数据源(CFETS)暂不可用。请基于 [API DATA / MARKET SNAPSHOT] 中的数据进行判断，禁止使用训练数据中的过期汇率。",
+            "Note": "权威数据源(CFETS/yfinance)暂不可用。请基于 [API DATA / MARKET SNAPSHOT] 中的数据进行判断，禁止使用训练数据中的过期汇率。",
         }
         self._cache["fx_rate"] = res
         return res

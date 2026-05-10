@@ -178,6 +178,29 @@ OUTPUT ONLY THE JSON OBJECT.
 
         # Detect JSON-containing content — use LLM to convert to 1️⃣2️⃣ styled markdown
         has_json = stripped.startswith("{") or stripped.startswith("```json")
+        
+        # Also detect trailing JSON block (markdown text followed by JSON at the end)
+        trailing_json_md = ""
+        if not has_json:
+            # Look for a JSON block at the end of the content
+            import re as _re
+            # Match a top-level JSON object at the end, possibly preceded by ```json
+            trailing_match = _re.search(r'\n(```json\s*\n)?\{[\s\S]*"tagline"[\s\S]*\}\s*(```\s*)?$', stripped)
+            if not trailing_match:
+                trailing_match = _re.search(r'\n(```json\s*\n)?\{[\s\S]*"investmentThesis"[\s\S]*\}\s*(```\s*)?$', stripped)
+            if not trailing_match:
+                trailing_match = _re.search(r'\n(```json\s*\n)?\{[\s\S]*"tradingPlan"[\s\S]*\}\s*(```\s*)?$', stripped)
+            if trailing_match:
+                json_part = trailing_match.group(0).strip()
+                text_part = stripped[:trailing_match.start()].strip()
+                # Try to convert the trailing JSON to markdown
+                local_md = self._json_to_markdown(json_part)
+                if local_md:
+                    trailing_json_md = markdown2.markdown(local_md, extras=["tables", "fenced-code-blocks"])
+                    stripped = text_part  # Process the text part normally below
+                    if not stripped:
+                        return trailing_json_md
+        
         if has_json:
             # Try local JSON-to-markdown first (faster, more reliable)
             local_md = self._json_to_markdown(stripped)
@@ -209,7 +232,8 @@ CONTENT:
             ["好的", "好的，", "Here is", "As a", "As an", "收到", "OK", "Okay,"])
 
         if not has_chatter:
-            return markdown2.markdown(content, extras=["tables", "fenced-code-blocks"])
+            result = markdown2.markdown(stripped, extras=["tables", "fenced-code-blocks"])
+            return result + trailing_json_md if trailing_json_md else result
 
         prompt = """Reformat the following analyst report. STRICT RULES:
 1. REMOVE ALL conversational openings (e.g. "好的", "好的，作为...", "Here is the report...", "As an analyst...").
@@ -219,14 +243,18 @@ CONTENT:
         try:
             provider = os.getenv("DEFAULT_LLM_PROVIDER", "deepseek").lower()
             model = os.getenv("DEEPSEEK_MODEL", "deepseek-v4-pro") if provider == "deepseek" else os.getenv("GEMINI_MODEL", "gemini-3.1-pro-preview")
-            res = await llm_gateway.generate_content(f"{prompt}\n\nCONTENT:\n{content}", model=model, temperature=0.2)
-            if not res: return markdown2.markdown(content, extras=["tables", "fenced-code-blocks"])
+            res = await llm_gateway.generate_content(f"{prompt}\n\nCONTENT:\n{stripped}", model=model, temperature=0.2)
+            if not res:
+                result = markdown2.markdown(stripped, extras=["tables", "fenced-code-blocks"])
+                return result + trailing_json_md if trailing_json_md else result
 
             res = re.sub(r"^```markdown\n", "", res)
             res = re.sub(r"\n```$", "", res)
-            return markdown2.markdown(res.strip(), extras=["tables", "fenced-code-blocks"])
+            result = markdown2.markdown(res.strip(), extras=["tables", "fenced-code-blocks"])
+            return result + trailing_json_md if trailing_json_md else result
         except:
-            return markdown2.markdown(content, extras=["tables", "fenced-code-blocks"])
+            result = markdown2.markdown(stripped, extras=["tables", "fenced-code-blocks"])
+            return result + trailing_json_md if trailing_json_md else result
     def _json_to_markdown(self, text: str) -> str:
         """Convert structured JSON analyst output to readable markdown locally (no LLM needed)."""
         try:
@@ -254,24 +282,33 @@ CONTENT:
                 val = data[key]
                 if isinstance(val, str):
                     lines.append(f"### {label}\n\n{val}\n")
+                elif isinstance(val, dict):
+                    lines.append(f"### {label}\n")
+                    for dk, dv in val.items():
+                        lines.append(f"- **{dk}**: {dv}")
+                    lines.append("")
 
         # Expected price
         if "expectedPrice" in data and isinstance(data["expectedPrice"], dict):
             ep = data["expectedPrice"]
             lines.append("### 💰 预期价格计算\n")
             lines.append(f"- **计算公式**: {ep.get('calculation', 'N/A')}")
-            lines.append(f"- **预期价格**: ${ep.get('result', 'N/A')}")
-            lines.append(f"- **当前价格**: ${ep.get('currentPrice', 'N/A')}")
+            result_val = ep.get('result', 'N/A')
+            lines.append(f"- **预期价格**: ${result_val}")
+            vs_current = ep.get('vsCurrentPrice', ep.get('currentPrice', 'N/A'))
+            lines.append(f"- **vs当前价格**: {vs_current}")
             lines.append(f"- **预期回报**: {ep.get('expectedReturn', 'N/A')}")
-            lines.append(f"- **决策规则**: {ep.get('decisionRuleCheck', 'N/A')}\n")
+            decision = ep.get('decisionRuleCheck')
+            if decision:
+                lines.append(f"- **决策规则**: {decision}")
+            lines.append("")
 
         # Trading plan
         if "tradingPlan" in data and isinstance(data["tradingPlan"], dict):
             tp = data["tradingPlan"]
             lines.append("### 📈 交易计划\n")
             for k, v in tp.items():
-                if isinstance(v, str):
-                    lines.append(f"- **{k}**: {v}")
+                lines.append(f"- **{k}**: {v}")
             lines.append("")
 
         # Kelly position
@@ -297,7 +334,7 @@ CONTENT:
             lines.append("|------|------|------|----------|------|")
             for step in data["buildPlan"]:
                 if isinstance(step, dict):
-                    lines.append(f"| {step.get('level','')} | {step.get('price','')} | {step.get('weight','')} | {step.get('cumulativeWeight','')} | {step.get('logic','')} |")
+                    lines.append(f"| {step.get('level','')} | {step.get('price','')} | {step.get('weight','')} | {step.get('cumulativePosition', step.get('cumulativeWeight',''))} | {step.get('logic','')} |")
             lines.append("")
 
         # Exit mechanism
@@ -325,11 +362,44 @@ CONTENT:
                 lines.append(f"- {risk}")
             lines.append("")
 
+        # Falsification redlines
+        if "falsificationRedlines" in data and isinstance(data["falsificationRedlines"], list):
+            lines.append("### 🚨 证伪红线\n")
+            lines.append("| 条件 | 窗口 | 行动 |")
+            lines.append("|------|------|------|")
+            for item in data["falsificationRedlines"]:
+                if isinstance(item, dict):
+                    lines.append(f"| {item.get('condition','')} | {item.get('window','')} | {item.get('action','')} |")
+                elif isinstance(item, str):
+                    lines.append(f"- {item}")
+            lines.append("")
+
+        # Key revisions
+        if "keyRevisionsToPriorAnalyses" in data and isinstance(data["keyRevisionsToPriorAnalyses"], dict):
+            lines.append("### 📝 关键修正\n")
+            for rk, rv in data["keyRevisionsToPriorAnalyses"].items():
+                lines.append(f"- **{rk}**: {rv}")
+            lines.append("")
+
         # Fallback: any unhandled keys
-        handled = set(labels.keys()) | {"expectedPrice", "tradingPlan", "kellyPosition", "timeHorizon", "buildPlan", "exitMechanism", "criticalRisks"}
+        handled = set(labels.keys()) | {"expectedPrice", "tradingPlan", "kellyPosition", "timeHorizon", "buildPlan", "exitMechanism", "criticalRisks", "falsificationRedlines", "keyRevisionsToPriorAnalyses"}
         for key, val in data.items():
-            if key not in handled and isinstance(val, str):
-                lines.append(f"### {key}\n\n{val}\n")
+            if key not in handled:
+                if isinstance(val, str):
+                    lines.append(f"### {key}\n\n{val}\n")
+                elif isinstance(val, dict):
+                    lines.append(f"### {key}\n")
+                    for dk, dv in val.items():
+                        lines.append(f"- **{dk}**: {dv}")
+                    lines.append("")
+                elif isinstance(val, list):
+                    lines.append(f"### {key}\n")
+                    for item in val:
+                        if isinstance(item, dict):
+                            lines.append(f"- {' | '.join(str(v) for v in item.values())}")
+                        else:
+                            lines.append(f"- {item}")
+                    lines.append("")
 
         return "\n".join(lines) if lines else ""
     def _render_html(self, d: dict) -> str:
@@ -425,7 +495,7 @@ CONTENT:
         detailed_fund_html = ""
         for cat in categories:
             items_html = "".join([
-                f'<div class="fund-item"><div class="fund-item-label">{k}<span>{desc}</span></div><div class="fund-item-value">{fund.get(k, "N/A")}</div></div>'
+                self._render_fund_item(k, desc, fund.get(k, "N/A"))
                 for k, desc in cat["metrics"]
             ])
             detailed_fund_html += f"""
@@ -502,6 +572,11 @@ CONTENT:
         .fund-item-label {{ font-size: 13px; color: #475569; font-weight: 500; }}
         .fund-item-label span {{ display: block; font-size: 10px; color: #94a3b8; font-weight: 400; }}
         .fund-item-value {{ font-size: 14px; font-weight: 700; color: var(--primary); }}
+        .signal-dot {{ display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }}
+        .signal-green {{ background: #10b981; box-shadow: 0 0 4px #10b98180; }}
+        .signal-yellow {{ background: #f59e0b; box-shadow: 0 0 4px #f59e0b80; }}
+        .signal-red {{ background: #ef4444; box-shadow: 0 0 4px #ef444480; }}
+        .signal-gray {{ background: #cbd5e1; }}
 
         /* Executive Summary Box */
         .summary-box {{ background: #f0f7ff; border-radius: 8px; padding: 30px; margin-bottom: 50px; border: 1px solid #dbeafe; text-align: left; }}
@@ -589,6 +664,12 @@ CONTENT:
 
         <section class="section">
             <h2 class="section-title">深度基本面指标 (Deep Fundamental Data)</h2>
+            <div style="font-size: 11px; color: #94a3b8; margin-bottom: 15px;">
+                <span class="signal-dot signal-green"></span>健康
+                <span style="margin-left: 12px;"><span class="signal-dot signal-yellow"></span>中性/关注</span>
+                <span style="margin-left: 12px;"><span class="signal-dot signal-red"></span>风险/较差</span>
+                <span style="margin-left: 12px;"><span class="signal-dot signal-gray"></span>无数据/不适用</span>
+            </div>
             {detailed_fund_html}
         </section>
 
@@ -734,7 +815,8 @@ CONTENT:
         m["每股收益 (EPS)"] = ratio(get_val("eps"))
 
         # 3. Growth
-        m["营收同比增长 (YoY)"] = pct(get_val("revenueYoY") or get_val("revenueGrowth"))
+        m["营收同比增长 (YoY)"] = pct(get_val("revenueYoY_annual") or get_val("revenueYoY") or get_val("revenueGrowth"))
+        m["营收同比-单季 (YoY-Q)"] = pct(get_val("revenueGrowth") or get_val("revenueYoY"))
         
         rev_qoq = pct(get_val("revenueQoQ"))
         m["营收环比增长 (QoQ)"] = rev_qoq if rev_qoq != "N/A" else (ui_data.get("revenue_qoq") or "N/A")
@@ -772,6 +854,9 @@ CONTENT:
         # 5. Cash Flow & Dividends (use financialCurrency for absolute values)
         m["经营现金流"] = money(get_val("operatingCashflow"), use_currency=fin_currency)
         m["自由现金流 (FCF)"] = money(get_val("freeCashflow"), use_currency=fin_currency)
+        m["总现金(含短投)"] = money(get_val("totalCash"), use_currency=fin_currency)
+        m["总有息负债"] = money(get_val("totalDebt"), use_currency=fin_currency)
+        m["净现金"] = money(get_val("netCash"), use_currency=fin_currency)
         
         capex_val = money(get_val("capitalExpenditure"), use_currency=fin_currency)
         m["资本开支 (CAPEX)"] = capex_val if capex_val != "N/A" else (ui_data.get("capex") or "N/A")
@@ -785,15 +870,36 @@ CONTENT:
             if div == 0: m["股息率"] = "0.0%"
             elif div > 0.5 and div < 100: m["股息率"] = f"{round(div, 2)}%"
             else: m["股息率"] = f"{round(div*100, 2)}%"
-        else: m["股息率"] = "N/A"
+        else:
+            # If payoutRatio is 0 or dividendRate is None/0, company pays no dividend
+            pr = get_val("payoutRatio")
+            dr = get_val("dividendRate")
+            if pr is not None and pr == 0:
+                m["股息率"] = "0% (无分红)"
+            elif dr is not None and dr == 0:
+                m["股息率"] = "0% (无分红)"
+            else:
+                m["股息率"] = "N/A"
 
         # 6. Efficiency
         m["总资产周转率"] = ratio(get_val("assetTurnover")) if get_val("assetTurnover") else (ui_data.get("asset_turnover") or "N/A")
         m["存货周转率"] = ratio(get_val("inventoryTurnover")) if get_val("inventoryTurnover") else (ui_data.get("inventory_turnover") or "N/A")
 
-        # 7. Ownership
-        m["大股东持股"] = pct(get_val("heldPercentInsiders"))
-        m["机构持仓"] = pct(get_val("heldPercentInstitutions"))
+        # 7. Ownership (note: ADS-level data for ADRs/HK stocks)
+        insider_val = get_val("heldPercentInsiders")
+        inst_val = get_val("heldPercentInstitutions")
+        # Detect if this is an ADR/HK stock (currency mismatch)
+        is_adr = fin_currency and currency and fin_currency != currency
+        if insider_val is not None and isinstance(insider_val, (int, float)):
+            label = f"{round(insider_val*100, 2)}% {'(ADS口径)' if is_adr else ''}".strip()
+            m["大股东持股"] = label
+        else:
+            m["大股东持股"] = "N/A"
+        if inst_val is not None and isinstance(inst_val, (int, float)):
+            label = f"{round(inst_val*100, 2)}% {'(ADS口径)' if is_adr else ''}".strip()
+            m["机构持仓"] = label
+        else:
+            m["机构持仓"] = "N/A"
 
         # 8. Market Context
         high = get_val("fiftyTwoWeekHigh")
@@ -805,9 +911,105 @@ CONTENT:
         else:
             m["股价百分位 (52周)"] = "N/A"
 
-        m["PE百分位"] = ui_data.get("pe_percentile") or "N/A"
+        pe_pct = get_val("pePercentile")
+        if pe_pct is not None and isinstance(pe_pct, (int, float)):
+            m["PE百分位"] = pct(pe_pct)
+        else:
+            m["PE百分位"] = ui_data.get("pe_percentile") or "N/A"
 
         return m
+
+    def _parse_metric_value(self, value_str: str):
+        """Extract numeric value from a formatted metric string like '18.68%', '183.79亿 USD', '-22.25%', 'N/A'."""
+        if not value_str or value_str == "N/A":
+            return None
+        s = str(value_str).strip()
+        # Remove ADS口径 annotation
+        s = s.replace("(ADS口径)", "").replace("(无分红)", "").strip()
+        # Handle percentage
+        if s.endswith("%"):
+            try:
+                return float(s[:-1])
+            except ValueError:
+                return None
+        # Handle money values like "183.79亿 USD", "-112.1亿 CNY"
+        import re
+        m = re.match(r'^([+-]?[\d,.]+)', s)
+        if m:
+            try:
+                return float(m.group(1).replace(",", ""))
+            except ValueError:
+                return None
+        return None
+
+    # Signal rules: metric_name → (green_condition, yellow_condition, red_condition)
+    # Returns: "green" (good), "yellow" (neutral/caution), "red" (bad), "gray" (N/A)
+    SIGNAL_RULES = {
+        # Valuation — lower is better (except EV which is contextual)
+        "市盈率 (PE)":       {"green": lambda v: 0 < v < 15, "yellow": lambda v: 15 <= v < 30, "red": lambda v: v >= 30 or v < 0},
+        "市净率 (PB)":       {"green": lambda v: 0 < v < 1.5, "yellow": lambda v: 1.5 <= v < 3, "red": lambda v: v >= 3 or v < 0},
+        "PEG":              {"green": lambda v: 0 < v < 1, "yellow": lambda v: 1 <= v < 2, "red": lambda v: v >= 2 or v < 0},
+        "市销率 (PS)":       {"green": lambda v: 0 < v < 2, "yellow": lambda v: 2 <= v < 5, "red": lambda v: v >= 5},
+        "EV/EBITDA":        {"green": lambda v: 0 < v < 10, "yellow": lambda v: 10 <= v < 20, "red": lambda v: v >= 20 or v < 0},
+        # Profitability — higher is better
+        "净资产收益率 (ROE)": {"green": lambda v: v >= 15, "yellow": lambda v: 5 <= v < 15, "red": lambda v: v < 5},
+        "总资产收益率 (ROA)": {"green": lambda v: v >= 8, "yellow": lambda v: 3 <= v < 8, "red": lambda v: v < 3},
+        "毛利率":            {"green": lambda v: v >= 30, "yellow": lambda v: 15 <= v < 30, "red": lambda v: v < 15},
+        "营业利润率":         {"green": lambda v: v >= 15, "yellow": lambda v: 5 <= v < 15, "red": lambda v: v < 5},
+        "净利率":            {"green": lambda v: v >= 10, "yellow": lambda v: 3 <= v < 10, "red": lambda v: v < 3},
+        # Growth — positive is good
+        "营收同比增长 (YoY)":  {"green": lambda v: v >= 10, "yellow": lambda v: 0 <= v < 10, "red": lambda v: v < 0},
+        "营收同比-单季 (YoY-Q)": {"green": lambda v: v >= 10, "yellow": lambda v: 0 <= v < 10, "red": lambda v: v < 0},
+        "营收环比增长 (QoQ)":  {"green": lambda v: v >= 5, "yellow": lambda v: 0 <= v < 5, "red": lambda v: v < 0},
+        "净利润同比增长 (YoY)": {"green": lambda v: v >= 10, "yellow": lambda v: 0 <= v < 10, "red": lambda v: v < 0},
+        "净利润环比增长 (QoQ)": {"green": lambda v: v >= 5, "yellow": lambda v: 0 <= v < 5, "red": lambda v: v < 0},
+        "扣非净利润同比增长 (YoY)": {"green": lambda v: v >= 10, "yellow": lambda v: 0 <= v < 10, "red": lambda v: v < 0},
+        "扣非净利润环比增长 (QoQ)": {"green": lambda v: v >= 5, "yellow": lambda v: 0 <= v < 5, "red": lambda v: v < 0},
+        "营收3年复合增长 (CAGR)": {"green": lambda v: v >= 15, "yellow": lambda v: 5 <= v < 15, "red": lambda v: v < 5},
+        "净利润3年复合增长 (CAGR)": {"green": lambda v: v >= 15, "yellow": lambda v: 5 <= v < 15, "red": lambda v: v < 5},
+        # Financial Health
+        "资产负债率":         {"green": lambda v: v < 40, "yellow": lambda v: 40 <= v < 60, "red": lambda v: v >= 60},
+        "流动比率":           {"green": lambda v: v >= 2, "yellow": lambda v: 1 <= v < 2, "red": lambda v: v < 1},
+        "速动比率":           {"green": lambda v: v >= 1, "yellow": lambda v: 0.5 <= v < 1, "red": lambda v: v < 0.5},
+        # Cash Flow — positive is good
+        "分红率":            {"green": lambda v: 20 <= v <= 70, "yellow": lambda v: 0 < v < 20 or 70 < v <= 100, "red": lambda v: v <= 0 or v > 100},
+        "股息率":            {"green": lambda v: v >= 3, "yellow": lambda v: 1 <= v < 3, "red": lambda v: v < 1},
+        # Efficiency
+        "总资产周转率":       {"green": lambda v: v >= 0.8, "yellow": lambda v: 0.4 <= v < 0.8, "red": lambda v: v < 0.4},
+        "存货周转率":         {"green": lambda v: v >= 6, "yellow": lambda v: 3 <= v < 6, "red": lambda v: v < 3},
+        # Market Context — lower percentile = cheaper (green)
+        "股价百分位 (52周)":  {"green": lambda v: v < 30, "yellow": lambda v: 30 <= v < 70, "red": lambda v: v >= 70},
+        "PE百分位":          {"green": lambda v: v < 30, "yellow": lambda v: 30 <= v < 70, "red": lambda v: v >= 70},
+    }
+
+    def _get_metric_signal(self, metric_name: str, value_str: str) -> str:
+        """Return signal color class: 'green', 'yellow', 'red', or 'gray'."""
+        val = self._parse_metric_value(value_str)
+        if val is None:
+            return "gray"
+        rules = self.SIGNAL_RULES.get(metric_name)
+        if not rules:
+            return "gray"
+        try:
+            if rules["green"](val):
+                return "green"
+            elif rules["red"](val):
+                return "red"
+            else:
+                return "yellow"
+        except Exception:
+            return "gray"
+
+    def _render_fund_item(self, metric_name: str, desc: str, value_str: str) -> str:
+        """Render a single fund metric item with color signal dot."""
+        signal = self._get_metric_signal(metric_name, value_str)
+        signal_html = f'<span class="signal-dot signal-{signal}"></span>'
+        return (
+            f'<div class="fund-item">'
+            f'<div class="fund-item-label">{signal_html}{metric_name}<span>{desc}</span></div>'
+            f'<div class="fund-item-value">{value_str}</div>'
+            f'</div>'
+        )
 
     def _default_scenarios(self):
         return [{"case": "Bull", "probability": 30, "targetPrice": "N/A", "logic": "Market outperformance"}, {"case": "Base", "probability": 50, "targetPrice": "N/A", "logic": "Steady growth"}, {"case": "Bear", "probability": 20, "targetPrice": "N/A", "logic": "Increased competition"}]

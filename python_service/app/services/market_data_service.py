@@ -67,7 +67,8 @@ class MarketDataService:
                         "pegRatio": info.get("pegRatio"),
                         "priceToSales": info.get("priceToSalesTrailing12Months"),
                         "enterpriseToEbitda": info.get("enterpriseToEbitda"),
-                        "enterpriseValue": info.get("enterpriseValue"),
+                        # EV: use raw value if same currency or positive; recompute via FX if currency mismatch + negative
+                        "enterpriseValue": self._compute_ev_with_fx(info),
                         "returnOnEquity": info.get("returnOnEquity"),
                         "returnOnAssets": info.get("returnOnAssets"),
                         "grossMargins": info.get("grossMargins"),
@@ -312,6 +313,25 @@ class MarketDataService:
                         if len(q_ni) >= 5 and q_ni.iloc[4] != 0:
                             net_profit_yoy_q = (q_ni.iloc[0] - q_ni.iloc[4]) / abs(q_ni.iloc[4])
                 
+                # --- Balance sheet: cash, debt, net cash ---
+                total_cash = info.get("totalCash")
+                total_debt = info.get("totalDebt")
+                net_cash = None
+                net_cash_per_share = None
+                shares_outstanding = info.get("sharesOutstanding")
+                if total_cash is not None and total_debt is not None:
+                    net_cash = total_cash - total_debt
+                    if shares_outstanding and shares_outstanding > 0:
+                        net_cash_per_share = net_cash / shares_outstanding
+
+                # --- Full-year (annual) revenue YoY ---
+                revenue_yoy_annual = None
+                if financials is not None and not financials.empty:
+                    if 'Total Revenue' in financials.index:
+                        ann_rev = financials.loc['Total Revenue'].dropna()
+                        if len(ann_rev) >= 2 and ann_rev.iloc[1] != 0:
+                            revenue_yoy_annual = (ann_rev.iloc[0] - ann_rev.iloc[1]) / abs(ann_rev.iloc[1])
+
                 # Turnover ratios from balance sheet + income statement
                 asset_turnover = None
                 inventory_turnover = None
@@ -344,6 +364,34 @@ class MarketDataService:
                     except:
                         pass
                 
+                # --- CAPEX from cashflow statement (fallback when info lacks it) ---
+                capital_expenditure = info.get("capitalExpenditure")
+                if capital_expenditure is None:
+                    try:
+                        cashflow = await loop.run_in_executor(None, lambda: ticker.cashflow)
+                        if cashflow is not None and not cashflow.empty and 'Capital Expenditure' in cashflow.index:
+                            capex_val = cashflow.loc['Capital Expenditure'].iloc[0]
+                            if capex_val is not None and not (isinstance(capex_val, float) and capex_val != capex_val):
+                                capital_expenditure = capex_val
+                    except Exception:
+                        pass
+
+                # --- PE percentile from 2-year price history ---
+                pe_percentile = None
+                trailing_pe = info.get("trailingPE")
+                trailing_eps = info.get("trailingEps")
+                if trailing_pe and trailing_eps and trailing_eps > 0:
+                    try:
+                        hist = await loop.run_in_executor(None, lambda: ticker.history(period="2y"))
+                        if hist is not None and len(hist) > 60:
+                            hist_pe = hist['Close'] / trailing_eps
+                            # Filter out negative/extreme PEs
+                            hist_pe = hist_pe[(hist_pe > 0) & (hist_pe < 1000)]
+                            if len(hist_pe) > 30:
+                                pe_percentile = float((hist_pe < trailing_pe).sum()) / len(hist_pe)
+                    except Exception:
+                        pass
+
                 # Detect currency mismatch for ADR/foreign stocks
                 listing_currency = info.get("currency") or "USD"
                 financial_currency = info.get("financialCurrency") or listing_currency
@@ -363,10 +411,27 @@ class MarketDataService:
                     total_revenue = info.get("totalRevenue")
                     ebitda = info.get("ebitda")
                     
-                    # Recompute PS: both marketCap and totalRevenue should be in same currency
-                    # yfinance marketCap is in listing_currency, totalRevenue in financial_currency
-                    # We cannot fix without exchange rate, so mark as needing financial_currency
-                    # For display: use the pre-computed value ONLY if currencies match
+                    # EV from yfinance may mix USD marketCap with CNY cash/debt → can be negative/wrong
+                    # Recompute EV using FX rate: EV = marketCap * FX + totalDebt - totalCash
+                    if enterprise_value is not None and enterprise_value < 0:
+                        enterprise_value = None  # Mark unreliable — mixed currency calculation
+                    
+                    # If EV is None (was negative), try computing manually with FX
+                    if enterprise_value is None and market_cap:
+                        try:
+                            fx_pair = f"{listing_currency}{financial_currency}=X"
+                            fx_ticker = yf.Ticker(fx_pair)
+                            fx_rate = fx_ticker.info.get("regularMarketPrice")
+                            if fx_rate and fx_rate > 0:
+                                mc_fc = market_cap * fx_rate  # marketCap in financialCurrency
+                                td = info.get("totalDebt") or 0
+                                tc = info.get("totalCash") or 0
+                                ev_computed = mc_fc + td - tc
+                                if ev_computed > 0:
+                                    enterprise_value = ev_computed
+                        except Exception:
+                            pass
+                    
                     price_to_sales = None  # Mark unreliable
                     ev_to_ebitda = None     # Mark unreliable
                     
@@ -380,11 +445,11 @@ class MarketDataService:
                         # EV is in financial_currency from yfinance for foreign stocks
                         # We need market_cap in financial_currency too
                         # Approximate: use totalDebt and totalCash which are in financial_currency
-                        total_debt = info.get("totalDebt") or 0
-                        total_cash = info.get("totalCash") or 0
+                        total_debt_val = info.get("totalDebt") or 0
+                        total_cash_val = info.get("totalCash") or 0
                         if enterprise_value:
                             # market_cap_fc = EV - debt + cash (all in financial_currency)
-                            market_cap_fc = enterprise_value - total_debt + total_cash
+                            market_cap_fc = enterprise_value - total_debt_val + total_cash_val
                             if market_cap_fc > 0:
                                 price_to_sales = market_cap_fc / total_revenue
                 
@@ -414,9 +479,15 @@ class MarketDataService:
                     "revenueCagr3y": revenue_cagr_3y,
                     "incomeCagr3y": income_cagr_3y,
                     "eps": info.get("trailingEps"),
+                    "totalCash": total_cash,
+                    "totalDebt": total_debt,
+                    "netCash": net_cash,
+                    "netCashPerShare": net_cash_per_share,
+                    "sharesOutstanding": shares_outstanding,
+                    "revenueYoY_annual": revenue_yoy_annual,
                     "freeCashflow": info.get("freeCashflow"),
                     "operatingCashflow": info.get("operatingCashflow"),
-                    "capitalExpenditure": info.get("capitalExpenditure"),
+                    "capitalExpenditure": capital_expenditure,
                     "debtToEquity": info.get("debtToEquity"),
                     "currentRatio": info.get("currentRatio"),
                     "quickRatio": info.get("quickRatio"),
@@ -431,6 +502,7 @@ class MarketDataService:
                     "netIncomeHistory": net_income,
                     "currency": listing_currency,
                     "financialCurrency": financial_currency,
+                    "pePercentile": pe_percentile,
                     "financials": {"searchContext": search_context}
                 }
             elif market == "A-Share":
@@ -545,6 +617,33 @@ class MarketDataService:
                 except:
                     pass
 
+                # --- CAPEX from cashflow statement (fallback) ---
+                a_capital_expenditure = yf_info.get("capitalExpenditure")
+                if a_capital_expenditure is None:
+                    try:
+                        a_cashflow = await loop.run_in_executor(None, lambda: ticker.cashflow)
+                        if a_cashflow is not None and not a_cashflow.empty and 'Capital Expenditure' in a_cashflow.index:
+                            capex_v = a_cashflow.loc['Capital Expenditure'].iloc[0]
+                            if capex_v is not None and not (isinstance(capex_v, float) and capex_v != capex_v):
+                                a_capital_expenditure = capex_v
+                    except Exception:
+                        pass
+
+                # --- PE percentile from 2-year history ---
+                a_pe_percentile = None
+                a_trailing_pe = yf_info.get("trailingPE")
+                a_trailing_eps = yf_info.get("trailingEps")
+                if a_trailing_pe and a_trailing_eps and a_trailing_eps > 0:
+                    try:
+                        a_hist = await loop.run_in_executor(None, lambda: ticker.history(period="2y"))
+                        if a_hist is not None and len(a_hist) > 60:
+                            a_hist_pe = a_hist['Close'] / a_trailing_eps
+                            a_hist_pe = a_hist_pe[(a_hist_pe > 0) & (a_hist_pe < 1000)]
+                            if len(a_hist_pe) > 30:
+                                a_pe_percentile = float((a_hist_pe < a_trailing_pe).sum()) / len(a_hist_pe)
+                    except Exception:
+                        pass
+
                 # Fallback to search if critical metrics are missing
                 if not ak_financials.get("latestNetProfitDeduct"):
                     try:
@@ -594,7 +693,7 @@ class MarketDataService:
                     "assetTurnover": ak_financials.get("latestAssetTurnover") or yf_info.get("assetTurnover"),
                     "freeCashflow": yf_info.get("freeCashflow"),
                     "operatingCashflow": yf_info.get("operatingCashflow"),
-                    "capitalExpenditure": yf_info.get("capitalExpenditure"),
+                    "capitalExpenditure": a_capital_expenditure,
                     "payoutRatio": yf_info.get("payoutRatio"),
                     "dividend": latest_dividend.get("派息"),
                     "dividendYield": ak_info.get("股息率") or yf_info.get("dividendYield"),
@@ -605,12 +704,45 @@ class MarketDataService:
                     "price": yf_info.get("currentPrice") or yf_info.get("regularMarketPrice"),
                     "currency": "CNY",
                     "financialCurrency": "CNY",
+                    "pePercentile": a_pe_percentile,
                     "financials": ak_financials
                 }
         except Exception as e:
             print(f"Financial summary fetch failed for {symbol}: {e}")
             return {"error": str(e)}
         return {}
+
+    def _compute_ev_with_fx(self, info: dict):
+        """Compute Enterprise Value, using FX conversion for cross-currency ADRs."""
+        ev = info.get("enterpriseValue")
+        listing_currency = info.get("currency") or "USD"
+        financial_currency = info.get("financialCurrency") or listing_currency
+        
+        # Same currency → use raw value
+        if listing_currency == financial_currency:
+            return ev
+        
+        # Cross-currency: if EV is positive, use it
+        if ev is not None and ev >= 0:
+            return ev
+        
+        # EV is negative or None → recompute via FX
+        market_cap = info.get("marketCap")
+        if not market_cap:
+            return None
+        try:
+            fx_pair = f"{listing_currency}{financial_currency}=X"
+            fx_ticker = yf.Ticker(fx_pair)
+            fx_rate = fx_ticker.info.get("regularMarketPrice")
+            if fx_rate and fx_rate > 0:
+                mc_fc = market_cap * fx_rate
+                td = info.get("totalDebt") or 0
+                tc = info.get("totalCash") or 0
+                ev_computed = mc_fc + td - tc
+                return ev_computed if ev_computed > 0 else None
+        except Exception:
+            pass
+        return None
 
     def _calculate_cagr(self, series) -> float:
         try:

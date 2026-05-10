@@ -264,12 +264,23 @@ class LLMGateway:
             # For the final round after tool calls, add explicit completion instruction
             if not use_tools and had_tool_rounds:
                 # Manage context: truncate long tool observations to prevent context overflow
+                total_tool_chars = sum(len(m.get("content", "")) for m in messages if m.get("role") == "tool")
+                # If total tool content is very large, be more aggressive with truncation
+                trunc_limit = 2000 if total_tool_chars > 30000 else 3000
                 for i, msg in enumerate(messages):
-                    if msg.get("role") == "tool" and len(msg.get("content", "")) > 3000:
-                        messages[i]["content"] = msg["content"][:3000] + "\n\n... [content truncated for context management]"
+                    if msg.get("role") == "tool" and len(msg.get("content", "")) > trunc_limit:
+                        messages[i]["content"] = msg["content"][:trunc_limit] + "\n\n... [content truncated for context management]"
                 messages.append({
                     "role": "user",
-                    "content": "All data gathering is complete. Based on ALL the information you've gathered from tool calls above, now produce your COMPLETE and DETAILED expert analysis report. Do NOT make any more tool calls. Do NOT repeat tool call queries. Write your full, comprehensive analysis now with all sections, tables, and conclusions."
+                    "content": (
+                        "IMPORTANT: All data gathering is COMPLETE. You MUST now write your full expert analysis.\n\n"
+                        "REQUIREMENTS:\n"
+                        "1. Synthesize ALL information gathered from your tool calls above\n"
+                        "2. Do NOT make any more tool calls or repeat search queries\n"  
+                        "3. Write a COMPREHENSIVE analysis (400-800 words minimum) with specific data points, tables, and conclusions\n"
+                        "4. If some search results were empty, analyze based on the data you DID obtain plus the API data provided in the original prompt\n"
+                        "5. Start writing your analysis immediately - do not output search queries or planning text"
+                    )
                 })
             
             def _stream_with_tools():
@@ -412,11 +423,67 @@ class LLMGateway:
                 })
         
         # Prefer final analysis content; fall back to tool-round thinking text if final round failed
-        if final_content:
+        if final_content and len(final_content.strip()) > 100:
             result = final_content
+        elif final_content:
+            # Final round produced very short content — likely incomplete
+            print(f"  [ToolLoop] WARNING: Final round produced only {len(final_content)} chars. Retrying...")
+            # Retry once with a stronger prompt
+            messages.append({"role": "assistant", "content": final_content})
+            messages.append({
+                "role": "user",
+                "content": "Your response was too short and incomplete. Please write a FULL, DETAILED expert analysis report (400+ words) with specific numbers, comparisons, and conclusions. Start now."
+            })
+            try:
+                retry_content, _, _ = await asyncio.to_thread(_stream_with_tools)
+                if retry_content and len(retry_content.strip()) > 100:
+                    result = retry_content
+                else:
+                    result = final_content
+            except Exception:
+                result = final_content
         elif tool_round_text:
-            print(f"  [ToolLoop] WARNING: No final analysis produced. Using {len(tool_round_text)} tool-round text fragments as fallback.")
-            result = "\n".join(tool_round_text)
+            # No final content at all — the final round failed or produced empty response
+            # Try one more time with aggressively trimmed context
+            print(f"  [ToolLoop] WARNING: No final analysis produced. Attempting recovery...")
+            # Keep only system, original user prompt, and a summary of tool results
+            recovery_messages = [messages[0], messages[1]]  # system + user
+            tool_summaries = []
+            for msg in messages:
+                if msg.get("role") == "tool":
+                    content_preview = (msg.get("content", ""))[:500]
+                    tool_summaries.append(content_preview)
+            if tool_summaries:
+                recovery_messages.append({
+                    "role": "user",
+                    "content": "Here is a summary of search results you gathered:\n\n" + "\n---\n".join(tool_summaries[:6]) + 
+                    "\n\nBased on the above data AND the API data in the original prompt, write your COMPLETE expert analysis report now. 400+ words with specific data points."
+                })
+            try:
+                def _recovery_call():
+                    resp = self.deepseek_client.chat.completions.create(
+                        model=final_model, messages=recovery_messages,
+                        temperature=temperature, max_tokens=16384, stream=True
+                    )
+                    parts = []
+                    for chunk in resp:
+                        if chunk.choices and chunk.choices[0].delta.content:
+                            parts.append(chunk.choices[0].delta.content)
+                            if len(parts) % 50 == 0:
+                                print(".", end="", flush=True)
+                    print(flush=True)
+                    return "".join(parts)
+                
+                recovery_content = await asyncio.to_thread(_recovery_call)
+                if recovery_content and len(recovery_content.strip()) > 100:
+                    result = recovery_content
+                    print(f"  [ToolLoop] Recovery successful: {len(recovery_content)} chars")
+                else:
+                    print(f"  [ToolLoop] Recovery failed. Using {len(tool_round_text)} tool-round fragments as fallback.")
+                    result = "\n".join(tool_round_text)
+            except Exception as e:
+                print(f"  [ToolLoop] Recovery error: {e}. Using tool-round fragments.")
+                result = "\n".join(tool_round_text)
         else:
             result = content or ""
         # Safety net: strip any remaining DSML tokens that may have leaked

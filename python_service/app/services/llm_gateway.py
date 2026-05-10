@@ -89,77 +89,66 @@ class LLMGateway:
             raise ValueError("Gemini client not initialized (missing API key?)")
             
         max_retries = 20
-        retry_delay = 10 # Initial delay in seconds
+        retry_delay = 15 # Initial delay in seconds
         max_delay = 3600 # 1 hour
         
-        # User defined fallback chain for Gemini
-        model_chain = [model]
-        if model.startswith("gemini-3"):
-            # Fixed priority chain
-            base_chain = ["gemini-3.1-pro-preview", "gemini-3-flash-preview", "gemini-3.1-flash-lite-preview"]
-            if model in base_chain:
-                model_chain = [model] + [m for m in base_chain if m != model]
-            else:
-                model_chain = [model] + base_chain
-        
-        for current_model in model_chain:
-            for attempt in range(max_retries):
-                # CHECK FOR USER STOP SIGNAL
-                if os.path.exists(".stop"):
-                    print("User stop signal detected (.stop file). Aborting analysis...")
-                    raise Exception("Analysis stopped by user.")
+        # Strict mode: NO model degradation. Only use the user-selected model.
+        # Rate limits are handled by exponential backoff with extended wait times.
+        for attempt in range(max_retries):
+            # CHECK FOR USER STOP SIGNAL
+            if os.path.exists(".stop"):
+                print("User stop signal detected (.stop file). Aborting analysis...")
+                raise Exception("Analysis stopped by user.")
 
-                try:
-                    # Assemble generation config
-                    config = {
-                        "temperature": temperature,
-                        "max_output_tokens": 8192,
-                    }
-                    if current_model == "gemini-3.1-pro-preview":
-                        config["tools"] = [{"google_search": {}}]
+            try:
+                # Assemble generation config
+                config = {
+                    "temperature": temperature,
+                    "max_output_tokens": 8192,
+                }
+                if model == "gemini-3.1-pro-preview":
+                    config["tools"] = [{"google_search": {}}]
 
-                    response = await asyncio.to_thread(
-                        client.models.generate_content,
-                        model=current_model,
-                        contents=prompt,
-                        config=config
-                    )
-                    
-                    if response and hasattr(response, 'text'):
-                        return response.text
-                    elif response and isinstance(response, str):
-                        return response
-                    else:
-                        raise ValueError(f"Unexpected response type from Gemini: {type(response)}")
-                except Exception as e:
-                    error_msg = str(e)
-                    print(f"Gemini Error ({current_model}) on attempt {attempt + 1}/{max_retries}: {error_msg}")
-                    
-                    # Retry on 429 Quota Exceeded or 503 Service Unavailable
-                    if "429" in error_msg or "quota" in error_msg.lower() or "503" in error_msg:
-                        if attempt < max_retries - 1:
-                            print(f"Rate limit or quota hit. Waiting {retry_delay} seconds before retrying (Max wait 1 hour)...")
-                            # Interruptible sleep
-                            for _ in range(int(retry_delay)):
-                                await asyncio.sleep(1)
-                                if os.path.exists(".stop"):
-                                    print("User stop signal detected during wait. Aborting...")
-                                    raise Exception("Analysis stopped by user.")
-                            
-                            retry_delay = min(retry_delay * 2, max_delay)
-                            continue
-                    
-                    print(f"Failed to generate with {current_model}. Attempting next model in chain...")
-                    break # Break inner attempt loop to go to next model
-            else:
-                # This executes if the inner loop finishes without breaking (should not happen unless max_retries=0)
-                pass
+                response = await asyncio.to_thread(
+                    client.models.generate_content,
+                    model=model,
+                    contents=prompt,
+                    config=config
+                )
                 
-        raise Exception(f"Failed to generate content after trying model chain {model_chain} due to API errors.")
+                if response and hasattr(response, 'text'):
+                    return response.text
+                elif response and isinstance(response, str):
+                    return response
+                else:
+                    raise ValueError(f"Unexpected response type from Gemini: {type(response)}")
+            except Exception as e:
+                error_msg = str(e)
+                print(f"Gemini Error ({model}) on attempt {attempt + 1}/{max_retries}: {error_msg}")
+                
+                # Retry on 429 Quota Exceeded or 503 Service Unavailable — extend wait, never degrade
+                if "429" in error_msg or "quota" in error_msg.lower() or "503" in error_msg:
+                    if attempt < max_retries - 1:
+                        print(f"Rate limit hit. Waiting {retry_delay}s before retry {attempt + 2}/{max_retries} (no model downgrade)...")
+                        # Interruptible sleep
+                        for _ in range(int(retry_delay)):
+                            await asyncio.sleep(1)
+                            if os.path.exists(".stop"):
+                                print("User stop signal detected during wait. Aborting...")
+                                raise Exception("Analysis stopped by user.")
+                        
+                        retry_delay = min(retry_delay * 2, max_delay)
+                        continue
+                
+                # Non-retryable error: raise immediately, no fallback
+                print(f"Non-retryable error with {model}. Strict mode: no model downgrade.")
+                raise e
+                
+        raise Exception(f"Failed to generate content with {model} after {max_retries} attempts due to rate limits. No model downgrade allowed.")
 
     async def _generate_deepseek(self, prompt: str, model: str, temperature: float) -> str:
-        max_retries = 3
-        retry_delay = 5
+        max_retries = 10
+        retry_delay = 15
         
         # Map legacy aliases to V4 equivalents for future-proofing
         model_map = {
@@ -206,9 +195,14 @@ class LLMGateway:
                 # Retry on transient errors: 429 Quota, 503/524 Server, empty response, connection errors
                 if "429" in error_msg or "quota" in error_msg.lower() or "503" in error_msg or "524" in error_msg or "500" in error_msg or "502" in error_msg or "empty response" in error_msg.lower() or "connection" in error_msg.lower() or "timeout" in error_msg.lower():
                     if attempt < max_retries - 1:
-                        print(f"Retryable error. Waiting {retry_delay} seconds before retrying...")
-                        await asyncio.sleep(retry_delay)
-                        retry_delay *= 2
+                        print(f"Rate limit hit. Waiting {retry_delay}s before retry {attempt + 2}/{max_retries} (no model downgrade)...")
+                        # Interruptible sleep
+                        for _ in range(int(retry_delay)):
+                            await asyncio.sleep(1)
+                            if os.path.exists(".stop"):
+                                print("User stop signal detected during wait. Aborting...")
+                                raise Exception("Analysis stopped by user.")
+                        retry_delay = min(retry_delay * 2, 3600)
                         continue
                 
                 # Strict mode: Do not fallback or downgrade
@@ -254,6 +248,11 @@ class LLMGateway:
         had_tool_rounds = False  # Whether any tool calls were made
         
         for round_num in range(max_tool_rounds + 1):
+            # CHECK FOR USER STOP SIGNAL
+            if os.path.exists(".stop"):
+                print("User stop signal detected (.stop file). Aborting tool loop...")
+                raise Exception("Analysis stopped by user.")
+            
             total_chars = sum(len(m.get("content") or "") for m in messages)
             total_tokens_est = total_chars // 4
             print(f"  [ToolLoop] Prompt size: ~{total_tokens_est} tokens ({total_chars} chars)")

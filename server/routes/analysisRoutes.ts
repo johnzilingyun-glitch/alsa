@@ -1,5 +1,8 @@
 import { Router } from 'express';
 import axios from 'axios';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { createAnalysisRepository } from '../repositories/analysisRepository.js';
 import { gatewayGenerate } from '../llmGateway.js';
 const axiosClient = axios.create({
@@ -170,6 +173,34 @@ router.get('/history/recent', async (req, res) => {
   const limit = parseInt(req.query.limit as string) || 20;
   const history = await repo.listRecent({ limit });
   res.json(history);
+});
+
+// Cancel / stop analysis — creates a .stop file that LLM gateway checks
+router.post('/analysis/cancel', async (req, res) => {
+  try {
+    const __filename = fileURLToPath(import.meta.url);
+    const __dirname = path.dirname(__filename);
+    // The Python service checks for .stop in its cwd (alsa/alsa root)
+    const projectRoot = path.resolve(__dirname, '..', '..');
+    const stopFilePath = path.join(projectRoot, '.stop');
+    fs.writeFileSync(stopFilePath, `cancelled at ${new Date().toISOString()}`);
+    console.log(`Analysis cancel signal created: ${stopFilePath}`);
+    
+    // Auto-clean the .stop file after 30 seconds so it doesn't persist
+    setTimeout(() => {
+      try {
+        if (fs.existsSync(stopFilePath)) {
+          fs.unlinkSync(stopFilePath);
+          console.log('Auto-cleaned .stop file after 30s');
+        }
+      } catch { /* ignore */ }
+    }, 30_000);
+
+    res.json({ success: true, message: 'Cancel signal sent' });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    res.status(500).json({ error: 'Failed to send cancel signal', details: message });
+  }
 });
 
 export default router;

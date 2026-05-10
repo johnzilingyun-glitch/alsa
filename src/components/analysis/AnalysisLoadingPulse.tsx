@@ -1,7 +1,7 @@
 import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useTranslation } from 'react-i18next';
-import { Loader2, Database, Brain, Search, Sparkles, Activity, Maximize2, Minimize2, CheckCircle2 } from 'lucide-react';
+import { Loader2, Database, Brain, Search, Sparkles, Activity, Maximize2, Minimize2, CheckCircle2, XCircle } from 'lucide-react';
 import { useUIStore } from '../../stores/useUIStore';
 import { useDiscussionStore } from '../../stores/useDiscussionStore';
 import { cn } from './utils';
@@ -24,7 +24,21 @@ export function AnalysisLoadingPulse() {
   const lastReasoning = useDiscussionStore(s => s.lastReasoning);
   
   const [isExpanded, setIsExpanded] = useState(true);
+  const [isCancelling, setIsCancelling] = useState(false);
   const logsEndRef = useRef<HTMLDivElement>(null);
+  const abortDiscussion = useDiscussionStore(s => s.abortDiscussion);
+
+  const handleCancel = async () => {
+    setIsCancelling(true);
+    try {
+      // 1. Signal backend to stop via .stop file
+      await fetch('/api/analysis/cancel', { method: 'POST' });
+      // 2. Abort frontend discussion AbortController
+      abortDiscussion();
+    } catch (e) {
+      console.error('Failed to cancel analysis:', e);
+    }
+  };
 
   // Auto-scroll logs to bottom
   useEffect(() => {
@@ -203,14 +217,29 @@ export function AnalysisLoadingPulse() {
                 <div ref={logsEndRef} />
               </div>
             </div>
+
+            {/* Cancel Button */}
+            <button
+              onClick={handleCancel}
+              disabled={isCancelling}
+              className={cn(
+                "w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-semibold transition-all",
+                isCancelling
+                  ? "bg-zinc-100 text-zinc-400 cursor-not-allowed"
+                  : "bg-red-50 text-red-600 hover:bg-red-100 border border-red-100 hover:border-red-200"
+              )}
+            >
+              <XCircle size={14} />
+              {isCancelling ? '正在中断...' : '中断分析'}
+            </button>
           </div>
         ) : (
           /* Minimized Pill State */
-          <div className="flex items-center gap-3 px-5 py-3 pr-12 cursor-pointer" onClick={() => setIsExpanded(true)}>
-            <div className="relative flex items-center justify-center">
+          <div className="flex items-center gap-3 px-5 py-3 pr-2">
+            <div className="relative flex items-center justify-center cursor-pointer" onClick={() => setIsExpanded(true)}>
               <Loader2 className="w-4 h-4 text-indigo-500 animate-spin" />
             </div>
-            <div className="overflow-hidden relative h-[18px] flex-1">
+            <div className="overflow-hidden relative h-[18px] flex-1 cursor-pointer" onClick={() => setIsExpanded(true)}>
               <AnimatePresence mode="popLayout">
                 <motion.span
                   key={analysisStatus}
@@ -223,6 +252,14 @@ export function AnalysisLoadingPulse() {
                 </motion.span>
               </AnimatePresence>
             </div>
+            <button
+              onClick={handleCancel}
+              disabled={isCancelling}
+              className="p-1.5 rounded-full text-zinc-400 hover:text-red-500 hover:bg-red-50 transition-colors"
+              title="中断分析"
+            >
+              <XCircle size={14} />
+            </button>
           </div>
         )}
       </motion.div>

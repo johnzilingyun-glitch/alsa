@@ -1,22 +1,44 @@
 import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useTranslation } from 'react-i18next';
-import { Loader2, Database, Brain, Search, Sparkles, Activity, Maximize2, Minimize2, CheckCircle2, XCircle } from 'lucide-react';
+import { Loader2, Database, Brain, Search, Sparkles, Activity, Maximize2, Minimize2, CheckCircle2, XCircle, Clock, Target, Zap, AlertTriangle } from 'lucide-react';
 import { useUIStore } from '../../stores/useUIStore';
 import { useDiscussionStore } from '../../stores/useDiscussionStore';
 import { cn } from './utils';
 
 const STEPS = [
-  { icon: Database, match: ['行情', '大宗商品', 'Extracting', 'Syncing'] },
-  { icon: Search, match: ['资讯', '舆情', 'Synthesizing'] },
-  { icon: Brain, match: ['深度研判', '思考', '数据偏差', '定稿', 'Reasoning', 'Drift', 'Finalizing'] }
+  { icon: Database, label: '数据采集', match: ['行情', '大宗商品', 'Extracting', 'Syncing', '排队', '提交', '启动', '初始化'] },
+  { icon: Search, label: '量化计算', match: ['资讯', '舆情', 'Synthesizing', '量化', '指标'] },
+  { icon: Brain, label: '专家研判', match: ['深度研判', '思考', '数据偏差', '定稿', 'Reasoning', 'Drift', 'Finalizing', '专家', '召集'] }
 ];
+
+const STAGE_DESCRIPTIONS: Record<string, string> = {
+  'queued': '正在连接数据管线，准备获取实时行情与基本面数据',
+  'starting': '正在初始化分析引擎，加载量化模型与专家模块',
+  'snapshot': '正在从多个数据源聚合行情、财务、资金流等全维度数据',
+  'quant': '正在通过 Polars 引擎计算 MA/RSI/MACD/布林带等量化指标',
+  'discussion': '多位 AI 分析师正在进行多轮辩论式深度研判',
+  'finalizing': '正在整合各专家意见，生成最终投资建议与风险评估',
+};
+
+function formatElapsedTime(startedAt: number | null): string {
+  if (!startedAt) return '0s';
+  const elapsed = Math.floor((Date.now() - startedAt) / 1000);
+  if (elapsed < 60) return `${elapsed}s`;
+  const mins = Math.floor(elapsed / 60);
+  const secs = elapsed % 60;
+  return `${mins}m ${secs}s`;
+}
 
 export function AnalysisLoadingPulse() {
   const { t } = useTranslation();
   const analysisStatus = useUIStore(s => s.analysisStatus);
   const analysisLogs = useUIStore(s => s.analysisLogs || []);
   const analysisActivity = useUIStore(s => s.analysisActivity);
+  const contentCount = useUIStore(s => s.contentCount);
+  const analysisTarget = useUIStore(s => s.analysisTarget);
+  const analysisStartedAt = useUIStore(s => s.analysisStartedAt);
+  const analysisError = useUIStore(s => s.analysisError);
   
   const currentRound = useDiscussionStore(s => s.currentRound);
   const totalRounds = useDiscussionStore(s => s.totalRounds);
@@ -25,8 +47,18 @@ export function AnalysisLoadingPulse() {
   
   const [isExpanded, setIsExpanded] = useState(true);
   const [isCancelling, setIsCancelling] = useState(false);
+  const [elapsed, setElapsed] = useState('0s');
   const logsEndRef = useRef<HTMLDivElement>(null);
   const abortDiscussion = useDiscussionStore(s => s.abortDiscussion);
+
+  // Elapsed time ticker
+  useEffect(() => {
+    if (!analysisStartedAt) return;
+    const interval = setInterval(() => {
+      setElapsed(formatElapsedTime(analysisStartedAt));
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [analysisStartedAt]);
 
   const handleCancel = async () => {
     setIsCancelling(true);
@@ -61,6 +93,23 @@ export function AnalysisLoadingPulse() {
     return index === -1 ? 0 : index;
   }, [analysisStatus, currentRound, totalRounds]);
 
+  // Current stage description
+  const stageDescription = useMemo(() => {
+    if (currentRound > 0) {
+      if (currentRound === 1) return STAGE_DESCRIPTIONS['snapshot'];
+      if (currentRound === totalRounds) return STAGE_DESCRIPTIONS['finalizing'];
+      return STAGE_DESCRIPTIONS['discussion'];
+    }
+    // Try to match from status text
+    if (analysisStatus?.includes('排队') || analysisStatus?.includes('提交')) return STAGE_DESCRIPTIONS['queued'];
+    if (analysisStatus?.includes('启动') || analysisStatus?.includes('初始化')) return STAGE_DESCRIPTIONS['starting'];
+    if (analysisStatus?.includes('行情') || analysisStatus?.includes('获取')) return STAGE_DESCRIPTIONS['snapshot'];
+    if (analysisStatus?.includes('量化') || analysisStatus?.includes('指标')) return STAGE_DESCRIPTIONS['quant'];
+    if (analysisStatus?.includes('专家') || analysisStatus?.includes('研判') || analysisStatus?.includes('召集')) return STAGE_DESCRIPTIONS['discussion'];
+    if (analysisStatus?.includes('整理') || analysisStatus?.includes('结论')) return STAGE_DESCRIPTIONS['finalizing'];
+    return STAGE_DESCRIPTIONS['queued'];
+  }, [analysisStatus, currentRound, totalRounds]);
+
   const phaseName = useMemo(() => {
     if (currentRound === 0) return t('loading.reasoning');
     if (currentRound === 1) return 'Evidence Grounding & Synthesis';
@@ -68,7 +117,7 @@ export function AnalysisLoadingPulse() {
     return `Expert Deliberation Round ${currentRound}`;
   }, [currentRound, totalRounds, t]);
   
-  if (analysisActivity !== 'analyzing') return null;
+  if (analysisActivity !== 'analyzing' && analysisActivity !== 'discussing') return null;
 
   return (
     <AnimatePresence>
@@ -81,7 +130,7 @@ export function AnalysisLoadingPulse() {
         className={cn(
           "fixed bottom-6 right-6 z-[60] overflow-hidden",
           "bg-white/90 backdrop-blur-xl border border-indigo-100/50 shadow-2xl shadow-indigo-600/10",
-          isExpanded ? "rounded-3xl w-[380px]" : "rounded-full w-auto min-w-[200px]"
+          isExpanded ? "rounded-3xl w-[400px]" : "rounded-full w-auto min-w-[200px]"
         )}
       >
         {/* Toggle Button */}
@@ -93,7 +142,8 @@ export function AnalysisLoadingPulse() {
         </button>
 
         {isExpanded ? (
-          <div className="p-8 pb-6 flex flex-col gap-6">
+          <div className="p-7 pb-5 flex flex-col gap-5">
+            {/* Header with Target Info */}
             <div className="flex items-center gap-4">
               <div className="relative w-12 h-12 rounded-2xl bg-indigo-600 flex flex-shrink-0 items-center justify-center shadow-lg shadow-indigo-600/30">
                 <Sparkles className="text-white w-5 h-5 animate-pulse" />
@@ -103,15 +153,54 @@ export function AnalysisLoadingPulse() {
                   className="absolute inset-[-4px] rounded-[1.1rem] border border-transparent border-t-indigo-400/50"
                 />
               </div>
-              <div>
-                <h3 className="font-bold text-zinc-900 leading-tight">
+              <div className="flex-1 min-w-0">
+                <h3 className="font-bold text-zinc-900 leading-tight truncate">
                   {phaseName}
                 </h3>
-                <p className="text-xs text-zinc-500 mt-0.5">
-                  {currentRound > 0 ? `Stage ${currentRound} of ${totalRounds}` : 'ALSA Intelligence Engine'}
+                <p className="text-xs text-zinc-500 mt-0.5 flex items-center gap-2 flex-wrap">
+                  <span>{currentRound > 0 ? `Stage ${currentRound} of ${totalRounds}` : 'ALSA Intelligence Engine'}</span>
+                  {contentCount > 0 && (
+                    <>
+                      <span className="w-1 h-1 rounded-full bg-zinc-300" />
+                      <span className="text-indigo-600 font-medium">{contentCount.toLocaleString()} chars</span>
+                    </>
+                  )}
                 </p>
               </div>
             </div>
+
+            {/* Analysis Target Badge + Elapsed Timer */}
+            <div className="flex items-center gap-2 flex-wrap">
+              {analysisTarget && (
+                <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-indigo-50 border border-indigo-100/60 text-[11px] font-semibold text-indigo-700">
+                  <Target size={12} className="text-indigo-400" />
+                  <span className="font-mono tracking-wide">{analysisTarget.symbol}</span>
+                  <span className="text-indigo-400">·</span>
+                  <span className="text-indigo-500">{analysisTarget.market}</span>
+                </div>
+              )}
+              <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-50 border border-amber-100/60 text-[11px] font-semibold text-amber-700">
+                <Clock size={12} className="text-amber-400" />
+                <span className="font-mono">{elapsed}</span>
+              </div>
+              <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-emerald-50 border border-emerald-100/60 text-[10px] font-medium text-emerald-600">
+                <Zap size={11} className="text-emerald-400" />
+                预计 2~5 分钟
+              </div>
+            </div>
+
+            {/* Stage Description */}
+            <motion.div 
+              key={stageDescription}
+              initial={{ opacity: 0, y: 4 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="px-3 py-2.5 rounded-xl bg-zinc-50/80 border border-zinc-100/60"
+            >
+              <p className="text-[11px] text-zinc-500 leading-relaxed">
+                <span className="text-zinc-400 mr-1">▸</span>
+                {stageDescription}
+              </p>
+            </motion.div>
 
             {/* Progress Bar */}
             {totalRounds > 0 && (
@@ -131,7 +220,7 @@ export function AnalysisLoadingPulse() {
             )}
 
             {/* Dynamic Step Indicators */}
-            <div className="flex items-center justify-between px-2 pt-2 pb-4">
+            <div className="flex items-center justify-between px-2 pt-1 pb-3">
                {STEPS.map((step, i) => {
                  const Icon = step.icon;
                  const isActive = i === activeStepIndex;
@@ -140,7 +229,7 @@ export function AnalysisLoadingPulse() {
                  return (
                    <div key={i} className="flex items-center relative">
                      <div className={cn(
-                       "relative z-10 flex flex-col items-center gap-2 transition-all duration-500",
+                       "relative z-10 flex flex-col items-center gap-1.5 transition-all duration-500",
                        isActive ? "scale-110 opacity-100" : 
                        isPast ? "scale-100 opacity-60" : "scale-90 opacity-30"
                      )}>
@@ -152,12 +241,18 @@ export function AnalysisLoadingPulse() {
                        )}>
                          <Icon size={16} className={cn(isActive && "animate-pulse")} />
                        </div>
+                       <span className={cn(
+                         "text-[9px] font-semibold tracking-wider",
+                         isActive ? "text-indigo-600" : isPast ? "text-indigo-400" : "text-zinc-300"
+                       )}>
+                         {step.label}
+                       </span>
                      </div>
                      
                      {/* Connection Line */}
                      {i < STEPS.length - 1 && (
                        <div className={cn(
-                         "absolute left-6 top-1/2 -translate-y-1/2 w-16 h-0.5 -z-0 transition-colors duration-500",
+                         "absolute left-6 top-5 w-16 h-0.5 -z-0 transition-colors duration-500",
                          isPast ? "bg-indigo-200" : "bg-zinc-100"
                        )} />
                      )}
@@ -169,14 +264,14 @@ export function AnalysisLoadingPulse() {
             <div className="h-px w-full bg-gradient-to-r from-transparent via-zinc-200 to-transparent" />
 
             {/* Chain of Thought Logs */}
-            <div className="space-y-4">
+            <div className="space-y-3">
               {lastReasoning && (
                 <motion.div 
                   initial={{ opacity: 0, scale: 0.95 }}
                   animate={{ opacity: 1, scale: 1 }}
-                  className="p-4 rounded-2xl bg-indigo-50/50 border border-indigo-100/50 shadow-inner"
+                  className="p-3.5 rounded-2xl bg-indigo-50/50 border border-indigo-100/50 shadow-inner"
                 >
-                  <p className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest mb-2 flex items-center gap-1.5">
+                  <p className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest mb-1.5 flex items-center gap-1.5">
                     <Brain size={12} className="animate-pulse" />
                     {t('analysis.conference.reasoning_snippet')}
                   </p>
@@ -186,7 +281,7 @@ export function AnalysisLoadingPulse() {
                 </motion.div>
               )}
 
-              <div className="space-y-3 max-h-[120px] overflow-y-auto pr-2 custom-scrollbar">
+              <div className="space-y-2.5 max-h-[120px] overflow-y-auto pr-2 custom-scrollbar">
                 <AnimatePresence initial={false}>
                   {analysisLogs.map((log, index) => {
                     const isLatest = index === analysisLogs.length - 1;
@@ -197,7 +292,7 @@ export function AnalysisLoadingPulse() {
                         animate={{ opacity: 1, x: 0 }}
                         className="flex items-start gap-3"
                       >
-                        <div className="mt-1">
+                        <div className="mt-0.5">
                           {isLatest ? (
                             <Loader2 className="w-3.5 h-3.5 text-indigo-500 animate-spin" />
                           ) : (
@@ -218,6 +313,23 @@ export function AnalysisLoadingPulse() {
               </div>
             </div>
 
+            {/* Insufficient Balance Warning */}
+            {analysisError && analysisError.includes('余额不足') && (
+              <motion.div
+                initial={{ opacity: 0, y: 4 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="p-3 rounded-xl bg-amber-50 border border-amber-200/60"
+              >
+                <p className="text-[11px] text-amber-800 font-semibold flex items-center gap-1.5">
+                  <AlertTriangle size={13} className="text-amber-500 flex-shrink-0" />
+                  API 余额不足，部分分析师内容缺失
+                </p>
+                <p className="text-[10px] text-amber-600 mt-1 ml-5">
+                  点击「中断并生成报告」将使用已获取的内容生成报告，或前往设置更换 API Key。
+                </p>
+              </motion.div>
+            )}
+
             {/* Cancel Button */}
             <button
               onClick={handleCancel}
@@ -230,7 +342,7 @@ export function AnalysisLoadingPulse() {
               )}
             >
               <XCircle size={14} />
-              {isCancelling ? '正在中断...' : '中断分析'}
+              {isCancelling ? '正在中断...' : (analysisError && analysisError.includes('余额不足') ? '中断并生成报告' : '中断分析')}
             </button>
           </div>
         ) : (
@@ -248,10 +360,14 @@ export function AnalysisLoadingPulse() {
                   exit={{ opacity: 0, y: -15 }}
                   className="absolute text-[11px] font-bold text-indigo-600 uppercase tracking-widest whitespace-nowrap"
                 >
-                  {analysisStatus || t('common.loading')}
+                  {analysisTarget ? `${analysisTarget.symbol} · ` : ''}{analysisStatus || t('common.loading')}
                 </motion.span>
               </AnimatePresence>
             </div>
+            {/* Elapsed badge in minimized mode */}
+            <span className="text-[10px] font-mono text-amber-600 bg-amber-50 px-2 py-0.5 rounded-lg border border-amber-100/60 whitespace-nowrap">
+              {elapsed}
+            </span>
             <button
               onClick={handleCancel}
               disabled={isCancelling}

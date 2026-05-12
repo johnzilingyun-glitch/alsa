@@ -34,10 +34,10 @@ export function ScorePanel({ analysis, trackRecord }: ScorePanelProps) {
         </div>
         <div className="mt-8 space-y-2">
           <div className={cn('inline-flex items-center gap-2 rounded-full border px-4 py-1.5 text-sm font-medium uppercase tracking-widest', analysis.sentiment === 'Bullish' ? 'border-indigo-100 bg-indigo-50 text-indigo-500' : analysis.sentiment === 'Bearish' ? 'border-rose-500/20 bg-rose-500/10 text-rose-400' : 'border-zinc-200 bg-zinc-100 text-zinc-500')}>
-            {t(`analysis.sentiment.${analysis.sentiment.toLowerCase()}`)} {t('analysis.info.sentiment')}
+            {t(`analysis.sentiment.${(analysis.sentiment || 'neutral').toLowerCase()}`)} {t('analysis.info.sentiment')}
           </div>
           <div className="mt-4 text-2xl font-medium text-zinc-950">
-            {t(`analysis.recommendation.${analysis.recommendation.toLowerCase().replace(' ', '_')}`)}
+            {t(`analysis.recommendation.${(analysis.recommendation || 'hold').toLowerCase().replace(' ', '_')}`)}
           </div>
         </div>
       </div>

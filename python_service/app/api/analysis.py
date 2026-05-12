@@ -1,34 +1,145 @@
+import json
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import Response
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, Dict, Any
 from ..services.analysis_job_service import AnalysisJobService
+from ..utils.responses import success_response, error_response
 
 class AnalysisJobCreate(BaseModel):
     symbol: str
     market: str
-    level: str = "standard"
+    analysis_level: str = "standard"
+    requested_model: Optional[str] = None
+    config: Optional[Dict[str, Any]] = None
 
 router = APIRouter(prefix="/analysis", tags=["analysis"])
 
-# We import the service getter from main to avoid circular imports in the subagent run
-# But better to use a dedicated dependency module.
 def get_job_service():
-    from ...main import get_analysis_job_service
-    return get_analysis_job_service()
+    # Attempt to import from a safe location to avoid circular imports
+    try:
+        from python_service.main import get_analysis_job_service
+        return get_analysis_job_service()
+    except ImportError:
+        # Fallback for different environments
+        from ...main import get_analysis_job_service
+        return get_analysis_job_service()
 
 @router.post("/jobs", status_code=202)
 async def create_job(payload: AnalysisJobCreate, service: AnalysisJobService = Depends(get_job_service)):
-    job_id = await service.start_job(payload.symbol, payload.market)
-    return {"job_id": job_id, "status": "queued"}
+    job_id = await service.start_job(
+        symbol=payload.symbol, 
+        market=payload.market, 
+        level=payload.analysis_level,
+        model=payload.requested_model,
+        config=payload.config
+    )
+    return success_response({
+        "job_id": job_id, 
+        "status": "queued"
+    })
 
 @router.get("/jobs/{job_id}")
 async def get_job(job_id: str, service: AnalysisJobService = Depends(get_job_service)):
     job = service.get_status(job_id)
     if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
+        return error_response("JOB_NOT_FOUND", "Analysis job not found")
     
-    return {
+    result = None
+    if job.status == "completed" and job.result_payload:
+        import json
+        try:
+            result = json.loads(job.result_payload)
+        except:
+            result = job.result_payload
+
+    # Use live in-memory progress from the service if available
+    progress_data = service._progress.get(job_id)
+    if progress_data:
+        progress = progress_data
+    elif job.status == "completed":
+        progress = {"stage": "completed", "percent": 100}
+    elif job.status == "running":
+        progress = {"stage": "running", "percent": 5}
+    else:
+        progress = {"stage": job.status, "percent": 0}
+
+    return success_response({
         "job_id": job.job_id,
         "status": job.status,
-        "result": job.result_payload
-    }
+        "progress": progress,
+        "analysis_id": job.analysis_id,
+        "error_message": job.error_message,
+        "result": result
+    })
+
+@router.get("/runs/{analysis_id}")
+async def get_analysis_run(analysis_id: str, service: AnalysisJobService = Depends(get_job_service)):
+    # This might need a separate service or method in AnalysisJobService
+    # For now, let's assume we can get it or handle it in the service
+    run = service.get_analysis_run(analysis_id)
+    if not run:
+        return error_response("ANALYSIS_NOT_FOUND", "Analysis run not found")
+    
+    return success_response(run)
+
+@router.post("/jobs/{job_id}/cancel")
+async def cancel_job(job_id: str, service: AnalysisJobService = Depends(get_job_service)):
+    success = await service.cancel_job(job_id)
+    if not success:
+        return error_response("CANCEL_FAILED", "Could not cancel job")
+    return success_response({"job_id": job_id, "status": "cancelled"})
+
+@router.post("/jobs/{job_id}/retry")
+async def retry_job(job_id: str, service: AnalysisJobService = Depends(get_job_service)):
+    """Re-submit a failed or cancelled job with the same parameters."""
+    new_job_id = await service.retry_job(job_id)
+    if not new_job_id:
+        return error_response("RETRY_FAILED", "Job not found or not in a retryable state (must be failed or cancelled)")
+    return success_response({"original_job_id": job_id, "new_job_id": new_job_id, "status": "queued"})
+
+@router.get("/history/{symbol}")
+async def get_analysis_history(symbol: str, service: AnalysisJobService = Depends(get_job_service)):
+    """Get completed analysis history for a symbol."""
+    jobs = service.job_repo.list_completed_by_symbol(symbol)
+    items = []
+    for job in jobs:
+        items.append({
+            "job_id": job.job_id,
+            "analysis_id": job.analysis_id,
+            "symbol": job.symbol,
+            "market": job.market,
+            "model": job.requested_model,
+            "finished_at": job.finished_at.isoformat() if job.finished_at else None,
+            "created_at": job.created_at.isoformat() if job.created_at else None,
+        })
+    return success_response(items)
+
+
+@router.post("/jobs/{job_id}/report")
+async def generate_report(job_id: str, service: AnalysisJobService = Depends(get_job_service)):
+    """Generate a professional HTML report from a completed analysis job."""
+    from ..services.report_generator_service import ReportGeneratorService
+    import tempfile, os
+
+    job = service.job_repo.get_by_id(job_id)
+    if not job:
+        return error_response("JOB_NOT_FOUND", "Job not found")
+    if job.status != "completed" or not job.result_payload:
+        return error_response("JOB_NOT_READY", "Job is not completed or has no results")
+
+    result = json.loads(job.result_payload)
+    report_service = ReportGeneratorService()
+
+    # Generate into a temp file, then read and return HTML
+    tmp_path = os.path.join(tempfile.gettempdir(), f"{job.symbol}_{job_id}_report.html")
+    try:
+        await report_service.generate_html_report_async(result, tmp_path, model=job.requested_model)
+        with open(tmp_path, "r", encoding="utf-8") as f:
+            html_content = f.read()
+        return Response(content=html_content, media_type="text/html")
+    except Exception as e:
+        return error_response("REPORT_FAILED", f"Report generation failed: {str(e)}")
+    finally:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)

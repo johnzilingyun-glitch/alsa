@@ -38,9 +38,17 @@ function initializeSchema() {
         model TEXT NOT NULL,
         input_snapshot_path TEXT,
         output_payload TEXT,
+        config TEXT,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
       )
     `);
+
+    // Migration for existing databases
+    db.run("ALTER TABLE analysis_runs ADD COLUMN config TEXT", (err) => {
+      if (err && !err.message.includes('duplicate column name')) {
+        // Ignore error if column already exists
+      }
+    });
 
     // Watchlist table
     db.run(`

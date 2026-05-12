@@ -59,45 +59,48 @@ export const DEFAULT_SAFETY_SETTINGS = [
 
 export const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-type ServiceMode = 'byok' | 'managed_no_key' | 'copilot_local';
+type ServiceMode = 'byok' | 'managed_no_key';
 
 function getServiceMode(config?: { serviceMode?: ServiceMode }): ServiceMode {
   const storeConfig = useConfigStore.getState().config as any;
   return config?.serviceMode || storeConfig?.serviceMode || 'byok';
 }
 
-function createCopilotBridgeClient(config?: { model?: string; serviceMode?: ServiceMode }) {
-  const fallbackModel = config?.model || 'gpt-4o-mini';
-  console.log('[CopilotBridge] Bridge client created with fallbackModel:', fallbackModel);
+function createBackendBridgeClient(config?: { model?: string; serviceMode?: ServiceMode }) {
+  const fallbackModel = config?.model || 'gemini-1.5-flash';
+  console.log('[BackendBridge] Bridge client created with fallbackModel:', fallbackModel);
   
   return {
     models: {
       generateContent: async (params: any) => {
         const requestedModel = params?.model || fallbackModel;
-        console.log('[CopilotBridge] generateContent called with model:', requestedModel);
-        console.log('[CopilotBridge] Request params length:', JSON.stringify(params).length, 'bytes');
+        console.log('[BackendBridge] generateContent called with model:', requestedModel);
         
+        const storeConfig = useConfigStore.getState().config as any;
+        const deepseekApiKey = storeConfig?.deepseekApiKey;
+
         const startTime = Date.now();
-        const response = await fetch('/api/diagnostics/copilot/generate', {
+        const response = await fetch('/api/diagnostics/bridge/generate', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             params,
             model: requestedModel,
+            config: { deepseekApiKey }
           }),
         });
 
         const elapsed = Date.now() - startTime;
-        console.log('[CopilotBridge] Response received in', elapsed, 'ms, status:', response.status);
+        console.log('[BackendBridge] Response received in', elapsed, 'ms, status:', response.status);
 
         const payload = await response.json().catch(() => ({}));
         
         if (!response.ok || !payload?.success) {
-          console.error('[CopilotBridge] ❌ Bridge error:', payload?.error || `HTTP ${response.status}`);
-          throw new Error(payload?.error || `Copilot bridge failed: HTTP ${response.status}`);
+          console.error('[BackendBridge] ❌ Bridge error:', payload?.error || `HTTP ${response.status}`);
+          throw new Error(payload?.error || `Backend bridge failed: HTTP ${response.status}`);
         }
 
-        console.log('[CopilotBridge] ✅ Success via', payload?.via || 'unknown', 'using model:', payload?.model);
+        console.log('[BackendBridge] ✅ Success via', payload?.via || 'unknown', 'using model:', payload?.model);
         return payload.result;
       },
     },
@@ -142,13 +145,17 @@ export function getApiKey(config?: { apiKey?: string; serviceMode?: ServiceMode 
   return apiKey;
 }
 
-export function createAI(config?: { apiKey?: string }) {
+export function createAI(config?: { apiKey?: string; model?: string }) {
   const serviceMode = getServiceMode(config as any);
-  console.log('[GeminiService] createAI called with serviceMode:', serviceMode, 'config:', config);
+  const storeConfig = useConfigStore.getState().config as any;
+  const requestedModel = config?.model || storeConfig?.model || GEMINI_MODEL;
+
+  console.log('[GeminiService] createAI called with serviceMode:', serviceMode, 'requestedModel:', requestedModel);
   
-  if (serviceMode === 'copilot_local') {
-    console.log('[GeminiService] ✅ Using Copilot local bridge mode');
-    return createCopilotBridgeClient(config as any);
+  // Force Backend Bridge for DeepSeek
+  if (requestedModel.startsWith('deepseek') || storeConfig?.deepseekApiKey) {
+    console.log('[GeminiService] ✅ Using Backend Bridge mode (DeepSeek)');
+    return createBackendBridgeClient(config as any);
   }
 
   console.log('[GeminiService] Using Gemini API mode');
@@ -466,26 +473,6 @@ export async function generateAndParseJsonWithRetry<T>(
     const fallbackProviders = getAvailableFallbackProviders();
     console.warn(`[ModelFallback] Gemini models exhausted. Attempting recovery via backend gateway...`);
     
-    // Recovery path 1: Backend Copilot Bridge (Highly resilient)
-    const { enableCopilotFallback } = useConfigStore.getState().config;
-    if (enableCopilotFallback) {
-      try {
-        const bridge = createCopilotBridgeClient({ model: requestedModel });
-        const bridgeResult = await bridge.models.generateContent({
-          contents: params.contents,
-          generationConfig: params.config,
-        });
-        const text = typeof bridgeResult === 'string' ? bridgeResult : bridgeResult?.text || '';
-        if (text) {
-          console.log('[ModelFallback] ✅ Recovery SUCCESS via backend gateway.');
-          return parseJsonResponse<T>(text);
-        }
-      } catch (bridgeErr) {
-        console.error('[ModelFallback] Backend gateway recovery attempt failed:', bridgeErr);
-      }
-    } else {
-      console.info('[ModelFallback] Copilot fallback is disabled by user settings.');
-    }
 
     // Recovery path 2: Direct Frontend Cross-Provider (Secondary)
     if (fallbackProviders.length > 0) {
@@ -609,8 +596,8 @@ export async function withRetry<T>(
         throw new QuotaError(errorStr);
       }
 
-      if (isQuota && attempt < maxRetries) {
-        const waitMs = attempt === 1 ? 5000 : 10000;
+      if (isQuota && attempt < 2) {
+        const waitMs = attempt === 1 ? 2000 : 5000;
         console.warn(`[RateLimit] 429 on attempt ${attempt}. Waiting ${waitMs / 1000}s for RPM reset... Error: ${errorStr.substring(0, 200)}`);
         await delay(waitMs);
         continue;

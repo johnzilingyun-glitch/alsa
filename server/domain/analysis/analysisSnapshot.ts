@@ -8,6 +8,7 @@ export interface AnalysisRunRecord {
   model: string;
   inputSnapshotPath?: string;
   outputPayload: Record<string, unknown>;
+  config?: Record<string, unknown>;
   createdAt?: string;
 }
 

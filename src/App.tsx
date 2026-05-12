@@ -1,7 +1,12 @@
 import { useState, useEffect, useRef, lazy, Suspense } from 'react';
 import { AnimatePresence } from 'motion/react';
 import { useTranslation } from 'react-i18next';
-import { useStockAnalysis, useDiscussion, useChat, useReporting, useMarketData, useUrlState } from './hooks';
+import { useStockAnalysis } from './hooks/useStockAnalysis';
+import { useDiscussion } from './hooks/useDiscussion';
+import { useChat } from './hooks/useChat';
+import { useReporting } from './hooks/useReporting';
+import { useMarketData } from './hooks/useMarketData';
+import { useUrlState } from './hooks/useUrlState';
 import { useI18nSync } from './hooks/useI18nSync';
 import { useUIStore } from './stores/useUIStore';
 import { useMarketStore } from './stores/useMarketStore';
@@ -13,8 +18,6 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import { ErrorNotice } from './components/ErrorNotice';
 import { TokenUsage } from './components/dashboard/TokenUsage';
 import { Header } from './components/layout/Header';
-import { MarketOverview } from './components/dashboard/MarketOverview';
-import { DetailModal } from './components/shared/DetailModal';
 import { ConfirmDialog } from './components/shared/ConfirmDialog';
 import { Toast } from './components/shared/Toast';
 
@@ -25,59 +28,46 @@ const AnalysisResult = lazy(() => import('./components/analysis/AnalysisResult')
 const AdminPanel = lazy(() => import('./components/admin/AdminPanel').then(m => ({ default: m.AdminPanel })));
 const AnalysisLoadingPulse = lazy(() => import('./components/analysis/AnalysisLoadingPulse').then(m => ({ default: m.AnalysisLoadingPulse })));
 const SignalCenter = lazy(() => import('./components/dashboard/SignalCenter').then(m => ({ default: m.SignalCenter })));
+const HistorySelectionDialog = lazy(() => import('./components/analysis/HistorySelectionDialog').then(m => ({ default: m.HistorySelectionDialog })));
+const MarketOverview = lazy(() => import('./components/dashboard/MarketOverview').then(m => ({ default: m.MarketOverview })));
+const DetailModal = lazy(() => import('./components/shared/DetailModal').then(m => ({ default: m.DetailModal })));
 
 export default function App() {
   console.log('App is rendering');
   const { t, i18n } = useTranslation();
-  const language = useConfigStore(s => s.language);
+  const { language, config } = useConfigStore();
+  const model = config?.model;
+  const apiKey = config?.apiKey;
+  const deepseekApiKey = (config as any)?.deepseekApiKey;
+
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [isSignalsOpen, setIsSignalsOpen] = useState(false);
 
-  const { watchlist, setWatchlist, setAlerts, setHistoryItems } = useMarketStore();
+  const watchlist = useMarketStore(s => s.watchlist);
+  const setWatchlist = useMarketStore(s => s.setWatchlist);
+  const setAlerts = useMarketStore(s => s.setAlerts);
 
-  useEffect(() => {
-    const initData = async () => {
-      try {
-        const [wlRes, alRes] = await Promise.all([
-          fetch('/api/watchlist/'),
-          fetch('/api/alerts/')
-        ]);
-        if (wlRes.ok) {
-          const wlData = await wlRes.ok && await wlRes.json();
-          if (wlData?.items) setWatchlist(wlData.items);
-        }
-        if (alRes.ok) {
-          const alData = await alRes.json();
-          setAlerts(alData);
-        }
-      } catch (e) {
-        console.error('Failed to initialize market data:', e);
-      }
-    };
-    initData();
-  }, [setWatchlist, setAlerts]);
-
-  useEffect(() => {
-    i18n.changeLanguage(language);
-  }, [language, i18n]);
-
+  // Granular UI store selection to avoid render loops
   const analysisError = useUIStore(s => s.analysisError);
   const showAdminPanel = useUIStore(s => s.showAdminPanel);
   const setShowDiscussion = useUIStore(s => s.setShowDiscussion);
   const setIsSettingsOpen = useUIStore(s => s.setIsSettingsOpen);
+
   const analysis = useAnalysisStore(s => s.analysis);
   const setAnalysis = useAnalysisStore(s => s.setAnalysis);
   const setSymbol = useAnalysisStore(s => s.setSymbol);
   const setMarket = useAnalysisStore(s => s.setMarket);
   const setChatHistory = useAnalysisStore(s => s.setChatHistory);
   const resetAnalysis = useAnalysisStore(s => s.resetAnalysis);
+
   const setDiscussionResults = useDiscussionStore(s => s.setDiscussionResults);
   const resetDiscussion = useDiscussionStore(s => s.resetDiscussion);
+
   const setScenarioResults = useScenarioStore(s => s.setScenarioResults);
   const resetScenario = useScenarioStore(s => s.resetScenario);
 
   // Custom hooks for business logic
-  const { handleSearch, resetToHome, fetchAdminData } = useStockAnalysis();
+  const { handleSearch, resetToHome, fetchAdminData, historyDialogOpen, historyDialogItems, pendingSearchSymbol, setHistoryDialogOpen, doStartAnalysis, loadHistoryResult } = useStockAnalysis();
   const { handleDiscussionQuestion, handleGenerateNewConclusion } = useDiscussion(fetchAdminData);
   const { handleChat } = useChat(fetchAdminData);
   const { fetchMarketOverview } = useMarketData(fetchAdminData);
@@ -112,6 +102,50 @@ export default function App() {
     }
   }, [urlSearchPending, initialUrlParams.symbol, handleSearch]);
 
+  // Watch for model or API key changes: trigger AI enrichment if we're on the home page
+  // Using a ref for the function to avoid dependency-induced loops
+  const fetchRef = useRef(fetchMarketOverview);
+  useEffect(() => { fetchRef.current = fetchMarketOverview; }, [fetchMarketOverview]);
+
+  const hasTriggeredRef = useRef(false);
+  useEffect(() => {
+    if (!analysis && (model || apiKey || deepseekApiKey)) {
+      if (hasTriggeredRef.current) {
+        console.log('[App] Model/Key changed, triggering AI enrichment');
+        void fetchRef.current(true, true);
+      } else {
+        hasTriggeredRef.current = true;
+      }
+    }
+  }, [model, apiKey, deepseekApiKey, !!analysis]); 
+
+  // Restoration: Initialize watchlist & alerts (deferred — not needed for first paint)
+  useEffect(() => {
+    const timer = setTimeout(async () => {
+      try {
+        const [wlRes, alRes] = await Promise.all([
+          fetch('/api/watchlist/'),
+          fetch('/api/alerts/')
+        ]);
+        if (wlRes.ok) {
+          const wlData = await wlRes.json();
+          if (wlData?.items) setWatchlist(wlData.items);
+        }
+        if (alRes.ok) {
+          const alData = await alRes.json();
+          setAlerts(alData);
+        }
+      } catch (e) {
+        console.error('Failed to initialize market data:', e);
+      }
+    }, 1500);
+    return () => clearTimeout(timer);
+  }, [setWatchlist, setAlerts]);
+
+  useEffect(() => {
+    i18n.changeLanguage(language);
+  }, [language, i18n]);
+
   return (
     <div className="min-h-screen bg-zinc-50 text-zinc-600 font-sans selection:bg-indigo-600/10 transition-colors duration-500">
       {/* Subtle Background Decoration */}
@@ -121,48 +155,54 @@ export default function App() {
       </div>
 
       <div className="relative z-10 mx-auto max-w-7xl px-6 py-12 md:px-12">
-        <Suspense fallback={null}>
-        <HistoryModal 
-          isOpen={isHistoryOpen} 
-          onClose={() => setIsHistoryOpen(false)} 
-          onSelect={(item) => {
-            setAnalysis(item);
-            setSymbol(item.stockInfo?.symbol || '');
-            setMarket(item.stockInfo?.market || 'A-Share');
-            
-            if (item.chatHistory) {
-              setChatHistory(item.chatHistory);
-            } else {
-              setChatHistory([]);
-            }
+        {isHistoryOpen && (
+          <Suspense fallback={null}>
+          <HistoryModal 
+            isOpen={isHistoryOpen} 
+            onClose={() => setIsHistoryOpen(false)} 
+            onSelect={(item) => {
+              setAnalysis(item);
+              setSymbol(item.stockInfo?.symbol || '');
+              setMarket(item.stockInfo?.market || 'A-Share');
+              
+              if (item.chatHistory) {
+                setChatHistory(item.chatHistory);
+              } else {
+                setChatHistory([]);
+              }
 
-            if (item.discussion) {
-              const discussionData = {
-                ...item,
-                messages: item.discussion,
-                finalConclusion: item.finalConclusion || '',
-                tradingPlan: item.tradingPlan,
-                verificationMetrics: item.verificationMetrics,
-                capitalFlow: item.capitalFlow
-              };
-              setDiscussionResults(discussionData);
-              setScenarioResults(discussionData);
-              setShowDiscussion(true);
-            } else {
-              resetAnalysis();
-              resetDiscussion();
-              resetScenario();
-              setShowDiscussion(false);
-            }
-            
-            setIsHistoryOpen(false);
-          }}
-        />
-        <SignalCenter
-          isOpen={isSignalsOpen}
-          onClose={() => setIsSignalsOpen(false)}
-        />
-        </Suspense>
+              if (item.discussion) {
+                const discussionData = {
+                  ...item,
+                  messages: item.discussion,
+                  finalConclusion: item.finalConclusion || '',
+                  tradingPlan: item.tradingPlan,
+                  verificationMetrics: item.verificationMetrics,
+                  capitalFlow: item.capitalFlow
+                };
+                setDiscussionResults(discussionData);
+                setScenarioResults(discussionData);
+                setShowDiscussion(true);
+              } else {
+                resetAnalysis();
+                resetDiscussion();
+                resetScenario();
+                setShowDiscussion(false);
+              }
+              
+              setIsHistoryOpen(false);
+            }}
+          />
+          </Suspense>
+        )}
+        {isSignalsOpen && (
+          <Suspense fallback={null}>
+          <SignalCenter
+            isOpen={isSignalsOpen}
+            onClose={() => setIsSignalsOpen(false)}
+          />
+          </Suspense>
+        )}
 
         <Header
           onSearch={handleSearch}
@@ -214,10 +254,21 @@ export default function App() {
             </ErrorBoundary>
           ) : (
             <ErrorBoundary fallback="Market overview encountered an error">
+            <Suspense fallback={
+              <div className="space-y-6">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="h-20 rounded-xl bg-zinc-100 animate-pulse" />
+                  <div className="h-20 rounded-xl bg-zinc-100 animate-pulse" style={{animationDelay:'0.15s'}} />
+                  <div className="h-20 rounded-xl bg-zinc-100 animate-pulse" style={{animationDelay:'0.3s'}} />
+                </div>
+                <div className="h-64 rounded-xl bg-zinc-100 animate-pulse" style={{animationDelay:'0.45s'}} />
+              </div>
+            }>
             <MarketOverview
-              onFetchMarketOverview={fetchMarketOverview}
+              onFetchMarketOverview={(force) => void fetchMarketOverview(force, force)}
               onTriggerDailyReport={handleTriggerDailyReport}
             />
+            </Suspense>
             </ErrorBoundary>
           )}
         </AnimatePresence>
@@ -229,7 +280,7 @@ export default function App() {
         <Suspense fallback={null}><AnalysisLoadingPulse /></Suspense>
       </div>
 
-      <DetailModal onSendHistoryToFeishu={handleSendHistoryToFeishu} />
+      <Suspense fallback={null}><DetailModal onSendHistoryToFeishu={handleSendHistoryToFeishu} /></Suspense>
 
       <footer className="mx-auto mt-16 max-w-7xl border-t border-zinc-200 px-4 py-10 md:px-8">
         <div className="flex flex-col items-center justify-between gap-6 section-label md:flex-row">
@@ -245,6 +296,18 @@ export default function App() {
       {/* Global Overlays */}
       <ConfirmDialog />
       <Toast />
+      {historyDialogOpen && (
+        <Suspense fallback={null}>
+          <HistorySelectionDialog
+            isOpen={historyDialogOpen}
+            symbol={pendingSearchSymbol}
+            items={historyDialogItems}
+            onSelect={loadHistoryResult}
+            onForceNew={doStartAnalysis}
+            onClose={() => setHistoryDialogOpen(false)}
+          />
+        </Suspense>
+      )}
     </div>
   );
 }

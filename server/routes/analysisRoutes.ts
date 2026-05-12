@@ -5,8 +5,9 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { createAnalysisRepository } from '../repositories/analysisRepository.js';
 import { gatewayGenerate } from '../llmGateway.js';
+
 const axiosClient = axios.create({
-  timeout: 5000, // 5 second timeout
+  timeout: 5000,
 });
 
 const router = Router();
@@ -14,9 +15,9 @@ const repo = createAnalysisRepository();
 const PYTHON_SERVICE_URL = process.env.PYTHON_SERVICE_URL || 'http://127.0.0.1:8001';
 
 router.post('/analysis/jobs', async (req, res) => {
-  const { symbol, market, model, promptVersion } = req.body;
+  const { symbol, market, model, promptVersion, config } = req.body;
   const analysisId = `ana_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
-
+  console.log(`[AnalysisRoute] Received job request for ${symbol} (${market}) with model ${model}`);
   try {
     // 1. Create a record in SQLite
     await repo.save({
@@ -27,27 +28,46 @@ router.post('/analysis/jobs', async (req, res) => {
       status: 'queued',
       promptVersion: promptVersion || 'v1',
       model: model || 'gemini-1.5-flash',
+      config: config || {},
       outputPayload: {}
     });
 
     // 2. Trigger FastAPI job
-    const fastApiRes = await axiosClient.post(`${PYTHON_SERVICE_URL}/api/analysis/jobs`, {
-      symbol,
-      market,
-      analysisId // We pass our ID to link them
+    const fastApiRes = await fetch(`${PYTHON_SERVICE_URL}/api/analysis/jobs`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ symbol, market, requested_model: config?.model || model || null, config })
     });
 
-    const jobId = fastApiRes.data.jobId;
+    if (!fastApiRes.ok) {
+      const errorText = await fastApiRes.text();
+      throw new Error(`FastAPI returned ${fastApiRes.status}: ${errorText}`);
+    }
+
+    const fastApiData = await fastApiRes.json();
+
+    // Handle nested success_response format: { success: true, data: { job_id: '...' } }
+    const jobId = fastApiData.data?.job_id;
+
+    if (!jobId) {
+      throw new Error('No job_id returned from FastAPI');
+    }
 
     res.status(202).json({
-      analysisId,
-      jobId,
-      status: 'queued'
+      success: true,
+      data: {
+        analysisId,
+        job_id: jobId, // Aligning with frontend's expectation of snake_case 'job_id'
+        status: 'queued'
+      }
     });
   } catch (err: unknown) {
     console.error('Failed to create analysis job:', err);
     const message = err instanceof Error ? err.message : 'Unknown error';
-    res.status(500).json({ error: 'Failed to create analysis job', details: message });
+    res.status(500).json({ 
+      success: false, 
+      error: { message: `Failed to create analysis job: ${message}` } 
+    });
   }
 });
 
@@ -56,8 +76,16 @@ router.get('/analysis/jobs/:analysisId/:jobId', async (req, res) => {
 
   try {
     // 1. Poll FastAPI for status
-    const fastApiRes = await axiosClient.get(`${PYTHON_SERVICE_URL}/api/analysis/jobs/${jobId}`);
-    const fastApiJob = fastApiRes.data;
+    const fastApiRes = await fetch(`${PYTHON_SERVICE_URL}/api/analysis/jobs/${jobId}`);
+    if (!fastApiRes.ok) {
+        throw new Error(`FastAPI status check failed: ${fastApiRes.status}`);
+    }
+    const fastApiData = await fastApiRes.json();
+    const fastApiJob = fastApiData.data; // Access nested data field
+
+    if (!fastApiJob) {
+      return res.status(404).json({ error: 'Job data not found in backend response' });
+    }
 
     const record = await repo.getById(analysisId);
     if (!record) return res.status(404).json({ error: 'Analysis not found' });
@@ -101,7 +129,7 @@ Perform a deep-dive analysis. Return a JSON object with the following fields:
 - "actionable_insight": A specific trading or holding recommendation.
 `;
 
-      const llmRes = await gatewayGenerate(prompt, record.model);
+      const llmRes = await gatewayGenerate(prompt, record.model, () => {}, record.config as any);
       
       const finalPayload = {
         ...data,
@@ -121,16 +149,22 @@ Perform a deep-dive analysis. Return a JSON object with the following fields:
       req.app.get('io').to(analysisId).emit('statusUpdate', { status: 'completed', result: finalPayload });
 
       return res.json({
-        analysisId,
-        status: 'completed',
-        result: finalPayload
+        success: true,
+        data: {
+          analysisId,
+          status: 'completed',
+          result: finalPayload
+        }
       });
     }
 
     if (fastApiJob.status === 'failed') {
        await repo.save({ ...record, status: 'failed' });
        req.app.get('io').to(analysisId).emit('statusUpdate', { status: 'failed', error: fastApiJob.error });
-       return res.json({ analysisId, status: 'failed', error: fastApiJob.error });
+       return res.json({ 
+         success: true, 
+         data: { analysisId, status: 'failed', error: fastApiJob.error } 
+       });
     }
 
     if (fastApiJob.status !== record.status) {
@@ -139,13 +173,19 @@ Perform a deep-dive analysis. Return a JSON object with the following fields:
     }
 
     res.json({
-      analysisId,
-      status: fastApiJob.status
+      success: true,
+      data: {
+        analysisId,
+        status: fastApiJob.status
+      }
     });
   } catch (err: unknown) {
     console.error('Failed to poll analysis job:', err);
     const message = err instanceof Error ? err.message : 'Unknown error';
-    res.status(500).json({ error: 'Failed to poll analysis job', details: message });
+    res.status(500).json({ 
+      success: false, 
+      error: { message: `Failed to poll analysis job: ${message}` } 
+    });
   }
 });
 

@@ -9,19 +9,23 @@ import { StockAnalysis, AgentMessage, AgentRole } from '../types';
 
 export function useDiscussion(fetchAdminData: () => Promise<void>) {
   const geminiConfig = useConfigStore(s => s.config);
-  const { setIsReviewing } = useUIStore();
+  const setIsReviewing = useUIStore(s => s.setIsReviewing);
   const isReviewing = useUIStore(selectIsReviewing);
   const isDiscussing = useUIStore(selectIsDiscussing);
-  const { analysis, setAnalysis } = useAnalysisStore();
-  const {
-    discussionMessages, setDiscussionMessages,
-    setControversialPoints, setTradingPlanHistory,
-  } = useDiscussionStore();
-  const {
-    setScenarios, setSensitivityFactors,
-    setVerificationMetrics, setCapitalFlow, setPositionManagement,
-    setTimeDimension,
-  } = useScenarioStore();
+  const analysis = useAnalysisStore(s => s.analysis);
+  const setAnalysis = useAnalysisStore(s => s.setAnalysis);
+  
+  const discussionMessages = useDiscussionStore(s => s.discussionMessages);
+  const setDiscussionMessages = useDiscussionStore(s => s.setDiscussionMessages);
+  const setControversialPoints = useDiscussionStore(s => s.setControversialPoints);
+  const setTradingPlanHistory = useDiscussionStore(s => s.setTradingPlanHistory);
+  
+  const setScenarios = useScenarioStore(s => s.setScenarios);
+  const setSensitivityFactors = useScenarioStore(s => s.setSensitivityFactors);
+  const setVerificationMetrics = useScenarioStore(s => s.setVerificationMetrics);
+  const setCapitalFlow = useScenarioStore(s => s.setCapitalFlow);
+  const setPositionManagement = useScenarioStore(s => s.setPositionManagement);
+  const setTimeDimension = useScenarioStore(s => s.setTimeDimension);
 
   const handleDiscussionQuestion = useCallback(async (question: string) => {
     if (!analysis || isReviewing || isDiscussing) return;

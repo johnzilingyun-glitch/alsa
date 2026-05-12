@@ -7,14 +7,15 @@ import { getBeijingDate } from '../services/dateUtils';
 
 export function useMarketData(fetchAdminData: () => Promise<void>) {
   const geminiConfig = useConfigStore(s => s.config);
-  const { setOverviewLoading, setOverviewError } = useUIStore();
+  const setOverviewLoading = useUIStore(s => s.setOverviewLoading);
+  const setOverviewError = useUIStore(s => s.setOverviewError);
   const overviewMarket = useMarketStore(s => s.overviewMarket);
   const setMarketOverview = useMarketStore(s => s.setMarketOverview);
   const setMarketLastUpdated = useMarketStore(s => s.setMarketLastUpdated);
   const _hasHydrated = useMarketStore(s => s._hasHydrated);
   const autoRefresh = useUIStore(s => s.autoRefreshInterval);
 
-  const fetchMarketOverview = useCallback(async (forceRefresh = false) => {
+  const fetchMarketOverview = useCallback(async (forceRefresh = false, allowAI = true) => {
     const state = useMarketStore.getState();
     const currentCache = state.marketOverviews[overviewMarket];
     const lastUpdate = state.marketLastUpdatedTimes[overviewMarket];
@@ -36,9 +37,10 @@ export function useMarketData(fetchAdminData: () => Promise<void>) {
     setOverviewError(null);
 
     // Phase 1: Instant financial API snapshot (no AI, no quota)
+    let snapshotLoaded = false;
     try {
       const snapshot = await getMarketSnapshot(overviewMarket);
-      if (snapshot.indices && snapshot.indices.length > 0) {
+      if (snapshot && snapshot.indices && snapshot.indices.length > 0) {
         // Merge snapshot into existing data (preserve AI fields if present)
         const merged = {
           ...(currentCache || {}),
@@ -52,12 +54,23 @@ export function useMarketData(fetchAdminData: () => Promise<void>) {
         setMarketOverview(overviewMarket, merged);
         setMarketLastUpdated(overviewMarket, snapshot.generatedAt || Date.now());
         console.log(`[Market] Snapshot loaded for ${overviewMarket}: ${snapshot.indices.length} indices`);
+        snapshotLoaded = true;
+        setOverviewLoading(false); // Reveal UI as soon as indices are here
+      } else {
+        console.warn(`[Market] Snapshot empty for ${overviewMarket}.`);
       }
     } catch (err) {
       console.warn('[Market] Snapshot fetch failed, falling back to AI:', err);
     }
 
     // Phase 2: AI enrichment (news, sectors, recommendations, summary)
+    // Only run AI if explicitly allowed (e.g. force refresh, model change, or auto-refresh)
+    if (!allowAI) {
+      console.log(`[Market] AI enrichment skipped (Initial load/Passive update)`);
+      setOverviewLoading(false);
+      return;
+    }
+
     try {
       const data = await getMarketOverview(geminiConfig, overviewMarket, forceRefresh, 1);
       setMarketOverview(overviewMarket, data);
@@ -71,20 +84,22 @@ export function useMarketData(fetchAdminData: () => Promise<void>) {
         useUIStore.getState().setServiceStatus('quota_exhausted');
       }
 
-      // Don't show error if we already have snapshot data
-      const currentData = useMarketStore.getState().marketOverviews[overviewMarket];
-      if (!currentData?.indices?.length) {
+      // If we don't even have a snapshot, show the error
+      if (!snapshotLoaded && !currentCache) {
         setOverviewError(err instanceof Error ? err.message : '无法加载市场概览。');
       }
     } finally {
       setOverviewLoading(false);
     }
-  }, [geminiConfig, overviewMarket, setMarketOverview, setMarketLastUpdated, setOverviewError, setOverviewLoading, fetchAdminData]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [geminiConfig, overviewMarket, setMarketOverview, setMarketLastUpdated, setOverviewError, setOverviewLoading]);
 
   useEffect(() => {
     if (_hasHydrated) {
-      void fetchMarketOverview(false);
-      void fetchAdminData();
+      // Initial load: Only fetch snapshot (allowAI = false) to save quota and speed up entry
+      void fetchMarketOverview(false, false);
+      // Defer admin data load — not needed for first paint
+      setTimeout(() => void fetchAdminData(), 2000);
     }
   }, [_hasHydrated, fetchMarketOverview, fetchAdminData]);
 

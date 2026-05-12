@@ -119,6 +119,12 @@ export const useMarketStore = create<MarketState>()(
     }),
     {
       name: 'market-storage',
+      partialize: (state) => ({
+        watchlist: state.watchlist,
+        recentSearches: state.recentSearches,
+        overviewMarket: state.overviewMarket,
+        // Exclude marketOverviews, historyItems, optimizationLogs to keep localStorage small and hydration fast
+      }),
       onRehydrateStorage: () => (state) => {
         state?.setHasHydrated(true);
       },

@@ -1,19 +1,30 @@
 import { describe, expect, it } from 'vitest';
-import { getGatewayCliModelCandidates, getPreferredProvider, isCopilotHostedModel } from '../llmGateway';
+import { getPreferredProvider } from '../llmGateway';
 import { resolveCopilotModel } from '../copilotAuth';
 
 describe('llmGateway model routing', () => {
-  it('keeps premium Copilot models on the Copilot provider path', () => {
-    expect(isCopilotHostedModel('gpt-5.4')).toBe(true);
-    expect(isCopilotHostedModel('claude-opus-4.6')).toBe(true);
-    expect(isCopilotHostedModel('claude-sonnet-4.6')).toBe(true);
-    expect(getPreferredProvider('gpt-5.4')).toBe('github_copilot_api');
-    expect(getPreferredProvider('claude-opus-4.6')).toBe('github_copilot_api');
-    expect(getPreferredProvider('claude-sonnet-4.6')).toBe('github_copilot_api');
+  // NOTE: isCopilotHostedModel and getGatewayCliModelCandidates were removed
+  // during the BYOK migration. Provider routing is now handled exclusively
+  // by getPreferredProvider.
+
+  it('routes gemini models to gemini provider', () => {
+    expect(getPreferredProvider('gemini-1.5-flash')).toBe('gemini');
+    expect(getPreferredProvider('gemini-3.1-pro-preview')).toBe('gemini');
   });
 
-  it('uses premium models first for auto CLI fallback', () => {
-    expect(getGatewayCliModelCandidates('copilot_auto')).toEqual(['claude-opus-4.6', 'claude-sonnet-4.6', 'gpt-5.4']);
+  it('routes openai models to openai provider', () => {
+    expect(getPreferredProvider('gpt-4o')).toBe('openai');
+    expect(getPreferredProvider('o1-preview')).toBe('openai');
+  });
+
+  it('routes anthropic models to anthropic provider', () => {
+    expect(getPreferredProvider('claude-sonnet-4')).toBe('anthropic');
+    expect(getPreferredProvider('claude-opus-4-1')).toBe('anthropic');
+  });
+
+  it('routes deepseek models to deepseek provider', () => {
+    expect(getPreferredProvider('deepseek-v4-pro')).toBe('deepseek');
+    expect(getPreferredProvider('deepseek-v4-flash')).toBe('deepseek');
   });
 
   it('maps logical aliases to real Copilot model ids', () => {

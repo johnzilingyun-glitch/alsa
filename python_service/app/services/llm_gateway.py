@@ -11,9 +11,9 @@ root_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__fil
 load_dotenv(os.path.join(root_dir, ".env"), override=True)
 
 class LLMGateway:
-    def __init__(self):
-        self.gemini_api_key = os.getenv("GEMINI_API_KEY")
-        self.deepseek_api_key = os.getenv("DEEPSEEK_API_KEY")
+    def __init__(self, gemini_api_key=None, deepseek_api_key=None):
+        self.gemini_api_key = gemini_api_key or os.getenv("GEMINI_API_KEY")
+        self.deepseek_api_key = deepseek_api_key or os.getenv("DEEPSEEK_API_KEY")
         self._gemini_client = None
         self._deepseek_client = None
         
@@ -22,12 +22,12 @@ class LLMGateway:
         if not self.deepseek_api_key:
             print("WARNING: DEEPSEEK_API_KEY not found in LLMGateway.")
 
-    @property
-    def gemini_client(self):
-        if self._gemini_client is None:
-            if self.gemini_api_key:
+    def gemini_client(self, api_key=None):
+        target_key = api_key or self.gemini_api_key
+        if self._gemini_client is None or (api_key and api_key != self.gemini_api_key):
+            if target_key:
                 try:
-                    self._gemini_client = genai.Client(api_key=self.gemini_api_key)
+                    return genai.Client(api_key=target_key)
                 except Exception as e:
                     print(f"Failed to initialize Gemini Client: {e}")
                     return None
@@ -35,19 +35,19 @@ class LLMGateway:
                 return None
         return self._gemini_client
 
-    @property
-    def deepseek_client(self):
-        if self._deepseek_client is None:
-            if self.deepseek_api_key:
-                self._deepseek_client = OpenAI(
-                    api_key=self.deepseek_api_key,
+    def deepseek_client(self, api_key=None):
+        target_key = api_key or self.deepseek_api_key
+        if self._deepseek_client is None or (api_key and api_key != self.deepseek_api_key):
+            if target_key:
+                return OpenAI(
+                    api_key=target_key,
                     base_url="https://api.deepseek.com"
                 )
             else:
                 raise ValueError("DEEPSEEK_API_KEY is missing.")
         return self._deepseek_client
 
-    async def generate_content(self, prompt: str, model: str = "gemini-3.1-pro-preview", temperature: float = 0.3) -> str:
+    async def generate_content(self, prompt: str, model: str = "gemini-3.1-pro-preview", temperature: float = 0.3, on_chunk: Optional[callable] = None, gemini_api_key: Optional[str] = None, deepseek_api_key: Optional[str] = None) -> str:
         """
         Generate content with built-in quality-gate retry.
         Retries up to 2 extra times if response is truncated or garbage.
@@ -55,9 +55,9 @@ class LLMGateway:
         max_quality_retries = 2
         for quality_attempt in range(max_quality_retries + 1):
             if "deepseek" in model.lower():
-                result = await self._generate_deepseek(prompt, model, temperature)
+                result = await self._generate_deepseek(prompt, model, temperature, on_chunk=on_chunk, api_key=deepseek_api_key)
             else:
-                result = await self._generate_gemini(prompt, model, temperature)
+                result = await self._generate_gemini(prompt, model, temperature, on_chunk=on_chunk, api_key=gemini_api_key)
 
             # Quality gate: detect truncated responses
             if result and len(result) < 150:
@@ -83,8 +83,8 @@ class LLMGateway:
 
         return result  # fallback
 
-    async def _generate_gemini(self, prompt: str, model: str, temperature: float) -> str:
-        client = self.gemini_client
+    async def _generate_gemini(self, prompt: str, model: str, temperature: float, on_chunk: Optional[callable] = None, api_key: Optional[str] = None) -> str:
+        client = self.gemini_client(api_key=api_key)
         if not client:
             raise ValueError("Gemini client not initialized (missing API key?)")
             
@@ -106,7 +106,7 @@ class LLMGateway:
                     "temperature": temperature,
                     "max_output_tokens": 8192,
                 }
-                if model == "gemini-3.1-pro-preview":
+                if "gemini" in model.lower():
                     config["tools"] = [{"google_search": {}}]
 
                 response = await asyncio.to_thread(
@@ -146,20 +146,17 @@ class LLMGateway:
                 
         raise Exception(f"Failed to generate content with {model} after {max_retries} attempts due to rate limits. No model downgrade allowed.")
 
-    async def _generate_deepseek(self, prompt: str, model: str, temperature: float) -> str:
+    async def _generate_deepseek(self, prompt: str, model: str, temperature: float, on_chunk: Optional[callable] = None, api_key: Optional[str] = None) -> str:
+        client = self.deepseek_client(api_key=api_key)
         max_retries = 10
         retry_delay = 15
         
-        # Map legacy aliases to V4 equivalents for future-proofing
-        model_map = {
-            "deepseek-chat": "deepseek-v4-pro",
-            "deepseek-reasoner": "deepseek-v4-pro"
-        }
-        final_model = model_map.get(model, model)
+        # Only V4 models are supported; pass model name directly
+        final_model = model
         
         def _stream_generate():
             """Blocking streaming call — runs in thread for async compatibility."""
-            response = self.deepseek_client.chat.completions.create(
+            response = self.deepseek_client(api_key=api_key).chat.completions.create(
                 model=final_model,
                 messages=[
                     {"role": "system", "content": "You are a professional financial analyst expert."},
@@ -176,9 +173,8 @@ class LLMGateway:
                     text = chunk.choices[0].delta.content
                     content_parts.append(text)
                     char_count += len(text)
-                    # Print progress dot every ~200 chars for real-time feedback
-                    if char_count % 200 < len(text):
-                        print(".", end="", flush=True)
+                    if on_chunk:
+                        on_chunk(char_count)
             print(flush=True)  # newline after streaming dots
             return "".join(content_parts)
         
@@ -211,7 +207,7 @@ class LLMGateway:
                 
         raise Exception(f"Failed to generate content with {final_model} after {max_retries} attempts due to rate limits.")
 
-    async def generate_with_native_tools(self, prompt: str, model: str, temperature: float = 0.3, max_tool_rounds: int = 3) -> str:
+    async def generate_with_native_tools(self, prompt: str, model: str, temperature: float = 0.3, max_tool_rounds: int = 3, on_chunk: Optional[callable] = None, deepseek_api_key: Optional[str] = None) -> str:
         """
         Generate content using DeepSeek's native OpenAI-compatible function calling API.
         
@@ -246,6 +242,7 @@ class LLMGateway:
         final_content = ""        # The actual analysis from the final (no-tools) round
         tool_round_text = []     # Thinking text from tool-call rounds (fallback only)
         had_tool_rounds = False  # Whether any tool calls were made
+        content = None           # Current round content (initialized to prevent UnboundLocalError)
         
         for round_num in range(max_tool_rounds + 1):
             # CHECK FOR USER STOP SIGNAL
@@ -294,7 +291,7 @@ class LLMGateway:
                 if use_tools:
                     kwargs["tools"] = tools
                 
-                response = self.deepseek_client.chat.completions.create(**kwargs)
+                response = self.deepseek_client(api_key=deepseek_api_key).chat.completions.create(**kwargs)
                 
                 content_parts = []
                 reasoning_parts = []  # capture reasoning_content for thinking mode
@@ -317,6 +314,8 @@ class LLMGateway:
                         char_count += len(delta.content)
                         if char_count % 200 < len(delta.content):
                             print(".", end="", flush=True)
+                        if on_chunk:
+                            on_chunk(char_count)
                     
                     # Accumulate tool calls from streaming deltas
                     if delta.tool_calls:
@@ -460,7 +459,7 @@ class LLMGateway:
                 })
             try:
                 def _recovery_call():
-                    resp = self.deepseek_client.chat.completions.create(
+                    resp = self.deepseek_client(api_key=deepseek_api_key).chat.completions.create(
                         model=final_model, messages=recovery_messages,
                         temperature=temperature, max_tokens=16384, stream=True
                     )
@@ -494,7 +493,7 @@ class LLMGateway:
             result = re.sub(r'\n{3,}', '\n\n', result).strip()
         return result
 
-    async def generate_with_tools(self, prompt: str, model: str = "gemini-3.1-pro-preview", temperature: float = 0.3, max_tool_rounds: int = 3) -> str:
+    async def generate_with_tools(self, prompt: str, model: str = "gemini-3.1-pro-preview", temperature: float = 0.3, max_tool_rounds: int = 3, on_chunk: Optional[callable] = None, gemini_api_key: Optional[str] = None, deepseek_api_key: Optional[str] = None) -> str:
         """
         Generate content with tool-calling loop.
         
@@ -503,7 +502,7 @@ class LLMGateway:
         """
         # For DeepSeek, use native OpenAI-compatible function calling
         if "deepseek" in model.lower():
-            return await self.generate_with_native_tools(prompt, model, temperature, max_tool_rounds)
+            return await self.generate_with_native_tools(prompt, model, temperature, max_tool_rounds, on_chunk=on_chunk, deepseek_api_key=deepseek_api_key)
         
         from .expert_tools import parse_tool_calls, has_tool_calls, tool_executor
         
@@ -524,7 +523,7 @@ class LLMGateway:
                     current_prompt = current_prompt[:enrichment_start] + "[SEARCH ENRICHMENT - truncated due to prompt size]\n" + current_prompt[enrichment_end:]
 
             # Generate
-            result = await self.generate_content(current_prompt, model=model, temperature=temperature)
+            result = await self.generate_content(current_prompt, model=model, temperature=temperature, on_chunk=on_chunk, gemini_api_key=gemini_api_key, deepseek_api_key=deepseek_api_key)
             
             if not result:
                 break

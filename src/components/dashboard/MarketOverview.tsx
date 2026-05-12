@@ -69,9 +69,10 @@ export const MarketOverview = memo(function MarketOverview({ onFetchMarketOvervi
       }
     };
 
-    syncPrices(); // Initial sync
+    // Defer initial price sync to avoid competing with critical indices/news fetches
+    const initTimer = setTimeout(syncPrices, 3000);
     const interval = setInterval(syncPrices, 30000); // 30s poll
-    return () => clearInterval(interval);
+    return () => { clearTimeout(initTimer); clearInterval(interval); };
   }, [searchAlerts, watchlist, recentSearches, updateAlertPrice, refreshActiveAlertStatus]);
 
   // History date picker state
@@ -89,7 +90,7 @@ export const MarketOverview = memo(function MarketOverview({ onFetchMarketOvervi
 
   const isHistoryMode = selectedDate !== '';
 
-  // Fetch deterministic hot news independently
+  // Fetch deterministic hot news independently (slight delay to let indices load first)
   useEffect(() => {
     let cancelled = false;
     async function fetchNews() {
@@ -106,11 +107,12 @@ export const MarketOverview = memo(function MarketOverview({ onFetchMarketOvervi
         if (!cancelled) setNewsLoading(false);
       }
     }
-    fetchNews();
-    return () => { cancelled = true; };
+    // Delay 500ms so the indices snapshot has a head start
+    const timer = setTimeout(fetchNews, 500);
+    return () => { cancelled = true; clearTimeout(timer); };
   }, [overviewMarket, isHistoryMode]);
 
-  // Fetch deterministic capital flows independently
+  // Fetch deterministic capital flows independently (deferred to avoid blocking initial render)
   useEffect(() => {
     let cancelled = false;
     async function fetchFlows() {
@@ -129,17 +131,20 @@ export const MarketOverview = memo(function MarketOverview({ onFetchMarketOvervi
         if (!cancelled) setFlowsLoading(false);
       }
     }
-    fetchFlows();
-    return () => { cancelled = true; };
+    // Delay 2s so indices + news load first
+    const timer = setTimeout(fetchFlows, 2000);
+    return () => { cancelled = true; clearTimeout(timer); };
   }, [overviewMarket, isHistoryMode]);
 
-  // Fetch available dates when market changes
+  // Fetch available dates when market changes (deferred — non-critical)
   useEffect(() => {
     let cancelled = false;
-    getAvailableMarketDates(overviewMarket).then(dates => {
-      if (!cancelled) setAvailableDates(dates);
-    });
-    return () => { cancelled = true; };
+    const timer = setTimeout(() => {
+      getAvailableMarketDates(overviewMarket).then(dates => {
+        if (!cancelled) setAvailableDates(dates);
+      });
+    }, 4000);
+    return () => { cancelled = true; clearTimeout(timer); };
   }, [overviewMarket]);
 
   // Fetch history data when a date is selected
@@ -493,23 +498,63 @@ export const MarketOverview = memo(function MarketOverview({ onFetchMarketOvervi
         <div className="grid grid-cols-2 gap-4 md:grid-cols-5">
           {(!marketOverview?.indices?.length && displayLoading) ? Array(5).fill(0).map((_, i) => (
             <div key={`skeleton-index-${i}`} className="h-24 skeleton rounded-2xl border border-zinc-200" />
-          )) : marketOverview?.indices?.map((index, i) => (
-            <div key={`index-${index.symbol || index.name}-${i}`} className="rounded-2xl border border-zinc-200 bg-white p-4">
+          )) : marketOverview?.indices?.length ? marketOverview.indices.map((index, i) => (
+            <div key={`index-${index.symbol || index.name}-${i}`} className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm hover:shadow-md transition-all">
               <p className="mb-1 text-xs font-medium text-zinc-400">{index.name}</p>
               <p className="text-lg font-medium tracking-tight text-zinc-950">{(index.price ?? 0).toLocaleString()}</p>
               <div className={cn('mt-1 flex items-center gap-1 font-mono text-xs', (index.change ?? 0) >= 0 ? 'text-indigo-600' : 'text-rose-500')}>
                 {(index.change ?? 0) >= 0 ? '+' : ''}{index.changePercent ?? 0}%
               </div>
             </div>
-          ))}
+          )) : !displayLoading && (
+            <div className="col-span-full py-8 text-center text-zinc-400 text-xs italic bg-zinc-50 rounded-2xl border border-dashed border-zinc-200">
+              暂无实时指数数据，请尝试点击刷新按钮。
+            </div>
+          )}
         </div>
 
-        {marketOverview && (
-          <>
-            {/* AI-enriched sections: summary, sectors, commodities, recommendations */}
-            {marketOverview.marketSummary ? (
-            <>
-            <div className="grid grid-cols-1 gap-6 md:grid-cols-3 stagger-children">
+        {/* AI-enriched sections: summary, sectors, commodities, recommendations */}
+        {(displayLoading && !marketOverview?.marketSummary) ? (
+          <div className="space-y-8 stagger-children">
+            {/* Summary & Sentiment Skeleton */}
+            <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
+              <div className="h-32 skeleton rounded-2xl border border-zinc-200/50 md:col-span-2" />
+              <div className="h-32 skeleton rounded-2xl border border-zinc-200/50" />
+            </div>
+            
+            {/* Sectors & Commodities Skeleton */}
+            <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+              <div className="space-y-4 rounded-2xl border border-zinc-200/50 bg-white/30 p-6">
+                <div className="h-4 w-32 skeleton mb-4" />
+                <div className="space-y-3">
+                  {Array(3).fill(0).map((_, i) => (
+                    <div key={`sk-sector-${i}`} className="h-24 skeleton rounded-xl" />
+                  ))}
+                </div>
+              </div>
+              <div className="space-y-4 rounded-2xl border border-zinc-200/50 bg-white/30 p-6">
+                <div className="h-4 w-32 skeleton mb-4" />
+                <div className="space-y-3">
+                  {Array(4).fill(0).map((_, i) => (
+                    <div key={`sk-commodity-${i}`} className="h-16 skeleton rounded-xl" />
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Recommendations Skeleton */}
+            <div className="space-y-4 rounded-2xl border border-zinc-200/50 bg-white/30 p-6">
+              <div className="h-4 w-32 skeleton mb-4" />
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {Array(3).fill(0).map((_, i) => (
+                  <div key={`sk-rec-${i}`} className="h-24 skeleton rounded-xl" />
+                ))}
+              </div>
+            </div>
+          </div>
+        ) : marketOverview?.marketSummary ? (
+          <div className="space-y-8 stagger-children">
+            <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
               <div className="premium-card p-8 md:col-span-2">
                 <p className="text-base italic leading-relaxed text-zinc-500 font-medium">"{marketOverview.marketSummary}"</p>
               </div>
@@ -617,15 +662,8 @@ export const MarketOverview = memo(function MarketOverview({ onFetchMarketOvervi
                 ))}
               </div>
             </div>
-            </>
-            ) : displayLoading ? (
-              <div className="flex items-center justify-center gap-2 py-8 text-zinc-400 text-sm">
-                <Loader2 className="animate-spin" size={16} />
-                {t('market.loading_ai')}
-              </div>
-            ) : null}
-          </>
-        )}
+          </div>
+        ) : null}
       </section>
 
       <InstitutionalAlertPanel />

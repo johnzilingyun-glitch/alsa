@@ -516,10 +516,11 @@ export interface QuantifiedRisk {
 export interface GeminiConfig {
   model: string;
   apiKey?: string;
+  deepseekApiKey?: string;
+  deepseekModel?: string;
   feishuWebhookUrl?: string;
   tier?: 'free' | 'paid';
-  serviceMode?: 'byok' | 'managed_no_key' | 'copilot_local';
-  enableCopilotFallback?: boolean;
+  serviceMode?: 'byok' | 'managed_no_key';
 }
 
 export interface ReportPreference {

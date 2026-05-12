@@ -66,12 +66,14 @@ class DiscussionService:
         
         return filtered
 
-    async def run_discussion(self, symbol: str, name: str, snapshot: Dict[str, Any], level: str = "standard", language: str = "zh-CN") -> List[Dict[str, Any]]:
+    async def run_discussion(self, symbol: str, name: str, snapshot: Dict[str, Any], level: str = "standard", language: str = "zh-CN", model: str = None, on_progress: Optional[callable] = None, job_id: str = "temp_job_id", config: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
         """
         Runs the full expert discussion flow.
         """
         topology = self.build_topology(level)
         messages = []
+        market = snapshot.get("market", "us")
+        self._cumulative_count = 0  # Track total chars across all experts
         
         # Pre-search enrichment: batch search ONCE before all experts
         search_results = {}
@@ -80,23 +82,42 @@ class DiscussionService:
         except Exception as e:
             print(f"[DiscussionService] Pre-search enrichment failed (non-fatal): {e}")
         
-        market = "a_share" if symbol.isdigit() and len(symbol) == 6 else ("hk" if symbol.endswith(".HK") else "us")
-        
-        for round_info in topology:
-            print(f"Round {round_info['round']}: {', '.join(round_info['experts'])}")
+        total_rounds = len(topology)
+        for i, round_info in enumerate(topology):
+            round_num = i + 1
+            experts_str = ', '.join(round_info['experts'])
+            print(f"Round {round_num}: {experts_str}")
             
-            if round_info["parallel"]:
-                tasks = [self._call_expert(expert, symbol, name, snapshot, messages, language, search_results=search_results, market=market) for expert in round_info["experts"]]
-                results = await asyncio.gather(*tasks)
-                messages.extend(results)
-            else:
-                for expert in round_info["experts"]:
-                    result = await self._call_expert(expert, symbol, name, snapshot, messages, language, search_results=search_results, market=market)
-                    messages.append(result)
+            if on_progress:
+                on_progress(round_num, total_rounds, f"Round {round_num}: {experts_str}")
+
+            try:
+                if round_info["parallel"]:
+                    tasks = [self._call_expert(expert, symbol, name, snapshot, messages, language, model=model, search_results=search_results, market=market, job_id=job_id, on_progress=on_progress, round_num=round_num, total_rounds=total_rounds, config=config) for expert in round_info["experts"]]
+                    results = await asyncio.gather(*tasks, return_exceptions=True)
+                    for r in results:
+                        if isinstance(r, Exception):
+                            err_str = str(r)
+                            if "stopped by user" in err_str:
+                                print(f"[DiscussionService] User stop detected during parallel round {round_num}, returning partial results")
+                                return messages  # Return what we have so far
+                            # Other errors — add an empty expert entry
+                            messages.append({"role": "Error", "content": "", "timestamp": datetime.now().isoformat()})
+                        else:
+                            messages.append(r)
+                else:
+                    for expert in round_info["experts"]:
+                        result = await self._call_expert(expert, symbol, name, snapshot, messages, language, model=model, search_results=search_results, market=market, job_id=job_id, on_progress=on_progress, round_num=round_num, total_rounds=total_rounds, config=config)
+                        messages.append(result)
+            except Exception as e:
+                if "stopped by user" in str(e):
+                    print(f"[DiscussionService] User stop detected at round {round_num}, returning partial results ({len(messages)} messages)")
+                    return messages  # Return partial results
+                raise
         
         return messages
 
-    async def _call_expert(self, role: str, symbol: str, name: str, snapshot: Dict[str, Any], history: List[Dict[str, Any]], language: str, job_id: str = "temp_job_id", prompt_version_id: str = "v1", search_results: Dict[str, Any] = None, market: str = "us") -> Dict[str, Any]:
+    async def _call_expert(self, role: str, symbol: str, name: str, snapshot: Dict[str, Any], history: List[Dict[str, Any]], language: str, job_id: str = "temp_job_id", prompt_version_id: str = "v1", model: str = None, search_results: Dict[str, Any] = None, market: str = "us", on_progress: Optional[callable] = None, round_num: int = 1, total_rounds: int = 1, config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """
         Assembles prompt and calls the LLM for a single expert role.
         """
@@ -164,14 +185,19 @@ class DiscussionService:
                     print(f"Industry peer search failed: {e}")
 
         # 5. Determine model & search capability
-        default_provider = os.getenv("DEFAULT_LLM_PROVIDER", "gemini").lower()
-        if default_provider == "gemini":
-            model = os.getenv("GEMINI_MODEL", "gemini-3.1-pro-preview")
+        if model:
+            # If model is explicitly passed (e.g. from UI), use it
+            model = model
         else:
-            model = os.getenv("DEEPSEEK_MODEL", "deepseek-v4-pro")
+            # Fallback to default from env
+            default_provider = os.getenv("DEFAULT_LLM_PROVIDER", "gemini").lower()
+            if default_provider == "gemini":
+                model = os.getenv("GEMINI_MODEL", "gemini-3.1-pro-preview")
+            else:
+                model = os.getenv("DEEPSEEK_MODEL", "deepseek-v4-pro")
         
-        # Gemini 3.1 Pro has native Google Search grounding enabled via tools config
-        has_search_tools = (model == "gemini-3.1-pro-preview")
+        # Gemini models have native Google Search grounding enabled via tools config
+        has_search_tools = ("gemini" in model.lower())
         use_native_tools = "deepseek" in model.lower()
         
         # 5.5 Get pre-search enrichment for this expert role
@@ -184,12 +210,29 @@ class DiscussionService:
         
         # 7. Call LLM (with tool-calling loop for models without native search)
         start_time = datetime.now()
+        base_count = self._cumulative_count  # snapshot before this expert
+        def _on_chunk(count):
+            if on_progress:
+                total = base_count + count
+                self._cumulative_count = total
+                experts_str = role # just the current expert name
+                on_progress(round_num, total_rounds, f"Round {round_num}: {experts_str}", count=total)
+
         if has_search_tools:
             # Gemini has native Google Search — use standard call (tools handled by model)
-            content = await llm_gateway.generate_content(prompt, model=model)
+            content = await llm_gateway.generate_content(prompt, model=model, on_chunk=_on_chunk, gemini_api_key=config.get("geminiApiKey") if config else None)
         else:
             # Other models — use tool-calling loop (web_search, news_search, knowledge_search)
-            content = await llm_gateway.generate_with_tools(prompt, model=model, max_tool_rounds=3)
+            try:
+                content = await llm_gateway.generate_with_tools(prompt, model=model, max_tool_rounds=3, on_chunk=_on_chunk, gemini_api_key=config.get("geminiApiKey") if config else None, deepseek_api_key=config.get("deepseekApiKey") if config else None)
+            except Exception as e:
+                error_msg = str(e)
+                if "402" in error_msg or "Insufficient Balance" in error_msg:
+                    if on_progress:
+                        on_progress(round_num, total_rounds, f"⚠️ API 余额不足 — {role} 生成中断", error_type="insufficient_balance")
+                    content = ""
+                else:
+                    raise
         latency = (datetime.now() - start_time).total_seconds() * 1000
 
         # 8. Record Metrics

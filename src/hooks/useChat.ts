@@ -7,8 +7,15 @@ import { StockAnalysis } from '../types';
 
 export function useChat(fetchAdminData: () => Promise<void>) {
   const geminiConfig = useConfigStore(s => s.config);
-  const { setChatError, setIsChatting } = useUIStore();
-  const { analysis, setAnalysis, chatMessage, setChatMessage, chatHistory, setChatHistory } = useAnalysisStore();
+  const setChatError = useUIStore(s => s.setChatError);
+  const setIsChatting = useUIStore(s => s.setIsChatting);
+  
+  const analysis = useAnalysisStore(s => s.analysis);
+  const setAnalysis = useAnalysisStore(s => s.setAnalysis);
+  const chatMessage = useAnalysisStore(s => s.chatMessage);
+  const setChatMessage = useAnalysisStore(s => s.setChatMessage);
+  const chatHistory = useAnalysisStore(s => s.chatHistory);
+  const setChatHistory = useAnalysisStore(s => s.setChatHistory);
 
   const handleChat = useCallback(async (messageOverride?: string) => {
     if (!analysis) return;

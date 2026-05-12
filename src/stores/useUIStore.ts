@@ -46,7 +46,12 @@ interface UIState {
   autoRefreshInterval: number;
   analysisStatus: string;
   analysisLogs: { message: string, timestamp: number }[];
+  contentCount: number;
+  analysisTarget: { symbol: string; market: string } | null;
+  analysisStartedAt: number | null;
   setAnalysisStatus: (status: string) => void;
+  setContentCount: (count: number) => void;
+  setAnalysisTarget: (target: { symbol: string; market: string } | null) => void;
   analysisLevel: AnalysisLevel;
 
   // Activity setters (update enum)
@@ -105,6 +110,11 @@ export const useUIStore = create<UIState>()(
       analysisLevel: 'standard',
       analysisStatus: '',
       analysisLogs: [],
+      contentCount: 0,
+      analysisTarget: null,
+      analysisStartedAt: null,
+      setContentCount: (contentCount) => set({ contentCount }),
+      setAnalysisTarget: (analysisTarget) => set({ analysisTarget }),
       setAnalysisStatus: (analysisStatus) => set((state) => {
         if (!analysisStatus) return { analysisStatus };
         return {
@@ -117,6 +127,9 @@ export const useUIStore = create<UIState>()(
       setLoading: (loading) => set((s) => ({
         analysisActivity: loading ? 'analyzing' : (s.analysisActivity === 'analyzing' ? 'idle' : s.analysisActivity),
         analysisLogs: loading ? s.analysisLogs : [], // clear logs when done
+        contentCount: loading ? 0 : s.contentCount,
+        analysisStartedAt: loading ? Date.now() : null,
+        analysisTarget: loading ? s.analysisTarget : null,
       })),
       setIsChatting: (is) => set((s) => ({
         analysisActivity: is ? 'chatting' : (s.analysisActivity === 'chatting' ? 'idle' : s.analysisActivity),

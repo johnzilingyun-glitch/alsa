@@ -149,10 +149,13 @@ export function HistoryModal({ isOpen, onClose, onSelect }: HistoryModalProps) {
                 filteredHistory.map((item, idx) => {
                   const itemKey = generateHistoryItemKey(item, idx);
                   return (
-                    <button
+                    <div
                       key={itemKey}
                       onClick={() => { onSelect(item); onClose(); }}
-                      className="w-full flex items-center justify-between p-5 bg-white hover:bg-zinc-50 rounded-2xl transition-all border border-zinc-100 hover:border-zinc-200 group"
+                      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { onSelect(item); onClose(); } }}
+                      tabIndex={0}
+                      role="button"
+                      className="w-full flex items-center justify-between p-5 bg-white hover:bg-zinc-50 rounded-2xl transition-all border border-zinc-100 hover:border-zinc-200 group cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-indigo-600 focus-visible:ring-offset-2"
                     >
                       <div className="flex items-center gap-5">
                         <div className="w-12 h-12 rounded-xl bg-zinc-50 border border-zinc-100 flex items-center justify-center text-zinc-400 group-hover:bg-white group-hover:text-indigo-600 transition-all">
@@ -188,7 +191,7 @@ export function HistoryModal({ isOpen, onClose, onSelect }: HistoryModalProps) {
                           <ChevronRight size={16} className="text-zinc-300 group-hover:text-indigo-600 transition-all group-hover:translate-x-1" />
                         </div>
                       </div>
-                    </button>
+                    </div>
                   );
                 })
               )}

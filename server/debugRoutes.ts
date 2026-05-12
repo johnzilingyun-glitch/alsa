@@ -4,52 +4,10 @@ import fs from 'fs';
 import path from 'path';
 import { execSync } from 'child_process';
 import { gatewayGenerate, gatewayStatus } from './llmGateway.js';
-import {
-  startDeviceFlow,
-  pollDeviceFlow,
-  saveGithubToken,
-  clearGithubToken,
-  getCopilotAuthStatus,
-} from './copilotAuth.js';
 
 const router = Router();
 const LOG_FILE = path.join(process.cwd(), 'logs', 'debug_records.log');
 
-// Kept for backward compatibility — still exported and tested
-function getGhCliToken(): string | null {
-    try {
-        const token = execSync('gh auth token', { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
-        if (token) return token;
-    } catch {
-        // ignore
-    }
-    return null;
-}
-
-export function buildGithubTokenCandidates(env: NodeJS.ProcessEnv = process.env, ghToken?: string | null): string[] {
-    const tokenList = [
-        env.COPILOT_GITHUB_TOKEN,
-        env.GH_TOKEN,
-        env.GITHUB_TOKEN,
-        ghToken,
-    ]
-        .map(v => (typeof v === 'string' ? v.trim() : ''))
-        .filter(Boolean);
-
-    return Array.from(new Set(tokenList));
-}
-
-export function isBadCredentialsError(status: number, message: string): boolean {
-    const text = (message || '').toLowerCase();
-    return status === 401 || text.includes('bad credentials') || text.includes('invalid token') || text.includes('authentication failed');
-}
-
-export function getCliModelCandidates(targetModel: string): string[] {
-    if (targetModel === 'copilot_auto') {
-        return ['claude-opus-4.6', 'claude-sonnet-4.6', 'gpt-5.4'];
-    }
-    return [targetModel];
-}
 
 function extractPromptText(params: any): string {
     const contents = params?.contents;
@@ -70,90 +28,7 @@ function extractPromptText(params: any): string {
     return '';
 }
 
-export function normalizeCopilotModel(model: string): string {
-    const key = (model || '').trim().toLowerCase();
-    const aliasMap: Record<string, string> = {
-        'auto': 'copilot_auto',
-        'copilot_auto': 'copilot_auto',
-        'gpt-5': 'gpt-5.4',
-        'gpt5': 'gpt-5.4',
-        'gpt-5.4': 'gpt-5.4',
-        'gpt5.4': 'gpt-5.4',
-        'gpt-5.2': 'gpt-5.2',
-        'gpt-5-mini': 'gpt-5-mini',
-        'gpt5-mini': 'gpt-5-mini',
-        'gpt-5.4-mini': 'gpt-5.4-mini',
-        'gpt5.4-mini': 'gpt-5.4-mini',
-        'gpt-4.1': 'gpt-4.1',
-        'gpt-4.1-mini': 'gpt-4.1-mini',
-        'gpt-4o-mini': 'gpt-4o-mini',
-        'o4-mini': 'o4-mini',
-        'claude ops 4.6': 'claude-opus-4.6',
-        'claude-ops-4.6': 'claude-opus-4.6',
-        'claude_opus_4_6': 'claude-opus-4.6',
-        'claude-opus-4.1': 'claude-opus-4.6',
-        'claude-opus-4-1': 'claude-opus-4.6',
-        'claude-opus-4.5': 'claude-opus-4.5',
-        'claude-opus-4.6': 'claude-opus-4.6',
-        'claude-opus-4.7': 'claude-opus-4.7',
-        'claude-sonnet-4': 'claude-sonnet-4.6',
-        'claude-sonnet-4.5': 'claude-sonnet-4.5',
-        'claude-sonnet-4.6': 'claude-sonnet-4.6',
-        'claude-haiku-4.5': 'claude-haiku-4.5',
-    };
-    return aliasMap[key] || model;
-}
 
-// ── Copilot OAuth device flow ──────────────────────────────────────────────
-
-// Step 1: Start device flow — returns user_code + verification_uri to show in UI
-router.post('/copilot/auth/start', async (_req, res) => {
-    try {
-        const flow = await startDeviceFlow();
-        logDebug('copilot_auth_start', { user_code: flow.user_code });
-        res.json({ success: true, ...flow });
-    } catch (err: any) {
-        logError(err, 'copilot_auth_start');
-        res.status(500).json({ success: false, error: err?.message || 'Device flow failed' });
-    }
-});
-
-// Step 2: Poll — called repeatedly by frontend until success/expired
-router.get('/copilot/auth/poll', async (req, res) => {
-    const { device_code } = req.query as { device_code?: string };
-    if (!device_code) {
-        res.status(400).json({ success: false, error: 'Missing device_code' });
-        return;
-    }
-    try {
-        const result = await pollDeviceFlow(device_code);
-        if (result.status === 'success') {
-            saveGithubToken(result.token);
-            logDebug('copilot_auth_success', {});
-        }
-        res.json({ success: true, ...result });
-    } catch (err: any) {
-        logError(err, 'copilot_auth_poll');
-        res.status(500).json({ success: false, error: err?.message });
-    }
-});
-
-// Current auth status
-router.get('/copilot/auth/status', async (_req, res) => {
-    try {
-        const status = await getCopilotAuthStatus();
-        res.json({ success: true, ...status });
-    } catch (err: any) {
-        res.json({ success: true, authenticated: false, error: err?.message });
-    }
-});
-
-// Logout: remove stored token
-router.delete('/copilot/auth/token', (_req, res) => {
-    clearGithubToken();
-    logDebug('copilot_auth_logout', {});
-    res.json({ success: true });
-});
 
 // ── Debug log routes ───────────────────────────────────────────────────────
 
@@ -163,27 +38,28 @@ router.post('/logs/debug', (req, res) => {
     res.json({ success: true });
 });
 
-router.post('/copilot/generate', async (req, res) => {
-    const { params, model } = req.body || {};
+router.post('/bridge/generate', async (req, res) => {
+    const { params, model, config } = req.body || {};
     const startTime = Date.now();
 
-    logDebug('copilot_generate_start', { model, paramSize: JSON.stringify(params).length });
+    logDebug('gateway_bridge_start', { model, paramSize: JSON.stringify(params).length });
     console.log('[LLMGateway] POST /copilot/generate - model:', model);
 
     const prompt = extractPromptText(params);
     if (!prompt) {
-        logDebug('copilot_generate_error', { error: 'no_prompt' });
+        logDebug('gateway_bridge_error', { error: 'no_prompt' });
         res.status(400).json({ success: false, error: '请求缺少可解析的 prompt 内容。' });
         return;
     }
 
-    const targetModel = normalizeCopilotModel(model || 'copilot_auto');
+    const targetModel = model || 'gemini-3.1-flash-lite-preview';
 
     try {
         const result = await gatewayGenerate(
             prompt,
             targetModel,
             (event, data) => logDebug(event, data as any),
+            config
         );
 
         const elapsed = Date.now() - startTime;
@@ -208,7 +84,7 @@ router.post('/copilot/generate', async (req, res) => {
     } catch (err: any) {
         const elapsed = Date.now() - startTime;
         logDebug('gateway_all_failed', { targetModel, elapsed, error: err?.message });
-        logError(err, 'copilot_bridge_generate');
+        logError(err, 'llm_bridge_generate');
         res.status(502).json({ success: false, error: err?.message || 'LLM gateway failed' });
     }
 });
@@ -310,6 +186,51 @@ router.delete('/logs/debug', (req, res) => {
     } catch (error) {
         logError(error, 'clear_debug_logs');
         res.status(500).json({ error: 'Failed to clear logs' });
+    }
+});
+
+// ── Update .env keys ───────────────────────────────────────────────────────
+const ALLOWED_ENV_KEYS = new Set(['DEEPSEEK_API_KEY', 'GEMINI_API_KEY', 'DEEPSEEK_MODEL', 'GEMINI_MODEL', 'DEFAULT_LLM_PROVIDER']);
+
+router.post('/env/update', (req, res) => {
+    const { updates } = req.body;
+    if (!updates || typeof updates !== 'object') {
+        return res.status(400).json({ error: 'Missing updates object' });
+    }
+
+    // Only allow whitelisted keys
+    const safeUpdates: Record<string, string> = {};
+    for (const [key, value] of Object.entries(updates)) {
+        if (!ALLOWED_ENV_KEYS.has(key)) continue;
+        if (typeof value !== 'string') continue;
+        safeUpdates[key] = value;
+    }
+
+    if (Object.keys(safeUpdates).length === 0) {
+        return res.json({ success: true, message: 'No valid keys to update' });
+    }
+
+    try {
+        const envPath = path.join(process.cwd(), '.env');
+        let envContent = fs.existsSync(envPath) ? fs.readFileSync(envPath, 'utf8') : '';
+
+        for (const [key, value] of Object.entries(safeUpdates)) {
+            const regex = new RegExp(`^${key}=.*$`, 'm');
+            if (regex.test(envContent)) {
+                envContent = envContent.replace(regex, `${key}=${value}`);
+            } else {
+                envContent = envContent.trimEnd() + `\n${key}=${value}`;
+            }
+            // Also update process.env in-memory
+            process.env[key] = value;
+        }
+
+        fs.writeFileSync(envPath, envContent, 'utf8');
+        logDebug('env_update', { keys: Object.keys(safeUpdates) });
+        res.json({ success: true, updated: Object.keys(safeUpdates) });
+    } catch (error) {
+        logError(error, 'env_update');
+        res.status(500).json({ error: 'Failed to update .env' });
     }
 });
 

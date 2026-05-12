@@ -2,7 +2,7 @@ import asyncio
 import akshare as ak
 import yfinance as yf
 from datetime import datetime, timedelta
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from ..utils.network import safe_ak_call
 from ..utils.data_validation import validate_ak_data
 from .search_service import search_service
@@ -11,6 +11,67 @@ class MarketDataService:
     def __init__(self):
         self._cache = {}
         self._cache_ttl = 300 # 5 minutes
+
+    async def resolve_symbol(self, query: str, market: Optional[str] = None) -> List[Dict[str, Any]]:
+        """
+        Smart Recognition: Resolve a query (name or code) to a list of matching assets.
+        """
+        results = []
+        
+        # 1. Check if it's already a code
+        if query.isdigit():
+            if len(query) == 6:
+                return [{"symbol": query, "name": "A-Share Code", "market": "A-Share"}]
+            if len(query) <= 5:
+                return [{"symbol": query, "name": "HK-Share Code", "market": "HK-Share"}]
+        
+        # 2. Search A-Shares if market is None or A-Share
+        if market is None or market == "A-Share":
+            try:
+                df = await safe_ak_call(ak.stock_info_a_code_name)
+                if df is not None and not df.empty:
+                    # Fuzzy match on name or exact match on code
+                    matches = df[df['name'].str.contains(query, na=False) | (df['code'] == query)]
+                    for _, row in matches.head(5).iterrows():
+                        results.append({
+                            "symbol": row['code'],
+                            "name": row['name'],
+                            "market": "A-Share"
+                        })
+            except Exception as e:
+                print(f"A-Share resolution error: {e}")
+
+        # 3. Search HK-Shares if market is None or HK-Share
+        if market is None or market == "HK-Share":
+            try:
+                # Use stock_hk_spot_em for a quick list of HK stocks
+                df = await safe_ak_call(ak.stock_hk_spot_em)
+                if df is not None and not df.empty:
+                    matches = df[df['名称'].str.contains(query, na=False) | (df['代码'] == query)]
+                    for _, row in matches.head(5).iterrows():
+                        results.append({
+                            "symbol": row['代码'],
+                            "name": row['名称'],
+                            "market": "HK-Share"
+                        })
+            except Exception as e:
+                print(f"HK-Share resolution error: {e}")
+
+        # 4. Search US-Shares (Yahoo Finance search)
+        if market is None or market == "US-Share":
+            try:
+                # We can use a search service or yfinance if it supports it
+                # For now, let's use a simple heuristic or a search API if available
+                # Actually, search_service might have this
+                search_results = await search_service.search(f"{query} stock symbol yahoo finance", max_results=5)
+                # This is a bit slow, but US stocks are harder to list locally
+                # Let's just return the query as US-Share if nothing else found and it looks like a symbol
+                if query.isalpha() and len(query) <= 5:
+                    results.append({"symbol": query.upper(), "name": query.upper(), "market": "US-Share"})
+            except Exception as e:
+                print(f"US-Share resolution error: {e}")
+
+        return results
 
     async def get_quotes(self, symbols: List[str]) -> List[Dict[str, Any]]:
         """

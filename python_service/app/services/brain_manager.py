@@ -44,22 +44,31 @@ class BrainManager:
     @property
     def memory(self):
         if self._memory is None:
+            default_provider = os.getenv("DEFAULT_LLM_PROVIDER", "gemini").lower()
+            is_gemini = default_provider == "gemini" and self.api_key
+
+            llm_config = {
+                "model": os.getenv("GEMINI_MODEL", "gemini-3.1-pro-preview") if is_gemini else os.getenv("DEEPSEEK_MODEL", "deepseek-v4-pro"),
+                "api_key": self.api_key if is_gemini else os.getenv("DEEPSEEK_API_KEY")
+            }
+            if not is_gemini:
+                llm_config["base_url"] = "https://api.deepseek.com"
+
             mem0_config = {
                 "vector_store": {
                     "provider": "qdrant",
-                    "config": {"path": QDRANT_PATH}
-                },
-                "llm": {
-                    "provider": "gemini" if self.api_key else "openai",
                     "config": {
-                        "model": "gemini-3.1-flash-lite-preview" if self.api_key else "deepseek-v4-pro",
-                        "api_key": self.api_key or os.getenv("DEEPSEEK_API_KEY"),
-                        "base_url": None if self.api_key else "https://api.deepseek.com"
+                        "path": QDRANT_PATH,
+                        "embedding_model_dims": 768 if is_gemini else 384
                     }
                 },
+                "llm": {
+                    "provider": "gemini" if is_gemini else "openai",
+                    "config": llm_config
+                },
                 "embedder": {
-                    "provider": "gemini" if self.api_key else "fastembed", 
-                    "config": {"model": "models/gemini-embedding-2" if self.api_key else "BAAI/bge-small-en-v1.5", "api_key": self.api_key}
+                    "provider": "gemini" if is_gemini else "fastembed", 
+                    "config": {"model": "models/gemini-embedding-2" if is_gemini else "BAAI/bge-small-en-v1.5", "api_key": self.api_key if is_gemini else None}
                 }
             }
             try:
@@ -88,7 +97,19 @@ class BrainManager:
             try:
                 # Search with filters as required by newer Mem0 versions
                 search_results = self.memory.search(query, filters={"user_id": user_id})
-                facts = [res["text"] for res in search_results]
+                
+                # Mem0 2.0.0+ returns a dictionary with 'results' key
+                if isinstance(search_results, dict) and "results" in search_results:
+                    results_list = search_results["results"]
+                else:
+                    results_list = search_results
+                    
+                facts = []
+                for res in results_list:
+                    if "memory" in res:
+                        facts.append(res["memory"])
+                    elif "text" in res:
+                        facts.append(res["text"])
             except Exception as e:
                 print(f"BrainManager: Memory search failed: {e}")
 

@@ -7,11 +7,13 @@
     "dev": "tsx server.ts",
     "dev:py": ".\\.venv\\Scripts\\python -m uvicorn python_service.main:app --port 8001 --reload",
     "build": "vite build",
+    "start": "cross-env NODE_ENV=production tsx server.ts",
     "preview": "vite preview",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "test:all": "npm test && ..\\.venv\\Scripts\\python -m pytest python_service/tests"
   },
   "dependencies": {
     "@google/genai": "^1.29.0",
@@ -54,6 +56,7 @@
     "@types/supertest": "^7.2.0",
     "@vitest/ui": "^4.1.2",
     "autoprefixer": "^10.4.21",
+    "cross-env": "^10.1.0",
     "jsdom": "^29.0.1",
     "supertest": "^7.2.2",
     "tailwindcss": "^4.1.14",

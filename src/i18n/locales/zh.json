@@ -346,8 +346,7 @@
     },
     "modes": {
       "byok": "自定义 Key 模式",
-      "managed": "免 Key 托管模式",
-      "copilot": "本地 Copilot 模式"
+      "managed": "免 Key 托管模式"
     },
     "feishu": {
       "placeholder": "输入飞书 Webhook 链接",
@@ -357,11 +356,7 @@
       "debug_mode": "调试模式",
       "debug_on": "调试模式已开启",
       "debug_off": "调试模式已关闭",
-      "failover": "智能故障转移 (Copilot)",
-      "failover_on": "自动恢复已开启",
-      "failover_off": "自动恢复已关闭",
       "debug_desc": "开发者模式：开启后将记录所有后台请求数据。有助于分析数据偏差并优化 AI 推理逻辑。",
-      "failover_desc": "自动恢复：开启后，若 Gemini API 余额耗尽，系统将自动通过本机 GitHub Copilot 通道完成研报生成。需确保后端已登录 GitHub。",
       "view_logs": "查看调试日志",
       "clear_logs": "清除日志"
     },

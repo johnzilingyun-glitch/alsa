@@ -1,46 +1,48 @@
 import os
 from typing import Dict, Any, Optional
-from ..db.models import PromptVersion, PromptRun
-from ..db.sqlite import session_factory
-from sqlmodel import select, Session
+from jinja2 import Environment, FileSystemLoader
 
-class PromptRuntime:
-    # ... (原有代码)
-
-    def record_run(self, run_data: Dict[str, Any]):
-        """
-        持久化 Prompt 运行指标。
-        """
-        with session_factory() as session:
-            run = PromptRun(**run_data)
-            session.add(run)
-            session.commit()
-            print(f"Prompt run recorded: {run.prompt_run_id}")
+class PromptRuntimeService:
     def __init__(self, templates_dir: str):
-        self.templates_dir = templates_dir
-        self._cache = {}
+        self.env = Environment(loader=FileSystemLoader(templates_dir))
 
-    def _load_template(self, template_path: str) -> str:
-        if template_path not in self._cache:
-            with open(os.path.join(self.templates_dir, template_path), 'r', encoding='utf-8') as f:
-                self._cache[template_path] = f.read()
-        return self._cache[template_path]
+    def assemble_prompt(self, template_name: str, context: Dict[str, Any]) -> str:
+        template = self.env.get_template(template_name)
+        return template.render(**context)
 
-    def get_prompt(self, prompt_name: str, version: str) -> Dict[str, Any]:
-        with session_factory() as session:
-            statement = select(PromptVersion).where(
-                PromptVersion.prompt_name == prompt_name,
-                PromptVersion.version == version
-            )
-            pv = session.exec(statement).first()
-            if not pv:
-                raise ValueError(f"Prompt {prompt_name} v{version} not found")
+    def get_prompt(self, name: str, version: str = "v1") -> Dict[str, Any]:
+        """
+        Retrieves a prompt template from the filesystem.
+        Prioritizes _zh suffix for compatibility with existing discussion service logic.
+        """
+        # Try different possible extensions and suffixes
+        possible_files = [
+            f"{name}_zh.txt",
+            f"{name}_en.txt",
+            f"{name}.txt",
+            f"{name}.jinja2"
+        ]
+        
+        for file_name in possible_files:
+            file_path = os.path.join(self.env.loader.searchpath[0], file_name)
+            if os.path.exists(file_path):
+                with open(file_path, "r", encoding="utf-8") as f:
+                    return {
+                        "name": name,
+                        "version": version,
+                        "template": f.read()
+                    }
+        
+        raise FileNotFoundError(f"Prompt template {name} not found in {self.env.loader.searchpath[0]}")
 
-            return {
-                "template": self._load_template(pv.template_path),
-                "schema": pv.schema_name,
-                "version": pv.version
-            }
+    def record_run(self, metrics: Dict[str, Any]):
+        """
+        Placeholder for recording prompt execution metrics.
+        """
+        # In a real system, this would write to a DB or telemetry service
+        print(f"[PromptRuntime] Metrics recorded: {metrics.get('model')} | Latency: {metrics.get('latency_ms')}ms")
 
 # Singleton instance
-prompt_runtime = PromptRuntime(os.path.join(os.path.dirname(__file__), "templates"))
+current_dir = os.path.dirname(os.path.abspath(__file__))
+templates_path = os.path.join(current_dir, "templates")
+prompt_runtime = PromptRuntimeService(templates_path)

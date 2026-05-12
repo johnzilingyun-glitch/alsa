@@ -11,5 +11,21 @@ dependencies = [
     "akshare",
     "yfinance",
     "celery",
-    "redis"
+    "redis",
+    "sqlmodel",
+    "pydantic",
+    "httpx",
+    "click",
+    "python-dotenv",
+    "google-generativeai",
+    "openai",
+    "anthropic",
+    "pytest",
+    "pytest-asyncio",
+    "jinja2",
+    "pyyaml",
+    "markdown2"
 ]
+
+[tool.setuptools]
+packages = ["app"]

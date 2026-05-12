@@ -306,9 +306,9 @@ export function ConferenceResults({ analysis, onSendDiscussionReport }: Conferen
                           <p className="text-[9px] text-indigo-200 font-bold uppercase tracking-[0.3em] mb-4">Unified Target Price</p>
                           <div className="flex items-baseline gap-2">
                             <span className="text-6xl font-bold tracking-tighter">
-                              {analysis.expectedValueOutcome?.expectedPrice?.toFixed(2) ?? analysis.stockInfo.price.toFixed(2)}
+                              {analysis.expectedValueOutcome?.expectedPrice?.toFixed(2) ?? (analysis.stockInfo?.price ?? 0).toFixed(2)}
                             </span>
-                            <span className="text-lg font-bold text-indigo-200">{analysis.stockInfo.currency}</span>
+                            <span className="text-lg font-bold text-indigo-200">{analysis.stockInfo?.currency ?? ''}</span>
                           </div>
                         </div>
                       </div>

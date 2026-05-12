@@ -1,56 +1,101 @@
-import { useCallback } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useConfigStore } from '../stores/useConfigStore';
 import { useUIStore } from '../stores/useUIStore';
 import { useMarketStore } from '../stores/useMarketStore';
 import { useAnalysisStore } from '../stores/useAnalysisStore';
 import { useDiscussionStore } from '../stores/useDiscussionStore';
 import { useScenarioStore } from '../stores/useScenarioStore';
-import { StockAnalysis, AgentMessage, Market } from '../types';
-import { alertsClient } from '../services/api/alertsClient';
-import { analyzeStock } from '../services/analysisService';
-import { startMultiRoundDiscussion, startAgentDiscussion } from '../services/discussionService';
-import { getHistoryContext, saveAnalysisToHistory } from '../services/adminService';
+import { StockAnalysis, Market } from '../types';
+import { useAnalysisJob } from './useAnalysisJob';
 
 export function useStockAnalysis() {
   const geminiConfig = useConfigStore(s => s.config);
-  const { setLoading, setAnalysisError, setIsDiscussing, setShowDiscussion, resetErrors, analysisLevel, setAnalysisStatus } = useUIStore();
-  const { setAnalysis, setSymbol, setMarket, symbol, market, analysis, resetAnalysis } = useAnalysisStore();
-  const { setDiscussionResults: setDiscussionStoreResults, resetDiscussion, setRoundProgress, setAbortController, setDiscussionMessages } = useDiscussionStore();
-  const { setScenarioResults, resetScenario } = useScenarioStore();
-  const { setHistoryItems, setOptimizationLogs, addRecentSearch, watchlist, setWatchlist } = useMarketStore();
+  const setLoading = useUIStore(s => s.setLoading);
+  const setAnalysisError = useUIStore(s => s.setAnalysisError);
+  const setIsDiscussing = useUIStore(s => s.setIsDiscussing);
+  const setShowDiscussion = useUIStore(s => s.setShowDiscussion);
+  const resetErrors = useUIStore(s => s.resetErrors);
+  const analysisLevel = useUIStore(s => s.analysisLevel);
+  const setAnalysisTarget = useUIStore(s => s.setAnalysisTarget);
 
-  const withTimeout = useCallback(async <T,>(promise: Promise<T>, ms: number, message: string): Promise<T> => {
-    let timer: ReturnType<typeof setTimeout> | null = null;
-    try {
-      return await Promise.race<T>([
-        promise,
-        new Promise<T>((_, reject) => {
-          timer = setTimeout(() => reject(new Error(message)), ms);
-        }),
-      ]);
-    } finally {
-      if (timer) clearTimeout(timer);
+  const setAnalysis = useAnalysisStore(s => s.setAnalysis);
+  const symbol = useAnalysisStore(s => s.symbol);
+  const market = useAnalysisStore(s => s.market);
+  const resetAnalysis = useAnalysisStore(s => s.resetAnalysis);
+
+  const setDiscussionStoreResults = useDiscussionStore(s => s.setDiscussionResults);
+  const resetDiscussion = useDiscussionStore(s => s.resetDiscussion);
+  const setDiscussionMessages = useDiscussionStore(s => s.setDiscussionMessages);
+
+  const setScenarioResults = useScenarioStore(s => s.setScenarioResults);
+  const resetScenario = useScenarioStore(s => s.resetScenario);
+
+  const setHistoryItems = useMarketStore(s => s.setHistoryItems);
+  const setOptimizationLogs = useMarketStore(s => s.setOptimizationLogs);
+  const addRecentSearch = useMarketStore(s => s.addRecentSearch);
+  const watchlist = useMarketStore(s => s.watchlist);
+  const setWatchlist = useMarketStore(s => s.setWatchlist);
+
+  const { startAnalysis, status, result, error, jobId, insufficientBalance } = useAnalysisJob();
+  const setLastJobId = useAnalysisStore(s => s.setLastJobId);
+  
+  // History selection state
+  const [historyDialogOpen, setHistoryDialogOpen] = useState(false);
+  const [historyDialogItems, setHistoryDialogItems] = useState<any[]>([]);
+  const [pendingSearchSymbol, setPendingSearchSymbol] = useState<string>('');
+
+  // Watch for job completion
+  useEffect(() => {
+    if (status === 'completed' && result) {
+      setLoading(false);
+      setIsDiscussing(false);
+      setAnalysis(result);
+      setScenarioResults(result as any);
+      setDiscussionStoreResults(result as any);
+      if (jobId) setLastJobId(jobId);
+      if (result.discussion) {
+        setDiscussionMessages(result.discussion);
+      }
+      
+      // Add to recent searches
+      if (result.stockInfo) {
+        addRecentSearch({
+          symbol: result.stockInfo.symbol,
+          name: result.stockInfo.name,
+          market: result.stockInfo.market as Market
+        });
+      }
+    } else if (status === 'failed' && error) {
+      setLoading(false);
+      setIsDiscussing(false);
+      if (insufficientBalance) {
+        setAnalysisError('API 余额不足 (Insufficient Balance)。请前往设置更换 API Key 或充值后重试。');
+      } else {
+        setAnalysisError(error);
+      }
+    } else if (status === 'running') {
+      setIsDiscussing(true);
+      setShowDiscussion(true);
+      // Show balance warning in status if detected
+      if (insufficientBalance) {
+        setAnalysisError('⚠️ API 余额不足，部分分析师生成中断。分析将以已获取的内容完成。请尽快更换 API Key。');
+      }
     }
-  }, []);
+  }, [status, result, error, insufficientBalance, setAnalysis, setLoading, setIsDiscussing, setShowDiscussion, setScenarioResults, setDiscussionStoreResults, setDiscussionMessages, addRecentSearch, setAnalysisError]);
 
   const fetchAdminData = useCallback(async () => {
     try {
-      const [history, logsRes] = await Promise.all([
-        getHistoryContext(),
-        fetch('/api/logs/optimization')
-      ]);
-      setHistoryItems(history);
+      const historyRes = await fetch('/api/history/context');
+      const logsRes = await fetch('/api/logs/optimization');
       
-      if (!logsRes.ok) {
-        console.error(`Failed to fetch optimization logs: ${logsRes.status} ${logsRes.statusText}`);
-      } else {
-        const text = await logsRes.text();
-        try {
-          const logs = JSON.parse(text);
-          setOptimizationLogs(logs);
-        } catch (e) {
-          console.error('Failed to parse optimization logs JSON. Response text:', text.substring(0, 500), e);
-        }
+      if (historyRes.ok) {
+        const history = await historyRes.json();
+        setHistoryItems(history);
+      }
+      
+      if (logsRes.ok) {
+        const logs = await logsRes.json();
+        setOptimizationLogs(logs);
       }
     } catch (err) {
       console.error('Failed to fetch admin data:', err);
@@ -61,154 +106,65 @@ export function useStockAnalysis() {
     e.preventDefault();
     if (!symbol || !symbol.trim()) return;
 
+    // Check for existing analysis history
+    try {
+      const histRes = await fetch(`/api/analysis/history/${encodeURIComponent(symbol)}`);
+      if (histRes.ok) {
+        const histData = await histRes.json();
+        if (histData.success && histData.data?.length > 0) {
+          setPendingSearchSymbol(symbol);
+          setHistoryDialogItems(histData.data);
+          setHistoryDialogOpen(true);
+          return; // Wait for user choice
+        }
+      }
+    } catch { /* ignore, proceed with new analysis */ }
+
+    // No history — start fresh analysis
+    doStartAnalysis();
+  }, [symbol, market, analysisLevel, geminiConfig, startAnalysis, setLoading, resetAnalysis, resetDiscussion, resetScenario, resetErrors, setAnalysisTarget]);
+
+  const doStartAnalysis = useCallback(() => {
+    setHistoryDialogOpen(false);
     setLoading(true);
     resetAnalysis();
     resetDiscussion();
     resetScenario();
     resetErrors();
+    setAnalysisTarget({ symbol, market });
+    startAnalysis(symbol, market, analysisLevel, geminiConfig?.model || null, geminiConfig);
+  }, [symbol, market, analysisLevel, geminiConfig, startAnalysis, setLoading, resetAnalysis, resetDiscussion, resetScenario, resetErrors, setAnalysisTarget]);
 
+  const loadHistoryResult = useCallback(async (analysisId: string) => {
+    setHistoryDialogOpen(false);
+    setLoading(true);
+    resetErrors();
     try {
-      const isCopilotMode = geminiConfig?.serviceMode === 'copilot_local';
-      // Increased timeout to 160s-240s to accommodate Gemini Pro's deep reasoning and Google Search latency
-      const analysisTimeoutMs = isCopilotMode ? 160_000 : 600_000;
-      const timeoutMsg = isCopilotMode
-        ? '分析请求超时：Copilot CLI 推理超时（已等待 160 秒）。请检查 copilot login 状态，或切换到 Gemini (BYOK) 模式。'
-        : '分析请求超时：当前生成深度研讨报告所需时间较长（涉及实时搜索、Pro 模型运算与数据校正，已等待 600 秒）。建议稍后再试，或通过设置选择更快的 Flash 模型。';
-
-      const result = await withTimeout(
-        analyzeStock(symbol, market, geminiConfig, setAnalysisStatus),
-        analysisTimeoutMs,
-        timeoutMsg
-      );
-      
-      // Update global market state if backend resolved to a different market
-      if ((result as any).resolvedMarket && (result as any).resolvedMarket !== market) {
-        setMarket((result as any).resolvedMarket);
-      }
-      
-      setAnalysis(result);
-
-      // Add to recent searches
-      if (result.stockInfo) {
-        addRecentSearch({
-          symbol: result.stockInfo.symbol,
-          name: result.stockInfo.name,
-          market: result.stockInfo.market as Market
-        });
-      }
-
-      setShowDiscussion(false);
-
-      // Quick mode: skip expert discussion entirely
-      if (analysisLevel === 'quick') {
-        await saveAnalysisToHistory('stock', result);
-        void fetchAdminData();
+      const res = await fetch(`/api/analysis/runs/${analysisId}`);
+      const data = await res.json();
+      if (data.success && data.data) {
+        setAnalysis(data.data);
+        setScenarioResults(data.data as any);
+        setDiscussionStoreResults(data.data as any);
+        if (data.data.discussion) {
+          setDiscussionMessages(data.data.discussion);
+        }
+        if (data.data.stockInfo) {
+          addRecentSearch({
+            symbol: data.data.stockInfo.symbol,
+            name: data.data.stockInfo.name,
+            market: data.data.stockInfo.market as Market
+          });
+        }
       } else {
-        // Pre-populate scenario store from initial analysis so cards show during discussion
-        if (result as any) {
-          setScenarioResults(result as any);
-        }
-
-        setIsDiscussing(true);
-        // Auto-show discussion panel for standard and deep modes
-        if (analysisLevel === 'deep' || analysisLevel === 'standard') {
-          setShowDiscussion(true);
-        }
-
-        try {
-          let discussion;
-
-          if (analysisLevel === 'deep' || analysisLevel === 'standard') {
-            // Multi-round iterative discussion for standard and deep modes
-            const controller = new AbortController();
-            setAbortController(controller);
-
-            discussion = await startMultiRoundDiscussion(
-              result,
-              analysisLevel,
-              geminiConfig,
-              (progress) => {
-                setRoundProgress(progress.currentRound, progress.totalRounds, progress.activeExperts, progress.currentStep, progress.lastReasoning);
-                setDiscussionMessages(progress.messages);
-                if (progress.partialDiscussion) {
-                  // [PHASE 3 OPTIMIZATION]: Incremental UI update
-                  setDiscussionStoreResults(progress.partialDiscussion as any);
-                  setScenarioResults(progress.partialDiscussion as any);
-                }
-              },
-              controller.signal,
-            );
-
-            setAbortController(null);
-          } else {
-            // Fallback (though currently quick mode skips this block)
-            discussion = await startAgentDiscussion(result, geminiConfig);
-          }
-
-          setDiscussionStoreResults(discussion);
-          setScenarioResults(discussion);
-
-          // Merge discussion into analysis, but only non-undefined fields
-          // to avoid overwriting initial analysis data with undefined
-          const definedDiscussion = Object.fromEntries(
-            Object.entries(discussion).filter(([, v]) => v !== undefined)
-          );
-
-          const finalAnalysis: StockAnalysis = {
-            ...result,
-            ...definedDiscussion,
-            discussion: discussion.messages,
-            tradingPlan: discussion.tradingPlan || result.tradingPlan,
-            verificationMetrics: discussion.verificationMetrics || result.verificationMetrics,
-            capitalFlow: discussion.capitalFlow || result.capitalFlow,
-            expectedValueOutcome: discussion.expectedValueOutcome || result.expectedValueOutcome,
-            sensitivityMatrix: discussion.sensitivityMatrix || result.sensitivityMatrix,
-            dataVerification: discussion.dataVerification || result.dataVerification
-          };
-          setAnalysis(finalAnalysis);
-
-          await saveAnalysisToHistory('stock', finalAnalysis);
-
-          // Save to Search Alerts / History Dashboard
-          if (finalAnalysis.tradingPlan && finalAnalysis.stockInfo) {
-            try {
-              const { entryPrice, targetPrice, stopLoss } = finalAnalysis.tradingPlan;
-              // Simple numeric extraction (e.g., "70.5 元" -> 70.5)
-              const parseNum = (s: string) => {
-                const match = s.match(/[\d.]+/);
-                return match ? parseFloat(match[0]) : 0;
-              };
-
-              await alertsClient.create({
-                symbol: finalAnalysis.stockInfo.symbol,
-                name: finalAnalysis.stockInfo.name,
-                market: finalAnalysis.stockInfo.market as Market,
-                entry_price: parseNum(entryPrice),
-                target_price: parseNum(targetPrice),
-                stop_loss: parseNum(stopLoss),
-                currency: finalAnalysis.stockInfo.currency || 'CNY'
-              });
-            } catch (alertErr) {
-              console.warn('Failed to save search alert:', alertErr);
-            }
-          }
-
-          void fetchAdminData();
-        } catch (err) {
-          console.error('Agent discussion failed:', err);
-          setAnalysisError(err instanceof Error ? err.message : '专家讨论失败，请稍后重试。');
-        } finally {
-          setIsDiscussing(false);
-          setRoundProgress(0, 0);
-        }
+        setAnalysisError('加载历史记录失败');
       }
-    } catch (err) {
-      console.error(err);
-      setAnalysisError(err instanceof Error ? err.message : '分析股票失败，请稍后重试。');
+    } catch (err: any) {
+      setAnalysisError(err.message || '加载历史记录失败');
     } finally {
       setLoading(false);
     }
-  }, [symbol, market, geminiConfig, analysisLevel, setLoading, resetAnalysis, resetDiscussion, resetScenario, resetErrors, setAnalysis, setShowDiscussion, setIsDiscussing, setDiscussionStoreResults, setScenarioResults, setAnalysisError, setRoundProgress, setAbortController, setDiscussionMessages, fetchAdminData, withTimeout]);
+  }, [setAnalysis, setLoading, resetErrors, setScenarioResults, setDiscussionStoreResults, setDiscussionMessages, addRecentSearch, setAnalysisError]);
 
   const toggleWatchlist = useCallback(async (stock: { symbol: string; name: string; market: Market }) => {
     const isStarred = watchlist.some(w => w.symbol === stock.symbol);
@@ -238,5 +194,5 @@ export function useStockAnalysis() {
     resetScenario();
   }, [resetAnalysis, resetDiscussion, resetScenario]);
 
-  return { handleSearch, resetToHome, fetchAdminData, toggleWatchlist };
+  return { handleSearch, resetToHome, fetchAdminData, toggleWatchlist, historyDialogOpen, historyDialogItems, pendingSearchSymbol, setHistoryDialogOpen, doStartAnalysis, loadHistoryResult };
 }

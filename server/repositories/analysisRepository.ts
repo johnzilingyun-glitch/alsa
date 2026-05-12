@@ -7,8 +7,8 @@ export function createAnalysisRepository(): AnalysisRepository {
       const sql = `
         INSERT OR REPLACE INTO analysis_runs (
           analysis_id, kind, symbol, market, status, 
-          prompt_version, model, input_snapshot_path, output_payload
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          prompt_version, model, input_snapshot_path, output_payload, config
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `;
       await run(sql, [
         record.analysisId,
@@ -19,7 +19,8 @@ export function createAnalysisRepository(): AnalysisRepository {
         record.promptVersion,
         record.model,
         record.inputSnapshotPath || null,
-        JSON.stringify(record.outputPayload)
+        JSON.stringify(record.outputPayload),
+        JSON.stringify(record.config || {})
       ]);
     },
 
@@ -74,6 +75,7 @@ function mapRowToRecord(row: any): AnalysisRunRecord {
     model: row.model,
     inputSnapshotPath: row.input_snapshot_path,
     outputPayload: JSON.parse(row.output_payload || '{}'),
+    config: JSON.parse(row.config || '{}'),
     createdAt: row.created_at
   };
 }

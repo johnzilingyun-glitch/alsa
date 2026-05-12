@@ -14,13 +14,18 @@ def test_analysis_job_lifecycle():
     # 1. Create job
     resp = client.post("/api/analysis/jobs", json={
         "symbol": "600519", 
-        "market": "A-Share"
+        "market": "A-Share",
+        "analysis_level": "standard"
     })
     assert resp.status_code == 202
-    job_id = resp.json()["job_id"]
+    data = resp.json()
+    assert data["success"] is True
+    job_id = data["data"]["job_id"]
     assert job_id.startswith("job_")
     
     # 2. Check status immediately
     resp = client.get(f"/api/analysis/jobs/{job_id}")
     assert resp.status_code == 200
-    assert resp.json()["status"] in ["queued", "running", "completed"]
+    data = resp.json()
+    assert data["success"] is True
+    assert data["data"]["status"] in ["queued", "running", "completed"]

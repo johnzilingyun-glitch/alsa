@@ -1,7 +1,13 @@
-from sqlmodel import SQLModel, create_engine, Session
 import os
+from sqlmodel import SQLModel, create_engine, Session
 
-DATABASE_URL = os.getenv("SQLITE_PATH", "python_service/data/app_v3.db")
+# Unified Institutional Database Path
+current_dir = os.path.dirname(os.path.abspath(__file__))
+# Navigate up to the project root (python_service/app/db -> python_service/app -> python_service -> root)
+root_dir = os.path.dirname(os.path.dirname(os.path.dirname(current_dir)))
+DEFAULT_DB_PATH = os.path.join(root_dir, "data", "app.db")
+
+DATABASE_URL = os.getenv("SQLITE_PATH", DEFAULT_DB_PATH)
 # Ensure directory exists
 os.makedirs(os.path.dirname(DATABASE_URL), exist_ok=True)
 

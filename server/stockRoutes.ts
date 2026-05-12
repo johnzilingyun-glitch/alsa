@@ -200,8 +200,8 @@ router.get('/stock/indices', async (req, res) => {
 
   try {
     const startTime = Date.now();
-    // Proxy to Python Microservice
-    const pythonRes = await axios.get(`${PYTHON_SERVICE_URL}/api/market/indices?market=${marketKey}`);
+    // Proxy to Python Microservice (4s timeout to avoid blocking UI)
+    const pythonRes = await axios.get(`${PYTHON_SERVICE_URL}/api/market/indices?market=${marketKey}`, { timeout: 4000 });
     
     if (pythonRes.data.success && Array.isArray(pythonRes.data.data) && pythonRes.data.data.length > 0) {
       const data = pythonRes.data.data;
@@ -399,7 +399,7 @@ router.get('/stock/sectors', async (req, res) => {
   if (cached) return res.json(cached);
 
   try {
-    const data = await fetchJsonWithTimeout('http://127.0.0.1:8001/api/market/sector_flow', 7000);
+    const data = await fetchJsonWithTimeout('http://127.0.0.1:8001/api/market/sector_flow', 5000);
     
     if (data.success && data.data) {
       setCache(cacheKey, data.data);
@@ -423,7 +423,7 @@ router.get('/stock/northbound', async (req, res) => {
   if (cached) return res.json(cached);
 
   try {
-    const data = await fetchJsonWithTimeout('http://127.0.0.1:8001/api/market/northbound', 7000);
+    const data = await fetchJsonWithTimeout('http://127.0.0.1:8001/api/market/northbound', 5000);
     
     if (data.success && data.data) {
       setCache(cacheKey, data.data);
@@ -630,8 +630,18 @@ router.get('/stock/suggest', async (req, res) => {
 
 // Real-time Stock Data (Universal)
 router.get('/stock/realtime', async (req, res) => {
-  const { symbol, market, symbols, debug } = req.query;
+  const { symbol, market, symbols, debug, force } = req.query;
   const isDebug = debug === 'true';
+  const isForce = force === 'true';
+
+  const cacheKey = symbols ? `batch:${symbols}` : `${market}:${symbol}`;
+  if (!isForce && !isDebug) {
+    const cached = getCached(cacheKey);
+    if (cached) {
+      console.log(`[CACHE HIT] ${cacheKey}`);
+      return res.json(cached);
+    }
+  }
 
   if (isDebug) logDebug('incoming_request', { symbol, market, symbols, path: '/stock/realtime' });
 
@@ -650,7 +660,9 @@ router.get('/stock/realtime', async (req, res) => {
         return sym;
       });
       const results = await yf.quote(symbolList as any) as any[];
-      return res.json(results.map(r => formatQuoteResult(r)));
+      const formatted = results.map(r => formatQuoteResult(r));
+      setCache(cacheKey, formatted);
+      return res.json(formatted);
     } catch {
       return res.status(500).json({ error: 'Failed' });
     }
@@ -877,11 +889,14 @@ router.get('/stock/realtime', async (req, res) => {
       formatted.source = source;
     }
 
-    res.json({
+    const finalResponse = {
       ...formatted,
       resolvedMarket: resolution.market,
       technicalIndicators: indicators
-    });
+    };
+
+    setCache(cacheKey, finalResponse);
+    res.json(finalResponse);
   } catch (error) {
     logError(error, 'realtime_total_error');
     res.status(500).json({ error: 'Failed' });

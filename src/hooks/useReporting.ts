@@ -11,16 +11,24 @@ import { ReportGeneratorService } from '../services/reportGenerator';
 
 export function useReporting(fetchAdminData: () => Promise<void>) {
   const geminiConfig = useConfigStore(s => s.config);
-  const {
-    setIsGeneratingReport, setIsSendingReport, setReportStatus,
-    setIsTriggeringReport, isGeneratingReport, isSendingReport,
-  } = useUIStore();
-  const { setDailyReport } = useMarketStore();
+  const setIsGeneratingReport = useUIStore(s => s.setIsGeneratingReport);
+  const setIsSendingReport = useUIStore(s => s.setIsSendingReport);
+  const setReportStatus = useUIStore(s => s.setReportStatus);
+  const setIsTriggeringReport = useUIStore(s => s.setIsTriggeringReport);
+  const isGeneratingReport = useUIStore(s => s.isGeneratingReport);
+  const isSendingReport = useUIStore(s => s.isSendingReport);
+  
+  const setDailyReport = useMarketStore(s => s.setDailyReport);
   const marketOverviews = useMarketStore(s => s.marketOverviews);
   const overviewMarket = useMarketStore(s => s.overviewMarket);
-  const { analysis, chatHistory } = useAnalysisStore();
-  const { discussionMessages } = useDiscussionStore();
-  const { scenarios, backtestResult } = useScenarioStore();
+  
+  const analysis = useAnalysisStore(s => s.analysis);
+  const chatHistory = useAnalysisStore(s => s.chatHistory);
+  
+  const discussionMessages = useDiscussionStore(s => s.discussionMessages);
+  
+  const scenarios = useScenarioStore(s => s.scenarios);
+  const backtestResult = useScenarioStore(s => s.backtestResult);
 
   const sendReport = useCallback(async (report: string, type: string, data?: any) => {
     const webhookUrl = useConfigStore.getState().feishuWebhookUrl;
@@ -172,16 +180,41 @@ export function useReporting(fetchAdminData: () => Promise<void>) {
     }
   }, [geminiConfig, setReportStatus, sendReport]);
 
-  const handleExportFullReport = useCallback(() => {
+  const handleExportFullReport = useCallback(async () => {
     if (!analysis) return;
 
+    const lastJobId = useAnalysisStore.getState().lastJobId;
+    const filename = `EquityResearch_${analysis.stockInfo?.symbol}_${new Date().toISOString().split('T')[0]}.html`;
+
+    // Try Python backend report (richer, with LLM post-processing)
+    if (lastJobId) {
+      try {
+        const res = await fetch(`/api/analysis/jobs/${lastJobId}/report`, { method: 'POST' });
+        if (res.ok) {
+          const htmlReport = await res.text();
+          ReportGeneratorService.downloadReport(htmlReport, filename);
+          void fetch('/api/logs/add', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              field: 'export_html_report',
+              oldValue: 'markdown',
+              newValue: 'pro_html_backend',
+              description: `成功导出专业 HTML 研报 (后端渲染): ${analysis.stockInfo?.name}`
+            })
+          });
+          return;
+        }
+      } catch (e) {
+        console.warn('Backend report generation failed, falling back to frontend:', e);
+      }
+    }
+
+    // Fallback to frontend template
     const language = useConfigStore.getState().language === 'en' ? 'en' : 'zh-CN';
     const htmlReport = ReportGeneratorService.generateProfessionalHtmlReport(analysis, language);
-    const filename = `EquityResearch_${analysis.stockInfo?.symbol}_${new Date().toISOString().split('T')[0]}.html`;
-    
     ReportGeneratorService.downloadReport(htmlReport, filename);
-    
-    // Log Export
+
     void fetch('/api/logs/add', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

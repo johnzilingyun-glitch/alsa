@@ -16,18 +16,20 @@
  *   claude-*               → Anthropic first, then rest
  */
 
-import { execFileSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
-import { loadGithubToken, callCopilotChatApi } from './copilotAuth.js';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
-export type GatewayProvider = 'github_copilot_api' | 'copilot_cli' | 'gemini' | 'openai' | 'anthropic';
+export type GatewayProvider = 'gemini' | 'openai' | 'anthropic' | 'deepseek';
 
 export interface GatewayRequest {
   prompt: string;
   requestedModel: string;
+  config?: {
+    deepseekApiKey?: string;
+    geminiApiKey?: string;
+  };
 }
 
 export interface GatewayResponse {
@@ -40,30 +42,8 @@ type LogFn = (event: string, data?: Record<string, unknown>) => void;
 
 // ── Constants ──────────────────────────────────────────────────────────────
 
-const CLI_TIMEOUT_MS = 30_000;     // Keep Copilot fallback responsive for interactive stock analysis
 const HTTP_TIMEOUT_MS = 120_000;   // REST API calls
 
-/** Models tried by the Copilot CLI for each logical model name (from `copilot models`) */
-const CLI_MODEL_CANDIDATES: Record<string, string[]> = {
-  // Prefer the empirically stable premium model first; gpt-5.4 currently times out in this environment
-  copilot_auto:       ['claude-opus-4.6', 'claude-sonnet-4.6', 'gpt-5.4'],
-  'gpt-5':            ['gpt-5.4', 'gpt-5.2'],
-  'gpt-5.4':          ['gpt-5.4'],
-  'gpt-5.2':          ['gpt-5.2'],
-  'gpt-5-mini':       ['gpt-5-mini', 'gpt-5.4-mini'],
-  'gpt-5.4-mini':     ['gpt-5.4-mini', 'gpt-5-mini'],
-  'gpt-4.1':          ['gpt-4.1'],
-  'claude-opus-4-1':  ['claude-opus-4.6', 'claude-opus-4.5'],  // old UI alias
-  'claude-opus-4.6':  ['claude-opus-4.6'],
-  'claude-opus-4.7':  ['claude-opus-4.7', 'claude-opus-4.6'],
-  'claude-opus-4.5':  ['claude-opus-4.5'],
-  'claude-sonnet-4':  ['claude-sonnet-4.6', 'claude-sonnet-4.5'],
-  'claude-sonnet-4.6':['claude-sonnet-4.6'],
-};
-
-export function getGatewayCliModelCandidates(model: string): string[] {
-  return CLI_MODEL_CANDIDATES[model] ?? [model];
-}
 
 /** Gemini models tried in order (fast → capable) */
 const GEMINI_MODELS = [
@@ -74,103 +54,21 @@ const GEMINI_MODELS = [
   'gemini-1.5-pro',
 ].filter(Boolean) as string[];
 
-// ── GitHub Copilot API provider (direct REST, no CLI) ─────────────────────
-
-async function tryGithubCopilotAPI(prompt: string, model: string, log: LogFn): Promise<string | null> {
-  const token = loadGithubToken();
-  if (!token) {
-    log('gateway_copilot_api_unavailable', { reason: 'no_github_token' });
-    return null;
-  }
-
-  try {
-    log('gateway_copilot_api_attempt', { model });
-    const text = await callCopilotChatApi(token, prompt, model);
-    if (text) {
-      log('gateway_copilot_api_ok', { model, length: text.length });
-      return text;
-    }
-    log('gateway_copilot_api_empty', { model });
-  } catch (err: any) {
-    log('gateway_copilot_api_failed', { model, error: String(err?.message || err).slice(0, 300) });
-  }
-
-  return null;
-}
-
-// ── Copilot CLI provider ───────────────────────────────────────────────────
-
-function findCopilotCLI(): string | null {
-  const explicit = process.env.COPILOT_CLI_PATH;
-  if (explicit && fs.existsSync(explicit)) return explicit;
-
-  const wingetPath = path.join(
-    process.env.LOCALAPPDATA || '',
-    'Microsoft', 'WinGet', 'Packages',
-    'GitHub.Copilot_Microsoft.Winget.Source_8wekyb3d8bbwe',
-    'copilot.exe',
-  );
-  if (fs.existsSync(wingetPath)) return wingetPath;
-
-  return null;
-}
-
-async function tryCopilotCLI(prompt: string, model: string, log: LogFn): Promise<string | null> {
-  const cliPath = findCopilotCLI();
-  if (!cliPath) {
-    log('gateway_copilot_cli_unavailable', { reason: 'binary_not_found' });
-    return null;
-  }
-
-  for (const cliModel of getGatewayCliModelCandidates(model)) {
-    try {
-      log('gateway_copilot_cli_attempt', { cliModel, timeoutMs: CLI_TIMEOUT_MS });
-      const out = execFileSync(
-        cliPath,
-        ['-p', prompt, '--stream', 'off', '--silent', '--allow-all-tools', '--no-color', '--model', cliModel],
-        {
-          encoding: 'utf8',
-          stdio: ['ignore', 'pipe', 'pipe'],
-          timeout: CLI_TIMEOUT_MS,
-          maxBuffer: 16 * 1024 * 1024,
-        },
-      );
-      const text = String(out || '').trim();
-      if (text) {
-        log('gateway_copilot_cli_ok', { cliModel, length: text.length });
-        return text;
-      }
-      log('gateway_copilot_cli_empty', { cliModel });
-    } catch (err: any) {
-      const msg = String(err?.stderr || err?.message || err);
-      log('gateway_copilot_cli_failed', { cliModel, error: msg.slice(0, 300) });
-
-      // Unrecoverable auth error — stop trying CLI models entirely
-      if (
-        msg.toLowerCase().includes('no authentication information found') ||
-        msg.toLowerCase().includes('not logged in') ||
-        msg.toLowerCase().includes('authentication required')
-      ) {
-        log('gateway_copilot_cli_auth_error', { hint: 'run copilot login in server terminal' });
-        return null;
-      }
-      // Timeout or other transient error — try next model candidate
-    }
-  }
-
-  return null;
-}
 
 // ── Gemini REST provider ───────────────────────────────────────────────────
 
-async function tryGemini(prompt: string, log: LogFn): Promise<string | null> {
-  const apiKey = process.env.GEMINI_API_KEY;
+async function tryGemini(prompt: string, log: LogFn, requestedModel?: string, configApiKey?: string): Promise<string | null> {
+  const apiKey = configApiKey || process.env.GEMINI_API_KEY;
   if (!apiKey) {
     log('gateway_gemini_unavailable', { reason: 'no_api_key' });
     return null;
   }
 
-  for (const model of GEMINI_MODELS) {
+  // Strict mode: use the requested model if it's a Gemini model; otherwise use the first from list
+  const isGeminiModel = requestedModel && requestedModel.startsWith('gemini-');
+  const modelsToTry = isGeminiModel ? [requestedModel] : GEMINI_MODELS;
+
+  for (const model of modelsToTry) {
     try {
       log('gateway_gemini_attempt', { model });
       const controller = new AbortController();
@@ -204,20 +102,20 @@ async function tryGemini(prompt: string, log: LogFn): Promise<string | null> {
       const errBody = await res.text().catch(() => '');
       log('gateway_gemini_http_error', { model, status: res.status, body: errBody.slice(0, 200) });
 
-      // 429 quota exhausted — try next Gemini model
+      // In strict mode, if the specific requested model fails with 429 or other error, we don't try others
+      if (isGeminiModel) return null;
+
       if (res.status === 429) {
-        // If it's a credits depletion error, it applies to the whole key/project.
-        // Fail fast for all Gemini models and let the gateway try other providers.
         if (errBody.includes('prepayment credits') || errBody.includes('depleted')) {
           log('gateway_gemini_billing_depleted', { reason: 'fatal_billing_error' });
           return null;
         }
         continue;
       }
-      // 4xx other than 429 → key issue, stop trying Gemini
       if (res.status >= 400 && res.status < 500) return null;
     } catch (err: any) {
       log('gateway_gemini_exception', { model, error: String(err?.message || err).slice(0, 200) });
+      if (isGeminiModel) return null;
     }
   }
 
@@ -343,43 +241,69 @@ async function tryAnthropic(prompt: string, log: LogFn, requestedModel?: string)
   return null;
 }
 
+async function tryDeepSeek(prompt: string, log: LogFn, requestedModel?: string, configApiKey?: string): Promise<string | null> {
+  const apiKey = configApiKey || process.env.DEEPSEEK_API_KEY;
+  if (!apiKey) {
+    log('gateway_deepseek_unavailable', { reason: 'no_api_key' });
+    return null;
+  }
+
+  const model = requestedModel || 'deepseek-v4-pro';
+  const isPro = model.includes('pro');
+
+  try {
+    log('gateway_deepseek_attempt', { model, isPro });
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), HTTP_TIMEOUT_MS);
+
+    const res = await fetch('https://api.deepseek.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: model,
+        messages: [
+          { role: 'system', content: '你是一位专业的金融分析师。请按要求返回结构化的分析内容。' },
+          { role: 'user', content: prompt },
+        ],
+        temperature: isPro ? 0.3 : 1.0, // Pro set to 0.3 for maximum rigor, Flash remains 1.0 for natural response
+        max_tokens: isPro ? 16384 : 8192,
+      }),
+      signal: controller.signal,
+    });
+    clearTimeout(timer);
+
+    if (res.ok) {
+      const data = await res.json() as any;
+      const text: string = data?.choices?.[0]?.message?.content || '';
+      if (text) {
+        log('gateway_deepseek_ok', { model, length: text.length });
+        return text;
+      }
+    }
+
+    const errBody = await res.text().catch(() => '');
+    log('gateway_deepseek_http_error', { model, status: res.status, body: errBody.slice(0, 200) });
+  } catch (err: any) {
+    log('gateway_deepseek_exception', { model, error: String(err?.message || err).slice(0, 200) });
+  }
+
+  return null;
+}
+
 // ── Provider chain builder ─────────────────────────────────────────────────
 
 type ProviderEntry = { name: GatewayProvider; fn: () => Promise<string | null> };
 
-const COPILOT_HOSTED_MODELS = new Set([
-  'gpt-5',
-  'gpt-5.4',
-  'gpt-5.2',
-  'gpt-5-mini',
-  'gpt-5.4-mini',
-  'gpt-4.1',
-  'gpt-4.1-mini',
-  'gpt-4o',
-  'gpt-4o-mini',
-  'o4-mini',
-  'o3',
-  'claude-opus-4-1',
-  'claude-opus-4.5',
-  'claude-opus-4.6',
-  'claude-opus-4.7',
-  'claude-sonnet-4',
-  'claude-sonnet-4.5',
-  'claude-sonnet-4.6',
-  'claude-haiku-4.5',
-]);
-
-export function isCopilotHostedModel(requestedModel: string): boolean {
-  const normalized = requestedModel.toLowerCase();
-  return normalized.startsWith('copilot') || normalized === 'copilot_auto' || COPILOT_HOSTED_MODELS.has(normalized);
-}
 
 export function getPreferredProvider(requestedModel: string): GatewayProvider | null {
   const m = requestedModel.toLowerCase();
-  if (isCopilotHostedModel(m)) return 'github_copilot_api';
   if (m.startsWith('gemini')) return 'gemini';
   if (m.startsWith('gpt-') || /^o\d/.test(m)) return 'openai';
   if (m.startsWith('claude')) return 'anthropic';
+  if (m.startsWith('deepseek')) return 'deepseek';
   return null;
 }
 
@@ -392,27 +316,25 @@ function buildProviderChain(
   prompt: string,
   requestedModel: string,
   log: LogFn,
+  config?: { deepseekApiKey?: string; geminiApiKey?: string }
 ): ProviderEntry[] {
   const all: ProviderEntry[] = [
-    { name: 'github_copilot_api', fn: () => tryGithubCopilotAPI(prompt, requestedModel, log) },
-    { name: 'copilot_cli',        fn: () => tryCopilotCLI(prompt, requestedModel, log) },
-    { name: 'gemini',             fn: () => tryGemini(prompt, log) },
+    { name: 'gemini',             fn: () => tryGemini(prompt, log, requestedModel, config?.geminiApiKey) },
     { name: 'openai',             fn: () => tryOpenAI(prompt, log, requestedModel) },
     { name: 'anthropic',          fn: () => tryAnthropic(prompt, log, requestedModel) },
+    { name: 'deepseek',           fn: () => tryDeepSeek(prompt, log, requestedModel, config?.deepseekApiKey) },
   ];
 
   // Filter to providers that have credentials/capability
   const available = all.filter(({ name }) => {
-    if (name === 'github_copilot_api') return !!loadGithubToken();
-    if (name === 'copilot_cli')        return !!findCopilotCLI();
-    if (name === 'gemini')             return !!process.env.GEMINI_API_KEY;
+    if (name === 'gemini')             return !!(process.env.GEMINI_API_KEY || config?.geminiApiKey);
     if (name === 'openai')             return !!process.env.OPENAI_API_KEY;
     if (name === 'anthropic')          return !!process.env.ANTHROPIC_API_KEY;
+    if (name === 'deepseek')           return !!(process.env.DEEPSEEK_API_KEY || config?.deepseekApiKey);
     return false;
   });
 
   // Promote preferred provider to front based on model name heuristic.
-  // NOTE: copilot_auto / copilot_* / known Copilot models prefer the REST API first.
   const preferredName = getPreferredProvider(requestedModel);
 
   if (preferredName) {
@@ -436,41 +358,62 @@ export async function gatewayGenerate(
   prompt: string,
   requestedModel: string,
   log: LogFn = () => {},
+  config?: { deepseekApiKey?: string; geminiApiKey?: string }
 ): Promise<GatewayResponse> {
-  const chain = buildProviderChain(prompt, requestedModel, log);
+  const preferredProvider = getPreferredProvider(requestedModel);
+  const chain = buildProviderChain(prompt, requestedModel, log, config);
 
-  if (chain.length === 0) {
+  // If deepseek key is present, and no explicit model is gemini/claude/gpt, we can prefer deepseek
+  let finalChain = chain;
+  if (config?.deepseekApiKey && !preferredProvider) {
+    const dsIdx = finalChain.findIndex(p => p.name === 'deepseek');
+    if (dsIdx > -1) {
+      const [ds] = finalChain.splice(dsIdx, 1);
+      finalChain.unshift(ds);
+    } else {
+       finalChain.unshift({ name: 'deepseek', fn: () => tryDeepSeek(prompt, log, requestedModel, config.deepseekApiKey) });
+    }
+  }
+
+  const strictChain = preferredProvider 
+    ? finalChain.filter(p => p.name === preferredProvider)
+    : finalChain;
+
+  if (strictChain.length === 0) {
     throw new Error(
-      '没有可用的 LLM 提供商。请在服务端 .env 中配置 GEMINI_API_KEY、OPENAI_API_KEY 或 ANTHROPIC_API_KEY，或确保本地 Copilot CLI 已通过 copilot login 认证。',
+      `模型 "${requestedModel}" 没有可用的提供商。请检查 .env 中的 API Key 配置。`
     );
   }
 
-  log('gateway_chain', { providers: chain.map(p => p.name), requestedModel });
+  log('gateway_chain_strict', { providers: strictChain.map(p => p.name), requestedModel });
 
-  for (const { name, fn } of chain) {
+  let lastErr: any = null;
+  for (const { name, fn } of strictChain) {
     try {
       const text = await fn();
       if (text) {
         return { text, model: requestedModel, provider: name };
       }
     } catch (err: any) {
+      lastErr = err;
       log('gateway_provider_error', { provider: name, error: String(err?.message || err).slice(0, 300) });
+      // In strict mode, we don't fall back to other *providers* if the primary one fails with a terminal error
+      if (preferredProvider) break; 
     }
   }
 
   throw new Error(
-    `所有 LLM 提供商均失败（已尝试: ${chain.map(p => p.name).join(' → ')}）。` +
-    '请检查 .env 中的 API Key 配置，或确认网络可达 Gemini/OpenAI/Anthropic API。',
+    `请求模型 "${requestedModel}" 失败。原因: ${lastErr?.message || '提供商未返回内容'}。` +
+    '（已启用严格模式，禁止自动降级/切换模型）'
   );
 }
 
 /** Health snapshot: which providers are currently configured */
 export function gatewayStatus(): Record<GatewayProvider, boolean> {
   return {
-    github_copilot_api: !!loadGithubToken(),
-    copilot_cli:        !!findCopilotCLI(),
     gemini:             !!process.env.GEMINI_API_KEY,
     openai:             !!process.env.OPENAI_API_KEY,
     anthropic:          !!process.env.ANTHROPIC_API_KEY,
+    deepseek:           !!process.env.DEEPSEEK_API_KEY,
   };
 }

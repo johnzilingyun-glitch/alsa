@@ -21,16 +21,21 @@ class ReportGeneratorService:
         loop = asyncio.get_event_loop()
         return loop.run_until_complete(self.generate_html_report_async(result, output_path))
 
-    async def generate_html_report_async(self, result: dict, output_path: str) -> str:
+    async def generate_html_report_async(self, result: dict, output_path: str, model: str = None) -> str:
         symbol = result.get("symbol", "UNKNOWN")
         market = result.get("market", "US-Share")
         discussion_msgs = result.get("discussion", [])
         snapshot = result.get("snapshot") or {}
         
+        # Resolve model: explicit param > env var default
+        if not model:
+            provider = os.getenv("DEFAULT_LLM_PROVIDER", "deepseek").lower()
+            model = os.getenv("DEEPSEEK_MODEL", "deepseek-v4-pro") if provider == "deepseek" else os.getenv("GEMINI_MODEL", "gemini-3.1-pro-preview")
+        
         full_discussion = "\n".join([f"[{m['role']}]: {m['content']}" for m in discussion_msgs])
         
         # UI Data Expert Pass - REFINED CONTENT (RESTORING RAW LOGS)
-        ui_data = await self._run_ui_data_expert(symbol, market, snapshot, full_discussion)
+        ui_data = await self._run_ui_data_expert(symbol, market, snapshot, full_discussion, model=model)
         
         quote = snapshot.get("quote", {})
         currency = quote.get("currency", "USD" if "US" in market else "CNY")
@@ -38,7 +43,7 @@ class ReportGeneratorService:
         
         # Parallelize normalization for performance
         normalized_contents = await asyncio.gather(*[
-            self._normalize_log_style(m["content"]) for m in discussion_msgs
+            self._normalize_log_style(m["content"], model=model) for m in discussion_msgs
         ])
         
         data = {
@@ -76,7 +81,7 @@ class ReportGeneratorService:
             f.write(html)
         return os.path.abspath(output_path)
 
-    async def _run_ui_data_expert(self, symbol: str, market: str, snapshot: dict, discussion: str) -> dict:
+    async def _run_ui_data_expert(self, symbol: str, market: str, snapshot: dict, discussion: str, model: str = None) -> dict:
         prompt = f"""You are the ALSA UI Data Expert. Your task is to extract and organize the core insights from the expert discussion for {symbol}.
         
 FIELDS TO EXTRACT:
@@ -137,9 +142,10 @@ OUTPUT ONLY THE JSON OBJECT.
             prompt += f"\n\nFINANCIAL SEARCH CONTEXT (Use this to extract missing financial metrics):\n{search_ctx}"
 
         try:
-            # Use default provider (respects DEFAULT_LLM_PROVIDER env var)
-            provider = os.getenv("DEFAULT_LLM_PROVIDER", "deepseek").lower()
-            model = os.getenv("DEEPSEEK_MODEL", "deepseek-v4-pro") if provider == "deepseek" else os.getenv("GEMINI_MODEL", "gemini-3.1-pro-preview")
+            # Use passed model or fall back to env var default
+            if not model:
+                provider = os.getenv("DEFAULT_LLM_PROVIDER", "deepseek").lower()
+                model = os.getenv("DEEPSEEK_MODEL", "deepseek-v4-pro") if provider == "deepseek" else os.getenv("GEMINI_MODEL", "gemini-3.1-pro-preview")
             res = await llm_gateway.generate_content(prompt + f"\n\nEXPERT DISCUSSION:\n{discussion}", model=model)
             # Clean markdown code blocks and extract JSON
             cleaned = re.sub(r'```(?:json)?\s*\n?', '', res)
@@ -164,7 +170,7 @@ OUTPUT ONLY THE JSON OBJECT.
             print(f"UI Data Expert Pass Failed: {e}")
             return {}
 
-    async def _normalize_log_style(self, content: str) -> str:
+    async def _normalize_log_style(self, content: str, model: str = None) -> str:
         stripped = content.strip()
 
         # Strip DeepSeek DSML tokens (native tool call markup that may leak)
@@ -219,8 +225,9 @@ CONTENT:
 {stripped[:12000]}
 """
             try:
-                provider = os.getenv("DEFAULT_LLM_PROVIDER", "deepseek").lower()
-                model = os.getenv("DEEPSEEK_MODEL", "deepseek-v4-pro") if provider == "deepseek" else os.getenv("GEMINI_MODEL", "gemini-3.1-pro-preview")
+                if not model:
+                    provider = os.getenv("DEFAULT_LLM_PROVIDER", "deepseek").lower()
+                    model = os.getenv("DEEPSEEK_MODEL", "deepseek-v4-pro") if provider == "deepseek" else os.getenv("GEMINI_MODEL", "gemini-3.1-pro-preview")
                 res = await llm_gateway.generate_content(prompt, model=model, temperature=0.2)
                 if res and len(res) > 100:
                     return markdown2.markdown(res.strip(), extras=["tables", "fenced-code-blocks"])
@@ -241,8 +248,9 @@ CONTENT:
 3. Return ONLY the cleaned markdown content — no code blocks.
 """
         try:
-            provider = os.getenv("DEFAULT_LLM_PROVIDER", "deepseek").lower()
-            model = os.getenv("DEEPSEEK_MODEL", "deepseek-v4-pro") if provider == "deepseek" else os.getenv("GEMINI_MODEL", "gemini-3.1-pro-preview")
+            if not model:
+                provider = os.getenv("DEFAULT_LLM_PROVIDER", "deepseek").lower()
+                model = os.getenv("DEEPSEEK_MODEL", "deepseek-v4-pro") if provider == "deepseek" else os.getenv("GEMINI_MODEL", "gemini-3.1-pro-preview")
             res = await llm_gateway.generate_content(f"{prompt}\n\nCONTENT:\n{stripped}", model=model, temperature=0.2)
             if not res:
                 result = markdown2.markdown(stripped, extras=["tables", "fenced-code-blocks"])

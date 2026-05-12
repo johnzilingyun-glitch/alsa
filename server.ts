@@ -34,6 +34,18 @@ async function startServer() {
     next();
   });
   
+  // Performance logging middleware
+  app.use((req, res, next) => {
+    const start = Date.now();
+    res.on('finish', () => {
+      const duration = Date.now() - start;
+      if (duration > 500) { // Only log slow requests
+        console.log(`[PERF] ${req.method} ${req.originalUrl} - ${duration}ms`);
+      }
+    });
+    next();
+  });
+
   app.get('/api/ping-early', (req, res) => {
     res.json({ ok: true, msg: 'Absolute earliest route' });
   });
@@ -69,8 +81,8 @@ async function startServer() {
     next();
   }, historyRoutes);
   app.use('/api', feishuRoutes);
-  app.use('/api', stockRoutes);
   app.use('/api', analysisRoutes);
+  app.use('/api', stockRoutes);
 
   // Proxy to FastAPI (Port 8001) for paths not handled by Node
   // We use a non-stripping proxy to ensure /api prefix is preserved for FastAPI

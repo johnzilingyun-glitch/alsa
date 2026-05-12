@@ -18,6 +18,10 @@ if (!fs.existsSync(LOG_FILE)) {
   fs.writeFileSync(LOG_FILE, JSON.stringify([], null, 2));
 }
 
+// In-memory cache for history context to prevent repeated disk I/O
+let _historyCache: { data: any[], expiry: number } | null = null;
+const CACHE_TTL = 30000; // 30 seconds
+
 // Cleanup history files older than RETENTION_DAYS on startup
 function cleanupOldHistory() {
   try {
@@ -83,18 +87,25 @@ function saveAnalysis(type: 'market' | 'stock', data: any) {
 
 const router = Router();
 
-router.get('/history/context', (req, res) => {
-  console.log('GET /api/history/context called');
+router.get('/history/context', async (req, res) => {
+  const now = Date.now();
+  if (_historyCache && _historyCache.expiry > now) {
+    return res.json(_historyCache.data);
+  }
+
   try {
-    const files = fs.readdirSync(HISTORY_DIR).sort().reverse().slice(0, 100);
-    const history = files.map(f => {
+    const files = fs.readdirSync(HISTORY_DIR).sort().reverse().slice(0, 50);
+    const historyPromises = files.map(async (f) => {
       try {
-        return JSON.parse(fs.readFileSync(path.join(HISTORY_DIR, f), 'utf-8'));
+        const content = await fs.promises.readFile(path.join(HISTORY_DIR, f), 'utf-8');
+        return JSON.parse(content);
       } catch (err) {
-        console.error(`Failed to parse history file ${f}:`, err);
         return null;
       }
-    }).filter(h => h !== null);
+    });
+    
+    const history = (await Promise.all(historyPromises)).filter(h => h !== null);
+    _historyCache = { data: history, expiry: now + CACHE_TTL };
     res.json(history);
   } catch (err) {
     console.error('Failed to read history:', err);

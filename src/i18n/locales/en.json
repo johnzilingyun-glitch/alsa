@@ -349,22 +349,16 @@
     },
     "modes": {
       "byok": "Custom Key",
-      "managed": "Managed (No Key)",
-      "copilot": "Local Copilot"
+      "managed": "Managed (No Key)"
     },
     "feishu": {
       "placeholder": "Enter Feishu Webhook URL",
       "hint": "Configure Feishu Webhook to receive real-time notifications after analysis."
     },
     "diagnosis": {
-      "debug_mode": "Debug Mode",
       "debug_on": "Debug Mode On",
       "debug_off": "Debug Mode Off",
-      "failover": "Smart Failover (Copilot)",
-      "failover_on": "Auto-recovery On",
-      "failover_off": "Auto-recovery Off",
       "debug_desc": "Developer Mode: Logs all backend requests. Helps analyze data deviation and optimize AI logic.",
-      "failover_desc": "Auto-recovery: When Gemini API quota is exhausted, system automatically uses local GitHub Copilot. Ensure gh is logged in.",
       "view_logs": "View Debug Logs",
       "clear_logs": "Clear Logs"
     },

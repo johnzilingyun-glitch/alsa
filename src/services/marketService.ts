@@ -12,10 +12,16 @@ import { MarketOverviewSchema, validateResponse } from "./schemas";
  * No AI call required — always fast, no quota usage.
  */
 export async function getMarketSnapshot(market: Market = "A-Share"): Promise<Partial<MarketOverview>> {
+  // Use AbortController to cap initial load at 4s — don't let slow AkShare block the UI
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 4000);
+
   const [indicesData, commoditiesData] = await Promise.all([
-    fetch(`/api/stock/indices?market=${market}`).then(r => r.ok ? r.json() : []).catch(() => []),
-    getCommoditiesData(),
+    fetch(`/api/stock/indices?market=${market}`, { signal: controller.signal }).then(r => r.ok ? r.json() : []).catch(() => []),
+    getCommoditiesData(controller.signal),
   ]);
+
+  clearTimeout(timeout);
 
   const indices: IndexInfo[] = (indicesData || []).map((d: any) => ({
     name: d.name,
@@ -172,20 +178,22 @@ export function clearCommoditiesCache() {
   _commoditiesCache = { data: [], expiry: 0 };
 }
 
-export async function getCommoditiesData(): Promise<any[]> {
+export async function getCommoditiesData(signal?: AbortSignal): Promise<any[]> {
   const now = Date.now();
   if (_commoditiesCache.expiry > now && _commoditiesCache.data.length > 0) {
     return _commoditiesCache.data;
   }
   try {
-    const res = await fetch('/api/stock/commodities');
+    const res = await fetch('/api/stock/commodities', signal ? { signal } : undefined);
     if (res.ok) {
       const data = await res.json();
       _commoditiesCache = { data, expiry: now + 5 * 60 * 1000 };
       return data;
     }
   } catch (e) {
-    console.warn('Commodities fetch failed:', e);
+    if ((e as Error).name !== 'AbortError') {
+      console.warn('Commodities fetch failed:', e);
+    }
   }
   return [];
 }

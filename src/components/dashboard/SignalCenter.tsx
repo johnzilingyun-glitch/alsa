@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { X, Target, TrendingUp, ShieldAlert, Activity, ExternalLink, ChevronRight, BarChart3, AlertCircle } from 'lucide-react';
+import { X, Target, TrendingUp, ShieldAlert, Activity, ExternalLink, ChevronRight, BarChart3, AlertCircle, Archive, CheckCircle2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useTranslation } from 'react-i18next';
 import { useMarketStore } from '../../stores/useMarketStore';
 import { useAnalysisStore } from '../../stores/useAnalysisStore';
+import { alertsClient, type PostmortemPayload, type SearchAlert as AlertType } from '../../services/api/alertsClient';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
@@ -20,6 +21,39 @@ export function SignalCenter({ isOpen, onClose }: SignalCenterProps) {
   const { t } = useTranslation();
   const { searchAlerts, alertPrices, historyItems } = useMarketStore();
   const { setSymbol, setMarket, setAnalysis } = useAnalysisStore();
+  const [tab, setTab] = useState<'active' | 'closed'>('active');
+  const [closedAlerts, setClosedAlerts] = useState<AlertType[]>([]);
+  const [postmortemTarget, setPostmortemTarget] = useState<any>(null);
+  const [pmForm, setPmForm] = useState<PostmortemPayload>({
+    exit_price: 0,
+    outcome_category: 'TRUE_POSITIVE',
+    notes: '',
+    decision_quality: 5,
+  });
+  const [pmSubmitting, setPmSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (isOpen && tab === 'closed') {
+      alertsClient.listClosed().then(res => setClosedAlerts(res.items || [])).catch(() => {});
+    }
+  }, [isOpen, tab]);
+
+  const handlePostmortemSubmit = async () => {
+    if (!postmortemTarget) return;
+    setPmSubmitting(true);
+    try {
+      await alertsClient.recordPostmortem(postmortemTarget.alert_id, pmForm);
+      setPostmortemTarget(null);
+      // Refresh closed list
+      const res = await alertsClient.listClosed();
+      setClosedAlerts(res.items || []);
+      setTab('closed');
+    } catch (e) {
+      console.error('Postmortem submit failed:', e);
+    } finally {
+      setPmSubmitting(false);
+    }
+  };
 
   const getStatus = (alert: any) => {
     const price = alertPrices[alert.symbol];
@@ -68,16 +102,28 @@ export function SignalCenter({ isOpen, onClose }: SignalCenterProps) {
                   <p className="text-xs font-medium text-zinc-400 mt-0.5">Real-time Trading Signal & Plan Monitor</p>
                 </div>
               </div>
-              <button
+              <div className="flex items-center gap-3">
+                <div className="flex bg-zinc-100 rounded-xl p-1">
+                  <button onClick={() => setTab('active')} className={cn("px-4 py-1.5 rounded-lg text-xs font-bold transition-all", tab === 'active' ? "bg-white text-zinc-900 shadow-sm" : "text-zinc-400 hover:text-zinc-600")}>
+                    活跃信号 ({searchAlerts.length})
+                  </button>
+                  <button onClick={() => setTab('closed')} className={cn("px-4 py-1.5 rounded-lg text-xs font-bold transition-all", tab === 'closed' ? "bg-white text-zinc-900 shadow-sm" : "text-zinc-400 hover:text-zinc-600")}>
+                    <Archive size={12} className="inline mr-1" />复盘记录
+                  </button>
+                </div>
+                <button
                 onClick={onClose}
                 className="flex h-10 w-10 items-center justify-center rounded-full text-zinc-400 transition-colors hover:bg-zinc-100 hover:text-zinc-900"
               >
                 <X size={20} />
               </button>
+              </div>
             </div>
 
             {/* List */}
             <div className="flex-1 overflow-y-auto p-8 space-y-4 custom-scrollbar">
+              {tab === 'active' ? (
+              <>
               {!searchAlerts.length ? (
                 <div className="text-center py-24 text-zinc-400 space-y-4">
                   <Activity size={48} className="mx-auto opacity-10" />
@@ -176,6 +222,25 @@ export function SignalCenter({ isOpen, onClose }: SignalCenterProps) {
                             </button>
                           </div>
                         </div>
+
+                        {/* Postmortem Button */}
+                        <div className="flex justify-end mt-3 pt-3 border-t border-zinc-100/50">
+                          <button
+                            onClick={() => {
+                              setPostmortemTarget(alert);
+                              const price = alertPrices[alert.symbol];
+                              setPmForm({
+                                exit_price: price || alert.entry_price,
+                                outcome_category: status === 'gold' ? 'TRUE_POSITIVE' : status === 'red' ? 'FALSE_POSITIVE' : 'TRUE_POSITIVE',
+                                notes: '',
+                                decision_quality: 5,
+                              });
+                            }}
+                            className="text-[10px] font-bold text-zinc-400 hover:text-indigo-600 uppercase tracking-widest flex items-center gap-1 transition-colors"
+                          >
+                            <CheckCircle2 size={12} /> 结束并复盘
+                          </button>
+                        </div>
                         
                         {/* Interactive glow border for status */}
                         <div className={cn(
@@ -189,7 +254,195 @@ export function SignalCenter({ isOpen, onClose }: SignalCenterProps) {
                   })}
                 </div>
               )}
+              </>
+              ) : (
+                /* Closed / Postmortem Tab */
+                !closedAlerts.length ? (
+                  <div className="text-center py-24 text-zinc-400 space-y-4">
+                    <Archive size={48} className="mx-auto opacity-10" />
+                    <p className="text-sm font-bold text-zinc-500">暂无复盘记录</p>
+                    <p className="text-xs">当您关闭信号并记录复盘时，历史交易将在此展示</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {closedAlerts.map((a) => {
+                      const isWin = a.realized_return_pct != null && a.realized_return_pct > 0;
+                      const catLabel: Record<string, string> = {
+                        TRUE_POSITIVE: '✅ 正确信号',
+                        FALSE_POSITIVE: '❌ 错误信号',
+                        MISSED: '😐 错过机会',
+                        REGIME_MISMATCH: '🔄 市场环境错配',
+                      };
+                      return (
+                        <div key={a.alert_id} className={cn(
+                          "rounded-xl border p-5",
+                          isWin ? "border-emerald-200 bg-emerald-50/30" : "border-rose-200 bg-rose-50/30"
+                        )}>
+                          <div className="flex items-center justify-between mb-3">
+                            <div>
+                              <span className="font-bold text-zinc-900">{a.name}</span>
+                              <span className="text-[10px] text-zinc-400 ml-2 font-mono">{a.symbol}</span>
+                            </div>
+                            <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-white border">
+                              {catLabel[a.outcome_category || ''] || a.outcome_category}
+                            </span>
+                          </div>
+                          <div className="grid grid-cols-5 gap-4 text-center">
+                            <div>
+                              <p className="text-[9px] text-zinc-400 font-bold uppercase">入场</p>
+                              <p className="text-sm font-bold text-zinc-700">{a.entry_price}</p>
+                            </div>
+                            <div>
+                              <p className="text-[9px] text-zinc-400 font-bold uppercase">离场</p>
+                              <p className="text-sm font-bold text-zinc-700">{a.exit_price}</p>
+                            </div>
+                            <div>
+                              <p className="text-[9px] text-zinc-400 font-bold uppercase">收益</p>
+                              <p className={cn("text-sm font-bold", isWin ? "text-emerald-600" : "text-rose-600")}>
+                                {a.realized_return_pct != null ? `${a.realized_return_pct > 0 ? '+' : ''}${a.realized_return_pct}%` : '--'}
+                              </p>
+                            </div>
+                            <div>
+                              <p className="text-[9px] text-zinc-400 font-bold uppercase">MAE</p>
+                              <p className="text-sm font-bold text-rose-500">{a.mae_pct != null ? `-${a.mae_pct}%` : '--'}</p>
+                            </div>
+                            <div>
+                              <p className="text-[9px] text-zinc-400 font-bold uppercase">MFE</p>
+                              <p className="text-sm font-bold text-emerald-500">{a.mfe_pct != null ? `+${a.mfe_pct}%` : '--'}</p>
+                            </div>
+                          </div>
+                          {a.postmortem_notes && (
+                            <p className="mt-3 text-xs text-zinc-500 italic border-t border-zinc-100 pt-2">"{a.postmortem_notes}"</p>
+                          )}
+                          {a.decision_quality_score != null && (
+                            <div className="mt-2 flex items-center gap-1">
+                              <span className="text-[9px] text-zinc-400 font-bold">决策质量:</span>
+                              <div className="flex gap-0.5">
+                                {Array.from({ length: 10 }, (_, i) => (
+                                  <div key={i} className={cn("w-2 h-2 rounded-sm", i < a.decision_quality_score! ? "bg-indigo-500" : "bg-zinc-200")} />
+                                ))}
+                              </div>
+                              <span className="text-[10px] font-bold text-zinc-500">{a.decision_quality_score}/10</span>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )
+              )}
             </div>
+
+            {/* Postmortem Modal */}
+            <AnimatePresence>
+              {postmortemTarget && (
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  className="absolute inset-0 bg-white/95 backdrop-blur-sm z-10 flex items-center justify-center p-8"
+                >
+                  <div className="w-full max-w-md space-y-5">
+                    <div className="text-center">
+                      <h3 className="text-lg font-bold text-zinc-900">信号复盘</h3>
+                      <p className="text-xs text-zinc-400 mt-1">{postmortemTarget.name} · {postmortemTarget.symbol}</p>
+                    </div>
+
+                    <div className="space-y-4">
+                      <div>
+                        <label className="text-[10px] font-bold text-zinc-500 uppercase block mb-1">离场价格</label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={pmForm.exit_price}
+                          onChange={e => setPmForm(f => ({ ...f, exit_price: parseFloat(e.target.value) || 0 }))}
+                          className="w-full px-3 py-2 rounded-lg border border-zinc-200 text-sm focus:outline-none focus:border-indigo-400"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[10px] font-bold text-zinc-500 uppercase block mb-1">结果分类</label>
+                        <div className="grid grid-cols-2 gap-2">
+                          {([
+                            ['TRUE_POSITIVE', '✅ 正确信号'],
+                            ['FALSE_POSITIVE', '❌ 错误信号'],
+                            ['MISSED', '😐 错过机会'],
+                            ['REGIME_MISMATCH', '🔄 环境错配'],
+                          ] as const).map(([val, label]) => (
+                            <button
+                              key={val}
+                              onClick={() => setPmForm(f => ({ ...f, outcome_category: val }))}
+                              className={cn(
+                                "px-3 py-2 rounded-lg text-xs font-bold border transition-all",
+                                pmForm.outcome_category === val
+                                  ? "border-indigo-500 bg-indigo-50 text-indigo-700"
+                                  : "border-zinc-200 text-zinc-500 hover:border-zinc-300"
+                              )}
+                            >{label}</button>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="text-[10px] font-bold text-zinc-500 uppercase block mb-1">MAE% (最大回撤)</label>
+                          <input
+                            type="number"
+                            step="0.1"
+                            value={pmForm.mae_pct ?? ''}
+                            onChange={e => setPmForm(f => ({ ...f, mae_pct: e.target.value ? parseFloat(e.target.value) : undefined }))}
+                            className="w-full px-3 py-2 rounded-lg border border-zinc-200 text-sm focus:outline-none focus:border-indigo-400"
+                            placeholder="e.g. 5.2"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[10px] font-bold text-zinc-500 uppercase block mb-1">MFE% (最大浮盈)</label>
+                          <input
+                            type="number"
+                            step="0.1"
+                            value={pmForm.mfe_pct ?? ''}
+                            onChange={e => setPmForm(f => ({ ...f, mfe_pct: e.target.value ? parseFloat(e.target.value) : undefined }))}
+                            className="w-full px-3 py-2 rounded-lg border border-zinc-200 text-sm focus:outline-none focus:border-indigo-400"
+                            placeholder="e.g. 12.8"
+                          />
+                        </div>
+                      </div>
+                      <div>
+                        <label className="text-[10px] font-bold text-zinc-500 uppercase block mb-1">决策质量 ({pmForm.decision_quality}/10)</label>
+                        <input
+                          type="range"
+                          min={1}
+                          max={10}
+                          value={pmForm.decision_quality ?? 5}
+                          onChange={e => setPmForm(f => ({ ...f, decision_quality: parseInt(e.target.value) }))}
+                          className="w-full accent-indigo-600"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[10px] font-bold text-zinc-500 uppercase block mb-1">复盘笔记</label>
+                        <textarea
+                          value={pmForm.notes ?? ''}
+                          onChange={e => setPmForm(f => ({ ...f, notes: e.target.value }))}
+                          rows={3}
+                          className="w-full px-3 py-2 rounded-lg border border-zinc-200 text-sm focus:outline-none focus:border-indigo-400 resize-none"
+                          placeholder="记录你的反思和经验教训..."
+                        />
+                      </div>
+                    </div>
+
+                    <div className="flex gap-3">
+                      <button
+                        onClick={() => setPostmortemTarget(null)}
+                        className="flex-1 py-2.5 rounded-xl border border-zinc-200 text-xs font-bold text-zinc-500 hover:bg-zinc-50 transition-colors"
+                      >取消</button>
+                      <button
+                        onClick={handlePostmortemSubmit}
+                        disabled={pmSubmitting}
+                        className="flex-1 py-2.5 rounded-xl bg-indigo-600 text-white text-xs font-bold hover:bg-indigo-700 transition-colors disabled:opacity-50"
+                      >{pmSubmitting ? '保存中...' : '保存复盘'}</button>
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
 
             <div className="p-8 border-t border-zinc-100 bg-zinc-50/50 flex items-center justify-between">
               <div className="flex items-center gap-6">

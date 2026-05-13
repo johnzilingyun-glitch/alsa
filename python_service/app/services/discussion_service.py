@@ -158,6 +158,15 @@ class DiscussionService:
         except Exception as e:
             print(f"Macro indicators fetch failed: {e}")
 
+        # Get Macro Regime (cross-asset ratio analysis) for Risk Manager and Chief Strategist
+        macro_regime_text = ""
+        if role in ("Risk Manager", "Chief Strategist", "Macro Hedge Titan"):
+            try:
+                from .macro_regime_service import get_macro_regime_text
+                macro_regime_text = await get_macro_regime_text()
+            except Exception as e:
+                print(f"Macro regime detection failed: {e}")
+
         # 4.5 Get Sentiment Data (for Sentiment Analyst)
         sentiment_data = {}
         if role == "Sentiment Analyst":
@@ -206,7 +215,7 @@ class DiscussionService:
             search_enrichment = search_toolkit.get_enrichment_for_role(role, search_results, market=market)
         
         # 6. Assemble Prompt (with search capability flag)
-        prompt = self._assemble_prompt(role, symbol, name, snapshot, history, template, brain_context, language, macro_data, commodity_data, peer_data, has_search_tools=has_search_tools, search_enrichment=search_enrichment, use_native_tools=use_native_tools, macro_indicators=macro_indicators, sentiment_data=sentiment_data, market=market)
+        prompt = self._assemble_prompt(role, symbol, name, snapshot, history, template, brain_context, language, macro_data, commodity_data, peer_data, has_search_tools=has_search_tools, search_enrichment=search_enrichment, use_native_tools=use_native_tools, macro_indicators=macro_indicators, sentiment_data=sentiment_data, market=market, macro_regime_text=macro_regime_text)
         
         # 7. Call LLM (with tool-calling loop for models without native search)
         start_time = datetime.now()
@@ -252,7 +261,7 @@ class DiscussionService:
             "timestamp": datetime.now().isoformat()
         }
 
-    def _assemble_prompt(self, role: str, symbol: str, name: str, snapshot: Dict[str, Any], history: List[Dict[str, Any]], template: str, brain_ctx: Dict[str, Any], language: str, macro_data: Dict[str, Any] = None, commodity_data: Dict[str, Any] = None, peer_data: Dict[str, Any] = None, has_search_tools: bool = False, search_enrichment: Dict[str, Any] = None, use_native_tools: bool = False, macro_indicators: Dict[str, Any] = None, sentiment_data: Dict[str, Any] = None, market: str = "us") -> str:
+    def _assemble_prompt(self, role: str, symbol: str, name: str, snapshot: Dict[str, Any], history: List[Dict[str, Any]], template: str, brain_ctx: Dict[str, Any], language: str, macro_data: Dict[str, Any] = None, commodity_data: Dict[str, Any] = None, peer_data: Dict[str, Any] = None, has_search_tools: bool = False, search_enrichment: Dict[str, Any] = None, use_native_tools: bool = False, macro_indicators: Dict[str, Any] = None, sentiment_data: Dict[str, Any] = None, market: str = "us", macro_regime_text: str = "") -> str:
         is_zh = language == "zh-CN"
         
         sections = []
@@ -349,6 +358,11 @@ class DiscussionService:
                 sections.append(f"美联储联邦基金利率: {fed.get('rate')}% — {fed.get('source', '')} [{fed.get('date', '')}]")
             elif fed.get("error"):
                 sections.append(f"⚠ 美联储利率: {fed['error']}")
+
+        # Macro Regime cross-asset analysis (for Risk Manager, Chief Strategist, Macro Hedge Titan)
+        if macro_regime_text:
+            sections.append(f"\n--- [API] MACRO REGIME DETECTION (跨资产体制分析) ---")
+            sections.append(macro_regime_text)
 
         # Industry peer search data (when API lacks industry comparison)
         if peer_data and peer_data.get("IndustryPeerSearch"):

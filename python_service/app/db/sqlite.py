@@ -15,6 +15,7 @@ engine = create_engine(f"sqlite:///{DATABASE_URL}", connect_args={"check_same_th
 
 def init_db():
     SQLModel.metadata.create_all(engine)
+    _migrate_alert_postmortem(engine)
 
 def get_session():
     with Session(engine) as session:
@@ -27,3 +28,32 @@ def build_session_factory(db_path: str):
     return lambda: Session(test_engine)
 
 session_factory = lambda: Session(engine)
+
+
+def _migrate_alert_postmortem(eng):
+    """Add postmortem columns to searchalert table if they don't exist."""
+    import sqlite3
+    db_path = str(eng.url).replace("sqlite:///", "")
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    cursor.execute("PRAGMA table_info(searchalert)")
+    existing = {row[1] for row in cursor.fetchall()}
+    new_cols = [
+        ("exit_price", "REAL"),
+        ("exit_date", "TIMESTAMP"),
+        ("outcome_category", "VARCHAR"),
+        ("realized_return_pct", "REAL"),
+        ("mae_pct", "REAL"),
+        ("mfe_pct", "REAL"),
+        ("postmortem_notes", "VARCHAR"),
+        ("decision_quality_score", "INTEGER"),
+        ("thesis", "VARCHAR"),
+        ("invalidation_criteria", "VARCHAR"),
+        ("thesis_stage", "VARCHAR"),
+        ("lessons_learned", "VARCHAR"),
+    ]
+    for col_name, col_type in new_cols:
+        if col_name not in existing:
+            cursor.execute(f"ALTER TABLE searchalert ADD COLUMN {col_name} {col_type}")
+    conn.commit()
+    conn.close()

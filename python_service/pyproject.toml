@@ -24,7 +24,8 @@ dependencies = [
     "pytest-asyncio",
     "jinja2",
     "pyyaml",
-    "markdown2"
+    "markdown2",
+    "openbb"
 ]
 
 [tool.setuptools]

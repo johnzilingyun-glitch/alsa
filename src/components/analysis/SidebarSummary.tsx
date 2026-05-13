@@ -1,5 +1,7 @@
 import React from 'react';
 import { ExternalLink } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { useTranslation } from 'react-i18next';
 import { cn } from './utils';
 import type { StockAnalysis } from '../../types';
@@ -19,7 +21,9 @@ export function SidebarSummary({ analysis }: SidebarSummaryProps) {
         <h3 className="flex items-center gap-2 text-lg font-medium text-zinc-950">
           {t('analysis.info.summary')}
         </h3>
-        <p className="text-sm leading-relaxed text-zinc-500 font-medium">{analysis.summary}</p>
+        <p className="text-sm leading-relaxed text-zinc-500 font-medium prose prose-sm prose-zinc max-w-none prose-p:my-1 prose-strong:text-zinc-700">
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>{analysis.summary || ''}</ReactMarkdown>
+        </p>
       </div>
 
       {analysis.tradingPlan && (
@@ -57,15 +61,17 @@ export function SidebarSummary({ analysis }: SidebarSummaryProps) {
           )}
           <div className="p-4 rounded-2xl bg-white border border-zinc-200">
             <p className="text-[10px] font-medium uppercase tracking-widest text-zinc-400 mb-2">{t('analysis.conference.tactical_strategy')}</p>
-            <p className="text-sm leading-relaxed text-zinc-500 italic">{analysis.tradingPlan.strategy}</p>
+            <div className="text-sm leading-relaxed text-zinc-500 italic prose prose-sm prose-zinc max-w-none prose-p:my-1 prose-strong:text-zinc-700 prose-strong:not-italic">
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>{analysis.tradingPlan.strategy || ''}</ReactMarkdown>
+            </div>
           </div>
           {analysis.tradingPlan.strategyRisks && (
             <div className="p-4 rounded-2xl bg-rose-500/10 border border-rose-500/20">
               <p className="text-[10px] font-medium uppercase tracking-widest text-rose-400 mb-2 flex items-center gap-2">
                 {t('analysis.conference.risk_warning')}
               </p>
-              <p className="text-xs text-rose-200/80 leading-relaxed italic">
-                {analysis.tradingPlan.strategyRisks}
+              <p className="text-xs text-rose-200/80 leading-relaxed italic prose prose-sm max-w-none prose-p:my-0 prose-strong:text-rose-300 [&_*]:text-rose-200/80">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{analysis.tradingPlan.strategyRisks || ''}</ReactMarkdown>
               </p>
             </div>
           )}

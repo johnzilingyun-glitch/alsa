@@ -21,7 +21,7 @@ class ReportGeneratorService:
         loop = asyncio.get_event_loop()
         return loop.run_until_complete(self.generate_html_report_async(result, output_path))
 
-    async def generate_html_report_async(self, result: dict, output_path: str, model: str = None) -> str:
+    async def generate_html_report_async(self, result: dict, output_path: str, model: str = None, deepseek_api_key: str = None) -> str:
         symbol = result.get("symbol", "UNKNOWN")
         market = result.get("market", "US-Share")
         discussion_msgs = result.get("discussion", [])
@@ -35,16 +35,27 @@ class ReportGeneratorService:
         full_discussion = "\n".join([f"[{m['role']}]: {m['content']}" for m in discussion_msgs])
         
         # UI Data Expert Pass - REFINED CONTENT (RESTORING RAW LOGS)
-        ui_data = await self._run_ui_data_expert(symbol, market, snapshot, full_discussion, model=model)
+        ui_data = await self._run_ui_data_expert(symbol, market, snapshot, full_discussion, model=model, deepseek_api_key=deepseek_api_key)
+        
+        # If UI data expert failed (empty dict), build fallback from discussion
+        if not ui_data:
+            ui_data = self._build_fallback_ui_data(symbol, discussion_msgs, snapshot)
         
         quote = snapshot.get("quote", {})
         currency = quote.get("currency", "USD" if "US" in market else "CNY")
         fundamentals = self._compile_fundamentals(snapshot, currency, ui_data)
         
-        # Parallelize normalization for performance
-        normalized_contents = await asyncio.gather(*[
-            self._normalize_log_style(m["content"], model=model) for m in discussion_msgs
-        ])
+        # Parallelize normalization for performance — fallback to markdown if LLM fails
+        try:
+            normalized_contents = await asyncio.gather(*[
+                self._normalize_log_style(m["content"], model=model, deepseek_api_key=deepseek_api_key) for m in discussion_msgs
+            ])
+            # Check if all normalizations returned empty/error
+            if all(not c or c.strip() == "" for c in normalized_contents):
+                raise ValueError("All normalizations returned empty")
+        except Exception:
+            # Fallback: convert raw markdown to HTML without LLM
+            normalized_contents = [self._markdown_to_html_fallback(m["content"]) for m in discussion_msgs]
         
         data = {
             "info": {
@@ -81,7 +92,7 @@ class ReportGeneratorService:
             f.write(html)
         return os.path.abspath(output_path)
 
-    async def _run_ui_data_expert(self, symbol: str, market: str, snapshot: dict, discussion: str, model: str = None) -> dict:
+    async def _run_ui_data_expert(self, symbol: str, market: str, snapshot: dict, discussion: str, model: str = None, deepseek_api_key: str = None) -> dict:
         prompt = f"""You are the ALSA UI Data Expert. Your task is to extract and organize the core insights from the expert discussion for {symbol}.
         
 FIELDS TO EXTRACT:
@@ -146,7 +157,7 @@ OUTPUT ONLY THE JSON OBJECT.
             if not model:
                 provider = os.getenv("DEFAULT_LLM_PROVIDER", "deepseek").lower()
                 model = os.getenv("DEEPSEEK_MODEL", "deepseek-v4-pro") if provider == "deepseek" else os.getenv("GEMINI_MODEL", "gemini-3.1-pro-preview")
-            res = await llm_gateway.generate_content(prompt + f"\n\nEXPERT DISCUSSION:\n{discussion}", model=model)
+            res = await llm_gateway.generate_content(prompt + f"\n\nEXPERT DISCUSSION:\n{discussion}", model=model, deepseek_api_key=deepseek_api_key)
             # Clean markdown code blocks and extract JSON
             cleaned = re.sub(r'```(?:json)?\s*\n?', '', res)
             cleaned = re.sub(r'\n?```\s*$', '', cleaned)
@@ -170,7 +181,58 @@ OUTPUT ONLY THE JSON OBJECT.
             print(f"UI Data Expert Pass Failed: {e}")
             return {}
 
-    async def _normalize_log_style(self, content: str, model: str = None) -> str:
+    def _build_fallback_ui_data(self, symbol: str, discussion_msgs: list, snapshot: dict) -> dict:
+        """Build report data directly from discussion messages when LLM is unavailable."""
+        all_text = "\n".join([m.get("content", "") for m in discussion_msgs])
+        # Take first 500 chars of the first substantive message as summary
+        summary_text = ""
+        for m in discussion_msgs:
+            content = m.get("content", "").strip()
+            if len(content) > 100:
+                # Remove tool call markup
+                clean = re.sub(r'<[｜|]*DSML[｜|]*[^>]*>.*?</[｜|]*DSML[｜|]*[^>]*>', '', content, flags=re.DOTALL)
+                clean = re.sub(r'```json.*?```', '', clean, flags=re.DOTALL)
+                clean = clean.strip()
+                if clean:
+                    summary_text = clean[:500] + ("..." if len(clean) > 500 else "")
+                    break
+        
+        if not summary_text:
+            summary_text = f"{symbol} 分析报告 — 基于多轮专家研讨生成"
+
+        return {
+            "summary": summary_text,
+            "moat_summary": "详见下方专家研讨记录",
+            "moat_points": [],
+            "macro_summary": "详见下方专家研讨记录",
+            "macro_points": [],
+            "trading_plan": "详见下方专家研讨记录",
+            "trading_steps": [],
+            "risks_points": [],
+            "upside": [],
+            "downside": [],
+            "scenarios": self._default_scenarios(),
+            "score": 75,
+            "recommendation": "WATCH",
+        }
+
+    def _markdown_to_html_fallback(self, content: str) -> str:
+        """Convert markdown to HTML without LLM, used when API is unavailable."""
+        stripped = content.strip()
+        if not stripped:
+            return "<p><em>(无内容)</em></p>"
+        # Strip DSML tokens
+        stripped = re.sub(r'<[｜|]*DSML[｜|]*[^>]*>', '', stripped)
+        stripped = re.sub(r'</[｜|]*DSML[｜|]*[^>]*>', '', stripped)
+        stripped = re.sub(r'\n{3,}', '\n\n', stripped).strip()
+        if not stripped:
+            return "<p><em>(Tool-calling round — no text content)</em></p>"
+        try:
+            return markdown2.markdown(stripped, extras=["fenced-code-blocks", "tables", "header-ids"])
+        except Exception:
+            return f"<pre>{stripped}</pre>"
+
+    async def _normalize_log_style(self, content: str, model: str = None, deepseek_api_key: str = None) -> str:
         stripped = content.strip()
 
         # Strip DeepSeek DSML tokens (native tool call markup that may leak)
@@ -188,22 +250,54 @@ OUTPUT ONLY THE JSON OBJECT.
         # Also detect trailing JSON block (markdown text followed by JSON at the end)
         trailing_json_md = ""
         if not has_json:
-            # Look for a JSON block at the end of the content
-            import re as _re
-            # Match a top-level JSON object at the end, possibly preceded by ```json
-            trailing_match = _re.search(r'\n(```json\s*\n)?\{[\s\S]*"tagline"[\s\S]*\}\s*(```\s*)?$', stripped)
-            if not trailing_match:
-                trailing_match = _re.search(r'\n(```json\s*\n)?\{[\s\S]*"investmentThesis"[\s\S]*\}\s*(```\s*)?$', stripped)
-            if not trailing_match:
-                trailing_match = _re.search(r'\n(```json\s*\n)?\{[\s\S]*"tradingPlan"[\s\S]*\}\s*(```\s*)?$', stripped)
-            if trailing_match:
-                json_part = trailing_match.group(0).strip()
-                text_part = stripped[:trailing_match.start()].strip()
-                # Try to convert the trailing JSON to markdown
-                local_md = self._json_to_markdown(json_part)
+            # Find JSON block containing key analyst fields
+            json_clean = None
+            json_start_pos = -1
+            
+            # Try to find ```json ... ``` fenced block
+            for key in ["tagline", "investmentThesis", "tradingPlan"]:
+                pattern = rf'\n```json\s*\n'
+                for fence_match in re.finditer(pattern, stripped):
+                    fence_start = fence_match.end()
+                    candidate = self._extract_balanced_json(stripped[fence_start:])
+                    if candidate and key in candidate:
+                        json_clean = candidate
+                        json_start_pos = fence_match.start()
+                        break
+                if json_clean:
+                    break
+            
+            # If no fenced block, try bare JSON object
+            if not json_clean:
+                for key in ["tagline", "investmentThesis", "tradingPlan"]:
+                    # Find positions of key in content
+                    idx = stripped.find(f'"{key}"')
+                    if idx < 0:
+                        continue
+                    # Walk backwards to find opening {
+                    brace_pos = stripped.rfind('{', 0, idx)
+                    if brace_pos > 0:
+                        candidate = self._extract_balanced_json(stripped[brace_pos:])
+                        if candidate:
+                            json_clean = candidate
+                            json_start_pos = brace_pos
+                            break
+            
+            if json_clean:
+                text_part = stripped[:json_start_pos].strip()
+                # Any trailing text after JSON block
+                end_pos = json_start_pos + stripped[json_start_pos:].find(json_clean) + len(json_clean)
+                rest = stripped[end_pos:].strip()
+                # Skip closing ``` fence
+                if rest.startswith('```'):
+                    rest = rest[3:].strip()
+                
+                local_md = self._json_to_markdown(json_clean)
                 if local_md:
+                    if rest:
+                        local_md += f"\n\n{rest}"
                     trailing_json_md = markdown2.markdown(local_md, extras=["tables", "fenced-code-blocks"])
-                    stripped = text_part  # Process the text part normally below
+                    stripped = text_part
                     if not stripped:
                         return trailing_json_md
         
@@ -228,7 +322,7 @@ CONTENT:
                 if not model:
                     provider = os.getenv("DEFAULT_LLM_PROVIDER", "deepseek").lower()
                     model = os.getenv("DEEPSEEK_MODEL", "deepseek-v4-pro") if provider == "deepseek" else os.getenv("GEMINI_MODEL", "gemini-3.1-pro-preview")
-                res = await llm_gateway.generate_content(prompt, model=model, temperature=0.2)
+                res = await llm_gateway.generate_content(prompt, model=model, temperature=0.2, deepseek_api_key=deepseek_api_key)
                 if res and len(res) > 100:
                     return markdown2.markdown(res.strip(), extras=["tables", "fenced-code-blocks"])
             except Exception as e:
@@ -251,7 +345,7 @@ CONTENT:
             if not model:
                 provider = os.getenv("DEFAULT_LLM_PROVIDER", "deepseek").lower()
                 model = os.getenv("DEEPSEEK_MODEL", "deepseek-v4-pro") if provider == "deepseek" else os.getenv("GEMINI_MODEL", "gemini-3.1-pro-preview")
-            res = await llm_gateway.generate_content(f"{prompt}\n\nCONTENT:\n{stripped}", model=model, temperature=0.2)
+            res = await llm_gateway.generate_content(f"{prompt}\n\nCONTENT:\n{stripped}", model=model, temperature=0.2, deepseek_api_key=deepseek_api_key)
             if not res:
                 result = markdown2.markdown(stripped, extras=["tables", "fenced-code-blocks"])
                 return result + trailing_json_md if trailing_json_md else result
@@ -263,6 +357,40 @@ CONTENT:
         except:
             result = markdown2.markdown(stripped, extras=["tables", "fenced-code-blocks"])
             return result + trailing_json_md if trailing_json_md else result
+
+    def _extract_balanced_json(self, text: str) -> str:
+        """Extract a balanced JSON object from the start of text by counting braces."""
+        if not text or text[0] != '{':
+            return ""
+        depth = 0
+        in_string = False
+        escape = False
+        for i, ch in enumerate(text):
+            if escape:
+                escape = False
+                continue
+            if ch == '\\' and in_string:
+                escape = True
+                continue
+            if ch == '"' and not escape:
+                in_string = not in_string
+                continue
+            if in_string:
+                continue
+            if ch == '{':
+                depth += 1
+            elif ch == '}':
+                depth -= 1
+                if depth == 0:
+                    candidate = text[:i+1]
+                    # Validate it's parseable JSON
+                    try:
+                        json.loads(candidate)
+                        return candidate
+                    except json.JSONDecodeError:
+                        return ""
+        return ""
+
     def _json_to_markdown(self, text: str) -> str:
         """Convert structured JSON analyst output to readable markdown locally (no LLM needed)."""
         try:
@@ -342,7 +470,7 @@ CONTENT:
             lines.append("|------|------|------|----------|------|")
             for step in data["buildPlan"]:
                 if isinstance(step, dict):
-                    lines.append(f"| {step.get('level','')} | {step.get('price','')} | {step.get('weight','')} | {step.get('cumulativePosition', step.get('cumulativeWeight',''))} | {step.get('logic','')} |")
+                    lines.append(f"| {step.get('level','')} | {step.get('price','')} | {step.get('weight','')} | {step.get('cumulative', step.get('cumulativePosition', step.get('cumulativeWeight','')))} | {step.get('logic','')} |")
             lines.append("")
 
         # Exit mechanism
@@ -357,9 +485,9 @@ CONTENT:
                 lines.append("\n**止损:**")
                 for sl_item in em["stopLoss"]:
                     lines.append(f"- {sl_item}")
-            if "thesisFalsification" in em:
+            if "thesisFalsification" in em or "thesisInvalidation" in em:
                 lines.append("\n**论题证伪条件:**")
-                for tf_item in em["thesisFalsification"]:
+                for tf_item in em.get("thesisFalsification", em.get("thesisInvalidation", [])):
                     lines.append(f"- {tf_item}")
             lines.append("")
 
@@ -810,7 +938,16 @@ CONTENT:
         m["扣非净利润"] = npd_val if npd_val != "N/A" else (ui_data.get("net_profit_deduct") or "N/A")
         m["市盈率 (PE)"] = ratio(get_val("trailingPE") or get_val("pe") or get_val("forwardPE"))
         m["市净率 (PB)"] = ratio(get_val("priceToBook") or get_val("pb"))
-        m["PEG"] = ratio(get_val("pegRatio"))
+        # PEG: if not available, calculate from PE and earnings growth
+        peg = get_val("pegRatio")
+        if peg is None:
+            pe_val = get_val("trailingPE") or get_val("pe")
+            eg_val = get_val("earningsGrowth") or get_val("netProfitGrowth")
+            if pe_val and eg_val and isinstance(pe_val, (int, float)) and isinstance(eg_val, (int, float)) and eg_val != 0:
+                eg_pct = eg_val * 100 if abs(eg_val) < 1 else eg_val
+                if eg_pct != 0:
+                    peg = pe_val / eg_pct
+        m["PEG"] = ratio(peg)
         m["市销率 (PS)"] = ratio(get_val("priceToSales"))
         m["EV/EBITDA"] = ratio(get_val("enterpriseToEbitda"))
 
@@ -889,9 +1026,28 @@ CONTENT:
             else:
                 m["股息率"] = "N/A"
 
-        # 6. Efficiency
-        m["总资产周转率"] = ratio(get_val("assetTurnover")) if get_val("assetTurnover") else (ui_data.get("asset_turnover") or "N/A")
-        m["存货周转率"] = ratio(get_val("inventoryTurnover")) if get_val("inventoryTurnover") else (ui_data.get("inventory_turnover") or "N/A")
+        # 6. Efficiency — also check AkShare indicator history for turnover data
+        at_val = get_val("assetTurnover")
+        it_val = get_val("inventoryTurnover")
+        # Try to extract from AkShare financial indicator history if not at top level
+        if (at_val is None or it_val is None):
+            ak_hist = f.get("financials", {}).get("history", []) if isinstance(f.get("financials"), dict) else []
+            if ak_hist and isinstance(ak_hist, list) and len(ak_hist) > 0:
+                latest_ind = ak_hist[0]
+                if at_val is None:
+                    at_val = latest_ind.get("总资产周转率(次)") or latest_ind.get("总资产周转率")
+                if it_val is None:
+                    it_val = latest_ind.get("存货周转率(次)") or latest_ind.get("存货周转率")
+        # Convert string numbers from AkShare
+        def safe_float(v):
+            if v is None: return None
+            if isinstance(v, (int, float)): return v
+            try: return float(str(v).replace(",", ""))
+            except: return None
+        at_num = safe_float(at_val)
+        it_num = safe_float(it_val)
+        m["总资产周转率"] = ratio(at_num) if at_num else (ui_data.get("asset_turnover") or "N/A")
+        m["存货周转率"] = ratio(it_num) if it_num else (ui_data.get("inventory_turnover") or "N/A")
 
         # 7. Ownership (note: ADS-level data for ADRs/HK stocks)
         insider_val = get_val("heldPercentInsiders")

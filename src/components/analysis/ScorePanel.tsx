@@ -1,6 +1,8 @@
 import React from 'react';
 import { AlertCircle, CheckCircle2 } from 'lucide-react';
 import { motion } from 'motion/react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { useTranslation } from 'react-i18next';
 import { cn } from './utils';
 import { PredictionAccuracy } from './PredictionAccuracy';
@@ -52,7 +54,9 @@ export function ScorePanel({ analysis, trackRecord }: ScorePanelProps) {
             {analysis.keyOpportunities?.map((opp: any, i: number) => (
               <li key={`opp-${i}`} className="flex items-start gap-3 text-sm text-zinc-500">
                 <CheckCircle2 size={16} className="mt-0.5 shrink-0 text-emerald-500" />
-                {typeof opp === 'string' ? opp : JSON.stringify(opp)}
+                <span className="prose prose-sm prose-zinc max-w-none prose-p:my-0 prose-p:inline prose-strong:text-zinc-700 [&>p]:inline">
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{typeof opp === 'string' ? opp : JSON.stringify(opp)}</ReactMarkdown>
+                </span>
               </li>
             ))}
           </ul>
@@ -66,7 +70,9 @@ export function ScorePanel({ analysis, trackRecord }: ScorePanelProps) {
             {analysis.keyRisks?.map((risk: any, i: number) => (
               <li key={`risk-${i}`} className="flex items-start gap-3 text-sm text-zinc-500">
                 <AlertCircle size={16} className="mt-0.5 shrink-0 text-rose-500" />
-                {typeof risk === 'string' ? risk : JSON.stringify(risk)}
+                <span className="prose prose-sm prose-zinc max-w-none prose-p:my-0 prose-p:inline prose-strong:text-zinc-700 [&>p]:inline">
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{typeof risk === 'string' ? risk : JSON.stringify(risk)}</ReactMarkdown>
+                </span>
               </li>
             ))}
           </ul>

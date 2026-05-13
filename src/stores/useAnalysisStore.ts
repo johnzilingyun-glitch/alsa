@@ -8,6 +8,8 @@ interface AnalysisState {
   chatMessage: string;
   chatHistory: { id: string; role: 'user' | 'ai'; content: string }[];
   lastJobId: string | null;
+  cachedReportHtml: string | null;
+  cachedReportJobId: string | null;
 
   setSymbol: (symbol: string) => void;
   setMarket: (market: Market) => void;
@@ -15,6 +17,7 @@ interface AnalysisState {
   setChatMessage: (message: string) => void;
   setChatHistory: (history: { id: string; role: 'user' | 'ai'; content: string }[] | ((prev: { id: string; role: 'user' | 'ai'; content: string }[]) => { id: string; role: 'user' | 'ai'; content: string }[])) => void;
   setLastJobId: (jobId: string | null) => void;
+  setCachedReport: (jobId: string, html: string) => void;
   resetAnalysis: () => void;
 }
 
@@ -25,6 +28,8 @@ export const useAnalysisStore = create<AnalysisState>((set) => ({
   chatMessage: '',
   chatHistory: [],
   lastJobId: null,
+  cachedReportHtml: null,
+  cachedReportJobId: null,
 
   setSymbol: (symbol) => set({ symbol }),
   setMarket: (market) => set({ market }),
@@ -32,9 +37,12 @@ export const useAnalysisStore = create<AnalysisState>((set) => ({
   setChatMessage: (chatMessage) => set({ chatMessage }),
   setChatHistory: (updater) => set((state) => ({ chatHistory: typeof updater === 'function' ? updater(state.chatHistory) : updater })),
   setLastJobId: (lastJobId) => set({ lastJobId }),
+  setCachedReport: (jobId, html) => set({ cachedReportHtml: html, cachedReportJobId: jobId }),
   resetAnalysis: () => set({
     analysis: null,
     chatHistory: [],
     lastJobId: null,
+    cachedReportHtml: null,
+    cachedReportJobId: null,
   }),
 }));

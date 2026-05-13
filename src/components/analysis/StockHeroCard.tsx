@@ -1,10 +1,12 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   BarChart3, PieChart, TrendingUp, TrendingDown, Clock, Info,
   Award, ShieldCheck, MessageSquare, History, RefreshCcw,
   LayoutGrid, CheckCircle2, Coins, AlertTriangle,
-  ExternalLink, Star
+  ExternalLink, Star, ChevronDown, ChevronUp
 } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { useTranslation } from 'react-i18next';
 import { cn } from './utils';
 import type { StockAnalysis } from '../../types';
@@ -15,36 +17,43 @@ interface StockHeroCardProps {
   onToggleWatchlist?: () => void;
 }
 
-const parseStructuralText = (text: string) => {
-  if (!text) return null;
-  // Regex to match 【Title】content
-  const parts = text.split(/(【.*?】)/).filter(Boolean);
-  if (parts.length <= 1) return <p className="text-[13px] leading-[1.8] text-zinc-600">{text}</p>;
-
-  const elements = [];
-  let currentTitle = '';
-  for (let i = 0; i < parts.length; i++) {
-    if (parts[i].startsWith('【') && parts[i].endsWith('】')) {
-      currentTitle = parts[i].slice(1, -1);
-    } else {
-      if (currentTitle) {
-        elements.push(
-          <div key={i} className="mb-4 last:mb-0">
-            <span className="inline-block px-2.5 py-1 rounded-xl text-[10px] font-bold tracking-wider bg-zinc-100/80 text-indigo-700 mr-2 mb-1.5 border border-zinc-200/50 shadow-sm">
-              {currentTitle}
-            </span>
-            <span className="text-[13px] leading-[1.8] text-zinc-600 block">
-              {parts[i].trim()}
-            </span>
-          </div>
-        );
-        currentTitle = '';
-      } else {
-        elements.push(<p key={i} className="text-[13px] leading-[1.8] text-zinc-600 mb-3">{parts[i].trim()}</p>);
-      }
-    }
-  }
-  return <div className="space-y-1">{elements}</div>;
+/** Collapsible markdown section with max-height toggle */
+const AnalysisMarkdown = ({ content, maxLines = 12 }: { content: string; maxLines?: number }) => {
+  const [expanded, setExpanded] = useState(false);
+  if (!content) return null;
+  
+  return (
+    <div className="relative">
+      <div 
+        className={cn(
+          "prose prose-sm prose-zinc max-w-none",
+          "prose-headings:text-zinc-800 prose-headings:font-semibold prose-headings:tracking-tight",
+          "prose-h1:text-base prose-h1:mt-4 prose-h1:mb-2",
+          "prose-h2:text-sm prose-h2:mt-3 prose-h2:mb-1.5",
+          "prose-h3:text-xs prose-h3:mt-2 prose-h3:mb-1",
+          "prose-p:text-[13px] prose-p:leading-[1.7] prose-p:text-zinc-600 prose-p:my-1.5",
+          "prose-strong:text-zinc-800 prose-strong:font-semibold",
+          "prose-table:text-[12px] prose-th:px-2 prose-th:py-1.5 prose-th:text-left prose-th:font-semibold prose-th:text-zinc-700 prose-th:bg-zinc-50 prose-th:border-b prose-th:border-zinc-200",
+          "prose-td:px-2 prose-td:py-1 prose-td:text-zinc-600 prose-td:border-b prose-td:border-zinc-100",
+          "prose-li:text-[13px] prose-li:text-zinc-600 prose-li:my-0.5",
+          "prose-hr:my-3 prose-hr:border-zinc-200/60",
+          !expanded && `max-h-[${maxLines * 1.7}rem] overflow-hidden`
+        )}
+        style={!expanded ? { maxHeight: `${maxLines * 1.5}rem` } : undefined}
+      >
+        <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+      </div>
+      {!expanded && (
+        <div className="absolute bottom-0 left-0 right-0 h-16 bg-gradient-to-t from-white to-transparent pointer-events-none" />
+      )}
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="mt-2 flex items-center gap-1.5 text-[11px] font-medium text-indigo-500 hover:text-indigo-700 transition-colors"
+      >
+        {expanded ? <><ChevronUp size={14} /> 收起</> : <><ChevronDown size={14} /> 展开全部</>}
+      </button>
+    </div>
+  );
 };
 
 export function StockHeroCard({ analysis, isStarred, onToggleWatchlist }: StockHeroCardProps) {
@@ -153,7 +162,7 @@ export function StockHeroCard({ analysis, isStarred, onToggleWatchlist }: StockH
             </div>
           </div>
           <div className="bg-white/50 p-4 rounded-3xl border border-zinc-100/80 shadow-sm">
-            {parseStructuralText(analysis.technicalAnalysis)}
+            <AnalysisMarkdown content={analysis.technicalAnalysis} />
           </div>
         </div>
         <div className="space-y-4">
@@ -167,7 +176,7 @@ export function StockHeroCard({ analysis, isStarred, onToggleWatchlist }: StockH
             </div>
           </div>
           <div className="bg-white/50 p-4 rounded-3xl border border-zinc-100/80 shadow-sm">
-             {parseStructuralText(analysis.fundamentalAnalysis)}
+             <AnalysisMarkdown content={analysis.fundamentalAnalysis} />
           </div>
         </div>
       </div>

@@ -94,6 +94,11 @@ class MarketSnapshotService:
             quotes = await market_data_service.get_quotes([symbol])
             quote = quotes[0] if quotes else {}
             
+            # Check A+H cross-listing for A-Share stocks
+            cross_listing = None
+            if market == "A-Share":
+                cross_listing = await self._get_ah_cross_listing(quote.get("name", ""), symbol)
+            
             return {
                 "name": quote.get("name", symbol),
                 "price": quote.get("price"),
@@ -102,11 +107,41 @@ class MarketSnapshotService:
                 "history": rows,
                 "valuation": valuation,
                 "financials": financials,
-                "quote": quote
+                "quote": quote,
+                "crossListing": cross_listing,
             }
         except Exception as e:
             print(f"Snapshot creation failed for {symbol}: {e}")
             return {}
+
+    async def _get_ah_cross_listing(self, stock_name: str, symbol: str) -> dict | None:
+        """Check if an A-share stock has a corresponding H-share listing."""
+        try:
+            df = await safe_ak_call(ak.stock_zh_ah_name)
+            if df is None or df.empty:
+                return None
+            # Match by name (strip "股份" suffix for fuzzy match)
+            clean_name = stock_name.replace("股份", "").strip()
+            match = df[df['名称'].str.contains(clean_name, na=False)]
+            if match.empty and len(clean_name) >= 2:
+                # Try shorter prefix match (first 2 chars)
+                match = df[df['名称'].str.startswith(clean_name[:2], na=False)]
+                # Filter further if multiple matches
+                if len(match) > 1:
+                    match = match[match['名称'].str.contains(clean_name[:3], na=False)] if len(clean_name) >= 3 else match.head(1)
+            if not match.empty:
+                hk_code = match.iloc[0]['代码']
+                hk_name = match.iloc[0]['名称']
+                return {
+                    "market": "HK",
+                    "symbol": f"{hk_code}.HK",
+                    "name": hk_name,
+                    "type": "A+H"
+                }
+            return None
+        except Exception as e:
+            print(f"A+H cross-listing check failed for {symbol}: {e}")
+            return None
 
 # Singleton instance
 from ..lake.parquet_store import ParquetMarketStore

@@ -887,5 +887,138 @@
     "oldValue": "markdown",
     "newValue": "pro_html",
     "description": "成功导出专业 HTML 研报: WUXI APPTEC CO LTD"
+  },
+  {
+    "timestamp": "2026-05-12T14:43:26.392Z",
+    "field": "server",
+    "oldValue": "startup",
+    "newValue": "active",
+    "description": "Server started and background tasks initialized"
+  },
+  {
+    "timestamp": "2026-05-12T14:44:58.268Z",
+    "field": "export_html_report",
+    "oldValue": "markdown",
+    "newValue": "pro_html",
+    "description": "成功导出专业 HTML 研报: WUXI APPTEC CO LTD"
+  },
+  {
+    "timestamp": "2026-05-12T17:09:03.939Z",
+    "field": "export_html_report",
+    "oldValue": "markdown",
+    "newValue": "pro_html_backend",
+    "description": "成功导出专业 HTML 研报 (后端渲染): SHANDONG SUNPAPER CO LTD"
+  },
+  {
+    "timestamp": "2026-05-12T17:09:07.605Z",
+    "field": "export_html_report",
+    "oldValue": "markdown",
+    "newValue": "pro_html_backend",
+    "description": "成功导出专业 HTML 研报 (后端渲染): SHANDONG SUNPAPER CO LTD"
+  },
+  {
+    "timestamp": "2026-05-12T17:09:09.523Z",
+    "field": "export_html_report",
+    "oldValue": "markdown",
+    "newValue": "pro_html_backend",
+    "description": "成功导出专业 HTML 研报 (后端渲染): SHANDONG SUNPAPER CO LTD"
+  },
+  {
+    "timestamp": "2026-05-13T01:47:42.592Z",
+    "field": "server",
+    "oldValue": "startup",
+    "newValue": "active",
+    "description": "Server started and background tasks initialized"
+  },
+  {
+    "timestamp": "2026-05-13T01:51:07.251Z",
+    "field": "server",
+    "oldValue": "startup",
+    "newValue": "active",
+    "description": "Server started and background tasks initialized"
+  },
+  {
+    "timestamp": "2026-05-13T02:14:04.986Z",
+    "field": "server",
+    "oldValue": "startup",
+    "newValue": "active",
+    "description": "Server started and background tasks initialized"
+  },
+  {
+    "timestamp": "2026-05-13T05:06:18.884Z",
+    "field": "export_html_report",
+    "oldValue": "markdown",
+    "newValue": "pro_html",
+    "description": "成功导出专业 HTML 研报: WUXI APPTEC CO LTD"
+  },
+  {
+    "timestamp": "2026-05-13T05:06:18.889Z",
+    "field": "export_html_report",
+    "oldValue": "markdown",
+    "newValue": "pro_html",
+    "description": "成功导出专业 HTML 研报: WUXI APPTEC CO LTD"
+  },
+  {
+    "timestamp": "2026-05-13T05:06:18.898Z",
+    "field": "export_html_report",
+    "oldValue": "markdown",
+    "newValue": "pro_html",
+    "description": "成功导出专业 HTML 研报: WUXI APPTEC CO LTD"
+  },
+  {
+    "timestamp": "2026-05-13T05:07:48.462Z",
+    "field": "server",
+    "oldValue": "startup",
+    "newValue": "active",
+    "description": "Server started and background tasks initialized"
+  },
+  {
+    "timestamp": "2026-05-13T05:30:06.577Z",
+    "field": "export_html_report",
+    "oldValue": "markdown",
+    "newValue": "pro_html_backend",
+    "description": "成功导出专业 HTML 研报 (后端渲染): WUXI APPTEC CO LTD"
+  },
+  {
+    "timestamp": "2026-05-13T05:30:16.436Z",
+    "field": "export_html_report",
+    "oldValue": "markdown",
+    "newValue": "pro_html_backend",
+    "description": "成功导出专业 HTML 研报 (后端渲染): WUXI APPTEC CO LTD"
+  },
+  {
+    "timestamp": "2026-05-13T05:30:25.635Z",
+    "field": "export_html_report",
+    "oldValue": "markdown",
+    "newValue": "pro_html_backend",
+    "description": "成功导出专业 HTML 研报 (后端渲染): WUXI APPTEC CO LTD"
+  },
+  {
+    "timestamp": "2026-05-13T05:30:51.764Z",
+    "field": "export_html_report",
+    "oldValue": "markdown",
+    "newValue": "pro_html_backend",
+    "description": "成功导出专业 HTML 研报 (后端渲染): WUXI APPTEC CO LTD"
+  },
+  {
+    "timestamp": "2026-05-13T09:02:46.256Z",
+    "field": "server",
+    "oldValue": "startup",
+    "newValue": "active",
+    "description": "Server started and background tasks initialized"
+  },
+  {
+    "timestamp": "2026-05-13T09:08:30.926Z",
+    "field": "server",
+    "oldValue": "startup",
+    "newValue": "active",
+    "description": "Server started and background tasks initialized"
+  },
+  {
+    "timestamp": "2026-05-13T09:19:51.946Z",
+    "field": "server",
+    "oldValue": "startup",
+    "newValue": "active",
+    "description": "Server started and background tasks initialized"
   }
 ]

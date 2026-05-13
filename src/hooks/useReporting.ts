@@ -189,7 +189,14 @@ export function useReporting(fetchAdminData: () => Promise<void>) {
     // Try Python backend report (richer, with LLM post-processing)
     if (lastJobId) {
       try {
-        const res = await fetch(`/api/analysis/jobs/${lastJobId}/report`, { method: 'POST' });
+        const config = useConfigStore.getState().config;
+        const res = await fetch(`/api/analysis/jobs/${lastJobId}/report`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            deepseekApiKey: config.deepseekApiKey || undefined,
+          }),
+        });
         if (res.ok) {
           const htmlReport = await res.text();
           ReportGeneratorService.downloadReport(htmlReport, filename);

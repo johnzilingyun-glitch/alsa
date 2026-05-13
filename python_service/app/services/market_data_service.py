@@ -360,6 +360,7 @@ class MarketDataService:
                 net_profit_qoq = None
                 revenue_yoy_q = None
                 net_profit_yoy_q = None
+                quarterly_history_us = []
                 if quarterly_financials is not None and not quarterly_financials.empty:
                     if 'Total Revenue' in quarterly_financials.index:
                         q_rev = quarterly_financials.loc['Total Revenue'].dropna()
@@ -373,6 +374,17 @@ class MarketDataService:
                             net_profit_qoq = (q_ni.iloc[0] - q_ni.iloc[1]) / abs(q_ni.iloc[1])
                         if len(q_ni) >= 5 and q_ni.iloc[4] != 0:
                             net_profit_yoy_q = (q_ni.iloc[0] - q_ni.iloc[4]) / abs(q_ni.iloc[4])
+                    # Build quarterly history rows for prompt injection
+                    all_fields = {}
+                    for label in ['Total Revenue', 'Net Income', 'Gross Profit', 'Operating Income', 'EBITDA']:
+                        if label in quarterly_financials.index:
+                            row_data = quarterly_financials.loc[label].dropna()
+                            for date_key, val in row_data.items():
+                                period = str(date_key)[:10]
+                                if period not in all_fields:
+                                    all_fields[period] = {"period": period}
+                                all_fields[period][label] = val
+                    quarterly_history_us = list(all_fields.values())[:5]
                 
                 # --- Balance sheet: cash, debt, net cash ---
                 total_cash = info.get("totalCash")
@@ -564,7 +576,15 @@ class MarketDataService:
                     "currency": listing_currency,
                     "financialCurrency": financial_currency,
                     "pePercentile": pe_percentile,
-                    "financials": {"searchContext": search_context}
+                    "financials": {"searchContext": search_context},
+                    "quarterlyHistory": quarterly_history_us,
+                    # Company identity fields (for factual grounding)
+                    "longName": info.get("longName"),
+                    "industry": info.get("industry"),
+                    "sector": info.get("sector"),
+                    "exchange": info.get("exchange"),
+                    "country": info.get("country"),
+                    "longBusinessSummary": (info.get("longBusinessSummary") or "")[:500],
                 }
             elif market == "A-Share":
                 clean_symbol = symbol[:6]
@@ -670,6 +690,65 @@ class MarketDataService:
                 except:
                     pass
                 
+                # Fetch stock_financial_abstract_ths — primary source for quarterly history
+                quarterly_history_rows = []
+                try:
+                    abstract_df = await safe_ak_call(ak.stock_financial_abstract_ths, symbol=clean_symbol)
+                    if validate_ak_data(abstract_df, min_rows=1):
+                        # Extract last 5 quarters as structured rows
+                        for _, row in abstract_df.tail(5).iterrows():
+                            qrow = {}
+                            period = str(row.get("报告期", ""))
+                            qrow["period"] = period
+                            for field, key in [
+                                ("净利润", "netProfit"), ("净利润同比增长率", "netProfitYoY"),
+                                ("扣非净利润", "netProfitDeduct"), ("扣非净利润同比增长率", "netProfitDeductYoY"),
+                                ("营业总收入", "revenue"), ("营业总收入同比增长率", "revenueYoY"),
+                                ("基本每股收益", "eps"), ("每股净资产", "bvps"),
+                                ("每股经营现金流", "ocfPerShare"), ("销售毛利率", "grossMargin"),
+                                ("销售净利率", "netMargin"), ("净资产收益率", "roe"),
+                                ("资产负债率", "debtRatio"), ("流动比率", "currentRatio"),
+                                ("速动比率", "quickRatio"), ("存货周转率", "inventoryTurnover"),
+                            ]:
+                                val = row.get(field)
+                                if val is not None and str(val).strip() and str(val) not in ("False", "None", "--"):
+                                    qrow[key] = str(val)
+                            quarterly_history_rows.append(qrow)
+                        
+                        # Also fill ak_financials from latest row
+                        latest_row = abstract_df.iloc[-1]
+                        if not ak_financials.get("latestNetProfitDeduct"):
+                            npd_str = latest_row.get("扣非净利润")
+                            if npd_str and npd_str != "False" and str(npd_str).strip():
+                                ak_financials["latestNetProfitDeduct"] = self._parse_cn_number(str(npd_str))
+                        if not ak_financials.get("latestNetProfitDeductYoY"):
+                            npd_yoy_str = latest_row.get("扣非净利润同比增长率")
+                            if npd_yoy_str and npd_yoy_str != "False" and str(npd_yoy_str).strip():
+                                parsed_yoy = self._parse_cn_percent(str(npd_yoy_str))
+                                if parsed_yoy is not None:
+                                    ak_financials["latestNetProfitDeductYoY"] = parsed_yoy
+                        # QoQ from previous row
+                        if len(abstract_df) >= 2 and ak_financials.get("latestNetProfitDeduct"):
+                            prev_row = abstract_df.iloc[-2]
+                            prev_npd_str = prev_row.get("扣非净利润")
+                            if prev_npd_str and prev_npd_str != "False":
+                                prev_npd = self._parse_cn_number(str(prev_npd_str))
+                                curr_npd = ak_financials["latestNetProfitDeduct"]
+                                if prev_npd and curr_npd and prev_npd != 0:
+                                    ak_financials["latestNetProfitDeductQoQ"] = (curr_npd - prev_npd) / abs(prev_npd)
+                        if not ak_financials.get("latestNetProfit"):
+                            np_str = latest_row.get("净利润")
+                            if np_str and np_str != "False":
+                                ak_financials["latestNetProfit"] = self._parse_cn_number(str(np_str))
+                        if not ak_financials.get("latestRoe"):
+                            roe_str = latest_row.get("净资产收益率")
+                            if roe_str and roe_str != "False":
+                                parsed_roe = self._parse_cn_percent(str(roe_str))
+                                if parsed_roe is not None:
+                                    ak_financials["latestRoe"] = parsed_roe
+                except Exception as e:
+                    print(f"stock_financial_abstract_ths failed for {clean_symbol}: {e}")
+
                 # Fetch dividend info
                 latest_dividend = {}
                 try:
@@ -766,12 +845,52 @@ class MarketDataService:
                     "currency": "CNY",
                     "financialCurrency": "CNY",
                     "pePercentile": a_pe_percentile,
-                    "financials": ak_financials
+                    "financials": ak_financials,
+                    "quarterlyHistory": quarterly_history_rows,
+                    # Company identity fields (for factual grounding)
+                    "longName": yf_info.get("longName") or ak_info.get("股票简称"),
+                    "industry": yf_info.get("industry") or ak_info.get("行业"),
+                    "sector": yf_info.get("sector"),
+                    "exchange": yf_info.get("exchange"),
+                    "listingDate": ak_info.get("上市时间"),
+                    "longBusinessSummary": (yf_info.get("longBusinessSummary") or "")[:500],
                 }
         except Exception as e:
             print(f"Financial summary fetch failed for {symbol}: {e}")
             return {"error": str(e)}
         return {}
+
+    @staticmethod
+    def _parse_cn_number(s: str) -> float | None:
+        """Parse Chinese number strings like '42.76亿', '3200万', '1.2万亿' to float."""
+        if not s or s in ("False", "None", "--", ""):
+            return None
+        s = s.strip().replace(",", "").replace("，", "")
+        multiplier = 1
+        if "万亿" in s:
+            multiplier = 1e12
+            s = s.replace("万亿", "")
+        elif "亿" in s:
+            multiplier = 1e8
+            s = s.replace("亿", "")
+        elif "万" in s:
+            multiplier = 1e4
+            s = s.replace("万", "")
+        try:
+            return float(s) * multiplier
+        except (ValueError, TypeError):
+            return None
+
+    @staticmethod
+    def _parse_cn_percent(s: str) -> float | None:
+        """Parse Chinese percent strings like '83.56%' to decimal (0.8356)."""
+        if not s or s in ("False", "None", "--", ""):
+            return None
+        s = s.strip().replace("%", "").replace("％", "")
+        try:
+            return float(s) / 100.0
+        except (ValueError, TypeError):
+            return None
 
     def _compute_ev_with_fx(self, info: dict):
         """Compute Enterprise Value, using FX conversion for cross-currency ADRs."""

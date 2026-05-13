@@ -20,6 +20,7 @@ import { TokenUsage } from './components/dashboard/TokenUsage';
 import { Header } from './components/layout/Header';
 import { ConfirmDialog } from './components/shared/ConfirmDialog';
 import { Toast } from './components/shared/Toast';
+import { NotificationBubbles } from './components/shared/NotificationBubbles';
 
 // Lazy-load conditionally rendered large components
 const SettingsModal = lazy(() => import('./components/SettingsModal').then(m => ({ default: m.SettingsModal })));
@@ -67,7 +68,7 @@ export default function App() {
   const resetScenario = useScenarioStore(s => s.resetScenario);
 
   // Custom hooks for business logic
-  const { handleSearch, resetToHome, fetchAdminData, historyDialogOpen, historyDialogItems, pendingSearchSymbol, setHistoryDialogOpen, doStartAnalysis, loadHistoryResult } = useStockAnalysis();
+  const { handleSearch, resetToHome, fetchAdminData, historyDialogOpen, historyDialogItems, pendingSearchSymbol, setHistoryDialogOpen, doStartAnalysis, loadHistoryResult, loadBackgroundResult } = useStockAnalysis();
   const { handleDiscussionQuestion, handleGenerateNewConclusion } = useDiscussion(fetchAdminData);
   const { handleChat } = useChat(fetchAdminData);
   const { fetchMarketOverview } = useMarketData(fetchAdminData);
@@ -133,7 +134,7 @@ export default function App() {
         }
         if (alRes.ok) {
           const alData = await alRes.json();
-          setAlerts(alData);
+          setAlerts(Array.isArray(alData) ? alData : alData?.items || []);
         }
       } catch (e) {
         console.error('Failed to initialize market data:', e);
@@ -196,12 +197,14 @@ export default function App() {
           </Suspense>
         )}
         {isSignalsOpen && (
+          <ErrorBoundary fallback="信号中心加载失败，请关闭后重试" onError={(e) => console.error('[SignalCenter Error]', e.message, e.stack)}>
           <Suspense fallback={null}>
           <SignalCenter
             isOpen={isSignalsOpen}
             onClose={() => setIsSignalsOpen(false)}
           />
           </Suspense>
+          </ErrorBoundary>
         )}
 
         <Header
@@ -294,6 +297,7 @@ export default function App() {
       </footer>
 
       {/* Global Overlays */}
+      <NotificationBubbles onViewResult={(job) => loadBackgroundResult(job as any)} />
       <ConfirmDialog />
       <Toast />
       {historyDialogOpen && (

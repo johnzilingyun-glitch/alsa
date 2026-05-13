@@ -84,6 +84,30 @@ TOOL_DEFINITIONS = [
             'tool: deep_scrape\nreason: Need full earnings details from this article\nurl: https://seekingalpha.com/article/nvo-earnings\nquery: NVO Q1 2025 revenue profit EPS guidance',
         ],
     },
+    {
+        "name": "financial_data",
+        "description": "Query structured financial data from authoritative APIs (AkShare/yfinance/OpenBB). Returns precise financial metrics for a given stock. Much more reliable than web_search for financial figures. Supports: quarterly earnings, income statement items, balance sheet items, cash flow, valuation metrics, dividend history, industry comparison. For US stocks also supports: analyst consensus/target price, SEC filings, insider trading, key financial ratios.",
+        "parameters": {
+            "symbol": {
+                "type": "string",
+                "description": "Stock symbol/code. A-Share: 6-digit code (e.g. '002532'). US: ticker (e.g. 'AAPL'). HK: code with .HK suffix (e.g. '0700.HK').",
+                "required": True,
+            },
+            "query": {
+                "type": "string",
+                "description": "What financial data you need. Examples: 'quarterly earnings last 4 quarters', 'balance sheet cash and debt', 'income statement breakdown', 'dividend history', 'peer comparison PE PB', 'cash flow statement', 'capex history', 'analyst consensus target price', 'SEC filings 10-Q', 'insider trading', 'key metrics valuation ratios'.",
+                "required": True,
+            },
+        },
+        "examples": [
+            'tool: financial_data\nreason: Need quarterly earnings breakdown\nsymbol: 002532\nquery: quarterly earnings last 4 quarters revenue net profit',
+            'tool: financial_data\nreason: Check cash flow details\nsymbol: AAPL\nquery: cash flow statement operating investing financing',
+            'tool: financial_data\nreason: Need peer comparison data\nsymbol: 002532\nquery: industry peers PE PB ROE comparison',
+            'tool: financial_data\nreason: Check analyst consensus and target price\nsymbol: MSFT\nquery: analyst consensus target price recommendation',
+            'tool: financial_data\nreason: Check recent SEC filings\nsymbol: AAPL\nquery: SEC filings 10-Q latest',
+            'tool: financial_data\nreason: Check insider trading activity\nsymbol: TSLA\nquery: insider trading recent transactions',
+        ],
+    },
 ]
 
 
@@ -122,6 +146,15 @@ def format_tool_descriptions(language: str = "zh-CN") -> str:
     lines.append("reason: Need full earnings details from this article")
     lines.append("url: https://example.com/article")
     lines.append("query: revenue profit EPS guidance")
+    lines.append("</tool_call>")
+    lines.append("")
+    lines.append("For financial_data (querying structured API data — much more reliable than web_search for financial figures):")
+    lines.append("")
+    lines.append("<tool_call>")
+    lines.append("tool: financial_data")
+    lines.append("reason: Need quarterly cash flow statement details")
+    lines.append("symbol: 002532")
+    lines.append("query: cash flow capex operating investing")
     lines.append("</tool_call>")
     lines.append("")
     lines.append("After tool results are returned to you as <tool_observation>...</tool_observation>, continue your analysis using the real data.")
@@ -181,11 +214,17 @@ DEEP_SCRAPE_PATTERN = re.compile(
     re.DOTALL | re.IGNORECASE
 )
 
+# Pattern for financial_data (has symbol: and query: fields)
+FINANCIAL_DATA_PATTERN = re.compile(
+    r'<tool_call>\s*tool:\s*(financial_data)\s*\n\s*reason:\s*(.*?)\s*\n\s*symbol:\s*(.*?)\s*\n\s*query:\s*(.*?)\s*\n?\s*</tool_call>',
+    re.DOTALL | re.IGNORECASE
+)
+
 def parse_tool_calls(text: str) -> List[Dict[str, str]]:
     """Parse <tool_call> blocks from LLM output."""
     calls = []
+    parsed_spans = set()
     # First parse deep_scrape calls (they have url: field)
-    deep_matches = set()
     for match in DEEP_SCRAPE_PATTERN.finditer(text):
         calls.append({
             "tool": match.group(1).strip(),
@@ -193,10 +232,20 @@ def parse_tool_calls(text: str) -> List[Dict[str, str]]:
             "url": match.group(3).strip(),
             "query": match.group(4).strip(),
         })
-        deep_matches.add(match.span())
-    # Then parse standard tool calls (skip deep_scrape ones)
+        parsed_spans.add(match.span())
+    # Parse financial_data calls (they have symbol: and query: fields)
+    for match in FINANCIAL_DATA_PATTERN.finditer(text):
+        if match.span() not in parsed_spans:
+            calls.append({
+                "tool": match.group(1).strip(),
+                "reason": match.group(2).strip(),
+                "symbol": match.group(3).strip(),
+                "query": match.group(4).strip(),
+            })
+            parsed_spans.add(match.span())
+    # Then parse standard tool calls (skip already-parsed ones)
     for match in TOOL_CALL_PATTERN.finditer(text):
-        if match.span() not in deep_matches and match.group(1).strip() != "deep_scrape":
+        if match.span() not in parsed_spans and match.group(1).strip() not in ("deep_scrape", "financial_data"):
             calls.append({
                 "tool": match.group(1).strip(),
                 "reason": match.group(2).strip(),
@@ -243,7 +292,7 @@ class ToolExecutor:
         query = tool_call.get("query", "")
         reason = tool_call.get("reason", "")
 
-        if not query:
+        if not query and tool_name != "financial_data":
             return f"<tool_observation>\nError: Empty query for tool '{tool_name}'.\n</tool_observation>"
 
         try:
@@ -258,8 +307,13 @@ class ToolExecutor:
                 if not url:
                     return "<tool_observation>\nError: deep_scrape requires a 'url' parameter.\n</tool_observation>"
                 return await self._exec_deep_scrape(url, query)
+            elif tool_name == "financial_data":
+                symbol = tool_call.get("symbol", "")
+                if not symbol:
+                    return "<tool_observation>\nError: financial_data requires a 'symbol' parameter.\n</tool_observation>"
+                return await self._exec_financial_data(symbol, query)
             else:
-                return f"<tool_observation>\nError: Unknown tool '{tool_name}'. Available: web_search, news_search, knowledge_search, deep_scrape.\n</tool_observation>"
+                return f"<tool_observation>\nError: Unknown tool '{tool_name}'. Available: web_search, news_search, knowledge_search, deep_scrape, financial_data.\n</tool_observation>"
         except Exception as e:
             return f"<tool_observation>\nError executing {tool_name}: {str(e)}\n</tool_observation>"
 
@@ -413,11 +467,220 @@ class ToolExecutor:
         except Exception as e:
             return f"<tool_observation>\ndeep_scrape error for {url}: {str(e)}\n</tool_observation>"
 
+    async def _exec_financial_data(self, symbol: str, query: str) -> str:
+        """Fetch structured financial data from AkShare/yfinance based on the query."""
+        import akshare as ak
+        import yfinance as yf
+        from ..utils.network import safe_ak_call
+        from ..utils.data_validation import validate_ak_data
+
+        query_lower = query.lower()
+        lines = ["<tool_observation>"]
+        lines.append(f"Financial data query for: {symbol}")
+        lines.append(f"Query: {query}")
+        lines.append(f"Retrieved: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+        lines.append("")
+
+        is_a_share = symbol.isdigit() and len(symbol) == 6
+
+        try:
+            if is_a_share:
+                # --- A-Share data from AkShare ---
+                # Quarterly financial abstract (comprehensive)
+                if any(kw in query_lower for kw in ["quarter", "earnings", "revenue", "profit", "净利润", "营收", "扣非", "季度", "eps", "roe", "margin"]):
+                    try:
+                        df = await safe_ak_call(ak.stock_financial_abstract_ths, symbol=symbol)
+                        if validate_ak_data(df, min_rows=1):
+                            lines.append("## 季度财务摘要 (同花顺)")
+                            cols = ['报告期', '净利润', '净利润同比增长率', '扣非净利润', '扣非净利润同比增长率',
+                                    '营业总收入', '营业总收入同比增长率', '基本每股收益', '销售毛利率',
+                                    '销售净利率', '净资产收益率', '资产负债率', '每股经营现金流']
+                            available_cols = [c for c in cols if c in df.columns]
+                            for _, row in df.tail(6).iterrows():
+                                vals = [f"{c}: {row.get(c, 'N/A')}" for c in available_cols]
+                                lines.append("| " + " | ".join(vals) + " |")
+                            lines.append("")
+                    except Exception as e:
+                        lines.append(f"⚠ stock_financial_abstract_ths failed: {e}")
+
+                # Balance sheet / cash / debt
+                if any(kw in query_lower for kw in ["balance", "cash", "debt", "asset", "资产", "负债", "现金"]):
+                    try:
+                        yf_symbol = f"{symbol}.SS" if symbol.startswith('6') else f"{symbol}.SZ"
+                        ticker = yf.Ticker(yf_symbol)
+                        bs = ticker.balance_sheet
+                        if bs is not None and not bs.empty:
+                            lines.append("## 资产负债表 (yfinance)")
+                            key_items = ['Total Assets', 'Total Liabilities Net Minority Interest', 'Total Equity Gross Minority Interest',
+                                         'Cash And Cash Equivalents', 'Total Debt', 'Current Assets', 'Current Liabilities',
+                                         'Inventory', 'Net PPE']
+                            for item in key_items:
+                                if item in bs.index:
+                                    row = bs.loc[item]
+                                    vals = [f"{str(col)[:10]}: {v:,.0f}" for col, v in row.items() if v is not None and v == v]
+                                    if vals:
+                                        lines.append(f"- {item}: {' | '.join(vals[:4])}")
+                            lines.append("")
+                    except Exception as e:
+                        lines.append(f"⚠ Balance sheet fetch failed: {e}")
+
+                # Cash flow statement
+                if any(kw in query_lower for kw in ["cash flow", "capex", "fcf", "现金流", "资本开支"]):
+                    try:
+                        yf_symbol = f"{symbol}.SS" if symbol.startswith('6') else f"{symbol}.SZ"
+                        ticker = yf.Ticker(yf_symbol)
+                        cf = ticker.cashflow
+                        if cf is not None and not cf.empty:
+                            lines.append("## 现金流量表 (yfinance)")
+                            key_items = ['Operating Cash Flow', 'Capital Expenditure', 'Free Cash Flow',
+                                         'Investing Cash Flow', 'Financing Cash Flow']
+                            for item in key_items:
+                                if item in cf.index:
+                                    row = cf.loc[item]
+                                    vals = [f"{str(col)[:10]}: {v:,.0f}" for col, v in row.items() if v is not None and v == v]
+                                    if vals:
+                                        lines.append(f"- {item}: {' | '.join(vals[:4])}")
+                            lines.append("")
+                    except Exception as e:
+                        lines.append(f"⚠ Cash flow fetch failed: {e}")
+
+                # Income statement
+                if any(kw in query_lower for kw in ["income", "利润表", "cost", "成本", "breakdown"]):
+                    try:
+                        yf_symbol = f"{symbol}.SS" if symbol.startswith('6') else f"{symbol}.SZ"
+                        ticker = yf.Ticker(yf_symbol)
+                        fin = ticker.financials
+                        if fin is not None and not fin.empty:
+                            lines.append("## 利润表 (yfinance annual)")
+                            key_items = ['Total Revenue', 'Cost Of Revenue', 'Gross Profit',
+                                         'Operating Income', 'Net Income', 'EBITDA', 'Interest Expense',
+                                         'Tax Provision', 'Research Development']
+                            for item in key_items:
+                                if item in fin.index:
+                                    row = fin.loc[item]
+                                    vals = [f"{str(col)[:10]}: {v:,.0f}" for col, v in row.items() if v is not None and v == v]
+                                    if vals:
+                                        lines.append(f"- {item}: {' | '.join(vals[:4])}")
+                            lines.append("")
+                    except Exception as e:
+                        lines.append(f"⚠ Income statement fetch failed: {e}")
+
+                # Dividend
+                if any(kw in query_lower for kw in ["dividend", "分红", "派息", "股息"]):
+                    try:
+                        div_df = await safe_ak_call(ak.stock_history_dividend_detail, symbol=symbol)
+                        if validate_ak_data(div_df, min_rows=1):
+                            lines.append("## 分红历史 (AkShare)")
+                            for _, row in div_df.head(5).iterrows():
+                                lines.append(f"  {row.to_dict()}")
+                            lines.append("")
+                    except Exception as e:
+                        lines.append(f"⚠ Dividend data failed: {e}")
+
+                # Peer / industry comparison
+                if any(kw in query_lower for kw in ["peer", "industry", "比较", "同业", "行业", "对标"]):
+                    try:
+                        from .search_service import search_service
+                        search_res = await search_service.quick_search(f"{symbol} 行业对比 PE PB ROE 同业估值")
+                        if search_res:
+                            lines.append("## 行业对比 (搜索)")
+                            lines.append(search_res[:2000])
+                            lines.append("")
+                    except Exception as e:
+                        lines.append(f"⚠ Peer comparison search failed: {e}")
+
+            else:
+                # --- US/HK data from yfinance ---
+                yf_symbol = symbol
+                if symbol.endswith(".HK") or (symbol.isdigit() and len(symbol) <= 5):
+                    clean = symbol.replace(".HK", "").zfill(4)
+                    yf_symbol = f"{clean}.HK"
+
+                ticker = yf.Ticker(yf_symbol)
+
+                if any(kw in query_lower for kw in ["quarter", "earnings", "revenue", "profit", "eps"]):
+                    qf = ticker.quarterly_financials
+                    if qf is not None and not qf.empty:
+                        lines.append("## Quarterly Financials (yfinance)")
+                        for item in ['Total Revenue', 'Net Income', 'Gross Profit', 'Operating Income', 'EBITDA', 'Cost Of Revenue']:
+                            if item in qf.index:
+                                row = qf.loc[item]
+                                vals = [f"{str(col)[:10]}: {v:,.0f}" for col, v in row.items() if v is not None and v == v]
+                                if vals:
+                                    lines.append(f"- {item}: {' | '.join(vals[:5])}")
+                        lines.append("")
+
+                if any(kw in query_lower for kw in ["balance", "cash", "debt", "asset"]):
+                    bs = ticker.balance_sheet
+                    if bs is not None and not bs.empty:
+                        lines.append("## Balance Sheet (yfinance)")
+                        for item in ['Total Assets', 'Total Liabilities Net Minority Interest', 'Cash And Cash Equivalents',
+                                     'Total Debt', 'Current Assets', 'Current Liabilities', 'Inventory']:
+                            if item in bs.index:
+                                row = bs.loc[item]
+                                vals = [f"{str(col)[:10]}: {v:,.0f}" for col, v in row.items() if v is not None and v == v]
+                                if vals:
+                                    lines.append(f"- {item}: {' | '.join(vals[:4])}")
+                        lines.append("")
+
+                if any(kw in query_lower for kw in ["cash flow", "capex", "fcf"]):
+                    cf = ticker.cashflow
+                    if cf is not None and not cf.empty:
+                        lines.append("## Cash Flow Statement (yfinance)")
+                        for item in ['Operating Cash Flow', 'Capital Expenditure', 'Free Cash Flow',
+                                     'Investing Cash Flow', 'Financing Cash Flow']:
+                            if item in cf.index:
+                                row = cf.loc[item]
+                                vals = [f"{str(col)[:10]}: {v:,.0f}" for col, v in row.items() if v is not None and v == v]
+                                if vals:
+                                    lines.append(f"- {item}: {' | '.join(vals[:4])}")
+                        lines.append("")
+
+                if any(kw in query_lower for kw in ["income", "breakdown", "cost"]):
+                    fin = ticker.financials
+                    if fin is not None and not fin.empty:
+                        lines.append("## Income Statement (yfinance annual)")
+                        for item in ['Total Revenue', 'Cost Of Revenue', 'Gross Profit', 'Operating Income',
+                                     'Net Income', 'EBITDA', 'Interest Expense', 'Research Development']:
+                            if item in fin.index:
+                                row = fin.loc[item]
+                                vals = [f"{str(col)[:10]}: {v:,.0f}" for col, v in row.items() if v is not None and v == v]
+                                if vals:
+                                    lines.append(f"- {item}: {' | '.join(vals[:4])}")
+                        lines.append("")
+
+                if any(kw in query_lower for kw in ["dividend"]):
+                    divs = ticker.dividends
+                    if divs is not None and len(divs) > 0:
+                        lines.append("## Dividend History (yfinance)")
+                        for date, val in list(divs.items())[-8:]:
+                            lines.append(f"  {str(date)[:10]}: {val:.4f}")
+                        lines.append("")
+
+        except Exception as e:
+            lines.append(f"⚠ Financial data query failed: {str(e)}")
+
+        # --- OpenBB enrichment (US/HK stocks) ---
+        if not is_a_share:
+            try:
+                from .openbb_service import openbb_service
+                openbb_result = await openbb_service.query(symbol, query)
+                if openbb_result:
+                    lines.append(openbb_result)
+            except Exception as e:
+                lines.append(f"⚠ OpenBB enrichment failed: {e}")
+
+        if len(lines) <= 4:
+            lines.append("No matching financial data found for the query. Try a more specific query or different keywords.")
+
+        lines.append("</tool_observation>")
+        return "\n".join(lines)
+
     async def execute_all(self, tool_calls: List[Dict[str, str]]) -> List[str]:
         """Execute multiple tool calls (sequentially to respect rate limits)."""
         observations = []
         for tc in tool_calls:
-            label = tc.get('url', tc.get('query', ''))[:60]
+            label = tc.get('url', tc.get('symbol', tc.get('query', '')))[:60]
             print(f"  [ToolExecutor] {tc['tool']}: {label}...")
             obs = await self.execute(tc)
             observations.append(obs)

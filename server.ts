@@ -100,6 +100,18 @@ async function startServer() {
         '/api/analysis'
       ];
       return targets.some(t => path.startsWith(t));
+    },
+    on: {
+      proxyReq: (proxyReq, req: any) => {
+        // express.json() consumes the request body stream before the proxy can
+        // forward it.  Re-serialize req.body so the upstream receives data.
+        if (req.body && ['POST', 'PUT', 'PATCH'].includes(req.method)) {
+          const bodyData = JSON.stringify(req.body);
+          proxyReq.setHeader('Content-Type', 'application/json');
+          proxyReq.setHeader('Content-Length', Buffer.byteLength(bodyData).toString());
+          proxyReq.write(bodyData);
+        }
+      }
     }
   }));
 

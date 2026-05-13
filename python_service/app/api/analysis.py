@@ -116,11 +116,17 @@ async def get_analysis_history(symbol: str, service: AnalysisJobService = Depend
     return success_response(items)
 
 
+class ReportRequest(BaseModel):
+    deepseekApiKey: Optional[str] = None
+
 @router.post("/jobs/{job_id}/report")
-async def generate_report(job_id: str, service: AnalysisJobService = Depends(get_job_service)):
+async def generate_report(job_id: str, body: ReportRequest = None, service: AnalysisJobService = Depends(get_job_service)):
     """Generate a professional HTML report from a completed analysis job."""
     from ..services.report_generator_service import ReportGeneratorService
     import tempfile, os
+
+    if body is None:
+        body = ReportRequest()
 
     job = service.job_repo.get_by_id(job_id)
     if not job:
@@ -134,7 +140,10 @@ async def generate_report(job_id: str, service: AnalysisJobService = Depends(get
     # Generate into a temp file, then read and return HTML
     tmp_path = os.path.join(tempfile.gettempdir(), f"{job.symbol}_{job_id}_report.html")
     try:
-        await report_service.generate_html_report_async(result, tmp_path, model=job.requested_model)
+        await report_service.generate_html_report_async(
+            result, tmp_path, model=job.requested_model,
+            deepseek_api_key=body.deepseekApiKey
+        )
         with open(tmp_path, "r", encoding="utf-8") as f:
             html_content = f.read()
         return Response(content=html_content, media_type="text/html")

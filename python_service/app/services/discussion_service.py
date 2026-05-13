@@ -206,7 +206,7 @@ class DiscussionService:
             search_enrichment = search_toolkit.get_enrichment_for_role(role, search_results, market=market)
         
         # 6. Assemble Prompt (with search capability flag)
-        prompt = self._assemble_prompt(role, symbol, name, snapshot, history, template, brain_context, language, macro_data, commodity_data, peer_data, has_search_tools=has_search_tools, search_enrichment=search_enrichment, use_native_tools=use_native_tools, macro_indicators=macro_indicators, sentiment_data=sentiment_data)
+        prompt = self._assemble_prompt(role, symbol, name, snapshot, history, template, brain_context, language, macro_data, commodity_data, peer_data, has_search_tools=has_search_tools, search_enrichment=search_enrichment, use_native_tools=use_native_tools, macro_indicators=macro_indicators, sentiment_data=sentiment_data, market=market)
         
         # 7. Call LLM (with tool-calling loop for models without native search)
         start_time = datetime.now()
@@ -252,7 +252,7 @@ class DiscussionService:
             "timestamp": datetime.now().isoformat()
         }
 
-    def _assemble_prompt(self, role: str, symbol: str, name: str, snapshot: Dict[str, Any], history: List[Dict[str, Any]], template: str, brain_ctx: Dict[str, Any], language: str, macro_data: Dict[str, Any] = None, commodity_data: Dict[str, Any] = None, peer_data: Dict[str, Any] = None, has_search_tools: bool = False, search_enrichment: Dict[str, Any] = None, use_native_tools: bool = False, macro_indicators: Dict[str, Any] = None, sentiment_data: Dict[str, Any] = None) -> str:
+    def _assemble_prompt(self, role: str, symbol: str, name: str, snapshot: Dict[str, Any], history: List[Dict[str, Any]], template: str, brain_ctx: Dict[str, Any], language: str, macro_data: Dict[str, Any] = None, commodity_data: Dict[str, Any] = None, peer_data: Dict[str, Any] = None, has_search_tools: bool = False, search_enrichment: Dict[str, Any] = None, use_native_tools: bool = False, macro_indicators: Dict[str, Any] = None, sentiment_data: Dict[str, Any] = None, market: str = "us") -> str:
         is_zh = language == "zh-CN"
         
         sections = []
@@ -416,6 +416,48 @@ class DiscussionService:
         sections.append(f"Current Date: {datetime.now().strftime('%Y-%m-%d')}")
         sections.append(f"Target: {symbol} ({name})")
 
+        # --- COMPANY FACTUAL PROFILE (anti-hallucination for identity facts) ---
+        sections.append("\n--- [API] COMPANY FACTUAL PROFILE (严禁编造以下事实) ---")
+        profile_financials = snapshot.get("financials", {})
+        profile_valuation = snapshot.get("valuation", {})
+        cross_listing = snapshot.get("crossListing")
+        
+        # Determine exchange display
+        if market == "A-Share":
+            exchange_display = "上海证券交易所 (SSE)" if symbol.startswith("6") else "深圳证券交易所 (SZSE)"
+            full_code = f"{symbol}.SS" if symbol.startswith("6") else f"{symbol}.SZ"
+        elif market == "HK-Share":
+            exchange_display = "香港交易所 (HKEX)"
+            full_code = f"{symbol}.HK"
+        else:
+            exchange_display = profile_financials.get("exchange") or "N/A"
+            full_code = symbol
+        
+        long_name = profile_financials.get("longName") or profile_valuation.get("股票简称") or name
+        industry = profile_financials.get("industry") or profile_valuation.get("行业") or "N/A"
+        sector = profile_financials.get("sector") or "N/A"
+        listing_date = profile_financials.get("listingDate") or profile_valuation.get("上市时间") or "N/A"
+        biz_summary = profile_financials.get("longBusinessSummary") or ""
+        
+        sections.append(f"- 公司全称: {long_name}")
+        sections.append(f"- 股票代码: {full_code}")
+        sections.append(f"- 上市交易所: {exchange_display}")
+        sections.append(f"- 行业: {industry}")
+        if sector != "N/A":
+            sections.append(f"- 板块: {sector}")
+        if listing_date != "N/A":
+            sections.append(f"- 上市时间: {listing_date}")
+        if biz_summary:
+            sections.append(f"- 主营业务: {biz_summary[:300]}")
+        
+        # Cross-listing / dual-listing facts
+        if cross_listing:
+            sections.append(f"- ⚠ 跨市场上市: {cross_listing['type']} 双重上市，H股代码 {cross_listing['symbol']}（{cross_listing['name']}）")
+        elif market == "A-Share":
+            sections.append(f"- 跨市场: 该股票未在港交所双重上市（仅A股）")
+        
+        sections.append("⚠ 以上公司身份信息来自API，属于不可更改的事实。严禁基于训练数据记忆编造或修改上述事实（如交易所、行业分类、上市状态、跨市场信息等）。")
+
         # Structured Market Data (P2-11: replace raw JSON dump with structured format)
         sections.append("\n--- [API DATA / MARKET SNAPSHOT] ---")
         quote = snapshot.get("quote", {})
@@ -455,6 +497,60 @@ class DiscussionService:
         sections.append(f"- 内部人持股(ADS口径): {get_val('heldPercentInsiders')} | 机构持股(ADS口径): {get_val('heldPercentInstitutions')}")
         sections.append(f"- 52周高: {get_val('fiftyTwoWeekHigh')} | 52周低: {get_val('fiftyTwoWeekLow')}")
         sections.append(f"- 营收3年CAGR: {get_val('revenueCagr3y')} | 净利润3年CAGR: {get_val('incomeCagr3y')}")
+
+        # --- Quarterly Financial History Table ---
+        quarterly_history = financials.get("quarterlyHistory", [])
+        if quarterly_history and len(quarterly_history) >= 2:
+            sections.append("\n--- [API] 季度财务数据对比 (权威数据源，无需搜索) ---")
+            if market == "A-Share":
+                # A-Share format from stock_financial_abstract_ths
+                sections.append("以下为最近各报告期的核心财务指标，已由API直接提供。")
+                header = "| 报告期 | 营业总收入 | 营收同比 | 净利润 | 净利润同比 | 扣非净利润 | 扣非同比 | 毛利率 | 净利率 | ROE | EPS | 每股经营现金流 | 资产负债率 |"
+                divider = "|---|---|---|---|---|---|---|---|---|---|---|---|---|"
+                sections.append(header)
+                sections.append(divider)
+                for q in quarterly_history:
+                    sections.append(
+                        f"| {q.get('period', '')} "
+                        f"| {q.get('revenue', 'N/A')} "
+                        f"| {q.get('revenueYoY', 'N/A')} "
+                        f"| {q.get('netProfit', 'N/A')} "
+                        f"| {q.get('netProfitYoY', 'N/A')} "
+                        f"| {q.get('netProfitDeduct', 'N/A')} "
+                        f"| {q.get('netProfitDeductYoY', 'N/A')} "
+                        f"| {q.get('grossMargin', 'N/A')} "
+                        f"| {q.get('netMargin', 'N/A')} "
+                        f"| {q.get('roe', 'N/A')} "
+                        f"| {q.get('eps', 'N/A')} "
+                        f"| {q.get('ocfPerShare', 'N/A')} "
+                        f"| {q.get('debtRatio', 'N/A')} |"
+                    )
+            else:
+                # US/HK format from yfinance quarterly_financials
+                sections.append("以下为最近各季度的核心财务指标 (yfinance)。")
+                header = "| Quarter | Total Revenue | Net Income | Gross Profit | Operating Income | EBITDA |"
+                divider = "|---|---|---|---|---|---|"
+                sections.append(header)
+                sections.append(divider)
+                def _fmt_num(v):
+                    if v is None: return "N/A"
+                    try:
+                        v = float(v)
+                        if abs(v) >= 1e9: return f"{v/1e9:.2f}B"
+                        if abs(v) >= 1e6: return f"{v/1e6:.1f}M"
+                        return f"{v:,.0f}"
+                    except: return str(v)
+                for q in quarterly_history:
+                    sections.append(
+                        f"| {q.get('period', '')} "
+                        f"| {_fmt_num(q.get('Total Revenue'))} "
+                        f"| {_fmt_num(q.get('Net Income'))} "
+                        f"| {_fmt_num(q.get('Gross Profit'))} "
+                        f"| {_fmt_num(q.get('Operating Income'))} "
+                        f"| {_fmt_num(q.get('EBITDA'))} |"
+                    )
+            sections.append("⚠ 以上季度数据来自API，为已审计/已公告数据。严禁使用搜索或训练数据中的数值覆盖。环比变化可由相邻季度数据直接计算。")
+
         sections.append("")
         sections.append("--- [MANDATORY] DATA VALIDATION WARNINGS ---")
         sections.append(
@@ -540,7 +636,8 @@ class DiscussionService:
                     "- **web_search(query)**: \u641c\u7d22\u4e92\u8054\u7f51\u83b7\u53d6\u8d22\u52a1\u6570\u636e\u3001\u5206\u6790\u5e08\u62a5\u544a\n"
                     "- **news_search(query)**: \u641c\u7d22\u6700\u65b0\u65b0\u95fb\u3001\u516c\u544a\n"
                     "- **knowledge_search(query)**: \u641c\u7d22\u672c\u5730\u77e5\u8bc6\u5e93\u83b7\u53d6\u5386\u53f2\u5206\u6790\n"
-                    "- **deep_scrape(url, query)**: \u6df1\u5ea6\u6293\u53d6URL\u7684\u5b8c\u6574\u5185\u5bb9\n\n"
+                    "- **deep_scrape(url, query)**: \u6df1\u5ea6\u6293\u53d6URL\u7684\u5b8c\u6574\u5185\u5bb9\n"
+                    "- **financial_data(symbol, query)**: \u67e5\u8be2\u7ed3\u6784\u5316\u8d22\u52a1\u6570\u636e(\u5b63\u5ea6\u8d22\u62a5/\u8d44\u4ea7\u8d1f\u503a\u8868/\u73b0\u91d1\u6d41/\u5206\u7ea2\u7b49)\uff0c\u6bd4web_search\u66f4\u7cbe\u51c6\u53ef\u9760\n\n"
                     "\u4f7f\u7528\u89c4\u5219\uff1aAPI \u6570\u636e\u4e3a N/A \u65f6\u4e3b\u52a8\u8c03\u7528\u5de5\u5177\u3002\u7981\u6b62\u4f2a\u9020\u5de5\u5177\u7ed3\u679c\u3002\u4f18\u5148 knowledge_search\u3002"
                 )
                 if has_enrichment:
@@ -553,13 +650,14 @@ class DiscussionService:
                     "- **web_search**: 搜索互联网获取财务数据、分析师报告、公司信息\n"
                     "- **news_search**: 搜索最新新闻、公告、监管动态\n"
                     "- **knowledge_search**: 搜索本地知识库获取历史分析和积累洞察\n"
-                    "- **deep_scrape**: 深度抓取指定URL的完整内容（用于提取搜索结果中的详细文章/财报）\n\n"
+                    "- **deep_scrape**: 深度抓取指定URL的完整内容（用于提取搜索结果中的详细文章/财报）\n"
+                    "- **financial_data**: 查询结构化财务数据(季度财报/资产负债表/现金流/分红等)，比web_search更精准可靠\n\n"
                     "使用规则：\n"
                     "1. **主动使用工具**: 当 API 数据为 N/A 或你需要验证信息时，必须使用工具而非猜测。\n"
                     "2. **预搜索数据**: 上方 [SEARCH ENRICHMENT] 已注入预搜索结果，优先参考。如需更多信息可发起工具调用。\n"
-                    "3. **标注来源**: 工具获得的数据标注为 '[Tool: web_search]' 或 '[Tool: news_search]'。\n"
+                    "3. **标注来源**: 工具获得的数据标注为 '[Tool: web_search]' 或 '[Tool: financial_data]'。\n"
                     "4. **禁止伪造**: 如果工具返回无结果，标注 'UNKNOWN — tool returned no results'，绝不编造。\n"
-                    "5. **本地优先**: 优先使用 knowledge_search，再用 web_search/news_search。"
+                    "5. **数据优先级**: financial_data > knowledge_search > web_search（结构化数据优于搜索结果）。"
                     if is_zh else
                     "✅ **Search Tool Status: Tool Calling ENABLED + Pre-Search INJECTED**\n"
                     "You have access to the following tools via <tool_call> format:\n"
@@ -581,12 +679,13 @@ class DiscussionService:
                     "- **web_search**: 搜索互联网获取财务数据、分析师报告、公司信息\n"
                     "- **news_search**: 搜索最新新闻、公告、监管动态\n"
                     "- **knowledge_search**: 搜索本地知识库获取历史分析和积累洞察\n"
-                    "- **deep_scrape**: 深度抓取指定URL的完整内容（用于提取搜索结果中的详细文章/财报）\n\n"
+                    "- **deep_scrape**: 深度抓取指定URL的完整内容（用于提取搜索结果中的详细文章/财报）\n"
+                    "- **financial_data**: 查询结构化财务数据(季度财报/资产负债表/现金流/分红等)，比web_search更精准可靠\n\n"
                     "使用规则：\n"
                     "1. **主动使用工具**: 当 API 数据为 N/A 或需要实时数据验证时，你必须使用工具获取数据，严禁猜测。\n"
-                    "2. **标注来源**: 工具获得的数据标注为 '[Tool: web_search]' 或 '[Tool: news_search]'。\n"
+                    "2. **标注来源**: 工具获得的数据标注为 '[Tool: financial_data]' 或 '[Tool: web_search]'。\n"
                     "3. **禁止伪造**: 如果工具返回无结果，标注 'UNKNOWN — tool returned no results'，绝不编造。\n"
-                    "4. **本地优先**: 优先使用 knowledge_search，再用 web_search/news_search。\n"
+                    "4. **数据优先级**: financial_data > knowledge_search > web_search（结构化数据优于搜索结果）。\n"
                     "5. **交叉验证**: 工具数据与 API 数据冲突时，以 API 数据为准。"
                     if is_zh else
                     "✅ **Search Tool Status: Tool Calling ENABLED**\n"

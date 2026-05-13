@@ -30,6 +30,7 @@
     "sysLogs": "系统日志",
     "settings": "系统设置",
     "startAnalysis": "开始智能研判",
+    "addToQueue": "加入队列",
     "quotaCooldown": "额度恢复"
   },
   "markets": {

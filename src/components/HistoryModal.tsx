@@ -177,7 +177,7 @@ export function HistoryModal({ isOpen, onClose, onSelect }: HistoryModalProps) {
                         <div className="text-right">
                           <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-300">Analysis Date</p>
                           <p className="text-xs font-semibold text-zinc-500">
-                            {item.stockInfo?.lastUpdated?.split(' ')[0] || '--'}
+                            {item.stockInfo?.lastUpdated?.split(' ')[0] || (item.generatedAt ? new Date(typeof item.generatedAt === 'number' ? item.generatedAt : item.generatedAt).toLocaleDateString('zh-CN') : '--')}
                           </p>
                         </div>
                         <div className="flex items-center gap-1">

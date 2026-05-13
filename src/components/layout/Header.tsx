@@ -401,11 +401,15 @@ export const Header = memo(function Header({
 
         <button
           type="submit"
-          disabled={loading}
-          className="btn-primary h-14 px-10 rounded-xl shadow-indigo-600/10 shadow-xl disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+          className="btn-primary h-14 px-10 rounded-xl shadow-indigo-600/10 shadow-xl transition-all"
         >
           {loading ? (
-            <Loader2 className="animate-spin" size={20} />
+            <div className="flex items-center gap-2">
+              <Loader2 className="animate-spin" size={18} />
+              <span className="text-sm font-semibold">
+                {t('header.addToQueue', '加入队列')}
+              </span>
+            </div>
           ) : (
             <div className="flex flex-col items-center">
               <span className="text-sm font-semibold">

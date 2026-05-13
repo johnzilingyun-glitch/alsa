@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { MessageSquare } from 'lucide-react';
+import React, { useState, lazy, Suspense } from 'react';
+import { MessageSquare, FileText, Zap, Loader2 } from 'lucide-react';
 import { motion, AnimatePresence, useDragControls } from 'motion/react';
 import { useTranslation } from 'react-i18next';
 import { useUIStore, selectIsDiscussing } from '../../stores/useUIStore';
@@ -9,12 +9,14 @@ import { useMarketStore } from '../../stores/useMarketStore';
 import { usePredictionTrackRecord } from '../../hooks/usePredictionTrackRecord';
 import { DiscussionPanel } from '../DiscussionPanel';
 import { AnalysisActionBar } from './AnalysisActionBar';
-import { ConferenceResults } from './ConferenceResults';
 import { StockHeroCard } from './StockHeroCard';
 import { SidebarSummary } from './SidebarSummary';
 import { ScorePanel } from './ScorePanel';
 import { ChatSection } from './ChatSection';
 import { AnalysisFeedback } from './AnalysisFeedback';
+import { cn } from './utils';
+
+const InstitutionalReportView = lazy(() => import('./InstitutionalReportView').then(m => ({ default: m.InstitutionalReportView })));
 
 interface AnalysisResultProps {
   onResetToHome: () => void;
@@ -39,6 +41,7 @@ export function AnalysisResult({
 }: AnalysisResultProps) {
   const { t } = useTranslation();
   const [isDiscussionFullscreen, setIsDiscussionFullscreen] = useState(false);
+  const [activeTab, setActiveTab] = useState<'report' | 'flash'>('report');
   const dragControls = useDragControls();
 
   const isDiscussing = useUIStore(selectIsDiscussing);
@@ -94,10 +97,70 @@ export function AnalysisResult({
         onSendStockReport={onSendStockReport}
       />
 
-      <ConferenceResults
-        analysis={analysis}
-        onSendDiscussionReport={onSendDiscussionReport}
-      />
+      {/* Tab Switcher */}
+      <div className="flex items-center gap-1 p-1 rounded-2xl bg-zinc-100/80 border border-zinc-200/60 w-fit mx-auto shadow-sm">
+        <button
+          onClick={() => setActiveTab('report')}
+          className={cn(
+            "flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold uppercase tracking-widest transition-all",
+            activeTab === 'report'
+              ? "bg-white text-indigo-600 shadow-sm border border-zinc-200/60"
+              : "text-zinc-400 hover:text-zinc-600"
+          )}
+        >
+          <FileText size={14} />
+          深度研报
+        </button>
+        <button
+          onClick={() => setActiveTab('flash')}
+          className={cn(
+            "flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold uppercase tracking-widest transition-all",
+            activeTab === 'flash'
+              ? "bg-white text-indigo-600 shadow-sm border border-zinc-200/60"
+              : "text-zinc-400 hover:text-zinc-600"
+          )}
+        >
+          <Zap size={14} />
+          Flash 分析
+        </button>
+      </div>
+
+      {/* Tab Content — both panels stay mounted, visibility toggled via CSS */}
+      <div className={activeTab === 'report' ? '' : 'hidden'}>
+        {/* Institutional Report Preview */}
+        {useAnalysisStore.getState().lastJobId ? (
+          <Suspense fallback={
+            <div className="flex items-center justify-center py-12">
+              <Loader2 size={24} className="animate-spin text-indigo-400" />
+            </div>
+          }>
+            <InstitutionalReportView />
+          </Suspense>
+        ) : (
+          <div className="flex flex-col items-center justify-center gap-3 py-16 text-center">
+            <FileText size={24} className="text-zinc-300" />
+            <p className="text-sm text-zinc-400">暂无研报数据，请先完成分析</p>
+          </div>
+        )}
+      </div>
+
+      <div className={activeTab === 'flash' ? '' : 'hidden'}>
+        {/* Flash Analysis: Quick data view */}
+        <div className="grid grid-cols-1 gap-8 lg:grid-cols-3">
+          <div className="space-y-8 lg:col-span-2">
+            <StockHeroCard 
+              analysis={analysis} 
+              isStarred={watchlist.some(w => w.symbol === analysis.stockInfo?.symbol)}
+              onToggleWatchlist={toggleWatchlist} 
+            />
+            <SidebarSummary analysis={analysis} />
+          </div>
+          <div className="space-y-8">
+            <ScorePanel analysis={analysis} trackRecord={trackRecord} />
+              <ChatSection onSendChatReport={onSendChatReport} onChat={onChat} />
+            </div>
+          </div>
+      </div>
 
       {/* Floating Discussion Panel */}
       <AnimatePresence>
@@ -163,23 +226,6 @@ export function AnalysisResult({
           </span>
         </button>
       )}
-
-      {/* Main Analysis Grid */}
-      <div className="grid grid-cols-1 gap-8 lg:grid-cols-3">
-        <div className="space-y-8 lg:col-span-2">
-          <StockHeroCard 
-            analysis={analysis} 
-            isStarred={watchlist.some(w => w.symbol === analysis.stockInfo?.symbol)}
-            onToggleWatchlist={toggleWatchlist} 
-          />
-          <SidebarSummary analysis={analysis} />
-        </div>
-
-        <div className="space-y-8">
-          <ScorePanel analysis={analysis} trackRecord={trackRecord} />
-          <ChatSection onSendChatReport={onSendChatReport} onChat={onChat} />
-        </div>
-      </div>
 
       {/* Silver Titanium Feedback System (EvolveR) */}
       <div className="max-w-4xl mx-auto pb-12">

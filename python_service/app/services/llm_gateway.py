@@ -404,10 +404,13 @@ class LLMGateway:
                 if func_name == "deep_scrape":
                     tool_call["url"] = args.get("url", "")
                     tool_call["query"] = args.get("query", "")
+                elif func_name == "financial_data":
+                    tool_call["symbol"] = args.get("symbol", "")
+                    tool_call["query"] = args.get("query", "")
                 else:
                     tool_call["query"] = args.get("query", "")
                 
-                label = tool_call.get('url', tool_call.get('query', ''))[:60]
+                label = tool_call.get('url', tool_call.get('symbol', tool_call.get('query', '')))[:60]
                 print(f"  [ToolExecutor] {func_name}: {label}...")
                 
                 obs = await tool_executor.execute(tool_call)
@@ -556,7 +559,8 @@ class LLMGateway:
             # Build continuation prompt
             tool_section = "\n\n--- TOOL RESULTS ---\n"
             for tc, obs in zip(tool_calls, observations):
-                tool_section += f"\n[Tool: {tc['tool']} | Query: {tc['query']}]\n"
+                label = tc.get('symbol', tc.get('query', ''))
+                tool_section += f"\n[Tool: {tc['tool']} | Query: {label}]\n"
                 tool_section += obs + "\n"
             tool_section += "\n--- END TOOL RESULTS ---\n"
             tool_section += "\nContinue your analysis using the tool results above. Do NOT repeat previous analysis. Build on it with the new data.\n"

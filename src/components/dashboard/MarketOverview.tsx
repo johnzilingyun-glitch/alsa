@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, memo } from 'react';
+import { useState, useEffect, useCallback, memo, useRef } from 'react';
 import { 
   Globe, Settings, Loader2, ExternalLink, TrendingUp, Share2, CheckCircle2,
   LayoutGrid, Coins, Star, Newspaper, Search, RefreshCw, Calendar, BarChart3, ChevronRight
@@ -40,7 +40,12 @@ export const MarketOverview = memo(function MarketOverview({ onFetchMarketOvervi
   } = useMarketStore();
   const { setSymbol, setMarket } = useAnalysisStore();
 
-  // Price Sync Engine
+  // Price Sync Engine — use refs to avoid re-triggering effect on every store update
+  const updateAlertPriceRef = useRef(updateAlertPrice);
+  const refreshAlertStatusRef = useRef(refreshActiveAlertStatus);
+  useEffect(() => { updateAlertPriceRef.current = updateAlertPrice; }, [updateAlertPrice]);
+  useEffect(() => { refreshAlertStatusRef.current = refreshActiveAlertStatus; }, [refreshActiveAlertStatus]);
+
   useEffect(() => {
     const syncPrices = async () => {
       const allSymbols = [
@@ -58,10 +63,10 @@ export const MarketOverview = memo(function MarketOverview({ onFetchMarketOvervi
           if (result.success && result.data) {
             result.data.forEach((quote: any) => {
               if (quote.price) {
-                updateAlertPrice(quote.symbol, quote.price);
+                updateAlertPriceRef.current(quote.symbol, quote.price);
               }
             });
-            refreshActiveAlertStatus();
+            refreshAlertStatusRef.current();
           }
         }
       } catch (err) {
@@ -73,7 +78,7 @@ export const MarketOverview = memo(function MarketOverview({ onFetchMarketOvervi
     const initTimer = setTimeout(syncPrices, 3000);
     const interval = setInterval(syncPrices, 30000); // 30s poll
     return () => { clearTimeout(initTimer); clearInterval(interval); };
-  }, [searchAlerts, watchlist, recentSearches, updateAlertPrice, refreshActiveAlertStatus]);
+  }, [searchAlerts, watchlist, recentSearches]);
 
   // History date picker state
   const [selectedDate, setSelectedDate] = useState<string>('');

@@ -108,6 +108,180 @@ TOOL_DEFINITIONS = [
             'tool: financial_data\nreason: Check insider trading activity\nsymbol: TSLA\nquery: insider trading recent transactions',
         ],
     },
+    # ────── COMPUTATION TOOLS (deterministic, no LLM math needed) ──────
+    {
+        "name": "dcf_calculator",
+        "description": "Perform a full Discounted Cash Flow valuation with sensitivity table. Returns intrinsic value per share. Use this instead of calculating DCF manually — this tool guarantees arithmetic accuracy. Provide FCF, growth rates, WACC, shares outstanding, and net debt.",
+        "parameters": {
+            "fcf_base": {"type": "number", "description": "Current year Free Cash Flow in millions", "required": True},
+            "growth_rates": {"type": "array", "description": "List of 5 yearly FCF growth rates, e.g. [0.15, 0.12, 0.10, 0.08, 0.06]", "required": True},
+            "terminal_growth": {"type": "number", "description": "Perpetual growth rate (must be < WACC), e.g. 0.03", "required": True},
+            "wacc": {"type": "number", "description": "Weighted Average Cost of Capital, e.g. 0.09", "required": True},
+            "shares_outstanding": {"type": "number", "description": "Shares outstanding in millions", "required": True},
+            "net_debt": {"type": "number", "description": "Net debt in millions (debt - cash). Negative if net cash.", "required": True},
+            "currency": {"type": "string", "description": "Currency (USD/CNY/HKD)", "required": False},
+        },
+        "examples": [
+            'tool: dcf_calculator\nreason: Calculate intrinsic value via DCF\nfcf_base: 85000\ngrowth_rates: [0.15, 0.12, 0.10, 0.08, 0.06]\nterminal_growth: 0.03\nwacc: 0.09\nshares_outstanding: 7440\nnet_debt: -45000\ncurrency: USD',
+        ],
+    },
+    {
+        "name": "position_sizer",
+        "description": "Calculate exact position size (number of shares) based on fixed-fractional risk management. Provides R-multiple targets, constraint checks (max position %, portfolio heat). Use this instead of manual calculation.",
+        "parameters": {
+            "account_size": {"type": "number", "description": "Total portfolio value in local currency", "required": True},
+            "entry_price": {"type": "number", "description": "Planned entry price", "required": True},
+            "stop_price": {"type": "number", "description": "Stop-loss price", "required": True},
+            "risk_pct": {"type": "number", "description": "Risk per trade as percentage (default 1.0)", "required": False},
+            "currency": {"type": "string", "description": "Currency (USD/CNY/HKD)", "required": False},
+            "max_position_pct": {"type": "number", "description": "Max single position % (default 10)", "required": False},
+            "current_heat": {"type": "number", "description": "Current portfolio heat % (default 0)", "required": False},
+        },
+        "examples": [
+            'tool: position_sizer\nreason: Calculate position size for MSFT entry\naccount_size: 100000\nentry_price: 410\nstop_price: 385\nrisk_pct: 1.0\ncurrency: USD',
+        ],
+    },
+    {
+        "name": "kelly_calculator",
+        "description": "Calculate Kelly Criterion optimal position size. Returns full Kelly and half-Kelly (recommended). Use this for precise position sizing based on edge and odds.",
+        "parameters": {
+            "win_rate": {"type": "number", "description": "Probability of winning (0-1), e.g. 0.55", "required": True},
+            "avg_win": {"type": "number", "description": "Average win amount/ratio, e.g. 1.5", "required": True},
+            "avg_loss": {"type": "number", "description": "Average loss amount/ratio, e.g. 1.0", "required": True},
+            "fraction": {"type": "number", "description": "Kelly fraction (default 0.5 = half-Kelly)", "required": False},
+        },
+        "examples": [
+            'tool: kelly_calculator\nreason: Determine optimal bet size\nwin_rate: 0.55\navg_win: 2.0\navg_loss: 1.0\nfraction: 0.5',
+        ],
+    },
+    {
+        "name": "beat_miss_scorer",
+        "description": "Score earnings beat/miss quantitatively. Takes actual vs consensus for each metric and returns a composite score with verdict. Use after earnings data is available.",
+        "parameters": {
+            "metrics": {"type": "array", "description": "List of {name, consensus, actual, significance} objects", "required": True},
+            "guidance_consensus": {"type": "number", "description": "Expected forward guidance value", "required": False},
+            "guidance_actual": {"type": "number", "description": "Actual guidance given", "required": False},
+        },
+        "examples": [
+            'tool: beat_miss_scorer\nreason: Score MSFT Q3 earnings beat/miss\nmetrics: [{"name": "Revenue", "consensus": 68.7, "actual": 70.1, "significance": "high"}, {"name": "EPS", "consensus": 3.18, "actual": 3.46, "significance": "high"}]\nguidance_consensus: 72.5\nguidance_actual: 74.0',
+        ],
+    },
+    {
+        "name": "comps_valuation",
+        "description": "Derive fair value range from peer comparison multiples. Takes target metrics and 3-5 peer multiples, calculates premium/discount and implied price. Use this for systematic relative valuation.",
+        "parameters": {
+            "target": {"type": "object", "description": "Target company metrics: {symbol, pe, pb, ps, ev_ebitda, earnings, revenue, ebitda, shares_outstanding, current_price}", "required": True},
+            "peers": {"type": "array", "description": "List of peer metrics: [{symbol, pe, pb, ps, ev_ebitda, revenue_growth, roe}]", "required": True},
+        },
+        "examples": [
+            'tool: comps_valuation\nreason: Derive fair value from peer multiples\ntarget: {"symbol": "MSFT", "pe": 35, "pb": 12, "ps": 13, "ev_ebitda": 25, "earnings": 88000, "revenue": 245000, "ebitda": 120000, "shares_outstanding": 7440, "current_price": 410}\npeers: [{"symbol": "AAPL", "pe": 30, "pb": 45, "ps": 8, "ev_ebitda": 22}, {"symbol": "GOOGL", "pe": 22, "pb": 6, "ps": 6, "ev_ebitda": 16}]',
+        ],
+    },
+    {
+        "name": "pillar_scorer",
+        "description": "Score investment thesis health based on 3-5 supporting pillars. Each pillar is rated on_track/mixed/broken with a weight. Returns composite health score and exit recommendation. Use this to systematically evaluate thesis validity.",
+        "parameters": {
+            "pillars": {"type": "array", "description": "List of {name, status, weight, evidence} objects. Status: on_track/mixed/broken", "required": True},
+            "kill_switches": {"type": "array", "description": "List of pillar names where broken = automatic exit", "required": False},
+        },
+        "examples": [
+            'tool: pillar_scorer\nreason: Evaluate thesis health\npillars: [{"name": "Revenue growth", "status": "on_track", "weight": 30, "evidence": "+22% YoY"}, {"name": "Margin expansion", "status": "mixed", "weight": 25, "evidence": "Flat QoQ"}]\nkill_switches: ["Revenue growth"]',
+        ],
+    },
+    {
+        "name": "dupont_decomposition",
+        "description": "Decompose ROE into net margin × asset turnover × equity multiplier. Use this for precise DuPont analysis instead of manual calculation.",
+        "parameters": {
+            "net_income": {"type": "number", "description": "Net income", "required": True},
+            "revenue": {"type": "number", "description": "Total revenue", "required": True},
+            "total_assets": {"type": "number", "description": "Total assets", "required": True},
+            "total_equity": {"type": "number", "description": "Total shareholders equity", "required": True},
+        },
+        "examples": [
+            'tool: dupont_decomposition\nreason: Decompose ROE drivers\nparams: {"net_income": 72000, "revenue": 245000, "total_assets": 512000, "total_equity": 166000}',
+        ],
+    },
+    {
+        "name": "minervini_stage",
+        "description": "Classify stock into Minervini Stage 1-4 based on price vs moving averages. Returns trend template checklist and action recommendation. Use this for systematic stage analysis.",
+        "parameters": {
+            "price": {"type": "number", "description": "Current stock price", "required": True},
+            "ma50": {"type": "number", "description": "50-day moving average", "required": True},
+            "ma150": {"type": "number", "description": "150-day moving average", "required": True},
+            "ma200": {"type": "number", "description": "200-day moving average", "required": True},
+            "ma200_prev": {"type": "number", "description": "MA200 from 1 month ago (for slope)", "required": False},
+            "high_52w": {"type": "number", "description": "52-week high", "required": True},
+            "low_52w": {"type": "number", "description": "52-week low", "required": True},
+        },
+        "examples": [
+            'tool: minervini_stage\nreason: Classify MSFT trend stage\nparams: {"price": 410, "ma50": 395, "ma150": 380, "ma200": 370, "ma200_prev": 365, "high_52w": 430, "low_52w": 310}',
+        ],
+    },
+    {
+        "name": "earnings_quality_audit",
+        "description": "Audit earnings quality using OCF/NI ratio, AR/Revenue ratio, and non-recurring items check. Returns quality score with alerts.",
+        "parameters": {
+            "operating_cashflow": {"type": "number", "description": "Operating cash flow", "required": True},
+            "net_income": {"type": "number", "description": "Net income", "required": True},
+            "accounts_receivable": {"type": "number", "description": "Accounts receivable", "required": True},
+            "revenue": {"type": "number", "description": "Total revenue", "required": True},
+            "non_recurring_items": {"type": "number", "description": "Non-recurring/one-off items", "required": False},
+        },
+        "examples": [
+            'tool: earnings_quality_audit\nreason: Check earnings quality\nparams: {"operating_cashflow": 85000, "net_income": 72000, "accounts_receivable": 45000, "revenue": 245000, "non_recurring_items": 3000}',
+        ],
+    },
+    {
+        "name": "drawdown_scenario",
+        "description": "Calculate portfolio impact under various market decline scenarios. Shows dollar loss per position and total portfolio drawdown.",
+        "parameters": {
+            "positions": {"type": "array", "description": "List of {symbol, weight_pct, beta}", "required": True},
+            "scenarios": {"type": "array", "description": "Market decline percentages, e.g. [-10, -20, -30]", "required": False},
+            "account_size": {"type": "number", "description": "Portfolio value", "required": False},
+        },
+        "examples": [
+            'tool: drawdown_scenario\nreason: Stress test portfolio\nparams: {"positions": [{"symbol": "MSFT", "weight_pct": 25, "beta": 1.1}, {"symbol": "AAPL", "weight_pct": 20, "beta": 1.2}], "scenarios": [-10, -20, -30], "account_size": 100000}',
+        ],
+    },
+    {
+        "name": "risk_reward",
+        "description": "Calculate risk/reward ratio, expected value, and breakeven win rate. Use for precise trade evaluation.",
+        "parameters": {
+            "entry": {"type": "number", "description": "Entry price", "required": True},
+            "target": {"type": "number", "description": "Target/take-profit price", "required": True},
+            "stop": {"type": "number", "description": "Stop-loss price", "required": True},
+            "win_probability": {"type": "number", "description": "Estimated win probability (0-1)", "required": False},
+        },
+        "examples": [
+            'tool: risk_reward\nreason: Evaluate MSFT trade setup\nparams: {"entry": 410, "target": 460, "stop": 385, "win_probability": 0.55}',
+        ],
+    },
+    {
+        "name": "stop_loss_validator",
+        "description": "Validate stop-loss placement against volatility (ATR). Checks if stop is too tight (noise) or too wide (excessive loss).",
+        "parameters": {
+            "entry_price": {"type": "number", "description": "Entry price", "required": True},
+            "stop_price": {"type": "number", "description": "Stop-loss price", "required": True},
+            "atr": {"type": "number", "description": "14-day Average True Range", "required": True},
+            "daily_volatility_pct": {"type": "number", "description": "Daily volatility in %", "required": False},
+        },
+        "examples": [
+            'tool: stop_loss_validator\nreason: Check if stop is feasible\nparams: {"entry_price": 410, "stop_price": 385, "atr": 8.5, "daily_volatility_pct": 2.1}',
+        ],
+    },
+    {
+        "name": "cagr_calculator",
+        "description": "Calculate Compound Annual Growth Rate. Also provides doubling time and year-by-year consistency check.",
+        "parameters": {
+            "start_value": {"type": "number", "description": "Starting value", "required": True},
+            "end_value": {"type": "number", "description": "Ending value", "required": True},
+            "years": {"type": "number", "description": "Number of years", "required": True},
+            "intermediate_values": {"type": "array", "description": "Optional intermediate year values for consistency check", "required": False},
+        },
+        "examples": [
+            'tool: cagr_calculator\nreason: Calculate 3-year revenue CAGR\nparams: {"start_value": 168000, "end_value": 245000, "years": 3}',
+        ],
+    },
 ]
 
 
@@ -155,6 +329,21 @@ def format_tool_descriptions(language: str = "zh-CN") -> str:
     lines.append("reason: Need quarterly cash flow statement details")
     lines.append("symbol: 002532")
     lines.append("query: cash flow capex operating investing")
+    lines.append("</tool_call>")
+    lines.append("")
+    lines.append("For computation tools (dcf_calculator, position_sizer, kelly_calculator, beat_miss_scorer, comps_valuation, pillar_scorer, dupont_decomposition, minervini_stage, earnings_quality_audit, drawdown_scenario, risk_reward, stop_loss_validator, cagr_calculator):")
+    lines.append("These tools perform EXACT arithmetic — always use them instead of manual calculation.")
+    lines.append("")
+    lines.append("<tool_call>")
+    lines.append("tool: dcf_calculator")
+    lines.append("reason: Calculate intrinsic value for MSFT")
+    lines.append("params: {\"fcf_base\": 85000, \"growth_rates\": [0.15, 0.12, 0.10, 0.08, 0.06], \"terminal_growth\": 0.03, \"wacc\": 0.09, \"shares_outstanding\": 7440, \"net_debt\": -45000, \"currency\": \"USD\"}")
+    lines.append("</tool_call>")
+    lines.append("")
+    lines.append("<tool_call>")
+    lines.append("tool: position_sizer")
+    lines.append("reason: Calculate position size for entry")
+    lines.append("params: {\"account_size\": 100000, \"entry_price\": 410, \"stop_price\": 385, \"risk_pct\": 1.0, \"currency\": \"USD\"}")
     lines.append("</tool_call>")
     lines.append("")
     lines.append("After tool results are returned to you as <tool_observation>...</tool_observation>, continue your analysis using the real data.")
@@ -220,6 +409,13 @@ FINANCIAL_DATA_PATTERN = re.compile(
     re.DOTALL | re.IGNORECASE
 )
 
+# Pattern for computation tools (have params: JSON field)
+COMPUTATION_TOOL_NAMES = {"dcf_calculator", "position_sizer", "kelly_calculator", "beat_miss_scorer", "comps_valuation", "pillar_scorer", "dupont_decomposition", "minervini_stage", "earnings_quality_audit", "drawdown_scenario", "risk_reward", "stop_loss_validator", "cagr_calculator"}
+COMPUTATION_PATTERN = re.compile(
+    r'<tool_call>\s*tool:\s*(\w+)\s*\n\s*reason:\s*(.*?)\s*\n\s*params:\s*(.*?)\s*\n?\s*</tool_call>',
+    re.DOTALL | re.IGNORECASE
+)
+
 def parse_tool_calls(text: str) -> List[Dict[str, str]]:
     """Parse <tool_call> blocks from LLM output."""
     calls = []
@@ -233,6 +429,16 @@ def parse_tool_calls(text: str) -> List[Dict[str, str]]:
             "query": match.group(4).strip(),
         })
         parsed_spans.add(match.span())
+    # Parse computation tool calls (they have params: JSON field)
+    for match in COMPUTATION_PATTERN.finditer(text):
+        tool_name = match.group(1).strip()
+        if tool_name in COMPUTATION_TOOL_NAMES and match.span() not in parsed_spans:
+            calls.append({
+                "tool": tool_name,
+                "reason": match.group(2).strip(),
+                "params_json": match.group(3).strip(),
+            })
+            parsed_spans.add(match.span())
     # Parse financial_data calls (they have symbol: and query: fields)
     for match in FINANCIAL_DATA_PATTERN.finditer(text):
         if match.span() not in parsed_spans:
@@ -245,7 +451,7 @@ def parse_tool_calls(text: str) -> List[Dict[str, str]]:
             parsed_spans.add(match.span())
     # Then parse standard tool calls (skip already-parsed ones)
     for match in TOOL_CALL_PATTERN.finditer(text):
-        if match.span() not in parsed_spans and match.group(1).strip() not in ("deep_scrape", "financial_data"):
+        if match.span() not in parsed_spans and match.group(1).strip() not in ("deep_scrape", "financial_data") and match.group(1).strip() not in COMPUTATION_TOOL_NAMES:
             calls.append({
                 "tool": match.group(1).strip(),
                 "reason": match.group(2).strip(),
@@ -292,6 +498,10 @@ class ToolExecutor:
         query = tool_call.get("query", "")
         reason = tool_call.get("reason", "")
 
+        # Computation tools (deterministic, no async needed)
+        if tool_name in COMPUTATION_TOOL_NAMES:
+            return self._exec_computation(tool_name, tool_call)
+
         if not query and tool_name != "financial_data":
             return f"<tool_observation>\nError: Empty query for tool '{tool_name}'.\n</tool_observation>"
 
@@ -313,9 +523,25 @@ class ToolExecutor:
                     return "<tool_observation>\nError: financial_data requires a 'symbol' parameter.\n</tool_observation>"
                 return await self._exec_financial_data(symbol, query)
             else:
-                return f"<tool_observation>\nError: Unknown tool '{tool_name}'. Available: web_search, news_search, knowledge_search, deep_scrape, financial_data.\n</tool_observation>"
+                return f"<tool_observation>\nError: Unknown tool '{tool_name}'. Available: web_search, news_search, knowledge_search, deep_scrape, financial_data, dcf_calculator, position_sizer, kelly_calculator, beat_miss_scorer, comps_valuation, pillar_scorer, dupont_decomposition, minervini_stage, earnings_quality_audit, drawdown_scenario, risk_reward, stop_loss_validator, cagr_calculator.\n</tool_observation>"
         except Exception as e:
             return f"<tool_observation>\nError executing {tool_name}: {str(e)}\n</tool_observation>"
+
+    def _exec_computation(self, tool_name: str, tool_call: Dict[str, str]) -> str:
+        """Execute a computation tool (synchronous, deterministic)."""
+        import json
+        from .computation_tools import execute_computation_tool
+        
+        params_json = tool_call.get("params_json", "{}")
+        try:
+            params = json.loads(params_json)
+        except json.JSONDecodeError as e:
+            return f"<tool_observation>\nError: Invalid JSON in params for {tool_name}: {str(e)}\n</tool_observation>"
+        
+        result = execute_computation_tool(tool_name, params)
+        if result is None:
+            return f"<tool_observation>\nError: Computation tool '{tool_name}' not found.\n</tool_observation>"
+        return result
 
     async def _exec_web_search(self, query: str) -> str:
         results = await self.search_service.search(query, max_results=5)

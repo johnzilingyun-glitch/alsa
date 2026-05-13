@@ -63,3 +63,51 @@ class AlertRepository:
             if alert:
                 session.delete(alert)
                 session.commit()
+
+    def record_postmortem(self, alert_id: str, exit_price: float, outcome_category: str,
+                          mae_pct: float = None, mfe_pct: float = None,
+                          notes: str = None, decision_quality: int = None) -> Optional[SearchAlert]:
+        with self.session_factory() as session:
+            alert = session.get(SearchAlert, alert_id)
+            if not alert:
+                return None
+            alert.exit_price = exit_price
+            alert.exit_date = datetime.utcnow()
+            alert.outcome_category = outcome_category
+            if alert.entry_price and alert.entry_price > 0:
+                alert.realized_return_pct = round((exit_price - alert.entry_price) / alert.entry_price * 100, 2)
+            alert.mae_pct = mae_pct
+            alert.mfe_pct = mfe_pct
+            alert.postmortem_notes = notes
+            alert.decision_quality_score = decision_quality
+            alert.status = "closed"
+            session.add(alert)
+            session.commit()
+            session.refresh(alert)
+            return alert
+
+    def list_closed(self) -> List[SearchAlert]:
+        with self.session_factory() as session:
+            statement = select(SearchAlert).where(
+                SearchAlert.status == "closed"
+            ).order_by(SearchAlert.exit_date.desc())
+            return session.exec(statement).all()
+
+    def update_thesis(self, alert_id: str, thesis: str = None, invalidation_criteria: str = None,
+                      thesis_stage: str = None, lessons_learned: str = None) -> Optional[SearchAlert]:
+        with self.session_factory() as session:
+            alert = session.get(SearchAlert, alert_id)
+            if not alert:
+                return None
+            if thesis is not None:
+                alert.thesis = thesis
+            if invalidation_criteria is not None:
+                alert.invalidation_criteria = invalidation_criteria
+            if thesis_stage is not None:
+                alert.thesis_stage = thesis_stage
+            if lessons_learned is not None:
+                alert.lessons_learned = lessons_learned
+            session.add(alert)
+            session.commit()
+            session.refresh(alert)
+            return alert

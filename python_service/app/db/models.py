@@ -93,6 +93,34 @@ class SearchAlert(SQLModel, table=True):
     status: str = "active"  # active/triggered/closed
     triggered_at: Optional[datetime] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
+    # Signal Postmortem fields
+    exit_price: Optional[float] = None
+    exit_date: Optional[datetime] = None
+    outcome_category: Optional[str] = None  # TRUE_POSITIVE/FALSE_POSITIVE/MISSED/REGIME_MISMATCH
+    realized_return_pct: Optional[float] = None
+    mae_pct: Optional[float] = None  # Max Adverse Excursion %
+    mfe_pct: Optional[float] = None  # Max Favorable Excursion %
+    postmortem_notes: Optional[str] = None
+    decision_quality_score: Optional[int] = None  # 1-10
+    # Trader Memory Core — thesis lifecycle
+    thesis: Optional[str] = None  # Investment thesis statement
+    invalidation_criteria: Optional[str] = None  # What falsifies the thesis
+    thesis_stage: Optional[str] = None  # IDEA/WATCHING/ENTERED/EXITED/POSTMORTEM
+    lessons_learned: Optional[str] = None  # Post-trade reflection
+
+class Catalyst(SQLModel, table=True):
+    """Track upcoming catalysts (earnings, product launches, regulatory events) for signals."""
+    catalyst_id: str = Field(primary_key=True, default_factory=lambda: f"cat_{uuid.uuid4().hex[:8]}")
+    alert_id: str = Field(index=True)  # Links to SearchAlert
+    symbol: str = Field(index=True)
+    event_type: str  # earnings/product_launch/regulatory/macro/conference/other
+    description: str
+    expected_date: Optional[datetime] = None
+    impact_direction: Optional[str] = None  # bullish/bearish/neutral
+    impact_magnitude: Optional[str] = None  # high/medium/low
+    status: str = "pending"  # pending/occurred/cancelled
+    actual_result: Optional[str] = None  # What actually happened
+    created_at: datetime = Field(default_factory=datetime.utcnow)
 
 class PromptVersion(SQLModel, table=True):
     prompt_version_id: str = Field(primary_key=True, default_factory=lambda: f"pv_{uuid.uuid4().hex[:8]}")

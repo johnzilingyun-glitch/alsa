@@ -114,9 +114,12 @@ async def run_analysis_flow(query, market, level, output_path, model):
     resolved_market = selected_match["market"]
     click.echo(f"Selected: {selected_match['name']} ({symbol} | {resolved_market})")
     
-    # Use model from CLI option or config or default
+    # Use model from CLI option or config; if None, discussion_service uses .env default
     cfg = load_config()
-    final_model = model or cfg.get("gemini_model")
+    final_model = model or cfg.get("model") or cfg.get("gemini_model")
+    if final_model and final_model == "gemini-1.5-pro":
+        # gemini-1.5-pro is deprecated, fall back to env default
+        final_model = None
     
     # 3. Start Job
     click.echo("\nFetching data and running expert discussion...")

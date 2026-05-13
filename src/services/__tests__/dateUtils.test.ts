@@ -40,12 +40,16 @@ describe('dateUtils', () => {
           lastUpdated: '2026-03-30 10:00:00'
         }
       };
-      expect(generateHistoryItemKey(item, 5)).toBe('history-AAPL-2026-03-30 10:00:00-5');
+      expect(generateHistoryItemKey(item, 5)).toBe('history-AAPL-2026-03-30_10:00:00-5');
     });
 
     it('should handle missing stockInfo gracefully', () => {
       const item = {};
       expect(generateHistoryItemKey(item, 10)).toBe('history-unknown-no-time-10');
+    });
+
+    it('should handle null item input safely', () => {
+      expect(generateHistoryItemKey(null, 2)).toBe('history-unknown-no-time-2');
     });
   });
 });

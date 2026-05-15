@@ -13,6 +13,7 @@ class MacroService:
         "Lithium Carbonate": "LC",
         "Copper":             "CU",
         "Aluminum":           "AL",
+        "Alumina":            "AO",
         "Silicon":            "SI",
         "Crude Oil":          "SC",
         "Methanol":           "MA",
@@ -23,6 +24,7 @@ class MacroService:
         "Lithium Carbonate": "元/吨",
         "Copper":             "元/吨",
         "Aluminum":           "元/吨",
+        "Alumina":            "元/吨",
         "Silicon":            "元/吨",
         "Crude Oil":          "元/桶",
         "Methanol":           "元/吨",
@@ -222,6 +224,42 @@ class MacroService:
                 return result
         except Exception as e:
             print(f"WTI oil AkShare failed: {e}")
+
+        # Plan C: yfinance fallback (Brent BZ=F, WTI CL=F)
+        try:
+            import yfinance as yf
+            bz = yf.Ticker("BZ=F")
+            bz_price = bz.info.get("regularMarketPrice")
+            if bz_price and bz_price > 0:
+                result = {
+                    "symbol": "Brent Crude Oil",
+                    "price": bz_price,
+                    "unit": "美元/桶",
+                    "source": "ICE Brent Futures (yfinance BZ=F)",
+                    "date": datetime.now().strftime("%Y-%m-%d")
+                }
+                self._cache["brent"] = result
+                return result
+        except Exception as e:
+            print(f"Brent yfinance fallback failed: {e}")
+
+        try:
+            import yfinance as yf
+            cl = yf.Ticker("CL=F")
+            cl_price = cl.info.get("regularMarketPrice")
+            if cl_price and cl_price > 0:
+                result = {
+                    "symbol": "WTI Crude Oil (参考)",
+                    "price": cl_price,
+                    "unit": "美元/桶",
+                    "source": "NYMEX WTI Futures (yfinance CL=F)",
+                    "date": datetime.now().strftime("%Y-%m-%d"),
+                    "note": "布伦特数据不可用，使用WTI作为参考。布伦特通常比WTI高2-5美元。"
+                }
+                self._cache["brent"] = result
+                return result
+        except Exception as e:
+            print(f"WTI yfinance fallback failed: {e}")
 
         result = {
             "symbol": "Brent Crude Oil",

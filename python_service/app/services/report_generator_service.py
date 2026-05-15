@@ -22,8 +22,9 @@ class ReportGeneratorService:
         return loop.run_until_complete(self.generate_html_report_async(result, output_path))
 
     async def generate_html_report_async(self, result: dict, output_path: str, model: str = None, deepseek_api_key: str = None) -> str:
-        symbol = result.get("symbol", "UNKNOWN")
-        market = result.get("market", "US-Share")
+        stock_info = result.get("stockInfo", {})
+        symbol = result.get("symbol") or stock_info.get("symbol", "UNKNOWN")
+        market = result.get("market") or stock_info.get("market", "US-Share")
         discussion_msgs = result.get("discussion", [])
         snapshot = result.get("snapshot") or {}
         
@@ -41,9 +42,17 @@ class ReportGeneratorService:
         if not ui_data:
             ui_data = self._build_fallback_ui_data(symbol, discussion_msgs, snapshot)
         
+        # Backfill empty upside/downside from discussion text
+        if not ui_data.get("upside") or not ui_data.get("downside"):
+            extracted = self._extract_thesis_from_discussion(discussion_msgs)
+            if not ui_data.get("upside") and extracted.get("upside"):
+                ui_data["upside"] = extracted["upside"]
+            if not ui_data.get("downside") and extracted.get("downside"):
+                ui_data["downside"] = extracted["downside"]
+        
         quote = snapshot.get("quote", {})
         currency = quote.get("currency", "USD" if "US" in market else "CNY")
-        fundamentals = self._compile_fundamentals(snapshot, currency, ui_data)
+        fundamentals = self._compile_fundamentals(snapshot, currency, ui_data, market=market)
         
         # Parallelize normalization for performance — fallback to markdown if LLM fails
         try:
@@ -215,6 +224,54 @@ OUTPUT ONLY THE JSON OBJECT.
             "score": 75,
             "recommendation": "WATCH",
         }
+
+    def _extract_thesis_from_discussion(self, discussion_msgs: list) -> dict:
+        """Extract bull/bear thesis points from expert discussion text using pattern matching."""
+        upside, downside = [], []
+        all_text = "\n".join([m.get("content", "") for m in discussion_msgs])
+
+        # Pattern: markdown list items (- or * or numbered) following bull/bear section headers
+        bull_patterns = [
+            r'(?:Bull|看涨|利好|上行|催化剂|Catalyst|Upside|机遇|优势|核心竞争力)[^\n]*\n((?:\s*[-*\d.]+\s+.+\n?)+)',
+            r'🟢[^\n]*\n((?:\s*[-*\d.]+\s+.+\n?)+)',
+        ]
+        bear_patterns = [
+            r'(?:Bear|看跌|利空|下行|风险|Risk|Downside|压制|脆弱|威胁)[^\n]*\n((?:\s*[-*\d.]+\s+.+\n?)+)',
+            r'🔴[^\n]*\n((?:\s*[-*\d.]+\s+.+\n?)+)',
+            r'(?:一致性偏差|被忽视|盲区|Consensus Bias)[^\n]*\n((?:\s*[-*\d.]+\s+.+\n?)+)',
+        ]
+
+        def extract_items(patterns, text, limit=5):
+            items = []
+            for pattern in patterns:
+                for match in re.finditer(pattern, text, re.IGNORECASE):
+                    block = match.group(1)
+                    for line in block.strip().split('\n'):
+                        clean = re.sub(r'^\s*[-*\d.]+\s*', '', line).strip()
+                        # Filter: must be substantive (>10 chars), skip headers/separators
+                        if len(clean) > 10 and not clean.startswith('#') and not clean.startswith('---'):
+                            if clean not in items:
+                                items.append(clean)
+                    if len(items) >= limit:
+                        break
+                if len(items) >= limit:
+                    break
+            return items[:limit]
+
+        upside = extract_items(bull_patterns, all_text)
+        downside = extract_items(bear_patterns, all_text)
+
+        # Fallback: if still empty, try to extract from table rows in Risk Manager content
+        if not downside:
+            for m in discussion_msgs:
+                if m.get("role") == "Risk Manager":
+                    content = m.get("content", "")
+                    # Extract risk names from markdown tables: | **risk name** |
+                    risk_matches = re.findall(r'\|\s*\*\*(.+?)\*\*\s*[-—–|]', content)
+                    downside = [r.strip() for r in risk_matches if len(r.strip()) > 5][:5]
+                    break
+
+        return {"upside": upside, "downside": downside}
 
     def _markdown_to_html_fallback(self, content: str) -> str:
         """Convert markdown to HTML without LLM, used when API is unavailable."""
@@ -633,6 +690,7 @@ CONTENT:
             items_html = "".join([
                 self._render_fund_item(k, desc, fund.get(k, "N/A"))
                 for k, desc in cat["metrics"]
+                if k in fund  # Skip metrics not populated (e.g. 扣非净利润 for US stocks)
             ])
             detailed_fund_html += f"""
             <div class="fund-category">
@@ -895,7 +953,7 @@ CONTENT:
 
 
 
-    def _compile_fundamentals(self, snapshot: dict, currency: str, ui_data: dict = {}) -> dict:
+    def _compile_fundamentals(self, snapshot: dict, currency: str, ui_data: dict = {}, market: str = "US-Share") -> dict:
         m = {}
         if not isinstance(snapshot, dict): return m
         v, f, q = snapshot.get("valuation", {}), snapshot.get("financials", {}), snapshot.get("quote", {})
@@ -934,8 +992,10 @@ CONTENT:
         np_val = money(get_val("netProfit"), use_currency=fin_currency)
         m["净利润"] = np_val if np_val != "N/A" else (ui_data.get("net_profit") or "N/A")
         
-        npd_val = money(get_val("netProfitDeduct"), use_currency=fin_currency)
-        m["扣非净利润"] = npd_val if npd_val != "N/A" else (ui_data.get("net_profit_deduct") or "N/A")
+        # 扣非净利润 is A-Share specific (China GAAP disclosure)
+        if market == "A-Share":
+            npd_val = money(get_val("netProfitDeduct"), use_currency=fin_currency)
+            m["扣非净利润"] = npd_val if npd_val != "N/A" else (ui_data.get("net_profit_deduct") or "N/A")
         m["市盈率 (PE)"] = ratio(get_val("trailingPE") or get_val("pe") or get_val("forwardPE"))
         m["市净率 (PB)"] = ratio(get_val("priceToBook") or get_val("pb"))
         # PEG: if not available, calculate from PE and earnings growth
@@ -972,11 +1032,13 @@ CONTENT:
         np_qoq = pct(get_val("netProfitQoQ"))
         m["净利润环比增长 (QoQ)"] = np_qoq if np_qoq != "N/A" else (ui_data.get("net_profit_qoq") or "N/A")
         
-        npd_yoy = pct(get_val("netProfitDeductYoY"))
-        m["扣非净利润同比增长 (YoY)"] = npd_yoy if npd_yoy != "N/A" else (ui_data.get("net_profit_deduct_yoy") or "N/A")
-        
-        npd_qoq = pct(get_val("netProfitDeductQoQ"))
-        m["扣非净利润环比增长 (QoQ)"] = npd_qoq if npd_qoq != "N/A" else (ui_data.get("net_profit_deduct_qoq") or "N/A")
+        # 扣非净利润 growth is A-Share specific
+        if market == "A-Share":
+            npd_yoy = pct(get_val("netProfitDeductYoY"))
+            m["扣非净利润同比增长 (YoY)"] = npd_yoy if npd_yoy != "N/A" else (ui_data.get("net_profit_deduct_yoy") or "N/A")
+            
+            npd_qoq = pct(get_val("netProfitDeductQoQ"))
+            m["扣非净利润环比增长 (QoQ)"] = npd_qoq if npd_qoq != "N/A" else (ui_data.get("net_profit_deduct_qoq") or "N/A")
         
         m["营收3年复合增长 (CAGR)"] = pct(get_val("revenueCagr3y"))
         m["净利润3年复合增长 (CAGR)"] = pct(get_val("incomeCagr3y"))
@@ -1013,8 +1075,32 @@ CONTENT:
             div = get_val("dividend")
         if div is not None and isinstance(div, (int, float)):
             if div == 0: m["股息率"] = "0.0%"
-            elif div > 0.5 and div < 100: m["股息率"] = f"{round(div, 2)}%"
-            else: m["股息率"] = f"{round(div*100, 2)}%"
+            else:
+                # Cross-validate with dividendRate/price to resolve ambiguity
+                div_rate = get_val("dividendRate")
+                price = get_val("price") or q.get("currentPrice") or q.get("regularMarketPrice")
+                if div_rate and price and isinstance(div_rate, (int, float)) and isinstance(price, (int, float)) and price > 0:
+                    expected_pct = (div_rate / price) * 100
+                    # Pick whichever interpretation (as-is or *100) is closer to expected
+                    if abs(div - expected_pct) <= abs(div * 100 - expected_pct):
+                        m["股息率"] = f"{round(div, 2)}%"
+                    else:
+                        m["股息率"] = f"{round(div * 100, 2)}%"
+                elif div > 1 and div < 100:
+                    m["股息率"] = f"{round(div, 2)}%"
+                else:
+                    # Modern yfinance returns dividendYield as percentage (e.g. 0.41 = 0.41%)
+                    # trailingAnnualDividendYield is always decimal (e.g. 0.004 = 0.4%)
+                    trailing = get_val("trailingAnnualDividendYield")
+                    if trailing and isinstance(trailing, (int, float)) and trailing > 0:
+                        trailing_pct = trailing * 100
+                        if abs(div - trailing_pct) <= abs(div * 100 - trailing_pct):
+                            m["股息率"] = f"{round(div, 2)}%"
+                        else:
+                            m["股息率"] = f"{round(div * 100, 2)}%"
+                    else:
+                        # No cross-reference; if < 1, treat as percentage (modern yfinance)
+                        m["股息率"] = f"{round(div, 2)}%"
         else:
             # If payoutRatio is 0 or dividendRate is None/0, company pays no dividend
             pr = get_val("payoutRatio")

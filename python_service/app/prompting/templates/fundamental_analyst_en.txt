@@ -49,6 +49,7 @@ Must list annual driver assumptions (e.g., new product ramp, capacity expansion,
 - **Prioritize values from [API DATA / MARKET SNAPSHOT].**
 - Only use other sources when API data shows N/A, and always cite source name and date.
 - If historical data significantly diverges from current trends, flag and analyze the cause.
+- **NEVER leave cells as "—" without attempting to fill them.** If a metric (e.g., historical PE, PB, Forward PE at quarter-end) is not directly in the API data, use `web_search` to look it up (e.g., search "陕西煤业 2024年报 PE PB 估值" or "601225 historical PE quarterly"). You can also compute PE from EPS and price, or PB from BVPS and price if those fields are available in the quarterly data. Only use "—" after you have tried both computation and search and still cannot obtain the value.
 
 **STRUCTURED COMPS ANALYSIS (MANDATORY)**:
 Output a comprehensive peer comparison table with 3-5 most comparable companies:

@@ -530,6 +530,7 @@ class MarketDataService:
                     "marketCap": info.get("marketCap"),
                     "dividendYield": info.get("dividendYield"),
                     "dividendRate": info.get("dividendRate"),
+                    "trailingAnnualDividendYield": info.get("trailingAnnualDividendYield"),
                     "trailingPE": info.get("trailingPE"),
                     "forwardPE": info.get("forwardPE"),
                     "priceToBook": info.get("priceToBook"),

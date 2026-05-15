@@ -214,7 +214,7 @@ class LLMGateway:
         Instead of text-based <tool_call> parsing, uses the `tools` parameter
         for structured function calling with streaming progress output.
         """
-        from .expert_tools import get_openai_tools, tool_executor
+        from .expert_tools import get_openai_tools, tool_executor, COMPUTATION_TOOL_NAMES
         
         model_map = {
             "deepseek-chat": "deepseek-v4-pro",
@@ -407,6 +407,9 @@ class LLMGateway:
                 elif func_name == "financial_data":
                     tool_call["symbol"] = args.get("symbol", "")
                     tool_call["query"] = args.get("query", "")
+                elif func_name in COMPUTATION_TOOL_NAMES:
+                    # Computation tools expect params_json — pass the full args dict
+                    tool_call["params_json"] = json.dumps(args)
                 else:
                     tool_call["query"] = args.get("query", "")
                 
@@ -424,20 +427,102 @@ class LLMGateway:
                 })
         
         # Prefer final analysis content; fall back to tool-round thinking text if final round failed
-        if final_content and len(final_content.strip()) > 100:
+        # Quality gate: check if final_content is real analysis vs raw computation tool params
+        def _is_valid_analysis(text: str) -> bool:
+            if not text or len(text.strip()) < 200:
+                return False
+            # Detect raw computation tool params: mostly numbers, JSON arrays, short lines
+            lines = [l.strip() for l in text.strip().split('\n') if l.strip()]
+            if len(lines) < 5:
+                # Check if content is mostly numbers/JSON (not prose)
+                import re
+                non_prose = sum(1 for l in lines if re.match(r'^[\[\]{}\d\s.,\-":\w_]+$', l) and len(l) < 80)
+                if non_prose >= len(lines) * 0.7:
+                    return False
+            return True
+        
+        if final_content and _is_valid_analysis(final_content):
             result = final_content
         elif final_content:
-            # Final round produced very short content — likely incomplete
-            print(f"  [ToolLoop] WARNING: Final round produced only {len(final_content)} chars. Retrying...")
-            # Retry once with a stronger prompt
+            # Final round produced short/invalid content — likely raw computation tool params
+            print(f"  [ToolLoop] WARNING: Final round produced only {len(final_content)} chars or invalid content. Retrying with tools...")
+            # Retry with tools enabled so computation tools can be called
             messages.append({"role": "assistant", "content": final_content})
             messages.append({
                 "role": "user",
-                "content": "Your response was too short and incomplete. Please write a FULL, DETAILED expert analysis report (400+ words) with specific numbers, comparisons, and conclusions. Start now."
+                "content": (
+                    "Your response appears to contain only raw tool parameters, not a proper analysis. "
+                    "You MUST call the computation tools (e.g. drawdown_scenario, risk_reward, kelly_calculator, stop_loss_validator, position_sizer) "
+                    "to get their results, then write a FULL, DETAILED expert analysis report (400+ words) with specific numbers, comparisons, and conclusions."
+                )
             })
             try:
-                retry_content, _, _ = await asyncio.to_thread(_stream_with_tools)
-                if retry_content and len(retry_content.strip()) > 100:
+                # Re-enable tools for this retry
+                def _retry_with_tools():
+                    kwargs = {
+                        "model": final_model,
+                        "messages": messages,
+                        "temperature": temperature,
+                        "max_tokens": 16384,
+                        "stream": True,
+                        "tools": tools,
+                    }
+                    response = self.deepseek_client(api_key=deepseek_api_key).chat.completions.create(**kwargs)
+                    content_parts = []
+                    tool_calls_acc = []
+                    for chunk in response:
+                        if not chunk.choices:
+                            continue
+                        delta = chunk.choices[0].delta
+                        if delta.content:
+                            content_parts.append(delta.content)
+                            if len(content_parts) % 50 == 0:
+                                print(".", end="", flush=True)
+                        if delta.tool_calls:
+                            for tc_delta in delta.tool_calls:
+                                idx = tc_delta.index
+                                while len(tool_calls_acc) <= idx:
+                                    tool_calls_acc.append({"id": "", "function": {"name": "", "arguments": ""}})
+                                if tc_delta.id:
+                                    tool_calls_acc[idx]["id"] = tc_delta.id
+                                if tc_delta.function:
+                                    if tc_delta.function.name:
+                                        tool_calls_acc[idx]["function"]["name"] += tc_delta.function.name
+                                    if tc_delta.function.arguments:
+                                        tool_calls_acc[idx]["function"]["arguments"] += tc_delta.function.arguments
+                    print(flush=True)
+                    return "".join(content_parts), tool_calls_acc
+                
+                retry_content, retry_tool_calls = await asyncio.to_thread(_retry_with_tools)
+                
+                # If model made tool calls in retry, execute them and do one more final round
+                if retry_tool_calls:
+                    print(f"  [ToolLoop] Retry: {len(retry_tool_calls)} computation tool call(s)")
+                    assistant_msg = {"role": "assistant", "content": retry_content or None, "tool_calls": [
+                        {"id": tc["id"], "type": "function", "function": {"name": tc["function"]["name"], "arguments": tc["function"]["arguments"]}}
+                        for tc in retry_tool_calls
+                    ]}
+                    messages.append(assistant_msg)
+                    for tc_data in retry_tool_calls:
+                        func_name = tc_data["function"]["name"]
+                        try:
+                            args = json.loads(tc_data["function"]["arguments"])
+                        except json.JSONDecodeError:
+                            args = {}
+                        tool_call = {"tool": func_name, "reason": "native function call"}
+                        if func_name in COMPUTATION_TOOL_NAMES:
+                            tool_call["params_json"] = json.dumps(args)
+                        else:
+                            tool_call["query"] = args.get("query", "")
+                        print(f"  [ToolExecutor] {func_name}: ...")
+                        obs = await tool_executor.execute(tool_call)
+                        obs_clean = obs.replace("<tool_observation>", "").replace("</tool_observation>", "").strip()
+                        messages.append({"role": "tool", "tool_call_id": tc_data["id"], "content": obs_clean})
+                    # Final generation with tool results
+                    messages.append({"role": "user", "content": "Now write your COMPLETE expert analysis using the computation results above. 400+ words."})
+                    retry_content, _, _ = await asyncio.to_thread(_stream_with_tools)
+                
+                if retry_content and _is_valid_analysis(retry_content):
                     result = retry_content
                 else:
                     result = final_content

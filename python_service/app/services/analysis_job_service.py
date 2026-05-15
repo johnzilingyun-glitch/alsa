@@ -74,6 +74,8 @@ class AnalysisJobService:
             quote = snapshot.get("quote", {})
             from datetime import datetime as _dt
             result = {
+                "symbol": symbol,
+                "market": market,
                 "stockInfo": {
                     "symbol": symbol,
                     "market": market,
@@ -179,6 +181,8 @@ class AnalysisJobService:
         quote = snapshot.get("quote", {})
         from datetime import datetime as _dt
         result = {
+            "symbol": symbol,
+            "market": market,
             "stockInfo": {
                 "symbol": symbol,
                 "market": market,
@@ -500,6 +504,11 @@ class AnalysisJobService:
         result["summary_verdict"] = run.summary_verdict
         result["score"] = run.score
         result["risk_level"] = run.risk_level
+        # Ensure top-level symbol/market for report generator
+        if "symbol" not in result:
+            result["symbol"] = run.symbol
+        if "market" not in result:
+            result["market"] = run.market
         
         # Backfill structured fields if missing (for older jobs)
         if "sentiment" not in result or "recommendation" not in result:

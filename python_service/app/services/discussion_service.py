@@ -35,8 +35,9 @@ STANDARD_TOPOLOGY = [
 
 QUICK_TOPOLOGY = [
     {"round": 1, "experts": ["Deep Research Specialist"], "parallel": False},
-    {"round": 2, "experts": ["Risk Manager"], "parallel": False},
-    {"round": 3, "experts": ["Chief Strategist"], "parallel": False},
+    {"round": 2, "experts": ["Fundamental Analyst"], "parallel": False},
+    {"round": 3, "experts": ["Risk Manager"], "parallel": False},
+    {"round": 4, "experts": ["Chief Strategist"], "parallel": False},
 ]
 
 class DiscussionService:
@@ -144,6 +145,8 @@ class DiscussionService:
              commodity_data = await macro_service.get_commodity_prices(["Lithium Carbonate"])
         elif any(keyword in name_lower for keyword in ["copper", "铜", "mining", "矿"]):
              commodity_data = await macro_service.get_commodity_prices(["Copper"])
+        elif any(keyword in name_lower for keyword in ["铝", "aluminum", "alumin", "bauxite", "铝土"]):
+             commodity_data = await macro_service.get_commodity_prices(["Aluminum", "Alumina"])
         elif any(keyword in name_lower for keyword in ["能源", "energy", "煤", "coal", "烯烃", "olefin", "化工", "chemical", "石化", "petro", "宝丰"]):
              commodity_data = await macro_service.get_commodity_prices(["Crude Oil", "Methanol", "Polypropylene", "LLDPE"])
              # Also get Brent oil price (in USD) for international benchmark
@@ -233,7 +236,7 @@ class DiscussionService:
         else:
             # Other models — use tool-calling loop (web_search, news_search, knowledge_search)
             try:
-                content = await llm_gateway.generate_with_tools(prompt, model=model, max_tool_rounds=3, on_chunk=_on_chunk, gemini_api_key=config.get("geminiApiKey") if config else None, deepseek_api_key=config.get("deepseekApiKey") if config else None)
+                content = await llm_gateway.generate_with_tools(prompt, model=model, max_tool_rounds=5, on_chunk=_on_chunk, gemini_api_key=config.get("geminiApiKey") if config else None, deepseek_api_key=config.get("deepseekApiKey") if config else None)
             except Exception as e:
                 error_msg = str(e)
                 if "402" in error_msg or "Insufficient Balance" in error_msg:
@@ -519,8 +522,10 @@ class DiscussionService:
             if market == "A-Share":
                 # A-Share format from stock_financial_abstract_ths
                 sections.append("以下为最近各报告期的核心财务指标，已由API直接提供。")
-                header = "| 报告期 | 营业总收入 | 营收同比 | 净利润 | 净利润同比 | 扣非净利润 | 扣非同比 | 毛利率 | 净利率 | ROE | EPS | 每股经营现金流 | 资产负债率 |"
-                divider = "|---|---|---|---|---|---|---|---|---|---|---|---|---|"
+                # Compute estimated PE/PB at each quarter-end using current price as approximation
+                current_price = get_val('price', 'currentPrice')
+                header = "| 报告期 | 营业总收入 | 营收同比 | 净利润 | 净利润同比 | 扣非净利润 | 扣非同比 | 毛利率 | 净利率 | ROE | EPS | BVPS | 每股经营现金流 | 资产负债率 |"
+                divider = "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"
                 sections.append(header)
                 sections.append(divider)
                 for q in quarterly_history:
@@ -536,9 +541,34 @@ class DiscussionService:
                         f"| {q.get('netMargin', 'N/A')} "
                         f"| {q.get('roe', 'N/A')} "
                         f"| {q.get('eps', 'N/A')} "
+                        f"| {q.get('bvps', 'N/A')} "
                         f"| {q.get('ocfPerShare', 'N/A')} "
                         f"| {q.get('debtRatio', 'N/A')} |"
                     )
+                # Add PE/PB estimation guidance
+                if current_price and current_price != "N/A":
+                    try:
+                        price_f = float(current_price)
+                        sections.append(f"\n**估值参考 (基于当前价格 {price_f} {listing_currency}):**")
+                        for q in quarterly_history:
+                            period = q.get('period', '')
+                            bvps = q.get('bvps')
+                            eps = q.get('eps')
+                            if bvps and eps:
+                                try:
+                                    bvps_f = float(bvps)
+                                    eps_f = float(eps)
+                                    pb_est = round(price_f / bvps_f, 2) if bvps_f > 0 else "N/A"
+                                    # For annual reports (12-31), compute trailing PE
+                                    if period.endswith('12-31') and eps_f > 0:
+                                        pe_est = round(price_f / eps_f, 2)
+                                        sections.append(f"- {period}: PB≈{pb_est} (当前价/{bvps_f}), PE≈{pe_est} (当前价/年EPS {eps_f})")
+                                    else:
+                                        sections.append(f"- {period}: PB≈{pb_est} (当前价/{bvps_f})")
+                                except (ValueError, ZeroDivisionError):
+                                    pass
+                    except (ValueError, TypeError):
+                        pass
             else:
                 # US/HK format from yfinance quarterly_financials
                 sections.append("以下为最近各季度的核心财务指标 (yfinance)。")

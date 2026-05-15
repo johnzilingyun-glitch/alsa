@@ -367,10 +367,14 @@ def get_openai_tools() -> list:
         properties = {}
         required = []
         for param_name, param_info in tool_def.get("parameters", {}).items():
-            properties[param_name] = {
+            prop = {
                 "type": param_info["type"],
                 "description": param_info["description"]
             }
+            # OpenAI schema requires "items" for array types
+            if param_info["type"] == "array":
+                prop["items"] = {"type": "object"}
+            properties[param_name] = prop
             if param_info.get("required"):
                 required.append(param_name)
 

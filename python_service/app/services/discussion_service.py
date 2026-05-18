@@ -40,12 +40,22 @@ QUICK_TOPOLOGY = [
     {"round": 4, "experts": ["Chief Strategist"], "parallel": False},
 ]
 
+# --- Sector Analysis Topology ---
+SECTOR_TOPOLOGY = [
+    {"round": 1, "experts": ["Sector Macro Strategist"], "parallel": False},
+    {"round": 2, "experts": ["Sector Stock Screener"], "parallel": False},
+    {"round": 3, "experts": ["Sector Risk Auditor"], "parallel": False},
+    {"round": 4, "experts": ["Sector Chief Strategist"], "parallel": False},
+]
+
 class DiscussionService:
     def __init__(self):
         pass
 
     def build_topology(self, level: str, asset_type: str = "equity") -> List[Dict[str, Any]]:
-        if level == "quick":
+        if level == "sector":
+            template = SECTOR_TOPOLOGY
+        elif level == "quick":
             template = QUICK_TOPOLOGY
         elif level == "standard":
             template = STANDARD_TOPOLOGY
@@ -75,6 +85,10 @@ class DiscussionService:
         messages = []
         market = snapshot.get("market", "us")
         self._cumulative_count = 0  # Track total chars across all experts
+        
+        # Clear tool executor cache from previous jobs
+        from .expert_tools import tool_executor
+        tool_executor.clear_cache()
         
         # Pre-search enrichment: batch search ONCE before all experts
         search_results = {}
@@ -131,6 +145,9 @@ class DiscussionService:
             # Fallback to simple instruction if prompt not found in DB
             template = f"You are a {role}. Provide professional institutional research analysis for {symbol}."
 
+        # Replace template variables (e.g. {sector_name} in sector prompts)
+        template = template.replace("{sector_name}", name)
+
         # 2. Get Brain Context
         brain_context = brain_manager.get_brain_context("default", query=f"{symbol} {name}", role=role.lower())
         
@@ -163,7 +180,7 @@ class DiscussionService:
 
         # Get Macro Regime (cross-asset ratio analysis) for Risk Manager and Chief Strategist
         macro_regime_text = ""
-        if role in ("Risk Manager", "Chief Strategist", "Macro Hedge Titan"):
+        if role in ("Risk Manager", "Chief Strategist", "Macro Hedge Titan", "Sector Macro Strategist", "Sector Chief Strategist", "Sector Risk Auditor"):
             try:
                 from .macro_regime_service import get_macro_regime_text
                 macro_regime_text = await get_macro_regime_text()
@@ -234,9 +251,12 @@ class DiscussionService:
             # Gemini has native Google Search — use standard call (tools handled by model)
             content = await llm_gateway.generate_content(prompt, model=model, on_chunk=_on_chunk, gemini_api_key=config.get("geminiApiKey") if config else None)
         else:
+            # Determine max tool rounds per role: sector risk/chief need fewer rounds
+            sector_light_roles = {"Sector Risk Auditor", "Sector Chief Strategist"}
+            effective_max_rounds = 3 if role in sector_light_roles else 5
             # Other models — use tool-calling loop (web_search, news_search, knowledge_search)
             try:
-                content = await llm_gateway.generate_with_tools(prompt, model=model, max_tool_rounds=5, on_chunk=_on_chunk, gemini_api_key=config.get("geminiApiKey") if config else None, deepseek_api_key=config.get("deepseekApiKey") if config else None)
+                content = await llm_gateway.generate_with_tools(prompt, model=model, max_tool_rounds=effective_max_rounds, on_chunk=_on_chunk, gemini_api_key=config.get("geminiApiKey") if config else None, deepseek_api_key=config.get("deepseekApiKey") if config else None)
             except Exception as e:
                 error_msg = str(e)
                 if "402" in error_msg or "Insufficient Balance" in error_msg:
@@ -477,6 +497,31 @@ class DiscussionService:
 
         # Structured Market Data (P2-11: replace raw JSON dump with structured format)
         sections.append("\n--- [API DATA / MARKET SNAPSHOT] ---")
+
+        # Sector constituent stocks with REAL-TIME prices (for sector analysis)
+        sector_stocks = snapshot.get("sector_stocks", [])
+        if sector_stocks:
+            sections.append("\n--- [API] 板块成分股实时行情 (AkShare 权威数据，优先级最高) ---")
+            sections.append(f"⚠ 以下为 {name}板块 TOP {len(sector_stocks)} 成分股的**实时价格**，来自交易所权威数据源。")
+            sections.append(">>> 严禁使用训练数据中的股票价格。推荐个股时，当前价必须引用下表中的价格。如果推荐的股票不在下表中，必须使用 financial_data 工具获取真实价格。 <<<")
+            sections.append("")
+            sections.append("| 代码 | 名称 | 最新价(元) | 涨跌幅(%) | PE(动) | PB | 总市值(亿) | 换手率(%) |")
+            sections.append("|------|------|-----------|----------|--------|------|----------|----------|")
+            for s in sector_stocks:
+                sections.append(
+                    f"| {s.get('code', '')} "
+                    f"| {s.get('name', '')} "
+                    f"| {s.get('price', 'N/A')} "
+                    f"| {s.get('change_pct', 'N/A')} "
+                    f"| {s.get('pe', 'N/A')} "
+                    f"| {s.get('pb', 'N/A')} "
+                    f"| {s.get('market_cap_yi', 'N/A')} "
+                    f"| {s.get('turnover_pct', 'N/A')} |"
+                )
+            sections.append("")
+            sections.append("⚠ 以上价格为交易所实时数据。你的推荐表格中的'当前价'列必须使用这些价格。如果某只推荐股不在上表中，你必须使用 `financial_data` 工具查询其真实价格，严禁编造。")
+            sections.append("")
+
         quote = snapshot.get("quote", {})
         valuation = snapshot.get("valuation", {})
         financials = snapshot.get("financials", {})

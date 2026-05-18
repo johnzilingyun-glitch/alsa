@@ -14,6 +14,7 @@ import { useAnalysisStore } from '../../stores/useAnalysisStore';
 import { ErrorNotice } from '../ErrorNotice';
 import { getMarketHistoryByDate, getAvailableMarketDates } from '../../services/adminService';
 import { InstitutionalAlertPanel } from './InstitutionalAlertPanel';
+import { SectorScanner } from './SectorScanner';
 import { alertsClient } from '../../services/api/alertsClient';
 import { Target, Activity, Star as StarIcon, Heart, Trash2 } from 'lucide-react';
 
@@ -498,6 +499,11 @@ export const MarketOverview = memo(function MarketOverview({ onFetchMarketOvervi
               </button>
             ))}
           </div>
+        )}
+
+        {/* Sector Scanner */}
+        {!isHistoryMode && overviewMarket === 'A-Share' && (
+          <SectorScanner />
         )}
 
         <div className="grid grid-cols-2 gap-4 md:grid-cols-5">

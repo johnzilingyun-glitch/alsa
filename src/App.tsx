@@ -79,6 +79,8 @@ export default function App() {
     handleSendDiscussionReport,
     handleSendHistoryToFeishu,
     handleExportFullReport,
+    handleExportPdf,
+    handleExportShareCard,
   } = useReporting(fetchAdminData);
 
   // URL state sync: auto-search from ?symbol=&market= on first load
@@ -162,6 +164,13 @@ export default function App() {
             isOpen={isHistoryOpen} 
             onClose={() => setIsHistoryOpen(false)} 
             onSelect={(item) => {
+              // Sector history items → open report in new tab
+              if (item.type === 'sector' && item.jobId) {
+                window.open(`/api/sector/report/${item.jobId}`, '_blank');
+                setIsHistoryOpen(false);
+                return;
+              }
+
               setAnalysis(item);
               setSymbol(item.stockInfo?.symbol || '');
               setMarket(item.stockInfo?.market || 'A-Share');
@@ -246,6 +255,8 @@ export default function App() {
             <AnalysisResult
               onResetToHome={resetToHome}
               onExportFullReport={handleExportFullReport}
+              onExportPdf={handleExportPdf}
+              onExportShareCard={handleExportShareCard}
               onSendStockReport={handleSendStockReport}
               onSendDiscussionReport={handleSendDiscussionReport}
               onSendChatReport={handleSendChatReport}

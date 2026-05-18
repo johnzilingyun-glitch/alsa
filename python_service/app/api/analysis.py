@@ -152,3 +152,96 @@ async def generate_report(job_id: str, body: ReportRequest = None, service: Anal
     finally:
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
+
+
+@router.post("/jobs/{job_id}/export/pdf")
+async def export_pdf(job_id: str, body: ReportRequest = None, service: AnalysisJobService = Depends(get_job_service)):
+    """Export analysis report as PDF."""
+    from ..services.report_generator_service import ReportGeneratorService
+    from ..services.export_service import export_service
+    import tempfile, os
+
+    if body is None:
+        body = ReportRequest()
+
+    job = service.job_repo.get_by_id(job_id)
+    if not job:
+        return error_response("JOB_NOT_FOUND", "Job not found")
+    if job.status != "completed" or not job.result_payload:
+        return error_response("JOB_NOT_READY", "Job is not completed or has no results")
+
+    result = json.loads(job.result_payload)
+    report_service = ReportGeneratorService()
+
+    tmp_path = os.path.join(tempfile.gettempdir(), f"{job.symbol}_{job_id}_report.html")
+    try:
+        await report_service.generate_html_report_async(
+            result, tmp_path, model=job.requested_model,
+            deepseek_api_key=body.deepseekApiKey
+        )
+        with open(tmp_path, "r", encoding="utf-8") as f:
+            html_content = f.read()
+
+        pdf_bytes = await export_service.html_to_pdf(html_content)
+        filename = f"EquityResearch_{job.symbol}_{job_id}.pdf"
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+    except Exception as e:
+        return error_response("PDF_EXPORT_FAILED", f"PDF export failed: {str(e)}")
+    finally:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+
+
+@router.post("/jobs/{job_id}/export/share-card")
+async def export_share_card(job_id: str, service: AnalysisJobService = Depends(get_job_service)):
+    """Generate a share card image (PNG) for social sharing."""
+    from ..services.export_service import export_service
+
+    job = service.job_repo.get_by_id(job_id)
+    if not job:
+        return error_response("JOB_NOT_FOUND", "Job not found")
+    if job.status != "completed" or not job.result_payload:
+        return error_response("JOB_NOT_READY", "Job is not completed or has no results")
+
+    result = json.loads(job.result_payload)
+    stock_info = result.get("stockInfo", {})
+    summary = result.get("summary", {})
+
+    # Extract key fields
+    title = f"{stock_info.get('name', '')} ({stock_info.get('symbol', '')})"
+    verdict = summary.get("verdict", "") if isinstance(summary, dict) else ""
+    score = summary.get("score") if isinstance(summary, dict) else None
+    price_str = str(stock_info.get("price", "")) if stock_info.get("price") else None
+    change_pct = None
+    if stock_info.get("changePercent") is not None:
+        cp = stock_info["changePercent"]
+        change_pct = f"+{cp}%" if cp >= 0 else f"{cp}%"
+
+    # Extract highlights from summary
+    highlights = []
+    if isinstance(summary, dict):
+        for key in ("moat", "catalyst", "risk"):
+            val = summary.get(key)
+            if val and isinstance(val, str):
+                highlights.append(val[:80])
+
+    card_html = export_service.build_share_card_html(
+        title=title,
+        verdict=verdict,
+        score=float(score) if score else None,
+        price=price_str,
+        change_pct=change_pct,
+        highlights=highlights,
+        report_type=result.get("job_type", "stock"),
+    )
+    png_bytes = await export_service.html_to_image(card_html, width=460)
+    filename = f"ShareCard_{stock_info.get('symbol', 'report')}.png"
+    return Response(
+        content=png_bytes,
+        media_type="image/png",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )

@@ -14,11 +14,14 @@ export default defineConfig(({ mode }) => {
     optimizeDeps: {
       include: [
         'react', 'react-dom', 'react-dom/client',
-        'motion/react', 'lucide-react', 
+        'motion/react', 'framer-motion', 'lucide-react',
         'react-i18next', 'i18next', 'i18next-browser-languagedetector',
         'clsx', 'tailwind-merge',
         'zustand', 'zustand/middleware',
         '@google/genai',
+        'react-markdown', 'remark-gfm', 'rehype-raw',
+        'recharts',
+        'socket.io-client',
       ],
     },
     build: {
@@ -26,8 +29,19 @@ export default defineConfig(({ mode }) => {
       minify: 'esbuild',
     },
     server: {
-      hmr: {
-        port: 0,
+      port: 5173,
+      proxy: {
+        '/api': {
+          target: 'http://localhost:3000',
+          changeOrigin: true,
+        },
+        '/socket.io': {
+          target: 'http://localhost:3000',
+          ws: true,
+        },
+      },
+      warmup: {
+        clientFiles: ['./src/main.tsx', './src/App.tsx', './src/i18n/index.ts'],
       },
       watch: {
         ignored: ['**/data/**', '**/python_service/**', '**/server/**', '**/server.ts', '**/scratch/**', '**/logs/**', '**/docs/**'],

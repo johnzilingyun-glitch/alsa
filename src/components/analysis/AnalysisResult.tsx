@@ -21,6 +21,8 @@ const InstitutionalReportView = lazy(() => import('./InstitutionalReportView').t
 interface AnalysisResultProps {
   onResetToHome: () => void;
   onExportFullReport: () => void;
+  onExportPdf?: () => void;
+  onExportShareCard?: () => void;
   onSendStockReport: () => void;
   onSendDiscussionReport: () => void;
   onSendChatReport: () => void;
@@ -32,6 +34,8 @@ interface AnalysisResultProps {
 export function AnalysisResult({
   onResetToHome,
   onExportFullReport,
+  onExportPdf,
+  onExportShareCard,
   onSendStockReport,
   onSendDiscussionReport,
   onSendChatReport,
@@ -94,6 +98,8 @@ export function AnalysisResult({
       <AnalysisActionBar
         onResetToHome={onResetToHome}
         onExportFullReport={onExportFullReport}
+        onExportPdf={onExportPdf}
+        onExportShareCard={onExportShareCard}
         onSendStockReport={onSendStockReport}
       />
 

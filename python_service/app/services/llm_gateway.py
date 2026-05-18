@@ -391,8 +391,8 @@ class LLMGateway:
                 assistant_msg["reasoning_content"] = reasoning_content
             messages.append(assistant_msg)
             
-            # Execute each tool and append result as role:tool message
-            for tc_data in tool_calls_data:
+            # Execute all tool calls in PARALLEL for speed, then append results in order
+            async def _exec_one_tool(tc_data):
                 func_name = tc_data["function"]["name"]
                 try:
                     args = json.loads(tc_data["function"]["arguments"])
@@ -408,7 +408,6 @@ class LLMGateway:
                     tool_call["symbol"] = args.get("symbol", "")
                     tool_call["query"] = args.get("query", "")
                 elif func_name in COMPUTATION_TOOL_NAMES:
-                    # Computation tools expect params_json — pass the full args dict
                     tool_call["params_json"] = json.dumps(args)
                 else:
                     tool_call["query"] = args.get("query", "")
@@ -417,14 +416,20 @@ class LLMGateway:
                 print(f"  [ToolExecutor] {func_name}: {label}...")
                 
                 obs = await tool_executor.execute(tool_call)
-                # Strip XML tags — native tool API uses plain content in messages
                 obs_clean = obs.replace("<tool_observation>", "").replace("</tool_observation>", "").strip()
-                
-                messages.append({
-                    "role": "tool",
-                    "tool_call_id": tc_data["id"],
-                    "content": obs_clean
-                })
+                return tc_data["id"], obs_clean
+            
+            # Run all tool calls concurrently
+            tool_results = await asyncio.gather(*[_exec_one_tool(tc) for tc in tool_calls_data], return_exceptions=True)
+            
+            # Append results in order as role:tool messages
+            for i, result_or_exc in enumerate(tool_results):
+                if isinstance(result_or_exc, Exception):
+                    tc_id = tool_calls_data[i]["id"]
+                    messages.append({"role": "tool", "tool_call_id": tc_id, "content": f"Tool execution error: {result_or_exc}"})
+                else:
+                    tc_id, obs_clean = result_or_exc
+                    messages.append({"role": "tool", "tool_call_id": tc_id, "content": obs_clean})
         
         # Prefer final analysis content; fall back to tool-round thinking text if final round failed
         # Quality gate: check if final_content is real analysis vs raw computation tool params

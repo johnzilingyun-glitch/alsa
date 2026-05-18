@@ -476,11 +476,15 @@ class ToolExecutor:
     Executes tool calls by dispatching to the appropriate service.
     
     Requires lazy imports to avoid circular dependencies.
+    Includes a session-level result cache for financial_data to avoid
+    redundant API calls across expert rounds (e.g., Screener and Risk Auditor
+    fetching the same stock data).
     """
 
     def __init__(self):
         self._search_service = None
         self._brain_manager = None
+        self._financial_cache: Dict[str, str] = {}  # Cache: "symbol|query_hash" -> result
 
     @property
     def search_service(self):
@@ -698,11 +702,18 @@ class ToolExecutor:
             return f"<tool_observation>\ndeep_scrape error for {url}: {str(e)}\n</tool_observation>"
 
     async def _exec_financial_data(self, symbol: str, query: str) -> str:
-        """Fetch structured financial data from AkShare/yfinance based on the query."""
+        """Fetch structured financial data from AkShare/yfinance based on the query.
+        Uses session-level cache to avoid redundant API calls across expert rounds."""
         import akshare as ak
         import yfinance as yf
         from ..utils.network import safe_ak_call
         from ..utils.data_validation import validate_ak_data
+
+        # Cache key: symbol + normalized query keywords for category matching
+        cache_key = f"{symbol}|{query.lower().strip()}"
+        if cache_key in self._financial_cache:
+            print(f"  [ToolExecutor] financial_data CACHE HIT: {symbol}")
+            return self._financial_cache[cache_key]
 
         query_lower = query.lower()
         lines = ["<tool_observation>"]
@@ -904,7 +915,11 @@ class ToolExecutor:
             lines.append("No matching financial data found for the query. Try a more specific query or different keywords.")
 
         lines.append("</tool_observation>")
-        return "\n".join(lines)
+        result = "\n".join(lines)
+        
+        # Store in cache for future rounds
+        self._financial_cache[cache_key] = result
+        return result
 
     async def execute_all(self, tool_calls: List[Dict[str, str]]) -> List[str]:
         """Execute multiple tool calls (sequentially to respect rate limits)."""
@@ -917,6 +932,10 @@ class ToolExecutor:
             # Small delay between calls
             await asyncio.sleep(0.3)
         return observations
+
+    def clear_cache(self):
+        """Clear the financial data cache. Call between analysis jobs."""
+        self._financial_cache.clear()
 
 
 # Singleton

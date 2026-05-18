@@ -79,7 +79,7 @@ export async function getPreviousStockAnalysis(symbol: string): Promise<any | nu
   }
 }
 
-export async function saveAnalysisToHistory(type: 'market' | 'stock', data: any) {
+export async function saveAnalysisToHistory(type: 'market' | 'stock' | 'sector', data: any) {
   try {
     const response = await fetch('/api/history/save', {
       method: 'POST',

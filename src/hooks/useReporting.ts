@@ -234,6 +234,65 @@ export function useReporting(fetchAdminData: () => Promise<void>) {
     });
   }, [analysis]);
 
+  const handleExportPdf = useCallback(async () => {
+    if (!analysis) return;
+    const lastJobId = useAnalysisStore.getState().lastJobId;
+    if (!lastJobId) return;
+
+    setIsGeneratingReport(true);
+    try {
+      const config = useConfigStore.getState().config;
+      const res = await fetch(`/api/analysis/jobs/${lastJobId}/export/pdf`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ deepseekApiKey: config.deepseekApiKey || undefined }),
+      });
+      if (!res.ok) throw new Error(`PDF export failed: ${res.status}`);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `EquityResearch_${analysis.stockInfo?.symbol}_${new Date().toISOString().split('T')[0]}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      console.error('PDF export failed:', e);
+      setReportStatus('error');
+    } finally {
+      setIsGeneratingReport(false);
+    }
+  }, [analysis, setIsGeneratingReport, setReportStatus]);
+
+  const handleExportShareCard = useCallback(async () => {
+    if (!analysis) return;
+    const lastJobId = useAnalysisStore.getState().lastJobId;
+    if (!lastJobId) return;
+
+    setIsGeneratingReport(true);
+    try {
+      const res = await fetch(`/api/analysis/jobs/${lastJobId}/export/share-card`, {
+        method: 'POST',
+      });
+      if (!res.ok) throw new Error(`Share card generation failed: ${res.status}`);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `ShareCard_${analysis.stockInfo?.symbol}.png`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      console.error('Share card generation failed:', e);
+      setReportStatus('error');
+    } finally {
+      setIsGeneratingReport(false);
+    }
+  }, [analysis, setIsGeneratingReport, setReportStatus]);
+
   return {
     sendReport,
     handleTriggerDailyReport,
@@ -242,5 +301,7 @@ export function useReporting(fetchAdminData: () => Promise<void>) {
     handleSendDiscussionReport,
     handleSendHistoryToFeishu,
     handleExportFullReport,
+    handleExportPdf,
+    handleExportShareCard,
   };
 }

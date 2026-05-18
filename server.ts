@@ -1,6 +1,5 @@
 import { Server } from 'socket.io';
 import express from 'express';
-import { createServer as createViteServer } from 'vite';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
@@ -97,7 +96,8 @@ async function startServer() {
         '/api/journal', 
         '/api/watchlist', 
         '/api/alerts',
-        '/api/analysis'
+        '/api/analysis',
+        '/api/sector'
       ];
       return targets.some(t => path.startsWith(t));
     },
@@ -121,23 +121,6 @@ async function startServer() {
     res.status(404).json({ error: `API route ${req.originalUrl} not found` });
   });
 
-  // Vite middleware for development
-  if (process.env.NODE_ENV !== 'production') {
-    const vite = await createViteServer({
-      root: __dirname,
-      server: { 
-        middlewareMode: true,
-        hmr: { port: 0 } 
-      },
-      appType: 'spa',
-    });
-    app.use(vite.middlewares);
-    // SPA fallback for development mode
-    app.get('*', (req, res) => {
-      res.redirect('/');
-    });
-  }
-
   // Production serving
   if (process.env.NODE_ENV === 'production') {
     const distPath = path.join(__dirname, 'dist');
@@ -145,8 +128,14 @@ async function startServer() {
     app.get('*', (req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));
     });
+  } else {
+    // Dev mode: redirect root to Vite dev server
+    app.get('/', (req, res) => {
+      res.redirect('http://localhost:5173/');
+    });
   }
 
+  // Start HTTP listener
   const server = app.listen(PORT, '0.0.0.0', () => {
     console.log(`Server running on http://localhost:${PORT}`);
     console.log(`GEMINI_API_KEY configured: ${!!process.env.GEMINI_API_KEY}`);

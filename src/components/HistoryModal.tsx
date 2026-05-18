@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Search, Clock, BarChart3, ChevronRight, Trash2, History as HistoryIcon } from 'lucide-react';
+import { X, Search, Clock, BarChart3, ChevronRight, Trash2, History as HistoryIcon, Layers } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { getHistoryContext, deleteHistoryItem } from '../services/aiService';
 import { useUIStore } from '../stores/useUIStore';
@@ -35,10 +35,16 @@ export function HistoryModal({ isOpen, onClose, onSelect }: HistoryModalProps) {
     }
   }, [isOpen]);
 
-  const filteredHistory = history.filter(item => 
-    item.stockInfo?.symbol?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    item.stockInfo?.name?.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredHistory = history.filter(item => {
+    const term = searchTerm.toLowerCase();
+    if (!term) return true;
+    if (item.type === 'sector') {
+      return item.sectorName?.toLowerCase().includes(term) ||
+             item.stockInfo?.name?.toLowerCase().includes(term);
+    }
+    return item.stockInfo?.symbol?.toLowerCase().includes(term) ||
+           item.stockInfo?.name?.toLowerCase().includes(term);
+  });
 
   const handleDelete = async (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
@@ -109,7 +115,7 @@ export function HistoryModal({ isOpen, onClose, onSelect }: HistoryModalProps) {
                 <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-400 group-focus-within:text-indigo-600 transition-colors" size={18} />
                 <input
                   type="text"
-                  placeholder="搜索历史股票代码或名称..."
+                  placeholder="搜索股票代码、名称或板块..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   className="input-premium h-12 pl-12 pr-6"
@@ -148,6 +154,9 @@ export function HistoryModal({ isOpen, onClose, onSelect }: HistoryModalProps) {
               ) : (
                 filteredHistory.map((item, idx) => {
                   const itemKey = generateHistoryItemKey(item, idx);
+                  const isSector = item.type === 'sector';
+                  const displayName = isSector ? (item.sectorName || item.stockInfo?.name || '板块分析') : item.stockInfo?.name;
+                  const displaySymbol = isSector ? '板块分析' : item.stockInfo?.symbol;
                   return (
                     <div
                       key={itemKey}
@@ -158,14 +167,25 @@ export function HistoryModal({ isOpen, onClose, onSelect }: HistoryModalProps) {
                       className="w-full flex items-center justify-between p-5 bg-white hover:bg-zinc-50 rounded-2xl transition-all border border-zinc-100 hover:border-zinc-200 group cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-indigo-600 focus-visible:ring-offset-2"
                     >
                       <div className="flex items-center gap-5">
-                        <div className="w-12 h-12 rounded-xl bg-zinc-50 border border-zinc-100 flex items-center justify-center text-zinc-400 group-hover:bg-white group-hover:text-indigo-600 transition-all">
-                          <BarChart3 size={20} />
+                        <div className={`w-12 h-12 rounded-xl border flex items-center justify-center transition-all ${
+                          isSector
+                            ? 'bg-violet-50 border-violet-100 text-violet-400 group-hover:bg-white group-hover:text-violet-600'
+                            : 'bg-zinc-50 border-zinc-100 text-zinc-400 group-hover:bg-white group-hover:text-indigo-600'
+                        }`}>
+                          {isSector ? <Layers size={20} /> : <BarChart3 size={20} />}
                         </div>
                         <div className="text-left">
-                          <h4 className="font-bold text-zinc-900 group-hover:text-indigo-600 transition-colors">{item.stockInfo?.name}</h4>
+                          <h4 className="font-bold text-zinc-900 group-hover:text-indigo-600 transition-colors">{displayName}</h4>
                           <div className="flex items-center gap-2 mt-0.5">
-                            <span className="font-mono text-[10px] font-bold text-zinc-400 group-hover:text-zinc-500 transition-colors">{item.stockInfo?.symbol}</span>
-                            {item.chatHistory && item.chatHistory.length > 0 && (
+                            <span className={`font-mono text-[10px] font-bold group-hover:text-zinc-500 transition-colors ${
+                              isSector ? 'text-violet-400' : 'text-zinc-400'
+                            }`}>{displaySymbol}</span>
+                            {isSector && (
+                              <span className="px-1.5 py-0.5 rounded-md bg-violet-50 text-[8px] font-black uppercase text-violet-600 tracking-tighter">
+                                板块研报
+                              </span>
+                            )}
+                            {!isSector && item.chatHistory && item.chatHistory.length > 0 && (
                               <span className="px-1.5 py-0.5 rounded-md bg-indigo-50 text-[8px] font-black uppercase text-indigo-600 tracking-tighter">
                                 已沉淀对话
                               </span>

@@ -4,7 +4,9 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "tsx server.ts",
+    "dev": "npx concurrently -n api,vite -c blue,green \"tsx server.ts\" \"vite\"",
+    "dev:api": "tsx server.ts",
+    "dev:vite": "vite",
     "dev:py": ".\\.venv\\Scripts\\python -m uvicorn python_service.main:app --port 8001 --reload",
     "build": "vite build",
     "start": "cross-env NODE_ENV=production tsx server.ts",

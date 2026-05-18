@@ -68,7 +68,7 @@ export function addLogEntry(field: string, oldValue: any, newValue: any, descrip
   }
 }
 
-function saveAnalysis(type: 'market' | 'stock', data: any) {
+function saveAnalysis(type: 'market' | 'stock' | 'sector', data: any) {
   const now = Date.now();
   const id = `${type}-${now}-${Math.random().toString(36).substr(2, 9)}`;
   // Ensure the object has type, id, and generatedAt for easier frontend recovery

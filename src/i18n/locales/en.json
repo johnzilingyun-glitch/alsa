@@ -115,6 +115,9 @@
     "actions": {
       "export_report": "Export Report",
       "export_full_report": "Export Full Dimension Report",
+      "export_html": "Export HTML",
+      "export_pdf": "Export PDF",
+      "export_share_card": "Generate Share Card",
       "feishu_stock": "Feishu Stock Card",
       "feishu_discussion": "Feishu Discussion Card",
       "feishu_chat": "Feishu Chat Card",

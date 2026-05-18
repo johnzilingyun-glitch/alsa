@@ -118,6 +118,9 @@
     "actions": {
       "export_report": "导出报告",
       "export_full_report": "导出全维度报告",
+      "export_html": "导出 HTML",
+      "export_pdf": "导出 PDF",
+      "export_share_card": "生成分享卡片",
       "feishu_stock": "发送飞书个股卡片",
       "feishu_discussion": "发送飞书研讨卡片",
       "feishu_chat": "发送飞书追问卡片",

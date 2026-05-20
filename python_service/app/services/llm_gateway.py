@@ -588,9 +588,27 @@ class LLMGateway:
                 if non_prose >= len(lines) * 0.7:
                     return False
             return True
+
+        def _is_analysis_fragment(text: str) -> bool:
+            """Check if tool-round content is real analysis (not just planning/filler text)."""
+            if not text or len(text.strip()) < 300:
+                return False
+            # Real analysis has markdown structure: headers, tables, bullet points
+            has_structure = ('##' in text or '|' in text or '- **' in text or '1.' in text)
+            # Filler is short sentences about searching/planning
+            filler_indicators = sum(1 for w in ['让我搜索', '我需要', 'let me search', 'I need to', 'I will now', '接下来我'] if w in text)
+            return has_structure and filler_indicators < 2
         
         if final_content and _is_valid_analysis(final_content):
-            result = final_content
+            # Check if model wrote analysis incrementally across tool-calling rounds
+            # (e.g. sections 1-9 during tool rounds, section 10 in final round)
+            analysis_fragments = [t for t in tool_round_text if _is_analysis_fragment(t)]
+            if analysis_fragments:
+                combined = "\n\n".join(analysis_fragments) + "\n\n" + final_content
+                print(f"  [ToolLoop] Merged {len(analysis_fragments)} incremental analysis fragment(s) ({sum(len(f) for f in analysis_fragments)} chars) with final content ({len(final_content)} chars)")
+                result = combined
+            else:
+                result = final_content
         elif final_content:
             # Final round produced short/invalid content — likely raw computation tool params
             print(f"  [ToolLoop] WARNING: Final round produced only {len(final_content)} chars or invalid content. Retrying with tools...")

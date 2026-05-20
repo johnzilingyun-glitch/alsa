@@ -98,8 +98,8 @@ class AStockDirectProvider(DataProvider):
         self, symbol: str, period: str = "3mo", interval: str = "1d"
     ) -> pd.DataFrame:
         """
-        Fetch K-line history from EastMoney push2his API.
-        Supports daily, weekly, monthly intervals.
+        Fetch K-line history. Tries EastMoney push2his first,
+        falls back to Tencent ifeng/web API on failure.
         """
         code = _clean_symbol(symbol)
         market_code = 1 if code.startswith(("6", "9")) else 0
@@ -118,13 +118,30 @@ class AStockDirectProvider(DataProvider):
         }
         klt = interval_map.get(interval, "101")
 
+        # Try EastMoney first
+        df = await self._fetch_eastmoney_kline(code, market_code, klt, limit, period)
+        if not df.empty:
+            return df
+
+        # Fallback: Tencent web K-line API
+        df = await self._fetch_tencent_kline(code, period, interval)
+        if not df.empty:
+            return df
+
+        logger.warning(f"[{self.name}] All kline sources failed for {code}")
+        return pd.DataFrame()
+
+    async def _fetch_eastmoney_kline(
+        self, code: str, market_code: int, klt: str, limit: int, period: str
+    ) -> pd.DataFrame:
+        """Fetch K-line from EastMoney push2his (blocked from non-China IPs)."""
         url = "https://push2his.eastmoney.com/api/qt/stock/kline/get"
         params = {
             "secid": f"{market_code}.{code}",
             "fields1": "f1,f2,f3,f4,f5,f6",
             "fields2": "f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61",
             "klt": klt,
-            "fqt": "1",  # 前复权
+            "fqt": "1",
             "end": "20500101",
             "lmt": str(limit),
         }
@@ -132,13 +149,12 @@ class AStockDirectProvider(DataProvider):
         loop = asyncio.get_event_loop()
         try:
             def _fetch():
-                r = requests.get(url, params=params, headers={"User-Agent": UA}, timeout=15)
+                r = requests.get(url, params=params, headers={"User-Agent": UA}, timeout=8)
                 return r.json()
 
             d = await loop.run_in_executor(None, _fetch)
             klines = d.get("data", {}).get("klines", [])
             if not klines:
-                logger.warning(f"[{self.name}] No kline data for {code}")
                 return pd.DataFrame()
 
             rows = []
@@ -156,11 +172,79 @@ class AStockDirectProvider(DataProvider):
                     })
 
             df = pd.DataFrame(rows)
-            logger.info(f"[{self.name}] Fetched {len(df)} bars for {code} (period={period})")
+            logger.info(f"[{self.name}] EastMoney kline: {len(df)} bars for {code} (period={period})")
             return normalize_ohlcv(df)
 
         except Exception as e:
-            logger.error(f"[{self.name}] get_history failed for {code}: {e}")
+            logger.debug(f"[{self.name}] EastMoney kline unavailable for {code}: {type(e).__name__}")
+            return pd.DataFrame()
+
+    async def _fetch_tencent_kline(
+        self, code: str, period: str = "3mo", interval: str = "1d"
+    ) -> pd.DataFrame:
+        """Fetch K-line from Tencent web.ifzq API (accessible from overseas)."""
+        prefix = _get_prefix(code)
+        qt_symbol = f"{prefix}{code}"
+
+        # Map period to day count for Tencent API
+        period_days = {
+            "1mo": 30, "3mo": 90, "6mo": 180,
+            "1y": 365, "2y": 730, "5y": 1825, "max": 3650,
+        }
+        days = period_days.get(period, 90)
+
+        # Tencent kline type: day/week/month
+        kline_type = "day"
+        if interval == "1wk":
+            kline_type = "week"
+        elif interval == "1mo":
+            kline_type = "month"
+
+        from datetime import datetime, timedelta
+        end_date = datetime.now().strftime("%Y-%m-%d")
+        start_date = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
+
+        url = f"https://web.ifzq.gtimg.cn/appstock/app/fqkline/get"
+        params = {
+            "_var": "kline_dayqfq",
+            "param": f"{qt_symbol},{kline_type},{start_date},{end_date},640,qfq",
+        }
+
+        loop = asyncio.get_event_loop()
+        try:
+            def _fetch():
+                r = requests.get(url, params=params, headers={"User-Agent": UA}, timeout=10)
+                text = r.text
+                # Response is JS variable assignment: kline_dayqfq={...}
+                json_str = text.split("=", 1)[1] if "=" in text else text
+                return json.loads(json_str)
+
+            d = await loop.run_in_executor(None, _fetch)
+            stock_data = d.get("data", {}).get(qt_symbol, {})
+
+            # Try qfq (前复权) key first, then day/week/month
+            klines = stock_data.get(f"qfq{kline_type}", stock_data.get(kline_type, []))
+            if not klines:
+                return pd.DataFrame()
+
+            rows = []
+            for k in klines:
+                if len(k) >= 6:
+                    rows.append({
+                        "date": k[0],
+                        "open": float(k[1]),
+                        "close": float(k[2]),
+                        "high": float(k[3]),
+                        "low": float(k[4]),
+                        "volume": float(k[5]),
+                    })
+
+            df = pd.DataFrame(rows)
+            logger.info(f"[{self.name}] Tencent kline: {len(df)} bars for {code} (period={period})")
+            return normalize_ohlcv(df)
+
+        except Exception as e:
+            logger.warning(f"[{self.name}] Tencent kline failed for {code}: {type(e).__name__}: {e}")
             return pd.DataFrame()
 
     async def get_quote(self, symbol: str) -> Optional[QuoteData]:
@@ -236,6 +320,7 @@ class AStockDirectProvider(DataProvider):
             })
 
         # 2. EastMoney stock info (industry, total shares, etc.)
+        # NOTE: EastMoney push2 is blocked from non-China IPs, use short timeout
         try:
             def _fetch_info():
                 market_code = 1 if code.startswith("6") else 0
@@ -245,28 +330,29 @@ class AStockDirectProvider(DataProvider):
                     "fields": "f57,f58,f84,f85,f127,f116,f117,f189,f43",
                     "secid": f"{market_code}.{code}",
                 }
-                r = requests.get(url, params=params, headers={"User-Agent": UA}, timeout=10)
+                r = requests.get(url, params=params, headers={"User-Agent": UA}, timeout=5)
                 return r.json().get("data", {})
 
             info = await loop.run_in_executor(None, _fetch_info)
-            result.update({
-                "longName": info.get("f58", ""),
-                "industry": info.get("f127", ""),
-                "totalShares": info.get("f84", 0),
-                "floatShares": info.get("f85", 0),
-                "listingDate": str(info.get("f189", "")),
-            })
+            if info:
+                result.update({
+                    "longName": info.get("f58", ""),
+                    "industry": info.get("f127", ""),
+                    "totalShares": info.get("f84", 0),
+                    "floatShares": info.get("f85", 0),
+                    "listingDate": str(info.get("f189", "")),
+                })
         except Exception as e:
-            logger.warning(f"[{self.name}] EastMoney info failed for {code}: {e}")
+            logger.debug(f"[{self.name}] EastMoney push2 unavailable for {code} (expected from overseas): {type(e).__name__}")
 
         # 3. Financial indicators from EastMoney datacenter
         try:
             def _fetch_indicators():
                 return _eastmoney_datacenter(
-                    "RPT_LICO_FN_CPD_BBBQ",
+                    "RPT_LICO_FN_CPD",
                     filter_str=f'(SECURITY_CODE="{code}")',
                     page_size=5,
-                    sort_columns="REPORT_DATE",
+                    sort_columns="REPORTDATE",
                     sort_types="-1",
                 )
 
@@ -274,21 +360,18 @@ class AStockDirectProvider(DataProvider):
             if indicators:
                 latest = indicators[0]
                 result.update({
-                    "roe": latest.get("ROEJQ"),
+                    "roe": latest.get("WEIGHTAVG_ROE"),
                     "grossMargin": latest.get("XSMLL"),
-                    "netMargin": latest.get("XSJLL"),
-                    "debtRatio": latest.get("ZCFZL"),
-                    "currentRatio": latest.get("LDBL"),
-                    "quickRatio": latest.get("SDBL"),
-                    "eps": latest.get("EPSJB"),
+                    "eps": latest.get("BASIC_EPS"),
                     "bvps": latest.get("BPS"),
                     "operatingCashflowPerShare": latest.get("MGJYXJJE"),
+                    "revenueGrowthYoY": latest.get("YSTZ"),
+                    "netProfitGrowthYoY": latest.get("SJLTZ"),
                 })
-                # Calculate growth from history
+                # Net profit for growth calculation
                 if len(indicators) >= 5:
-                    # YoY net profit growth (compare Q0 vs Q4)
-                    np0 = indicators[0].get("PARENTNETPROFIT")
-                    np4 = indicators[4].get("PARENTNETPROFIT")
+                    np0 = indicators[0].get("PARENT_NETPROFIT")
+                    np4 = indicators[4].get("PARENT_NETPROFIT")
                     if np0 and np4 and np4 != 0:
                         result["netProfitYoY"] = (np0 - np4) / abs(np4)
         except Exception as e:
@@ -328,7 +411,25 @@ class AStockDirectProvider(DataProvider):
                 }
                 r = requests.get(url, params=params, headers={"User-Agent": UA}, timeout=15)
                 d = r.json()
-                return d.get("result", {}).get("data", {}).get("lrb", [])
+                # API returns: result.data.report_list = {date: {data: [{item_title, item_value}, ...]}}
+                report_list = d.get("result", {}).get("data", {}).get("report_list", {})
+                if not report_list:
+                    return []
+                # Convert to list of dicts with item_title as key
+                parsed_reports = []
+                for date_key in sorted(report_list.keys(), reverse=True):
+                    report = report_list[date_key]
+                    items = report.get("data", [])
+                    if not items:
+                        continue
+                    row = {"报告日": date_key}
+                    for item in items:
+                        title = item.get("item_title", "")
+                        value = item.get("item_value")
+                        if title and value is not None:
+                            row[title] = value
+                    parsed_reports.append(row)
+                return parsed_reports
 
             lrb = await loop.run_in_executor(None, _fetch_sina_lrb)
             if lrb:

@@ -5,12 +5,16 @@ Implements the Strategy Pattern: detects market from ticker and
 routes to the optimal data provider. Falls back gracefully on failure.
 
 Routing rules:
-  A-Shares (6-digit/.SH/.SZ) → AStockDirectProvider (primary) → AkShareFallback
+  A-Shares (6-digit/.SH/.SZ) → AStockDirectProvider (primary, Tencent+Sina)
   HK (.HK / 4-5 digit)       → YFinanceProvider
   US (alpha / ^prefix)        → YFinanceProvider
+
+NOTE: AkShare fallback disabled — relies on EastMoney which is blocked
+from non-China IPs. AStockDirect now has Tencent kline fallback built-in.
 """
 
 import logging
+import os
 from typing import Dict, Any, Optional, List
 
 import pandas as pd
@@ -34,6 +38,8 @@ class DataRouter:
         self._a_stock_primary = AStockDirectProvider()
         self._a_stock_fallback = AkShareFallbackProvider()
         self._yfinance = YFinanceProvider()
+        # AkShare fallback disabled by default from overseas (EastMoney geo-blocked)
+        self._akshare_enabled = os.environ.get("AKSHARE_ENABLED", "false").lower() in ("true", "1", "yes")
 
     def _get_providers(self, symbol: str) -> List[DataProvider]:
         """
@@ -43,7 +49,9 @@ class DataRouter:
         market = detect_market(symbol)
 
         if market == MarketType.A_SHARE:
-            return [self._a_stock_primary, self._a_stock_fallback]
+            if self._akshare_enabled:
+                return [self._a_stock_primary, self._a_stock_fallback]
+            return [self._a_stock_primary]
         elif market in (MarketType.HK_SHARE, MarketType.US_SHARE):
             return [self._yfinance]
         else:

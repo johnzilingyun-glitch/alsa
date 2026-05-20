@@ -305,6 +305,66 @@ export function SettingsModal() {
                 </div>
               </section>
 
+              {/* Token Guard Level Section */}
+              <section className="space-y-4">
+                <div className="flex items-center gap-2">
+                  <ShieldCheck size={16} className="text-amber-600" />
+                  <span className="text-xs font-bold uppercase tracking-wider text-zinc-400">Token 成本控制</span>
+                </div>
+
+                <div className="space-y-3">
+                  <div className="grid grid-cols-4 gap-2">
+                    {([
+                      { id: 'none', label: '无', desc: '无限制' },
+                      { id: 'low', label: '低', desc: '宽松' },
+                      { id: 'medium', label: '中', desc: '平衡' },
+                      { id: 'high', label: '高', desc: '严格' },
+                    ] as const).map((level) => {
+                      const isActive = (config.tokenGuardLevel || 'high') === level.id;
+                      return (
+                        <button
+                          key={level.id}
+                          onClick={() => {
+                            setConfig({ ...config, tokenGuardLevel: level.id });
+                            // Sync to backend
+                            fetch('/api/analysis/settings/token-guard', {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ level: level.id }),
+                            }).catch(() => {});
+                          }}
+                          className={`flex flex-col items-center gap-0.5 rounded-xl border p-3 transition-all ${
+                            isActive
+                              ? 'border-amber-500 bg-amber-50 ring-1 ring-amber-500'
+                              : 'border-zinc-100 bg-white hover:border-zinc-200 hover:bg-zinc-50'
+                          }`}
+                        >
+                          <span className={`text-sm font-bold ${isActive ? 'text-amber-700' : 'text-zinc-600'}`}>
+                            {level.label}
+                          </span>
+                          <span className={`text-[10px] ${isActive ? 'text-amber-600' : 'text-zinc-400'}`}>
+                            {level.desc}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  <div className="flex items-start gap-3 p-4 rounded-xl bg-amber-50/50 border border-amber-100/50">
+                    <AlertTriangle size={16} className="text-amber-400 shrink-0 mt-0.5" />
+                    <p className="text-xs text-amber-700/80 leading-relaxed">
+                      {(config.tokenGuardLevel || 'high') === 'none' 
+                        ? '⚠️ 当前为无限制模式，工具返回数据不会被截断。适合本地模型，但云端 API 可能产生高额费用。'
+                        : (config.tokenGuardLevel || 'high') === 'low'
+                        ? '宽松模式：单轮工具输出上限约 18K tokens，适合大上下文模型 (128K+)。'
+                        : (config.tokenGuardLevel || 'high') === 'medium'
+                        ? '平衡模式：单轮工具输出上限约 10K tokens，在分析质量和成本间取得平衡。'
+                        : '严格模式（推荐）：单轮工具输出上限约 6K tokens，最大化控制云端 API 成本。'}
+                    </p>
+                  </div>
+                </div>
+              </section>
+
 
               {/* Feishu Webhook Section */}
               <section className="space-y-4">

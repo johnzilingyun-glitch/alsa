@@ -243,4 +243,32 @@ router.post('/analysis/cancel', async (req, res) => {
   }
 });
 
+// ── Token Guard Settings (proxy to Python service) ─────────────────────────
+
+router.get('/analysis/settings/token-guard', async (req, res) => {
+  try {
+    const resp = await fetch(`${PYTHON_SERVICE_URL}/api/analysis/settings/token-guard`);
+    const data = await resp.json();
+    res.json(data);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    res.status(500).json({ success: false, error: { message } });
+  }
+});
+
+router.post('/analysis/settings/token-guard', async (req, res) => {
+  try {
+    const resp = await fetch(`${PYTHON_SERVICE_URL}/api/analysis/settings/token-guard`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(req.body),
+    });
+    const data = await resp.json();
+    res.json(data);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    res.status(500).json({ success: false, error: { message } });
+  }
+});
+
 export default router;

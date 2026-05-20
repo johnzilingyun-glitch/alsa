@@ -73,12 +73,13 @@ def set(key, value):
 @click.option("--level", "-l", default="standard", type=click.Choice(["quick", "standard", "deep"]), help="Analysis depth.")
 @click.option("--output", "-o", default=None, help="Custom path for HTML report.")
 @click.option("--model", "-model", default=None, help="Gemini model version (e.g. 1.5-pro, 2.0-flash).")
-def analyze(query, market, level, output, model):
+@click.option("--guard", "-g", default="high", type=click.Choice(["none", "low", "medium", "high"]), help="Token guard level (none/low/medium/high).")
+def analyze(query, market, level, output, model, guard):
     """Analyze a stock and generate an HTML report."""
-    click.echo(f"Starting analysis for: {query} (Level: {level})")
+    click.echo(f"Starting analysis for: {query} (Level: {level}, Guard: {guard})")
     
     # Run async logic
-    asyncio.run(run_analysis_flow(query, market, level, output, model))
+    asyncio.run(run_analysis_flow(query, market, level, output, model, guard))
 
 
 @cli.command("sector")
@@ -96,7 +97,11 @@ def sector_analyze(sector_name, output, model):
         click.echo("No sector specified. Running market scan to recommend sectors...")
         asyncio.run(run_market_scan_then_sector(output, model))
 
-async def run_analysis_flow(query, market, level, output_path, model):
+async def run_analysis_flow(query, market, level, output_path, model, guard="high"):
+    # 0. Set token guard level
+    from python_service.app.services.token_guard import token_guard
+    token_guard.set_level(guard)
+    
     # 1. Initialize dependencies
     from python_service.app.db.sqlite import DATABASE_URL
     session_factory = build_session_factory(DATABASE_URL)

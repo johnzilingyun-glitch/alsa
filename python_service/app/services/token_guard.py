@@ -7,8 +7,17 @@ Architecture:
   3. Structured output compression (field whitelist + text truncation)
   4. Emergency circuit breaker when cumulative tool output exceeds budget
 
+Levels (user-configurable):
+  - "none"   : No limits, pass-through (for local models or debugging)
+  - "low"    : Generous limits, light truncation
+  - "medium" : Balanced limits, moderate truncation
+  - "high"   : Strict limits, aggressive truncation (default, best for cloud API cost control)
+
 Usage:
   from .token_guard import token_guard, GuardConfig
+
+  # Set level from user config:
+  token_guard.set_level("high")
 
   # Decorate tool execution:
   result = token_guard.enforce(tool_name, raw_output)
@@ -21,7 +30,14 @@ Usage:
 
 import json
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Optional, Literal
+
+
+# ────────────── TYPES ──────────────
+
+GuardLevel = Literal["none", "low", "medium", "high"]
+
+VALID_LEVELS = ("none", "low", "medium", "high")
 
 
 # ────────────── CONFIGURATION ──────────────
@@ -46,30 +62,26 @@ class GuardConfig:
     tool_limits: dict = field(default_factory=dict)
     # Emergency breaker: if single tool output exceeds this, hard truncate
     emergency_max_chars: int = 8000       # Absolute max for any single tool
+    # Whether enforcement is enabled (False = pass-through)
+    enabled: bool = True
 
 
-# Default configuration tuned for DeepSeek (128k context, ~$1/M input tokens)
-DEFAULT_CONFIG = GuardConfig(
-    round_budget_chars=25000,
-    default_limit=ToolLimit(max_chars=4000, max_rows=10, max_field_chars=200),
-    tool_limits={
-        # Search tools: compact, many results but short
+# ────────────── LEVEL PRESETS ──────────────
+
+def _build_tool_limits(multiplier: float) -> dict:
+    """Build tool-specific limits scaled by a multiplier relative to HIGH (1.0)."""
+    base = {
         "web_search":          ToolLimit(max_chars=3000, max_rows=5, max_field_chars=300),
         "news_search":         ToolLimit(max_chars=4000, max_rows=8, max_field_chars=300),
         "announcement_search": ToolLimit(max_chars=3000, max_rows=8, max_field_chars=250),
         "report_search":       ToolLimit(max_chars=3500, max_rows=8, max_field_chars=300),
-        # Deep scrape: single page, needs more room
         "deep_scrape":         ToolLimit(max_chars=5000, max_rows=1, max_field_chars=5000),
-        # Financial data: structured, can be large with multiple sections
         "financial_data":      ToolLimit(max_chars=5000, max_rows=6, max_field_chars=500),
-        # Knowledge base: concise
         "knowledge_search":    ToolLimit(max_chars=2500, max_rows=10, max_field_chars=300),
-        # Iwencai query tools: structured data
         "macro_query":         ToolLimit(max_chars=3000, max_rows=10, max_field_chars=200),
         "business_query":      ToolLimit(max_chars=3000, max_rows=10, max_field_chars=200),
         "finance_query":       ToolLimit(max_chars=3000, max_rows=10, max_field_chars=200),
         "management_query":    ToolLimit(max_chars=3000, max_rows=10, max_field_chars=200),
-        # Computation tools: predictable size, generous limit
         "dcf_calculator":      ToolLimit(max_chars=3000, max_rows=20, max_field_chars=500),
         "position_sizer":      ToolLimit(max_chars=2000, max_rows=10, max_field_chars=500),
         "kelly_calculator":    ToolLimit(max_chars=1500, max_rows=5, max_field_chars=500),
@@ -84,7 +96,57 @@ DEFAULT_CONFIG = GuardConfig(
         "stop_loss_validator": ToolLimit(max_chars=2000, max_rows=10, max_field_chars=500),
         "cagr_calculator":     ToolLimit(max_chars=1500, max_rows=5, max_field_chars=500),
     }
-)
+    if multiplier == 1.0:
+        return base
+    # Scale char limits up (rows stay the same to avoid breaking logic)
+    scaled = {}
+    for name, lim in base.items():
+        scaled[name] = ToolLimit(
+            max_chars=int(lim.max_chars * multiplier),
+            max_rows=min(int(lim.max_rows * multiplier), 50),
+            max_field_chars=int(lim.max_field_chars * multiplier),
+            max_fields_per_row=int(lim.max_fields_per_row * multiplier),
+        )
+    return scaled
+
+
+# Level → GuardConfig mapping
+LEVEL_CONFIGS: dict[str, GuardConfig] = {
+    # No limits: pass-through mode (for local models or debugging)
+    "none": GuardConfig(
+        round_budget_chars=999_999_999,
+        default_limit=ToolLimit(max_chars=999_999, max_rows=9999, max_field_chars=999_999),
+        tool_limits={},
+        emergency_max_chars=999_999_999,
+        enabled=False,
+    ),
+    # Low: generous limits, 3x headroom vs high
+    "low": GuardConfig(
+        round_budget_chars=75000,        # ~18000 tokens per round
+        default_limit=ToolLimit(max_chars=12000, max_rows=30, max_field_chars=600),
+        tool_limits=_build_tool_limits(3.0),
+        emergency_max_chars=24000,
+        enabled=True,
+    ),
+    # Medium: balanced, 1.5x headroom vs high
+    "medium": GuardConfig(
+        round_budget_chars=40000,        # ~10000 tokens per round
+        default_limit=ToolLimit(max_chars=6000, max_rows=15, max_field_chars=400),
+        tool_limits=_build_tool_limits(1.5),
+        emergency_max_chars=12000,
+        enabled=True,
+    ),
+    # High: strict (default), tuned for DeepSeek cloud API cost control
+    "high": GuardConfig(
+        round_budget_chars=25000,        # ~6000 tokens per round
+        default_limit=ToolLimit(max_chars=4000, max_rows=10, max_field_chars=200),
+        tool_limits=_build_tool_limits(1.0),
+        emergency_max_chars=8000,
+        enabled=True,
+    ),
+}
+
+DEFAULT_LEVEL: GuardLevel = "high"
 
 
 # ────────────── TOKEN GUARD ENGINE ──────────────
@@ -92,10 +154,33 @@ DEFAULT_CONFIG = GuardConfig(
 class TokenGuard:
     """Enforces token budget and hard limits on tool outputs."""
 
-    def __init__(self, config: Optional[GuardConfig] = None):
-        self.config = config or DEFAULT_CONFIG
+    def __init__(self, config: Optional[GuardConfig] = None, level: GuardLevel = DEFAULT_LEVEL):
+        self._level = level
+        self.config = config or LEVEL_CONFIGS[level]
         self._round_chars_used = 0
         self._round_tool_count = 0
+
+    @property
+    def level(self) -> GuardLevel:
+        return self._level
+
+    def set_level(self, level: str):
+        """
+        Switch the guard level at runtime. Called when user changes settings.
+        Valid levels: "none", "low", "medium", "high"
+        """
+        level = level.lower().strip()
+        if level not in VALID_LEVELS:
+            print(f"  [TokenGuard] Invalid level '{level}', keeping current: {self._level}")
+            return
+        if level == self._level:
+            return
+        old_level = self._level
+        self._level = level
+        self.config = LEVEL_CONFIGS[level]
+        self._round_chars_used = 0
+        self._round_tool_count = 0
+        print(f"  [TokenGuard] Level changed: {old_level} → {level} | budget={self.config.round_budget_chars} chars, enabled={self.config.enabled}")
 
     def reset_round(self):
         """Reset per-round budget tracking. Call at start of each tool-calling round."""
@@ -131,6 +216,10 @@ class TokenGuard:
         Returns: potentially truncated output string
         """
         if not raw_output:
+            return raw_output
+
+        # Pass-through when disabled (level="none")
+        if not self.config.enabled:
             return raw_output
 
         limit = self.get_limit(tool_name)
@@ -172,6 +261,9 @@ class TokenGuard:
         
         Returns: sanitized params dict
         """
+        if not self.config.enabled:
+            return params
+
         limit = self.get_limit(tool_name)
         
         # Clamp any limit-like parameters

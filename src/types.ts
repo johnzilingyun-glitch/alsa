@@ -521,6 +521,7 @@ export interface GeminiConfig {
   feishuWebhookUrl?: string;
   tier?: 'free' | 'paid';
   serviceMode?: 'byok' | 'managed_no_key';
+  tokenGuardLevel?: 'none' | 'low' | 'medium' | 'high';
 }
 
 export interface ReportPreference {

@@ -29,6 +29,11 @@ class AnalysisJobService:
     async def _run_job(self, job_id: str, symbol: str, market: str, config: Optional[Dict[str, Any]] = None):
         from .discussion_service import discussion_service
         from ..db.models import AnalysisRun, AnalysisJob
+        from .token_guard import token_guard
+        
+        # Apply user-configured token guard level (default: "high")
+        if config and config.get("tokenGuardLevel"):
+            token_guard.set_level(config["tokenGuardLevel"])
         
         # Mark job as running in the database immediately
         self.job_repo.update_status(job_id, "running")

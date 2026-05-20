@@ -245,3 +245,40 @@ async def export_share_card(job_id: str, service: AnalysisJobService = Depends(g
         media_type="image/png",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+# ────────────── Token Guard Settings ──────────────
+
+class TokenGuardLevelRequest(BaseModel):
+    level: str  # "none" | "low" | "medium" | "high"
+
+@router.get("/settings/token-guard")
+async def get_token_guard_settings():
+    """Get current TokenGuard level and available options."""
+    from ..services.token_guard import token_guard, VALID_LEVELS
+    return success_response({
+        "currentLevel": token_guard.level,
+        "availableLevels": list(VALID_LEVELS),
+        "descriptions": {
+            "none": "无限制 (适用于本地模型或调试)",
+            "low": "宽松限制 (单轮≈18K tokens，适合大上下文模型)",
+            "medium": "中等限制 (单轮≈10K tokens，平衡质量与成本)",
+            "high": "严格限制 (单轮≈6K tokens，最小化云端API成本)",
+        },
+        "enabled": token_guard.config.enabled,
+        "roundBudgetChars": token_guard.config.round_budget_chars,
+    })
+
+@router.post("/settings/token-guard")
+async def set_token_guard_level(body: TokenGuardLevelRequest):
+    """Set TokenGuard enforcement level."""
+    from ..services.token_guard import token_guard, VALID_LEVELS
+    level = body.level.lower().strip()
+    if level not in VALID_LEVELS:
+        return error_response("INVALID_LEVEL", f"Valid levels: {', '.join(VALID_LEVELS)}")
+    token_guard.set_level(level)
+    return success_response({
+        "level": token_guard.level,
+        "enabled": token_guard.config.enabled,
+        "roundBudgetChars": token_guard.config.round_budget_chars,
+    })

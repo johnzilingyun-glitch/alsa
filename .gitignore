@@ -20,3 +20,4 @@ python_service/data/
 .venv/
 .env
 .venv/
+.env.example

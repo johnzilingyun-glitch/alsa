@@ -6,6 +6,7 @@ from typing import List, Dict, Any, Optional
 from ..utils.network import safe_ak_call
 from ..utils.data_validation import validate_ak_data
 from .search_service import search_service
+from .data_providers import data_router
 
 class MarketDataService:
     def __init__(self):
@@ -246,24 +247,14 @@ class MarketDataService:
 
     async def get_history(self, symbol: str, period: str = "1mo", interval: str = "1d") -> List[Dict[str, Any]]:
         """
-        Fetch historical data for a symbol.
+        Fetch historical data for a symbol via the DataRouter.
+        Routes to optimal provider based on market detection.
         """
         try:
-            loop = asyncio.get_event_loop()
-            ticker = yf.Ticker(symbol)
-            df = await loop.run_in_executor(None, lambda: ticker.history(period=period, interval=interval))
-            
-            if df.empty:
-                return []
-                
-            df = df.reset_index()
-            # Convert timestamp to string
-            if 'Date' in df.columns:
-                df['Date'] = df['Date'].dt.strftime('%Y-%m-%d')
-            elif 'Datetime' in df.columns:
-                df['Datetime'] = df['Datetime'].dt.strftime('%Y-%m-%d %H:%M:%S')
-                
-            return df.to_dict(orient="records")
+            df = await data_router.get_history(symbol, period=period, interval=interval)
+            if df is not None and not df.empty:
+                return df.to_dict(orient="records")
+            return []
         except Exception as e:
             print(f"History fetch failed for {symbol}: {e}")
             return []

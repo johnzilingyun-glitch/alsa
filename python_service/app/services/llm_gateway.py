@@ -1,6 +1,7 @@
 import os
 import json
 import asyncio
+import time
 from google import genai
 from openai import OpenAI
 from typing import Optional, List, Dict, Any
@@ -10,17 +11,66 @@ from dotenv import load_dotenv
 root_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 load_dotenv(os.path.join(root_dir, ".env"), override=True)
 
+
+class RateLimiter:
+    """Token-bucket style rate limiter for API requests.
+    
+    Ensures minimum interval between requests and limits concurrency
+    to prevent 503 errors from the relay (中转站).
+    """
+
+    def __init__(self, min_interval: float = 3.0, max_concurrent: int = 2):
+        self._min_interval = min_interval
+        self._semaphore = asyncio.Semaphore(max_concurrent)
+        self._last_request_time: float = 0.0
+        self._lock = asyncio.Lock()
+
+    async def acquire(self):
+        """Wait until it's safe to make a request."""
+        await self._semaphore.acquire()
+        async with self._lock:
+            now = time.monotonic()
+            elapsed = now - self._last_request_time
+            if elapsed < self._min_interval:
+                wait_time = self._min_interval - elapsed
+                await asyncio.sleep(wait_time)
+            self._last_request_time = time.monotonic()
+
+    def release(self):
+        """Release the semaphore after request completes."""
+        self._semaphore.release()
+
+    async def __aenter__(self):
+        await self.acquire()
+        return self
+
+    async def __aexit__(self, *args):
+        self.release()
+
+
 class LLMGateway:
     def __init__(self, gemini_api_key=None, deepseek_api_key=None):
         self.gemini_api_key = gemini_api_key or os.getenv("GEMINI_API_KEY")
         self.deepseek_api_key = deepseek_api_key or os.getenv("DEEPSEEK_API_KEY")
+        self.deepseek_base_url = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
+        self.default_api_key = os.getenv("DEFAULT_LLM_API_KEY")
+        self.default_base_url = os.getenv("DEFAULT_LLM_BASE_URL", "http://xbrain-dify-service-test.xiaopeng.link/llm_api")
+        self.default_model = os.getenv("DEFAULT_LLM_MODEL", "deepseek-v4-pro")
         self._gemini_client = None
         self._deepseek_client = None
+        self._default_client = None
+
+        # Rate limiter for the default relay (中转站) to prevent 503 errors
+        # min_interval: minimum seconds between consecutive requests
+        # max_concurrent: max parallel requests allowed
+        _min_interval = float(os.getenv("LLM_RATE_LIMIT_INTERVAL", "3.0"))
+        _max_concurrent = int(os.getenv("LLM_RATE_LIMIT_CONCURRENCY", "2"))
+        self._default_rate_limiter = RateLimiter(
+            min_interval=_min_interval, max_concurrent=_max_concurrent
+        )
         
-        if not self.gemini_api_key:
-            print("WARNING: GEMINI_API_KEY not found in LLMGateway.")
-        if not self.deepseek_api_key:
-            print("WARNING: DEEPSEEK_API_KEY not found in LLMGateway.")
+        if not self.default_api_key and not self.gemini_api_key:
+            print("WARNING: Neither DEFAULT_LLM_API_KEY nor GEMINI_API_KEY found in LLMGateway.")
 
     def gemini_client(self, api_key=None):
         target_key = api_key or self.gemini_api_key
@@ -41,23 +91,44 @@ class LLMGateway:
             if target_key:
                 return OpenAI(
                     api_key=target_key,
-                    base_url="https://api.deepseek.com"
+                    base_url=self.deepseek_base_url
                 )
             else:
                 raise ValueError("DEEPSEEK_API_KEY is missing.")
         return self._deepseek_client
 
-    async def generate_content(self, prompt: str, model: str = "gemini-3.1-pro-preview", temperature: float = 0.3, on_chunk: Optional[callable] = None, gemini_api_key: Optional[str] = None, deepseek_api_key: Optional[str] = None) -> str:
+    def default_client(self):
+        if self._default_client is None:
+            if self.default_api_key:
+                self._default_client = OpenAI(
+                    api_key=self.default_api_key,
+                    base_url=self.default_base_url
+                )
+            else:
+                raise ValueError("DEFAULT_LLM_API_KEY is missing.")
+        return self._default_client
+
+    async def generate_content(self, prompt: str, model: str = None, temperature: float = 0.3, on_chunk: Optional[callable] = None, gemini_api_key: Optional[str] = None, deepseek_api_key: Optional[str] = None) -> str:
         """
         Generate content with built-in quality-gate retry.
         Retries up to 2 extra times if response is truncated or garbage.
+        Routes through default provider unless model is explicitly gemini-*.
         """
+        # Resolve model: use default from env if not specified
+        if not model:
+            model = self.default_model
+        
         max_quality_retries = 2
         for quality_attempt in range(max_quality_retries + 1):
-            if "deepseek" in model.lower():
+            if model.lower().startswith("gemini"):
+                result = await self._generate_gemini(prompt, model, temperature, on_chunk=on_chunk, api_key=gemini_api_key)
+            elif self.default_api_key:
+                # Route through default provider (中转站) for all non-gemini models
+                result = await self._generate_default(prompt, model, temperature, on_chunk=on_chunk)
+            elif "deepseek" in model.lower():
                 result = await self._generate_deepseek(prompt, model, temperature, on_chunk=on_chunk, api_key=deepseek_api_key)
             else:
-                result = await self._generate_gemini(prompt, model, temperature, on_chunk=on_chunk, api_key=gemini_api_key)
+                raise ValueError(f"No provider available for model: {model}. Set DEFAULT_LLM_API_KEY in .env.")
 
             # Quality gate: detect truncated responses
             if result and len(result) < 150:
@@ -82,6 +153,70 @@ class LLMGateway:
             return result
 
         return result  # fallback
+
+    async def _generate_default(self, prompt: str, model: str, temperature: float, on_chunk: Optional[callable] = None) -> str:
+        """Generate via default provider (中转站, OpenAI-compatible). Rate-limited."""
+        client = self.default_client()
+        max_retries = 10
+        retry_delay = 15
+
+        def _stream_generate():
+            kwargs = {
+                "model": model,
+                "messages": [
+                    {"role": "system", "content": "You are a professional financial analyst expert."},
+                    {"role": "user", "content": prompt}
+                ],
+                "temperature": temperature,
+                "max_tokens": 16384,
+                "stream": True,
+            }
+            if "deepseek" in model.lower():
+                kwargs["extra_body"] = {"reasoning": {"effort": "high"}}
+            response = client.chat.completions.create(**kwargs)
+            content_parts = []
+            char_count = 0
+            for chunk in response:
+                if chunk.choices and chunk.choices[0].delta and chunk.choices[0].delta.content:
+                    text = chunk.choices[0].delta.content
+                    content_parts.append(text)
+                    char_count += len(text)
+                    if on_chunk:
+                        on_chunk(char_count)
+            print(flush=True)
+            return "".join(content_parts)
+
+        for attempt in range(max_retries):
+            if os.path.exists(".stop"):
+                raise Exception("Analysis stopped by user.")
+            try:
+                # Rate limit: wait for slot before sending request
+                async with self._default_rate_limiter:
+                    result = await asyncio.to_thread(_stream_generate)
+                if not result:
+                    raise ValueError("Default provider returned empty response")
+                return result
+            except Exception as e:
+                error_msg = str(e)
+                print(f"Default LLM Error ({model}) on attempt {attempt + 1}/{max_retries}: {error_msg}")
+                if any(code in error_msg for code in ["429", "503", "524", "500", "502"]) or "timeout" in error_msg.lower() or "connection" in error_msg.lower():
+                    if attempt < max_retries - 1:
+                        # Adaptive backoff: increase rate limiter interval on repeated failures
+                        if attempt >= 2:
+                            self._default_rate_limiter._min_interval = min(
+                                self._default_rate_limiter._min_interval * 1.5, 30.0
+                            )
+                            print(f"  [Rate Limiter] Increased min_interval to {self._default_rate_limiter._min_interval:.1f}s")
+                        print(f"Waiting {retry_delay}s before retry {attempt + 2}/{max_retries} (no model downgrade)...")
+                        for _ in range(int(retry_delay)):
+                            await asyncio.sleep(1)
+                            if os.path.exists(".stop"):
+                                raise Exception("Analysis stopped by user.")
+                        retry_delay = min(retry_delay * 2, 3600)
+                        continue
+                raise e
+
+        raise Exception(f"Failed to generate with {model} after {max_retries} attempts.")
 
     async def _generate_gemini(self, prompt: str, model: str, temperature: float, on_chunk: Optional[callable] = None, api_key: Optional[str] = None) -> str:
         client = self.gemini_client(api_key=api_key)
@@ -164,7 +299,8 @@ class LLMGateway:
                 ],
                 temperature=temperature,
                 max_tokens=16384,
-                stream=True
+                stream=True,
+                extra_body={"reasoning": {"effort": "high"}},
             )
             content_parts = []
             char_count = 0
@@ -207,7 +343,7 @@ class LLMGateway:
                 
         raise Exception(f"Failed to generate content with {final_model} after {max_retries} attempts due to rate limits.")
 
-    async def generate_with_native_tools(self, prompt: str, model: str, temperature: float = 0.3, max_tool_rounds: int = 3, on_chunk: Optional[callable] = None, deepseek_api_key: Optional[str] = None) -> str:
+    async def generate_with_native_tools(self, prompt: str, model: str, temperature: float = 0.3, max_tool_rounds: int = 20, on_chunk: Optional[callable] = None, deepseek_api_key: Optional[str] = None) -> str:
         """
         Generate content using DeepSeek's native OpenAI-compatible function calling API.
         
@@ -290,6 +426,9 @@ class LLMGateway:
                 }
                 if use_tools:
                     kwargs["tools"] = tools
+                else:
+                    # Only enable reasoning on final synthesis round (no tools)
+                    kwargs["extra_body"] = {"reasoning": {"effort": "high"}}
                 
                 response = self.deepseek_client(api_key=deepseek_api_key).chat.completions.create(**kwargs)
                 
@@ -367,6 +506,10 @@ class LLMGateway:
             
             had_tool_rounds = True
             print(f"  [ToolLoop] Round {round_num + 1}: {len(tool_calls_data)} native tool call(s)")
+            
+            # Reset TokenGuard round budget for this batch of tool calls
+            from .token_guard import token_guard
+            token_guard.reset_round()
             
             # During tool-call rounds, DON'T include thinking text in output.
             # It's just "let me search for X" filler, not actual analysis.
@@ -586,7 +729,7 @@ class LLMGateway:
             result = re.sub(r'\n{3,}', '\n\n', result).strip()
         return result
 
-    async def generate_with_tools(self, prompt: str, model: str = "gemini-3.1-pro-preview", temperature: float = 0.3, max_tool_rounds: int = 3, on_chunk: Optional[callable] = None, gemini_api_key: Optional[str] = None, deepseek_api_key: Optional[str] = None) -> str:
+    async def generate_with_tools(self, prompt: str, model: str = "gemini-3.1-pro-preview", temperature: float = 0.3, max_tool_rounds: int = 20, on_chunk: Optional[callable] = None, gemini_api_key: Optional[str] = None, deepseek_api_key: Optional[str] = None) -> str:
         """
         Generate content with tool-calling loop.
         
@@ -635,6 +778,10 @@ class LLMGateway:
                 break
             
             print(f"  [ToolLoop] Round {round_num + 1}: {len(tool_calls)} tool call(s)")
+            
+            # Reset TokenGuard round budget for this batch
+            from .token_guard import token_guard as _tg
+            _tg.reset_round()
             
             # Extract text before first tool call (the LLM's reasoning so far)
             first_call_pos = result.find("<tool_call>")

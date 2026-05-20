@@ -302,7 +302,7 @@ Market: A-Share (中国A股)
     try:
         use_tools = "deepseek" in final_model.lower()
         if use_tools:
-            scan_result = await llm_gateway.generate_with_tools(context, model=final_model, max_tool_rounds=5)
+            scan_result = await llm_gateway.generate_with_tools(context, model=final_model, max_tool_rounds=20)
         else:
             scan_result = await llm_gateway.generate_content(context, model=final_model)
     except Exception as e:

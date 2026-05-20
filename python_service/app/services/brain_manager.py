@@ -51,8 +51,6 @@ class BrainManager:
                 "model": os.getenv("GEMINI_MODEL", "gemini-3.1-pro-preview") if is_gemini else os.getenv("DEEPSEEK_MODEL", "deepseek-v4-pro"),
                 "api_key": self.api_key if is_gemini else os.getenv("DEEPSEEK_API_KEY")
             }
-            if not is_gemini:
-                llm_config["base_url"] = "https://api.deepseek.com"
 
             mem0_config = {
                 "vector_store": {
@@ -63,7 +61,7 @@ class BrainManager:
                     }
                 },
                 "llm": {
-                    "provider": "gemini" if is_gemini else "openai",
+                    "provider": "gemini" if is_gemini else "deepseek",
                     "config": llm_config
                 },
                 "embedder": {

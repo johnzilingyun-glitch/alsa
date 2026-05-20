@@ -21,7 +21,7 @@ import path from 'path';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
-export type GatewayProvider = 'gemini' | 'openai' | 'anthropic' | 'deepseek';
+export type GatewayProvider = 'gemini' | 'openai' | 'anthropic' | 'deepseek' | 'default';
 
 export interface GatewayRequest {
   prompt: string;
@@ -293,66 +293,86 @@ async function tryDeepSeek(prompt: string, log: LogFn, requestedModel?: string, 
   return null;
 }
 
-// ── Provider chain builder ─────────────────────────────────────────────────
+// ── Default Relay provider (中转站) ─────────────────────────────────────────
 
-type ProviderEntry = { name: GatewayProvider; fn: () => Promise<string | null> };
+async function tryDefault(prompt: string, log: LogFn, requestedModel?: string): Promise<string | null> {
+  const apiKey = process.env.DEFAULT_LLM_API_KEY;
+  if (!apiKey) {
+    log('gateway_default_unavailable', { reason: 'no_api_key' });
+    return null;
+  }
 
+  const baseUrl = (process.env.DEFAULT_LLM_BASE_URL || 'http://xbrain-dify-service-test.xiaopeng.link/llm_api').replace(/\/$/, '');
+  const model = requestedModel || process.env.DEFAULT_LLM_MODEL || 'deepseek-v4-pro';
+
+  try {
+    log('gateway_default_attempt', { model, baseUrl });
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), HTTP_TIMEOUT_MS);
+
+    const res = await fetch(`${baseUrl}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model,
+        messages: [
+          { role: 'system', content: '你是一位专业的金融分析师。请按要求返回结构化的分析内容。' },
+          { role: 'user', content: prompt },
+        ],
+        temperature: 0.3,
+        max_tokens: 16384,
+      }),
+      signal: controller.signal,
+    });
+    clearTimeout(timer);
+
+    if (res.ok) {
+      const data = await res.json() as any;
+      const text: string = data?.choices?.[0]?.message?.content || '';
+      if (text) {
+        log('gateway_default_ok', { model, length: text.length });
+        return text;
+      }
+    }
+
+    const errBody = await res.text().catch(() => '');
+    log('gateway_default_http_error', { model, status: res.status, body: errBody.slice(0, 200) });
+  } catch (err: any) {
+    log('gateway_default_exception', { model, error: String(err?.message || err).slice(0, 200) });
+  }
+
+  return null;
+}
+
+// ── Provider routing ───────────────────────────────────────────────────────
 
 export function getPreferredProvider(requestedModel: string): GatewayProvider | null {
   const m = requestedModel.toLowerCase();
   if (m.startsWith('gemini')) return 'gemini';
   if (m.startsWith('gpt-') || /^o\d/.test(m)) return 'openai';
   if (m.startsWith('claude')) return 'anthropic';
-  if (m.startsWith('deepseek')) return 'deepseek';
+  // Route all models through xbrain by default (supports deepseek, qwen, kimi, glm, etc.)
+  if (process.env.DEFAULT_LLM_API_KEY) return 'default';
+  // Fallback to direct deepseek only if xbrain unavailable
+  if (m.startsWith('deepseek') && process.env.DEEPSEEK_API_KEY) return 'deepseek';
   return null;
-}
-
-/**
- * Build a prioritised provider list based on the requested model name.
- * Preferred provider comes first; remaining available providers follow as
- * fallbacks. Providers without configured credentials are skipped entirely.
- */
-function buildProviderChain(
-  prompt: string,
-  requestedModel: string,
-  log: LogFn,
-  config?: { deepseekApiKey?: string; geminiApiKey?: string }
-): ProviderEntry[] {
-  const all: ProviderEntry[] = [
-    { name: 'gemini',             fn: () => tryGemini(prompt, log, requestedModel, config?.geminiApiKey) },
-    { name: 'openai',             fn: () => tryOpenAI(prompt, log, requestedModel) },
-    { name: 'anthropic',          fn: () => tryAnthropic(prompt, log, requestedModel) },
-    { name: 'deepseek',           fn: () => tryDeepSeek(prompt, log, requestedModel, config?.deepseekApiKey) },
-  ];
-
-  // Filter to providers that have credentials/capability
-  const available = all.filter(({ name }) => {
-    if (name === 'gemini')             return !!(process.env.GEMINI_API_KEY || config?.geminiApiKey);
-    if (name === 'openai')             return !!process.env.OPENAI_API_KEY;
-    if (name === 'anthropic')          return !!process.env.ANTHROPIC_API_KEY;
-    if (name === 'deepseek')           return !!(process.env.DEEPSEEK_API_KEY || config?.deepseekApiKey);
-    return false;
-  });
-
-  // Promote preferred provider to front based on model name heuristic.
-  const preferredName = getPreferredProvider(requestedModel);
-
-  if (preferredName) {
-    const idx = available.findIndex(p => p.name === preferredName);
-    if (idx > 0) {
-      const [preferred] = available.splice(idx, 1);
-      available.unshift(preferred);
-    }
-  }
-
-  return available;
 }
 
 // ── Public API ─────────────────────────────────────────────────────────────
 
+/** Default model from env — used when user has not explicitly selected a model */
+export function getDefaultModel(): string {
+  return process.env.DEFAULT_LLM_MODEL || 'deepseek-v4-pro';
+}
+
 /**
- * Try each provider in priority order until one returns a non-empty response.
- * Throws only when every provider has been exhausted.
+ * Generate a response using the specified model. No fallback/degradation:
+ * - If user explicitly selects a model, only the matching provider is tried.
+ * - If no model is specified, uses the default from DEFAULT_LLM_MODEL env.
+ * - If the provider fails, an error is thrown (no automatic model switching).
  */
 export async function gatewayGenerate(
   prompt: string,
@@ -360,57 +380,48 @@ export async function gatewayGenerate(
   log: LogFn = () => {},
   config?: { deepseekApiKey?: string; geminiApiKey?: string }
 ): Promise<GatewayResponse> {
-  const preferredProvider = getPreferredProvider(requestedModel);
-  const chain = buildProviderChain(prompt, requestedModel, log, config);
+  // Resolve to default model if empty/unspecified
+  const model = requestedModel || getDefaultModel();
+  const provider = getPreferredProvider(model);
 
-  // If deepseek key is present, and no explicit model is gemini/claude/gpt, we can prefer deepseek
-  let finalChain = chain;
-  if (config?.deepseekApiKey && !preferredProvider) {
-    const dsIdx = finalChain.findIndex(p => p.name === 'deepseek');
-    if (dsIdx > -1) {
-      const [ds] = finalChain.splice(dsIdx, 1);
-      finalChain.unshift(ds);
-    } else {
-       finalChain.unshift({ name: 'deepseek', fn: () => tryDeepSeek(prompt, log, requestedModel, config.deepseekApiKey) });
-    }
-  }
-
-  const strictChain = preferredProvider 
-    ? finalChain.filter(p => p.name === preferredProvider)
-    : finalChain;
-
-  if (strictChain.length === 0) {
+  if (!provider) {
     throw new Error(
-      `模型 "${requestedModel}" 没有可用的提供商。请检查 .env 中的 API Key 配置。`
+      `模型 "${model}" 没有可用的提供商。请检查 .env 中的 API Key 配置。`
     );
   }
 
-  log('gateway_chain_strict', { providers: strictChain.map(p => p.name), requestedModel });
+  // Build single-provider call (no chain, no degradation)
+  const providerFns: Record<GatewayProvider, () => Promise<string | null>> = {
+    default:    () => tryDefault(prompt, log, model),
+    gemini:    () => tryGemini(prompt, log, model, config?.geminiApiKey),
+    openai:    () => tryOpenAI(prompt, log, model),
+    anthropic: () => tryAnthropic(prompt, log, model),
+    deepseek:  () => tryDeepSeek(prompt, log, model, config?.deepseekApiKey),
+  };
 
-  let lastErr: any = null;
-  for (const { name, fn } of strictChain) {
-    try {
-      const text = await fn();
-      if (text) {
-        return { text, model: requestedModel, provider: name };
-      }
-    } catch (err: any) {
-      lastErr = err;
-      log('gateway_provider_error', { provider: name, error: String(err?.message || err).slice(0, 300) });
-      // In strict mode, we don't fall back to other *providers* if the primary one fails with a terminal error
-      if (preferredProvider) break; 
+  const fn = providerFns[provider];
+  log('gateway_call_strict', { provider, model });
+
+  try {
+    const text = await fn();
+    if (text) {
+      return { text, model, provider };
     }
+  } catch (err: any) {
+    throw new Error(
+      `请求模型 "${model}" (${provider}) 失败: ${err?.message || '未知错误'}。不允许降级到其他模型。`
+    );
   }
 
   throw new Error(
-    `请求模型 "${requestedModel}" 失败。原因: ${lastErr?.message || '提供商未返回内容'}。` +
-    '（已启用严格模式，禁止自动降级/切换模型）'
+    `请求模型 "${model}" (${provider}) 未返回内容。不允许降级到其他模型。`
   );
 }
 
 /** Health snapshot: which providers are currently configured */
 export function gatewayStatus(): Record<GatewayProvider, boolean> {
   return {
+    default:             !!process.env.DEFAULT_LLM_API_KEY,
     gemini:             !!process.env.GEMINI_API_KEY,
     openai:             !!process.env.OPENAI_API_KEY,
     anthropic:          !!process.env.ANTHROPIC_API_KEY,

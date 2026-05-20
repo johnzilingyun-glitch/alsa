@@ -1,0 +1,94 @@
+# Tools & Skills Configuration
+# Toggle tools on/off without code changes.
+# Set enabled: false to disable a tool from being offered to AI experts.
+
+tools:
+  # ──── Search Tools ────
+  web_search:
+    enabled: true
+    description: "Internet search via SearXNG/DDG"
+  news_search:
+    enabled: true
+    description: "News-specific search"
+  knowledge_search:
+    enabled: true
+    description: "Local brain/vector knowledge base"
+  deep_scrape:
+    enabled: true
+    description: "Full page content extraction from URL"
+  financial_data:
+    enabled: true
+    description: "Structured financial data from APIs (AkShare/yfinance/OpenBB)"
+
+  # ──── Iwencai Skills ────
+  announcement_search:
+    enabled: true
+    description: "Company announcements search via 同花顺问财"
+  report_search:
+    enabled: true
+    description: "Analyst research reports search via 同花顺问财"
+  macro_query:
+    enabled: true
+    description: "Macroeconomic data query via 同花顺问财 (GDP, CPI, PPI, M2, PMI, etc.)"
+  business_query:
+    enabled: true
+    description: "Company business/operations data via 同花顺问财 (主营构成, 客户, 供应商, 参控股)"
+  finance_query:
+    enabled: true
+    description: "Company financial indicators via 同花顺问财 (营收, 净利润, ROE, 负债率, 现金流)"
+  management_query:
+    enabled: true
+    description: "Shareholder/management data via 同花顺问财 (股东, 股本, 实控人, 高管)"
+
+  # ──── Computation Tools ────
+  dcf_calculator:
+    enabled: true
+    description: "Discounted Cash Flow valuation"
+  position_sizer:
+    enabled: true
+    description: "Position sizing with risk management"
+  kelly_calculator:
+    enabled: true
+    description: "Kelly Criterion optimal position size"
+  beat_miss_scorer:
+    enabled: true
+    description: "Earnings beat/miss scoring"
+  comps_valuation:
+    enabled: true
+    description: "Peer comparison valuation"
+  pillar_scorer:
+    enabled: true
+    description: "Investment thesis health scoring"
+  dupont_decomposition:
+    enabled: true
+    description: "DuPont ROE decomposition"
+  minervini_stage:
+    enabled: true
+    description: "Minervini trend stage classification"
+  earnings_quality_audit:
+    enabled: true
+    description: "Earnings quality audit"
+  drawdown_scenario:
+    enabled: true
+    description: "Portfolio drawdown scenario analysis"
+  risk_reward:
+    enabled: true
+    description: "Risk/reward ratio calculator"
+  stop_loss_validator:
+    enabled: true
+    description: "Stop-loss placement validation"
+  cagr_calculator:
+    enabled: true
+    description: "Compound Annual Growth Rate"
+
+# ──── Skills (Pre-search enrichment categories) ────
+skills:
+  search_enrichment:
+    enabled: true
+    description: "Batch pre-search enrichment for expert roles"
+  searxng_backend:
+    enabled: true
+    description: "Use SearXNG as primary search backend"
+  ddg_fallback:
+    enabled: true
+    description: "DuckDuckGo as fallback search engine"

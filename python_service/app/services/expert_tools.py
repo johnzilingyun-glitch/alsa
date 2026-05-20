@@ -39,16 +39,18 @@ TOOL_DEFINITIONS = [
     },
     {
         "name": "news_search",
-        "description": "Search for recent news articles about a company or topic. Prioritizes recency. Use for breaking news, regulatory updates, management changes.",
+        "description": "Search for recent financial news and articles. Primary source: 同花顺问财 (Iwencai) — covers Chinese official media, mainstream financial media, vertical industry sites, listed/non-listed company portals. Supplemented by international web news. Best for: breaking news, regulatory updates, policy changes, corporate announcements, industry trends.",
         "parameters": {
             "query": {
                 "type": "string",
-                "description": "News search query. Include company name and topic.",
+                "description": "News search query. Include company name and topic. Supports Chinese keywords for A-share news.",
                 "required": True,
             }
         },
         "examples": [
             'tool: news_search\nreason: Check for recent regulatory actions\nquery: Novo Nordisk FDA approval Ozempic 2025',
+            'tool: news_search\nreason: Check A-share company latest news\nquery: 贵州茅台 最新动态',
+            'tool: news_search\nreason: Check industry policy updates\nquery: 人工智能 芯片 产业政策',
         ],
     },
     {
@@ -63,6 +65,102 @@ TOOL_DEFINITIONS = [
         },
         "examples": [
             'tool: knowledge_search\nreason: Check prior analysis history\nquery: NVO valuation concerns historical analysis',
+        ],
+    },
+    {
+        "name": "announcement_search",
+        "description": "Search company announcements (公告) from A-share, HK-share, funds, ETFs. Source: 同花顺问财. Covers: periodic financial reports, dividends, buybacks, asset restructuring, equity changes, regulatory filings.",
+        "parameters": {
+            "query": {
+                "type": "string",
+                "description": "Announcement search query. Include company name or stock code and topic. Supports Chinese.",
+                "required": True,
+            }
+        },
+        "examples": [
+            'tool: announcement_search\nreason: Check recent dividend announcements\nquery: 贵州茅台 分红',
+            'tool: announcement_search\nreason: Check restructuring filings\nquery: 002532 资产重组公告',
+        ],
+    },
+    {
+        "name": "report_search",
+        "description": "Search analyst research reports (研报) from mainstream brokerages. Source: 同花顺问财. Returns professional analysis, investment ratings, target prices, and industry insights from sell-side analysts.",
+        "parameters": {
+            "query": {
+                "type": "string",
+                "description": "Research report search query. Include company name, ticker, or sector topic. Supports Chinese.",
+                "required": True,
+            }
+        },
+        "examples": [
+            'tool: report_search\nreason: Check latest analyst ratings and target price\nquery: 贵州茅台 研报 目标价',
+            'tool: report_search\nreason: Get industry research on AI semiconductors\nquery: 人工智能 芯片 行业研报',
+        ],
+    },
+    {
+        "name": "macro_query",
+        "description": "Query macroeconomic indicators (GDP, CPI, PPI, interest rates, exchange rates, social financing, M2, PMI, industrial output, consumption, investment, imports/exports). Source: 同花顺问财 (Iwencai). Supports natural language queries in Chinese. Returns structured data with indicator values, time periods, and units.",
+        "parameters": {
+            "query": {
+                "type": "string",
+                "description": "Macro data query in natural language. Supports Chinese. Examples: '中国最新GDP增速', 'CPI同比', '美联储利率', 'M2货币供应量', '社融规模'.",
+                "required": True,
+            }
+        },
+        "examples": [
+            'tool: macro_query\nreason: Get latest GDP growth rate\nquery: 中国最新GDP同比增速',
+            'tool: macro_query\nreason: Check CPI inflation trend\nquery: 中国CPI同比最近6个月',
+            'tool: macro_query\nreason: Get M2 money supply data\nquery: M2货币供应量同比',
+            'tool: macro_query\nreason: Check PMI manufacturing index\nquery: 中国制造业PMI最新',
+            'tool: macro_query\nreason: Get social financing data\nquery: 社会融资规模增量',
+        ],
+    },
+    {
+        "name": "business_query",
+        "description": "Query company business/operations data: revenue breakdown by product/region, major customers, suppliers, subsidiaries, equity investments, major contracts. Source: 同花顺问财 (Iwencai). Supports natural language queries in Chinese. Use for understanding a company's business structure and operations.",
+        "parameters": {
+            "query": {
+                "type": "string",
+                "description": "Business data query. Include company name or stock code. Examples: '贵州茅台主营业务构成', '002532主要客户', '宁德时代供应商', '比亚迪参控股公司'.",
+                "required": True,
+            }
+        },
+        "examples": [
+            'tool: business_query\nreason: Understand revenue breakdown by product\nquery: 贵州茅台 主营业务构成 产品收入占比',
+            'tool: business_query\nreason: Check major customers concentration\nquery: 002532 主要客户 销售占比',
+            'tool: business_query\nreason: Check subsidiary investments\nquery: 宁德时代 参控股公司',
+        ],
+    },
+    {
+        "name": "finance_query",
+        "description": "Query company financial indicators: revenue, net profit, ROE, debt ratio, cash flow, gross margin, net margin, EPS, valuation metrics (PE/PB/PS). Source: 同花顺问财 (Iwencai). Supports natural language queries. Use for cross-market financial screening and comparison.",
+        "parameters": {
+            "query": {
+                "type": "string",
+                "description": "Financial data query. Include company name/code and metrics. Examples: '贵州茅台 ROE 净利润 营收', '沪深300成分股 市盈率低于15', '002532 毛利率 净利率 近3年'.",
+                "required": True,
+            }
+        },
+        "examples": [
+            'tool: finance_query\nreason: Get key financial metrics\nquery: 贵州茅台 营业收入 净利润 ROE 近4个季度',
+            'tool: finance_query\nreason: Screen stocks by financial criteria\nquery: 创业板 ROE大于20% 营收增速大于30%',
+            'tool: finance_query\nreason: Check debt and cash flow health\nquery: 002532 资产负债率 经营性现金流 近3年',
+        ],
+    },
+    {
+        "name": "management_query",
+        "description": "Query company shareholder/management data: share capital structure, top 10 shareholders, shareholder count changes, controlling shareholder, equity pledges, institutional holdings, executive team. Source: 同花顺问财 (Iwencai). Use for ownership analysis and governance assessment.",
+        "parameters": {
+            "query": {
+                "type": "string",
+                "description": "Shareholder/management query. Include company name or code. Examples: '贵州茅台 前十大股东', '002532 股东户数变化', '宁德时代 实控人'.",
+                "required": True,
+            }
+        },
+        "examples": [
+            'tool: management_query\nreason: Check shareholder concentration\nquery: 002532 股东户数 户均持股 最近变化',
+            'tool: management_query\nreason: Identify controlling shareholder\nquery: 贵州茅台 实控人 控股比例',
+            'tool: management_query\nreason: Check institutional holdings\nquery: 宁德时代 前十大流通股东 机构持仓',
         ],
     },
     {
@@ -286,13 +384,17 @@ TOOL_DEFINITIONS = [
 
 
 def format_tool_descriptions(language: str = "zh-CN") -> str:
-    """Format tool definitions for injection into system prompt."""
+    """Format tool definitions for injection into system prompt. Respects tools_config.yaml."""
+    from .tools_config import is_tool_enabled
+
     is_zh = language == "zh-CN"
     lines = []
     lines.append("# AVAILABLE TOOLS" if not is_zh else "# 可用工具")
     lines.append("")
     
     for tool in TOOL_DEFINITIONS:
+        if not is_tool_enabled(tool['name']):
+            continue
         lines.append(f"## {tool['name']}")
         lines.append(f"  Description: {tool['description']}")
         params = tool.get("parameters", {})
@@ -501,10 +603,18 @@ class ToolExecutor:
         return self._brain_manager
 
     async def execute(self, tool_call: Dict[str, str]) -> str:
-        """Execute a single tool call and return formatted observation."""
+        """Execute a single tool call and return formatted observation.
+        All outputs pass through TokenGuard for defensive size enforcement."""
+        from .tools_config import is_tool_enabled
+        from .token_guard import token_guard
+
         tool_name = tool_call.get("tool", "")
         query = tool_call.get("query", "")
         reason = tool_call.get("reason", "")
+
+        # Check if tool is enabled in config
+        if not is_tool_enabled(tool_name):
+            return f"<tool_observation>\nTool '{tool_name}' is currently disabled. Check tools_config.yaml to re-enable it.\n</tool_observation>"
 
         # Computation tools (deterministic, no async needed)
         if tool_name in COMPUTATION_TOOL_NAMES:
@@ -515,23 +625,38 @@ class ToolExecutor:
 
         try:
             if tool_name == "web_search":
-                return await self._exec_web_search(query)
+                raw = await self._exec_web_search(query)
             elif tool_name == "news_search":
-                return await self._exec_news_search(query)
+                raw = await self._exec_news_search(query)
+            elif tool_name == "announcement_search":
+                raw = await self._exec_announcement_search(query)
+            elif tool_name == "report_search":
+                raw = await self._exec_report_search(query)
             elif tool_name == "knowledge_search":
-                return await self._exec_knowledge_search(query)
+                raw = await self._exec_knowledge_search(query)
             elif tool_name == "deep_scrape":
                 url = tool_call.get("url", "")
                 if not url:
                     return "<tool_observation>\nError: deep_scrape requires a 'url' parameter.\n</tool_observation>"
-                return await self._exec_deep_scrape(url, query)
+                raw = await self._exec_deep_scrape(url, query)
             elif tool_name == "financial_data":
                 symbol = tool_call.get("symbol", "")
                 if not symbol:
                     return "<tool_observation>\nError: financial_data requires a 'symbol' parameter.\n</tool_observation>"
-                return await self._exec_financial_data(symbol, query)
+                raw = await self._exec_financial_data(symbol, query)
+            elif tool_name == "macro_query":
+                raw = await self._exec_macro_query(query)
+            elif tool_name == "business_query":
+                raw = await self._exec_business_query(query)
+            elif tool_name == "finance_query":
+                raw = await self._exec_finance_query(query)
+            elif tool_name == "management_query":
+                raw = await self._exec_management_query(query)
             else:
-                return f"<tool_observation>\nError: Unknown tool '{tool_name}'. Available: web_search, news_search, knowledge_search, deep_scrape, financial_data, dcf_calculator, position_sizer, kelly_calculator, beat_miss_scorer, comps_valuation, pillar_scorer, dupont_decomposition, minervini_stage, earnings_quality_audit, drawdown_scenario, risk_reward, stop_loss_validator, cagr_calculator.\n</tool_observation>"
+                return f"<tool_observation>\nError: Unknown tool '{tool_name}'. Available: web_search, news_search, announcement_search, report_search, knowledge_search, deep_scrape, financial_data, macro_query, business_query, finance_query, management_query, dcf_calculator, position_sizer, kelly_calculator, beat_miss_scorer, comps_valuation, pillar_scorer, dupont_decomposition, minervini_stage, earnings_quality_audit, drawdown_scenario, risk_reward, stop_loss_validator, cagr_calculator.\n</tool_observation>"
+            
+            # TokenGuard: enforce per-tool char limits and round budget
+            return token_guard.enforce(tool_name, raw)
         except Exception as e:
             return f"<tool_observation>\nError executing {tool_name}: {str(e)}\n</tool_observation>"
 
@@ -558,41 +683,226 @@ class ToolExecutor:
         
         lines = [f"<tool_observation>"]
         lines.append(f"Web search results for: {query}")
-        lines.append(f"Retrieved: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+        lines.append(f"Date: {datetime.now().strftime('%Y-%m-%d')}")
         lines.append("")
-        for i, r in enumerate(results, 1):
-            title = r.get("title", "N/A")
-            content = r.get("content", "")[:400]
-            source = r.get("source", "web")
+        for i, r in enumerate(results[:5], 1):
+            title = r.get("title", "N/A")[:80]
+            content = r.get("content", "")[:200]
             url = r.get("url", "")
-            lines.append(f"{i}. [{title}]")
-            lines.append(f"   {content}")
-            lines.append(f"   Source: {source} | {url}")
-            lines.append("")
+            lines.append(f"{i}. {title}")
+            if content:
+                lines.append(f"   {content}")
+            if url:
+                lines.append(f"   {url}")
         lines.append("</tool_observation>")
         return "\n".join(lines)
 
     async def _exec_news_search(self, query: str) -> str:
-        results = await self.search_service.search_news(query, max_results=5)
-        if not results:
-            return "<tool_observation>\nNo news results found for this query.\n</tool_observation>"
+        """Search news using Iwencai (同花顺问财) as primary for Chinese financial news,
+        with SearXNG as supplement for international coverage.
         
+        Token-defensive: 5 iwencai + 3 searxng, title≤80, content≤150 chars."""
+        MAX_IWENCAI = 5
+        MAX_SEARXNG = 3
+        MAX_TITLE = 80
+        MAX_CONTENT = 150
+
         lines = ["<tool_observation>"]
-        lines.append(f"News search results for: {query}")
-        lines.append(f"Retrieved: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+        lines.append(f"News: {query}")
+        lines.append(f"Date: {datetime.now().strftime('%Y-%m-%d')}")
         lines.append("")
-        for i, r in enumerate(results, 1):
-            title = r.get("title", "N/A")
-            content = r.get("content", "")[:400]
-            source = r.get("source", "news")
-            date = r.get("date", "")
-            url = r.get("url", "")
-            lines.append(f"{i}. [{title}] ({date})")
-            lines.append(f"   {content}")
-            lines.append(f"   Source: {source} | {url}")
-            lines.append("")
+
+        # Try Iwencai first for financial news (Chinese market focus)
+        iwencai_results = []
+        try:
+            from .data_providers.iwencai_news import search_news as iwencai_search
+            raw = await iwencai_search(query)
+            if raw.get("status_code") == 0 and raw.get("data"):
+                for item in raw["data"][:MAX_IWENCAI]:
+                    iwencai_results.append({
+                        "title": item.get("title", "")[:MAX_TITLE],
+                        "content": item.get("summary", "")[:MAX_CONTENT],
+                        "date": item.get("publish_date", "")[:10],
+                        "source": item.get("extra", {}).get("real_publish_source", "")[:20],
+                    })
+        except Exception:
+            pass
+
+        # Format Iwencai results (compact: no URL, short fields)
+        if iwencai_results:
+            for i, r in enumerate(iwencai_results, 1):
+                lines.append(f"{i}. [{r['date']}] {r['title']}")
+                if r['content']:
+                    lines.append(f"   {r['content']}")
+
+        # Supplement with SearXNG for broader/international coverage
+        searxng_results = await self.search_service.search_news(query, max_results=MAX_SEARXNG)
+        if searxng_results:
+            start_idx = len(iwencai_results) + 1
+            for i, r in enumerate(searxng_results, start_idx):
+                title = r.get("title", "")[:MAX_TITLE]
+                content = r.get("content", "")[:MAX_CONTENT]
+                date = r.get("date", "")[:10]
+                lines.append(f"{i}. [{date}] {title}")
+                if content:
+                    lines.append(f"   {content}")
+
+        if not iwencai_results and not searxng_results:
+            return "<tool_observation>\nNo news results found.\n</tool_observation>"
+
         lines.append("</tool_observation>")
         return "\n".join(lines)
+
+    async def _exec_announcement_search(self, query: str) -> str:
+        """Search company announcements via Iwencai (同花顺问财).
+        Token-defensive: max 6 items, title≤80, summary≤200, no URL."""
+        MAX_ITEMS = 6
+        MAX_TITLE = 80
+        MAX_SUMMARY = 200
+
+        try:
+            from .data_providers.iwencai_news import search_announcements
+            raw = await search_announcements(query)
+            if raw.get("error"):
+                return f"<tool_observation>\nAnnouncement error: {raw['error']}\n</tool_observation>"
+            items = raw.get("data", [])
+            if not items:
+                return "<tool_observation>\nNo announcements found.\n</tool_observation>"
+
+            lines = ["<tool_observation>"]
+            lines.append(f"Announcements: {query}")
+            lines.append("")
+            for i, item in enumerate(items[:MAX_ITEMS], 1):
+                title = item.get("title", "")[:MAX_TITLE]
+                date = item.get("publish_date", "")[:10]
+                summary = item.get("summary", "")[:MAX_SUMMARY]
+                lines.append(f"{i}. [{date}] {title}")
+                if summary:
+                    lines.append(f"   {summary}")
+            lines.append("</tool_observation>")
+            return "\n".join(lines)
+        except Exception as e:
+            return f"<tool_observation>\nAnnouncement error: {str(e)}\n</tool_observation>"
+
+    async def _exec_report_search(self, query: str) -> str:
+        """Search analyst research reports via Iwencai (同花顺问财).
+        Token-defensive: max 6 items, title≤80, summary≤250, no URL."""
+        MAX_ITEMS = 6
+        MAX_TITLE = 80
+        MAX_SUMMARY = 250
+
+        try:
+            from .data_providers.iwencai_news import search_reports
+            raw = await search_reports(query)
+            if raw.get("error"):
+                return f"<tool_observation>\nReport search error: {raw['error']}\n</tool_observation>"
+            items = raw.get("data", [])
+            if not items:
+                return "<tool_observation>\nNo research reports found.\n</tool_observation>"
+
+            lines = ["<tool_observation>"]
+            lines.append(f"Research reports: {query}")
+            lines.append("")
+            for i, item in enumerate(items[:MAX_ITEMS], 1):
+                title = item.get("title", "")[:MAX_TITLE]
+                date = item.get("publish_date", "")[:10]
+                summary = item.get("summary", "")[:MAX_SUMMARY]
+                source = item.get("extra", {}).get("real_publish_source", "")[:20]
+                lines.append(f"{i}. [{date}] {title} ({source})")
+                if summary:
+                    lines.append(f"   {summary}")
+            lines.append("</tool_observation>")
+            return "\n".join(lines)
+        except Exception as e:
+            return f"<tool_observation>\nReport search error: {str(e)}\n</tool_observation>"
+
+    async def _exec_macro_query(self, query: str) -> str:
+        """Query macroeconomic data via Iwencai (同花顺问财) hithink-macro-query skill."""
+        return await self._exec_iwencai_query(query, "hithink-macro-query", "Macro data")
+
+    async def _exec_business_query(self, query: str) -> str:
+        """Query company business/operations data via Iwencai (同花顺问财)."""
+        return await self._exec_iwencai_query(query, "hithink-business-query", "Business data")
+
+    async def _exec_finance_query(self, query: str) -> str:
+        """Query company financial data via Iwencai (同花顺问财)."""
+        return await self._exec_iwencai_query(query, "hithink-finance-query", "Financial data")
+
+    async def _exec_management_query(self, query: str) -> str:
+        """Query company shareholder/management data via Iwencai (同花顺问财)."""
+        return await self._exec_iwencai_query(query, "hithink-management-query", "Management/shareholder data")
+
+    async def _exec_iwencai_query(self, query: str, skill_id: str, label: str) -> str:
+        """Generic Iwencai query2data API call for structured data skills.
+        Token-defensive: max 8 items, 6 fields/item, values truncated to 50 chars."""
+        import os
+        import secrets
+        import httpx
+        import json as _json
+
+        MAX_ITEMS = 8
+        MAX_FIELDS = 6
+        MAX_VALUE_LEN = 50
+
+        api_key = os.getenv("IWENCAI_API_KEY", "")
+        if not api_key:
+            return f"<tool_observation>\n{label}: IWENCAI_API_KEY not configured.\n</tool_observation>"
+
+        url = "https://openapi.iwencai.com/v1/query2data"
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+            "X-Claw-Call-Type": "normal",
+            "X-Claw-Skill-Id": skill_id,
+            "X-Claw-Skill-Version": "1.0.0",
+            "X-Claw-Plugin-Id": "none",
+            "X-Claw-Plugin-Version": "none",
+            "X-Claw-Trace-Id": secrets.token_hex(32),
+        }
+        payload = {
+            "query": query,
+            "page": "1",
+            "limit": str(MAX_ITEMS),
+            "is_cache": "1",
+            "expand_index": "true",
+        }
+
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.post(url, headers=headers, json=payload)
+                response.raise_for_status()
+                data = response.json()
+
+            # Parse response - handle both list and dict formats
+            datas = data.get("datas", data.get("data", []))
+            if not datas:
+                text_resp = data.get("text_response", "")
+                if text_resp:
+                    return f"<tool_observation>\n{label}: {query}\n{text_resp[:500]}\n</tool_observation>"
+                return f"<tool_observation>\nNo {label.lower()} found.\n</tool_observation>"
+
+            lines = ["<tool_observation>"]
+            lines.append(f"{label}: {query} ({len(datas)} items)")
+            lines.append("")
+
+            for item in datas[:MAX_ITEMS]:
+                if isinstance(item, dict):
+                    # Strict field limit + value truncation
+                    parts = []
+                    for k, v in list(item.items())[:MAX_FIELDS]:
+                        if v is not None and v != "":
+                            v_str = str(v)[:MAX_VALUE_LEN]
+                            parts.append(f"{k}:{v_str}")
+                    if parts:
+                        lines.append("• " + " | ".join(parts))
+                else:
+                    lines.append(f"• {str(item)[:100]}")
+            lines.append("</tool_observation>")
+            return "\n".join(lines)
+        except httpx.HTTPStatusError as e:
+            return f"<tool_observation>\n{label} HTTP error: {e.response.status_code}\n</tool_observation>"
+        except Exception as e:
+            return f"<tool_observation>\n{label} error: {str(e)}\n</tool_observation>"
 
     async def _exec_knowledge_search(self, query: str) -> str:
         try:
@@ -703,11 +1013,20 @@ class ToolExecutor:
 
     async def _exec_financial_data(self, symbol: str, query: str) -> str:
         """Fetch structured financial data from AkShare/yfinance based on the query.
-        Uses session-level cache to avoid redundant API calls across expert rounds."""
+        Uses session-level cache to avoid redundant API calls across expert rounds.
+        
+        Token-defensive: field whitelists, row limits, internal char budget."""
         import akshare as ak
         import yfinance as yf
         from ..utils.network import safe_ak_call
         from ..utils.data_validation import validate_ak_data
+        from .token_guard import token_guard
+
+        # Hard limits for this tool (internal budget before TokenGuard's external enforcement)
+        MAX_PERIODS = 4          # Max historical periods to show
+        MAX_ROWS = 5             # Max data rows per section
+        MAX_SECTION_CHARS = 800  # Max chars per section
+        INTERNAL_BUDGET = 4500   # Stop adding sections after this many chars
 
         # Cache key: symbol + normalized query keywords for category matching
         cache_key = f"{symbol}|{query.lower().strip()}"
@@ -717,118 +1036,139 @@ class ToolExecutor:
 
         query_lower = query.lower()
         lines = ["<tool_observation>"]
-        lines.append(f"Financial data query for: {symbol}")
-        lines.append(f"Query: {query}")
-        lines.append(f"Retrieved: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+        lines.append(f"Financial data: {symbol} | {query}")
+        lines.append(f"Date: {datetime.now().strftime('%Y-%m-%d')}")
         lines.append("")
+
+        def _chars_so_far():
+            return sum(len(l) for l in lines)
+
+        def _budget_ok():
+            return _chars_so_far() < INTERNAL_BUDGET
 
         is_a_share = symbol.isdigit() and len(symbol) == 6
 
+        def _fmt_num(v):
+            """Compact number formatting: 1.23B / 45.6M / 1,234"""
+            if v is None or (isinstance(v, float) and v != v):
+                return "N/A"
+            if isinstance(v, (int, float)):
+                if abs(v) >= 1e9:
+                    return f"{v/1e9:.2f}B"
+                if abs(v) >= 1e6:
+                    return f"{v/1e6:.1f}M"
+                if abs(v) >= 1e3:
+                    return f"{v:,.0f}"
+                return f"{v:.2f}"
+            return str(v)[:30]
+
         try:
             if is_a_share:
-                # --- A-Share data from AkShare ---
-                # Quarterly financial abstract (comprehensive)
-                if any(kw in query_lower for kw in ["quarter", "earnings", "revenue", "profit", "净利润", "营收", "扣非", "季度", "eps", "roe", "margin"]):
+                # --- A-Share: Quarterly financial abstract ---
+                if _budget_ok() and any(kw in query_lower for kw in ["quarter", "earnings", "revenue", "profit", "净利润", "营收", "扣非", "季度", "eps", "roe", "margin"]):
                     try:
                         df = await safe_ak_call(ak.stock_financial_abstract_ths, symbol=symbol)
                         if validate_ak_data(df, min_rows=1):
-                            lines.append("## 季度财务摘要 (同花顺)")
-                            cols = ['报告期', '净利润', '净利润同比增长率', '扣非净利润', '扣非净利润同比增长率',
-                                    '营业总收入', '营业总收入同比增长率', '基本每股收益', '销售毛利率',
-                                    '销售净利率', '净资产收益率', '资产负债率', '每股经营现金流']
-                            available_cols = [c for c in cols if c in df.columns]
-                            for _, row in df.tail(6).iterrows():
-                                vals = [f"{c}: {row.get(c, 'N/A')}" for c in available_cols]
-                                lines.append("| " + " | ".join(vals) + " |")
+                            lines.append("## 季度财务摘要")
+                            # Whitelist: only the most analytically important fields
+                            whitelist = ['报告期', '净利润', '净利润同比增长率', '营业总收入', 
+                                        '营业总收入同比增长率', '基本每股收益', '净资产收益率', '资产负债率']
+                            available = [c for c in whitelist if c in df.columns]
+                            for _, row in df.tail(MAX_PERIODS).iterrows():
+                                vals = [f"{c}:{row.get(c, 'N/A')}" for c in available]
+                                lines.append(" | ".join(vals))
                             lines.append("")
                     except Exception as e:
-                        lines.append(f"⚠ stock_financial_abstract_ths failed: {e}")
+                        lines.append(f"⚠ quarterly failed: {e}")
 
-                # Balance sheet / cash / debt
-                if any(kw in query_lower for kw in ["balance", "cash", "debt", "asset", "资产", "负债", "现金"]):
+                # --- Balance sheet ---
+                if _budget_ok() and any(kw in query_lower for kw in ["balance", "cash", "debt", "asset", "资产", "负债", "现金"]):
                     try:
                         yf_symbol = f"{symbol}.SS" if symbol.startswith('6') else f"{symbol}.SZ"
                         ticker = yf.Ticker(yf_symbol)
                         bs = ticker.balance_sheet
                         if bs is not None and not bs.empty:
-                            lines.append("## 资产负债表 (yfinance)")
-                            key_items = ['Total Assets', 'Total Liabilities Net Minority Interest', 'Total Equity Gross Minority Interest',
-                                         'Cash And Cash Equivalents', 'Total Debt', 'Current Assets', 'Current Liabilities',
-                                         'Inventory', 'Net PPE']
+                            lines.append("## 资产负债表")
+                            key_items = ['Total Assets', 'Total Liabilities Net Minority Interest',
+                                         'Cash And Cash Equivalents', 'Total Debt', 'Current Assets', 'Current Liabilities']
                             for item in key_items:
                                 if item in bs.index:
                                     row = bs.loc[item]
-                                    vals = [f"{str(col)[:10]}: {v:,.0f}" for col, v in row.items() if v is not None and v == v]
+                                    vals = [f"{str(col)[:10]}:{_fmt_num(v)}" for col, v in list(row.items())[:MAX_PERIODS] if v is not None and v == v]
                                     if vals:
-                                        lines.append(f"- {item}: {' | '.join(vals[:4])}")
+                                        lines.append(f"- {item}: {' | '.join(vals)}")
                             lines.append("")
                     except Exception as e:
-                        lines.append(f"⚠ Balance sheet fetch failed: {e}")
+                        lines.append(f"⚠ balance sheet failed: {e}")
 
-                # Cash flow statement
-                if any(kw in query_lower for kw in ["cash flow", "capex", "fcf", "现金流", "资本开支"]):
+                # --- Cash flow ---
+                if _budget_ok() and any(kw in query_lower for kw in ["cash flow", "capex", "fcf", "现金流", "资本开支"]):
                     try:
                         yf_symbol = f"{symbol}.SS" if symbol.startswith('6') else f"{symbol}.SZ"
                         ticker = yf.Ticker(yf_symbol)
                         cf = ticker.cashflow
                         if cf is not None and not cf.empty:
-                            lines.append("## 现金流量表 (yfinance)")
-                            key_items = ['Operating Cash Flow', 'Capital Expenditure', 'Free Cash Flow',
-                                         'Investing Cash Flow', 'Financing Cash Flow']
+                            lines.append("## 现金流量表")
+                            key_items = ['Operating Cash Flow', 'Capital Expenditure', 'Free Cash Flow']
                             for item in key_items:
                                 if item in cf.index:
                                     row = cf.loc[item]
-                                    vals = [f"{str(col)[:10]}: {v:,.0f}" for col, v in row.items() if v is not None and v == v]
+                                    vals = [f"{str(col)[:10]}:{_fmt_num(v)}" for col, v in list(row.items())[:MAX_PERIODS] if v is not None and v == v]
                                     if vals:
-                                        lines.append(f"- {item}: {' | '.join(vals[:4])}")
+                                        lines.append(f"- {item}: {' | '.join(vals)}")
                             lines.append("")
                     except Exception as e:
-                        lines.append(f"⚠ Cash flow fetch failed: {e}")
+                        lines.append(f"⚠ cash flow failed: {e}")
 
-                # Income statement
-                if any(kw in query_lower for kw in ["income", "利润表", "cost", "成本", "breakdown"]):
+                # --- Income statement ---
+                if _budget_ok() and any(kw in query_lower for kw in ["income", "利润表", "cost", "成本", "breakdown"]):
                     try:
                         yf_symbol = f"{symbol}.SS" if symbol.startswith('6') else f"{symbol}.SZ"
                         ticker = yf.Ticker(yf_symbol)
                         fin = ticker.financials
                         if fin is not None and not fin.empty:
-                            lines.append("## 利润表 (yfinance annual)")
-                            key_items = ['Total Revenue', 'Cost Of Revenue', 'Gross Profit',
-                                         'Operating Income', 'Net Income', 'EBITDA', 'Interest Expense',
-                                         'Tax Provision', 'Research Development']
+                            lines.append("## 利润表")
+                            key_items = ['Total Revenue', 'Gross Profit', 'Operating Income', 'Net Income', 'EBITDA']
                             for item in key_items:
                                 if item in fin.index:
                                     row = fin.loc[item]
-                                    vals = [f"{str(col)[:10]}: {v:,.0f}" for col, v in row.items() if v is not None and v == v]
+                                    vals = [f"{str(col)[:10]}:{_fmt_num(v)}" for col, v in list(row.items())[:MAX_PERIODS] if v is not None and v == v]
                                     if vals:
-                                        lines.append(f"- {item}: {' | '.join(vals[:4])}")
+                                        lines.append(f"- {item}: {' | '.join(vals)}")
                             lines.append("")
                     except Exception as e:
-                        lines.append(f"⚠ Income statement fetch failed: {e}")
+                        lines.append(f"⚠ income statement failed: {e}")
 
-                # Dividend
-                if any(kw in query_lower for kw in ["dividend", "分红", "派息", "股息"]):
+                # --- Dividend (field whitelist) ---
+                if _budget_ok() and any(kw in query_lower for kw in ["dividend", "分红", "派息", "股息"]):
                     try:
                         div_df = await safe_ak_call(ak.stock_history_dividend_detail, symbol=symbol)
                         if validate_ak_data(div_df, min_rows=1):
-                            lines.append("## 分红历史 (AkShare)")
-                            for _, row in div_df.head(5).iterrows():
-                                lines.append(f"  {row.to_dict()}")
+                            lines.append("## 分红历史")
+                            # Whitelist only essential dividend fields
+                            div_whitelist = ['除权除息日', '送转股份', '派息', '股权登记日']
+                            available_div = [c for c in div_whitelist if c in div_df.columns]
+                            if not available_div:
+                                # Fallback: take first 4 columns
+                                available_div = list(div_df.columns[:4])
+                            for _, row in div_df.head(MAX_ROWS).iterrows():
+                                vals = [f"{c}:{row.get(c, '')}" for c in available_div]
+                                lines.append(" | ".join(vals))
                             lines.append("")
                     except Exception as e:
-                        lines.append(f"⚠ Dividend data failed: {e}")
+                        lines.append(f"⚠ dividend failed: {e}")
 
-                # Peer / industry comparison
-                if any(kw in query_lower for kw in ["peer", "industry", "比较", "同业", "行业", "对标"]):
+                # --- Peer comparison (reduced) ---
+                if _budget_ok() and any(kw in query_lower for kw in ["peer", "industry", "比较", "同业", "行业", "对标"]):
                     try:
                         from .search_service import search_service
                         search_res = await search_service.quick_search(f"{symbol} 行业对比 PE PB ROE 同业估值")
                         if search_res:
-                            lines.append("## 行业对比 (搜索)")
-                            lines.append(search_res[:2000])
+                            lines.append("## 行业对比")
+                            lines.append(search_res[:1000])
                             lines.append("")
                     except Exception as e:
-                        lines.append(f"⚠ Peer comparison search failed: {e}")
+                        lines.append(f"⚠ peer comparison failed: {e}")
 
             else:
                 # --- US/HK data from yfinance ---
@@ -839,74 +1179,76 @@ class ToolExecutor:
 
                 ticker = yf.Ticker(yf_symbol)
 
-                if any(kw in query_lower for kw in ["quarter", "earnings", "revenue", "profit", "eps"]):
+                if _budget_ok() and any(kw in query_lower for kw in ["quarter", "earnings", "revenue", "profit", "eps"]):
                     qf = ticker.quarterly_financials
                     if qf is not None and not qf.empty:
-                        lines.append("## Quarterly Financials (yfinance)")
-                        for item in ['Total Revenue', 'Net Income', 'Gross Profit', 'Operating Income', 'EBITDA', 'Cost Of Revenue']:
+                        lines.append("## Quarterly Financials")
+                        for item in ['Total Revenue', 'Net Income', 'Gross Profit', 'Operating Income', 'EBITDA']:
                             if item in qf.index:
                                 row = qf.loc[item]
-                                vals = [f"{str(col)[:10]}: {v:,.0f}" for col, v in row.items() if v is not None and v == v]
+                                vals = [f"{str(col)[:10]}:{_fmt_num(v)}" for col, v in list(row.items())[:MAX_PERIODS] if v is not None and v == v]
                                 if vals:
-                                    lines.append(f"- {item}: {' | '.join(vals[:5])}")
+                                    lines.append(f"- {item}: {' | '.join(vals)}")
                         lines.append("")
 
-                if any(kw in query_lower for kw in ["balance", "cash", "debt", "asset"]):
+                if _budget_ok() and any(kw in query_lower for kw in ["balance", "cash", "debt", "asset"]):
                     bs = ticker.balance_sheet
                     if bs is not None and not bs.empty:
-                        lines.append("## Balance Sheet (yfinance)")
+                        lines.append("## Balance Sheet")
                         for item in ['Total Assets', 'Total Liabilities Net Minority Interest', 'Cash And Cash Equivalents',
-                                     'Total Debt', 'Current Assets', 'Current Liabilities', 'Inventory']:
+                                     'Total Debt', 'Current Assets', 'Current Liabilities']:
                             if item in bs.index:
                                 row = bs.loc[item]
-                                vals = [f"{str(col)[:10]}: {v:,.0f}" for col, v in row.items() if v is not None and v == v]
+                                vals = [f"{str(col)[:10]}:{_fmt_num(v)}" for col, v in list(row.items())[:MAX_PERIODS] if v is not None and v == v]
                                 if vals:
-                                    lines.append(f"- {item}: {' | '.join(vals[:4])}")
+                                    lines.append(f"- {item}: {' | '.join(vals)}")
                         lines.append("")
 
-                if any(kw in query_lower for kw in ["cash flow", "capex", "fcf"]):
+                if _budget_ok() and any(kw in query_lower for kw in ["cash flow", "capex", "fcf"]):
                     cf = ticker.cashflow
                     if cf is not None and not cf.empty:
-                        lines.append("## Cash Flow Statement (yfinance)")
-                        for item in ['Operating Cash Flow', 'Capital Expenditure', 'Free Cash Flow',
-                                     'Investing Cash Flow', 'Financing Cash Flow']:
+                        lines.append("## Cash Flow")
+                        for item in ['Operating Cash Flow', 'Capital Expenditure', 'Free Cash Flow']:
                             if item in cf.index:
                                 row = cf.loc[item]
-                                vals = [f"{str(col)[:10]}: {v:,.0f}" for col, v in row.items() if v is not None and v == v]
+                                vals = [f"{str(col)[:10]}:{_fmt_num(v)}" for col, v in list(row.items())[:MAX_PERIODS] if v is not None and v == v]
                                 if vals:
-                                    lines.append(f"- {item}: {' | '.join(vals[:4])}")
+                                    lines.append(f"- {item}: {' | '.join(vals)}")
                         lines.append("")
 
-                if any(kw in query_lower for kw in ["income", "breakdown", "cost"]):
+                if _budget_ok() and any(kw in query_lower for kw in ["income", "breakdown", "cost"]):
                     fin = ticker.financials
                     if fin is not None and not fin.empty:
-                        lines.append("## Income Statement (yfinance annual)")
-                        for item in ['Total Revenue', 'Cost Of Revenue', 'Gross Profit', 'Operating Income',
-                                     'Net Income', 'EBITDA', 'Interest Expense', 'Research Development']:
+                        lines.append("## Income Statement")
+                        for item in ['Total Revenue', 'Gross Profit', 'Operating Income', 'Net Income', 'EBITDA']:
                             if item in fin.index:
                                 row = fin.loc[item]
-                                vals = [f"{str(col)[:10]}: {v:,.0f}" for col, v in row.items() if v is not None and v == v]
+                                vals = [f"{str(col)[:10]}:{_fmt_num(v)}" for col, v in list(row.items())[:MAX_PERIODS] if v is not None and v == v]
                                 if vals:
-                                    lines.append(f"- {item}: {' | '.join(vals[:4])}")
+                                    lines.append(f"- {item}: {' | '.join(vals)}")
                         lines.append("")
 
-                if any(kw in query_lower for kw in ["dividend"]):
+                if _budget_ok() and any(kw in query_lower for kw in ["dividend"]):
                     divs = ticker.dividends
                     if divs is not None and len(divs) > 0:
-                        lines.append("## Dividend History (yfinance)")
-                        for date, val in list(divs.items())[-8:]:
+                        lines.append("## Dividend History")
+                        for date, val in list(divs.items())[-5:]:
                             lines.append(f"  {str(date)[:10]}: {val:.4f}")
                         lines.append("")
 
         except Exception as e:
             lines.append(f"⚠ Financial data query failed: {str(e)}")
 
-        # --- OpenBB enrichment (US/HK stocks) ---
-        if not is_a_share:
+        # --- OpenBB enrichment (US/HK stocks, only if budget allows) ---
+        if not is_a_share and _budget_ok():
             try:
                 from .openbb_service import openbb_service
                 openbb_result = await openbb_service.query(symbol, query)
                 if openbb_result:
+                    # Truncate OpenBB result to fit within remaining budget
+                    remaining = INTERNAL_BUDGET - _chars_so_far()
+                    if len(openbb_result) > remaining:
+                        openbb_result = openbb_result[:remaining] + "\n[OpenBB data truncated]"
                     lines.append(openbb_result)
             except Exception as e:
                 lines.append(f"⚠ OpenBB enrichment failed: {e}")

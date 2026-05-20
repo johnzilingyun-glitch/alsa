@@ -17,3 +17,6 @@ python_service/data/
 .idea/
 *.db
 *.parquet
+.venv/
+.env
+.venv/

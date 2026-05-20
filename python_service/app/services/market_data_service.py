@@ -1,12 +1,17 @@
 import asyncio
-import akshare as ak
+import os
 import yfinance as yf
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
-from ..utils.network import safe_ak_call
 from ..utils.data_validation import validate_ak_data
 from .search_service import search_service
 from .data_providers import data_router
+
+# Only import akshare if enabled (geo-blocked from non-China servers)
+_AKSHARE_ENABLED = os.getenv("AKSHARE_ENABLED", "false").lower() == "true"
+if _AKSHARE_ENABLED:
+    import akshare as ak
+    from ..utils.network import safe_ak_call
 
 class MarketDataService:
     def __init__(self):
@@ -631,123 +636,127 @@ class MarketDataService:
                         pass
 
                 ak_info = {}
-                try:
-                    info_df = await safe_ak_call(ak.stock_individual_info_em, symbol=clean_symbol)
-                    if validate_ak_data(info_df, min_rows=1):
-                        ak_info = dict(zip(info_df['item'], info_df['value']))
-                except Exception as e:
-                    print(f"AkShare info failed for {clean_symbol}: {e}")
+                if _AKSHARE_ENABLED:
+                    try:
+                        info_df = await safe_ak_call(ak.stock_individual_info_em, symbol=clean_symbol)
+                        if validate_ak_data(info_df, min_rows=1):
+                            ak_info = dict(zip(info_df['item'], info_df['value']))
+                    except Exception as e:
+                        print(f"AkShare info failed for {clean_symbol}: {e}")
                 
                 # Fetch financial indicator (AkShare fallback)
                 ak_financials = {}
-                try:
-                    indicator_df = await safe_ak_call(ak.stock_financial_analysis_indicator_em, symbol=clean_symbol)
-                    if validate_ak_data(indicator_df, min_rows=1):
-                        latest = indicator_df.head(5).to_dict(orient="records")
-                        l0 = latest[0]
-                        ak_financials = {
-                            "history": latest,
-                            "latestNetProfit": l0.get("净利润"),
-                            "latestNetProfitDeduct": l0.get("扣除非经常性损益后的净利润") or l0.get("扣非净利润"),
-                            "latestGrowth": l0.get("净利润同比增长率"),
-                            "latestRevenue": l0.get("营业收入"),
-                            "latestRoe": l0.get("净资产收益率"),
-                            "latestGrossMargin": l0.get("销售毛利率"),
-                            "latestDebtRatio": l0.get("资产负债率"),
-                            "latestAssetTurnover": l0.get("总资产周转率(次)") or l0.get("总资产周转率"),
-                            "latestInventoryTurnover": l0.get("存货周转率(次)") or l0.get("存货周转率"),
-                            "latestCurrentRatio": l0.get("流动比率"),
-                            "latestQuickRatio": l0.get("速动比率"),
-                            "latestOcfPerShare": l0.get("每股经营现金流(元)"),
-                        }
-                        # Calculate 扣非净利润 YoY/QoQ from history
-                        npd_key = "扣除非经常性损益后的净利润"
-                        npd_alt = "扣非净利润"
-                        if len(latest) >= 2:
-                            npd0 = l0.get(npd_key) or l0.get(npd_alt)
-                            npd1 = latest[1].get(npd_key) or latest[1].get(npd_alt)
-                            if npd0 is not None and npd1 is not None and npd1 != 0:
-                                try:
-                                    ak_financials["latestNetProfitDeductQoQ"] = (float(npd0) - float(npd1)) / abs(float(npd1))
-                                except (ValueError, TypeError):
-                                    pass
-                        if len(latest) >= 5:
-                            npd0 = l0.get(npd_key) or l0.get(npd_alt)
-                            npd4 = latest[4].get(npd_key) or latest[4].get(npd_alt)
-                            if npd0 is not None and npd4 is not None and npd4 != 0:
-                                try:
-                                    ak_financials["latestNetProfitDeductYoY"] = (float(npd0) - float(npd4)) / abs(float(npd4))
-                                except (ValueError, TypeError):
-                                    pass
-                except:
-                    pass
+                if _AKSHARE_ENABLED:
+                    try:
+                        indicator_df = await safe_ak_call(ak.stock_financial_analysis_indicator_em, symbol=clean_symbol)
+                        if validate_ak_data(indicator_df, min_rows=1):
+                            latest = indicator_df.head(5).to_dict(orient="records")
+                            l0 = latest[0]
+                            ak_financials = {
+                                "history": latest,
+                                "latestNetProfit": l0.get("净利润"),
+                                "latestNetProfitDeduct": l0.get("扣除非经常性损益后的净利润") or l0.get("扣非净利润"),
+                                "latestGrowth": l0.get("净利润同比增长率"),
+                                "latestRevenue": l0.get("营业收入"),
+                                "latestRoe": l0.get("净资产收益率"),
+                                "latestGrossMargin": l0.get("销售毛利率"),
+                                "latestDebtRatio": l0.get("资产负债率"),
+                                "latestAssetTurnover": l0.get("总资产周转率(次)") or l0.get("总资产周转率"),
+                                "latestInventoryTurnover": l0.get("存货周转率(次)") or l0.get("存货周转率"),
+                                "latestCurrentRatio": l0.get("流动比率"),
+                                "latestQuickRatio": l0.get("速动比率"),
+                                "latestOcfPerShare": l0.get("每股经营现金流(元)"),
+                            }
+                            # Calculate 扣非净利润 YoY/QoQ from history
+                            npd_key = "扣除非经常性损益后的净利润"
+                            npd_alt = "扣非净利润"
+                            if len(latest) >= 2:
+                                npd0 = l0.get(npd_key) or l0.get(npd_alt)
+                                npd1 = latest[1].get(npd_key) or latest[1].get(npd_alt)
+                                if npd0 is not None and npd1 is not None and npd1 != 0:
+                                    try:
+                                        ak_financials["latestNetProfitDeductQoQ"] = (float(npd0) - float(npd1)) / abs(float(npd1))
+                                    except (ValueError, TypeError):
+                                        pass
+                            if len(latest) >= 5:
+                                npd0 = l0.get(npd_key) or l0.get(npd_alt)
+                                npd4 = latest[4].get(npd_key) or latest[4].get(npd_alt)
+                                if npd0 is not None and npd4 is not None and npd4 != 0:
+                                    try:
+                                        ak_financials["latestNetProfitDeductYoY"] = (float(npd0) - float(npd4)) / abs(float(npd4))
+                                    except (ValueError, TypeError):
+                                        pass
+                    except:
+                        pass
                 
                 # Fetch stock_financial_abstract_ths — primary source for quarterly history
                 quarterly_history_rows = []
-                try:
-                    abstract_df = await safe_ak_call(ak.stock_financial_abstract_ths, symbol=clean_symbol)
-                    if validate_ak_data(abstract_df, min_rows=1):
-                        # Extract last 5 quarters as structured rows
-                        for _, row in abstract_df.tail(5).iterrows():
-                            qrow = {}
-                            period = str(row.get("报告期", ""))
-                            qrow["period"] = period
-                            for field, key in [
-                                ("净利润", "netProfit"), ("净利润同比增长率", "netProfitYoY"),
-                                ("扣非净利润", "netProfitDeduct"), ("扣非净利润同比增长率", "netProfitDeductYoY"),
-                                ("营业总收入", "revenue"), ("营业总收入同比增长率", "revenueYoY"),
-                                ("基本每股收益", "eps"), ("每股净资产", "bvps"),
-                                ("每股经营现金流", "ocfPerShare"), ("销售毛利率", "grossMargin"),
-                                ("销售净利率", "netMargin"), ("净资产收益率", "roe"),
-                                ("资产负债率", "debtRatio"), ("流动比率", "currentRatio"),
-                                ("速动比率", "quickRatio"), ("存货周转率", "inventoryTurnover"),
-                            ]:
-                                val = row.get(field)
-                                if val is not None and str(val).strip() and str(val) not in ("False", "None", "--"):
-                                    qrow[key] = str(val)
-                            quarterly_history_rows.append(qrow)
-                        
-                        # Also fill ak_financials from latest row
-                        latest_row = abstract_df.iloc[-1]
-                        if not ak_financials.get("latestNetProfitDeduct"):
-                            npd_str = latest_row.get("扣非净利润")
-                            if npd_str and npd_str != "False" and str(npd_str).strip():
-                                ak_financials["latestNetProfitDeduct"] = self._parse_cn_number(str(npd_str))
-                        if not ak_financials.get("latestNetProfitDeductYoY"):
-                            npd_yoy_str = latest_row.get("扣非净利润同比增长率")
-                            if npd_yoy_str and npd_yoy_str != "False" and str(npd_yoy_str).strip():
-                                parsed_yoy = self._parse_cn_percent(str(npd_yoy_str))
-                                if parsed_yoy is not None:
-                                    ak_financials["latestNetProfitDeductYoY"] = parsed_yoy
-                        # QoQ from previous row
-                        if len(abstract_df) >= 2 and ak_financials.get("latestNetProfitDeduct"):
-                            prev_row = abstract_df.iloc[-2]
-                            prev_npd_str = prev_row.get("扣非净利润")
-                            if prev_npd_str and prev_npd_str != "False":
-                                prev_npd = self._parse_cn_number(str(prev_npd_str))
-                                curr_npd = ak_financials["latestNetProfitDeduct"]
-                                if prev_npd and curr_npd and prev_npd != 0:
-                                    ak_financials["latestNetProfitDeductQoQ"] = (curr_npd - prev_npd) / abs(prev_npd)
-                        if not ak_financials.get("latestNetProfit"):
-                            np_str = latest_row.get("净利润")
-                            if np_str and np_str != "False":
-                                ak_financials["latestNetProfit"] = self._parse_cn_number(str(np_str))
-                        if not ak_financials.get("latestRoe"):
-                            roe_str = latest_row.get("净资产收益率")
-                            if roe_str and roe_str != "False":
-                                parsed_roe = self._parse_cn_percent(str(roe_str))
-                                if parsed_roe is not None:
-                                    ak_financials["latestRoe"] = parsed_roe
-                except Exception as e:
-                    print(f"stock_financial_abstract_ths failed for {clean_symbol}: {e}")
+                if _AKSHARE_ENABLED:
+                    try:
+                        abstract_df = await safe_ak_call(ak.stock_financial_abstract_ths, symbol=clean_symbol)
+                        if validate_ak_data(abstract_df, min_rows=1):
+                            # Extract last 5 quarters as structured rows
+                            for _, row in abstract_df.tail(5).iterrows():
+                                qrow = {}
+                                period = str(row.get("报告期", ""))
+                                qrow["period"] = period
+                                for field, key in [
+                                    ("净利润", "netProfit"), ("净利润同比增长率", "netProfitYoY"),
+                                    ("扣非净利润", "netProfitDeduct"), ("扣非净利润同比增长率", "netProfitDeductYoY"),
+                                    ("营业总收入", "revenue"), ("营业总收入同比增长率", "revenueYoY"),
+                                    ("基本每股收益", "eps"), ("每股净资产", "bvps"),
+                                    ("每股经营现金流", "ocfPerShare"), ("销售毛利率", "grossMargin"),
+                                    ("销售净利率", "netMargin"), ("净资产收益率", "roe"),
+                                    ("资产负债率", "debtRatio"), ("流动比率", "currentRatio"),
+                                    ("速动比率", "quickRatio"), ("存货周转率", "inventoryTurnover"),
+                                ]:
+                                    val = row.get(field)
+                                    if val is not None and str(val).strip() and str(val) not in ("False", "None", "--"):
+                                        qrow[key] = str(val)
+                                quarterly_history_rows.append(qrow)
+                            
+                            # Also fill ak_financials from latest row
+                            latest_row = abstract_df.iloc[-1]
+                            if not ak_financials.get("latestNetProfitDeduct"):
+                                npd_str = latest_row.get("扣非净利润")
+                                if npd_str and npd_str != "False" and str(npd_str).strip():
+                                    ak_financials["latestNetProfitDeduct"] = self._parse_cn_number(str(npd_str))
+                            if not ak_financials.get("latestNetProfitDeductYoY"):
+                                npd_yoy_str = latest_row.get("扣非净利润同比增长率")
+                                if npd_yoy_str and npd_yoy_str != "False" and str(npd_yoy_str).strip():
+                                    parsed_yoy = self._parse_cn_percent(str(npd_yoy_str))
+                                    if parsed_yoy is not None:
+                                        ak_financials["latestNetProfitDeductYoY"] = parsed_yoy
+                            # QoQ from previous row
+                            if len(abstract_df) >= 2 and ak_financials.get("latestNetProfitDeduct"):
+                                prev_row = abstract_df.iloc[-2]
+                                prev_npd_str = prev_row.get("扣非净利润")
+                                if prev_npd_str and prev_npd_str != "False":
+                                    prev_npd = self._parse_cn_number(str(prev_npd_str))
+                                    curr_npd = ak_financials["latestNetProfitDeduct"]
+                                    if prev_npd and curr_npd and prev_npd != 0:
+                                        ak_financials["latestNetProfitDeductQoQ"] = (curr_npd - prev_npd) / abs(prev_npd)
+                            if not ak_financials.get("latestNetProfit"):
+                                np_str = latest_row.get("净利润")
+                                if np_str and np_str != "False":
+                                    ak_financials["latestNetProfit"] = self._parse_cn_number(str(np_str))
+                            if not ak_financials.get("latestRoe"):
+                                roe_str = latest_row.get("净资产收益率")
+                                if roe_str and roe_str != "False":
+                                    parsed_roe = self._parse_cn_percent(str(roe_str))
+                                    if parsed_roe is not None:
+                                        ak_financials["latestRoe"] = parsed_roe
+                    except Exception as e:
+                        print(f"stock_financial_abstract_ths failed for {clean_symbol}: {e}")
 
                 # Fetch dividend info
                 latest_dividend = {}
-                try:
-                    dividend_df = await safe_ak_call(ak.stock_history_dividend_detail, symbol=clean_symbol)
-                    latest_dividend = dividend_df.iloc[0].to_dict() if validate_ak_data(dividend_df, min_rows=1) else {}
-                except:
-                    pass
+                if _AKSHARE_ENABLED:
+                    try:
+                        dividend_df = await safe_ak_call(ak.stock_history_dividend_detail, symbol=clean_symbol)
+                        latest_dividend = dividend_df.iloc[0].to_dict() if validate_ak_data(dividend_df, min_rows=1) else {}
+                    except:
+                        pass
 
                 # --- CAPEX from cashflow statement (fallback) ---
                 a_capital_expenditure = yf_info.get("capitalExpenditure")
@@ -776,8 +785,8 @@ class MarketDataService:
                     except Exception:
                         pass
 
-                # Fallback to search if critical metrics are missing
-                if not ak_financials.get("latestNetProfitDeduct"):
+                # Fallback to search if critical metrics are missing (only when AkShare is enabled but failed)
+                if _AKSHARE_ENABLED and not ak_financials.get("latestNetProfitDeduct"):
                     try:
                         print(f"Critical financials missing for {symbol}, falling back to search...")
                         query = f"{symbol} 最新财报 净利润 扣非净利润 营收环比 净利润同比 资本开支"

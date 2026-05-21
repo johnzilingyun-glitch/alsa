@@ -598,14 +598,47 @@ class LLMGateway:
             # Filler is short sentences about searching/planning
             filler_indicators = sum(1 for w in ['让我搜索', '我需要', 'let me search', 'I need to', 'I will now', '接下来我'] if w in text)
             return has_structure and filler_indicators < 2
-        
+
+        def _dedup_fragments(fragments: list, final: str) -> list:
+            """Remove fragment paragraphs that overlap with final_content to avoid duplication."""
+            if not fragments or not final:
+                return fragments
+            # Split final content into paragraphs (by double newline or ## headers)
+            import re
+            final_paras = set()
+            for para in re.split(r'\n{2,}', final):
+                stripped = para.strip()
+                if len(stripped) > 80:
+                    # Use first 80 chars as fingerprint to catch near-duplicates
+                    final_paras.add(stripped[:80])
+
+            deduped = []
+            for frag in fragments:
+                frag_paras = re.split(r'\n{2,}', frag)
+                kept_paras = []
+                for para in frag_paras:
+                    stripped = para.strip()
+                    if len(stripped) <= 80:
+                        kept_paras.append(para)
+                        continue
+                    # Check if this paragraph's beginning matches any final_content paragraph
+                    if stripped[:80] not in final_paras:
+                        kept_paras.append(para)
+                result_frag = "\n\n".join(kept_paras).strip()
+                if len(result_frag) > 200:
+                    deduped.append(result_frag)
+            return deduped
+
         if final_content and _is_valid_analysis(final_content):
             # Check if model wrote analysis incrementally across tool-calling rounds
             # (e.g. sections 1-9 during tool rounds, section 10 in final round)
             analysis_fragments = [t for t in tool_round_text if _is_analysis_fragment(t)]
             if analysis_fragments:
+                # Deduplicate: remove paragraphs in fragments that also appear in final_content
+                analysis_fragments = _dedup_fragments(analysis_fragments, final_content)
+            if analysis_fragments:
                 combined = "\n\n".join(analysis_fragments) + "\n\n" + final_content
-                print(f"  [ToolLoop] Merged {len(analysis_fragments)} incremental analysis fragment(s) ({sum(len(f) for f in analysis_fragments)} chars) with final content ({len(final_content)} chars)")
+                print(f"  [ToolLoop] Merged {len(analysis_fragments)} deduped fragment(s) ({sum(len(f) for f in analysis_fragments)} chars) with final content ({len(final_content)} chars)")
                 result = combined
             else:
                 result = final_content

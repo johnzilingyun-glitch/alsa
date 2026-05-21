@@ -39,6 +39,14 @@ def save_config(config):
     with open(CONFIG_FILE, "w") as f:
         json.dump(config, f, indent=2)
 
+def is_deprecated_model(model_name: str) -> bool:
+    if not model_name:
+        return False
+    deprecated_str = os.getenv("DEPRECATED_MODELS", "gemini-1.5-pro")
+    deprecated_list = [m.strip().lower() for m in deprecated_str.split(",") if m.strip()]
+    return model_name.lower() in deprecated_list
+
+
 @click.group()
 def cli():
     """ALSA Institutional CLI - Professional Equity Research."""
@@ -143,8 +151,8 @@ async def run_analysis_flow(query, market, level, output_path, model, guard="hig
     # Use model from CLI option or config; if None, discussion_service uses .env default
     cfg = load_config()
     final_model = model or cfg.get("model") or cfg.get("gemini_model")
-    if final_model and final_model == "gemini-1.5-pro":
-        # gemini-1.5-pro is deprecated, fall back to env default
+    if is_deprecated_model(final_model):
+        # Deprecated model, fall back to default
         final_model = None
     
     # 3. Start Job
@@ -206,7 +214,7 @@ async def run_sector_flow(sector_name, output_path, model):
     # Use model from CLI option or config
     cfg = load_config()
     final_model = model or cfg.get("model") or cfg.get("gemini_model")
-    if final_model and final_model == "gemini-1.5-pro":
+    if is_deprecated_model(final_model):
         final_model = None
 
     click.echo(f"\nBuilding sector snapshot and running expert discussion for: {sector_name}")
@@ -274,7 +282,7 @@ async def run_market_scan_then_sector(output_path, model):
 
     cfg = load_config()
     final_model = model or cfg.get("model") or cfg.get("gemini_model")
-    if final_model and final_model == "gemini-1.5-pro":
+    if is_deprecated_model(final_model):
         final_model = None
     if not final_model:
         import os

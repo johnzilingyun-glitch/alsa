@@ -18,12 +18,12 @@
 【必须完成的任务】
 
 1. 读取并实现以下开发文档中的全部功能：
-"D:\zily\alsa\alsa\docs\superpowers\plans\2026-04-23-institutional-rebuild-execution-blueprint.md"
+"docs/superpowers/plans/2026-04-23-institutional-rebuild-execution-blueprint.md"
 
 （注意：路径重复视为同一文档，避免重复处理）
 
 2. 读取并实现 CLI 文档中的全部能力：
-"D:\zily\alsa\alsa\docs\ALSA_CLI_GUIDE.md"
+"docs/ALSA_CLI_GUIDE.md"
 
 --------------------------------------------------
 

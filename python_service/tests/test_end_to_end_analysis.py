@@ -30,9 +30,24 @@ async def test_full_analysis_job_lifecycle(mock_db, tmp_path):
     symbol = "600519"
     market = "A-Share"
     
-    # Mock akshare data fetching
+    # Mock akshare data fetching and discussion service
+    mock_messages = [
+        {"role": "Technical Analyst", "content": "Technical Analysis content snippet", "timestamp": "2026-04-17T12:00:00"},
+        {"role": "Fundamental Analyst", "content": "Fundamental Analysis content snippet", "timestamp": "2026-04-17T12:00:00"},
+        {
+            "role": "Chief Strategist",
+            "content": "投资评级 | **Buy**\n核心风险 | **Oversupply**\n核心机会 | **Growth**\n核心策略 | **Standard position**\n期望价格 = 1800 CNY\n价格止损 1500 CNY\n逻辑止损 | Competition escalation",
+            "timestamp": "2026-04-17T12:00:00"
+        }
+    ]
+    
     with patch("akshare.stock_zh_a_hist") as mock_hist, \
-         patch("akshare.stock_individual_info_em") as mock_info:
+         patch("akshare.stock_individual_info_em") as mock_info, \
+         patch("python_service.app.services.discussion_service.discussion_service.run_discussion", new_callable=MagicMock) as mock_discuss:
+        
+        # run_discussion is an async function, mock it returning mock_messages
+        mock_discuss.return_value = asyncio.Future()
+        mock_discuss.return_value.set_result(mock_messages)
         
         import pandas as pd
         # Mock 120 days of data

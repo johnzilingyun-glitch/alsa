@@ -147,11 +147,17 @@ npm install
 ```
 
 ### 步骤 3：配置 API Key
-在项目根目录下创建一个名为 `.env` 的文件，填入你的 Gemini 密钥：
+在项目根目录下创建一个名为 `.env` 的文件，填入配置：
 ```env
 GEMINI_API_KEY="你的_GEMINI_API_KEY"
 DEFAULT_LLM_PROVIDER="gemini"
 GEMINI_MODEL="gemini-3.1-pro-preview"
+
+# ── 模型质量与废弃模型配置 (可选，有默认值) ──
+# 逗号分隔的废弃模型列表（命中后自动回退默认模型）
+# DEPRECATED_MODELS="gemini-1.5-pro"
+# 逗号分隔的垃圾过滤关键词（LLM 输出前 200 字包含这些词时会重试）
+# LLM_GARBAGE_KEYWORDS="h2020,erasmus,empowering women,stem education"
 ```
 *(注：如果想用 DeepSeek，可以配置 `DEFAULT_LLM_PROVIDER="deepseek"`，并填写对应的 `DEEPSEEK_API_KEY`)*
 

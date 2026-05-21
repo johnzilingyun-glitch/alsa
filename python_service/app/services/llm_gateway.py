@@ -139,8 +139,9 @@ class LLMGateway:
                     print(f"WARNING: Very short response ({len(result)} chars) after {max_quality_retries} retries — using anyway")
 
             # Quality gate: detect off-topic garbage
-            if result and any(keyword in result[:200].lower() for keyword in
-                              ["h2020", "erasmus", "empowering women", "stem education"]):
+            garbage_keywords_str = os.getenv("LLM_GARBAGE_KEYWORDS", "h2020,erasmus,empowering women,stem education")
+            garbage_keywords = [k.strip().lower() for k in garbage_keywords_str.split(",") if k.strip()]
+            if result and any(keyword in result[:200].lower() for keyword in garbage_keywords):
                 if quality_attempt < max_quality_retries:
                     print(f"WARNING: Off-topic response — quality retry {quality_attempt+1}/{max_quality_retries}")
                     continue

@@ -2,12 +2,17 @@ import sys
 import os
 import asyncio
 import json
+from datetime import datetime
 import click
 from dotenv import load_dotenv
 
 # Add project root to path
 root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(root_dir)
+
+# Designated reports output directory
+REPORTS_DIR = os.path.join(root_dir, "reports")
+os.makedirs(REPORTS_DIR, exist_ok=True)
 
 # Load env BEFORE imports so singletons (e.g. llm_gateway) can read API keys
 load_dotenv(os.path.join(root_dir, ".env"), override=True)
@@ -180,7 +185,8 @@ async def run_analysis_flow(query, market, level, output_path, model, guard="hig
     
     report_service = ReportGeneratorService()
     
-    final_output = output_path or f"{symbol}_report.html"
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    final_output = output_path or os.path.join(REPORTS_DIR, f"{symbol}_report_{ts}.html")
     try:
         html_path = await report_service.generate_html_report_async(analysis_data, final_output, model=final_model)
         click.echo(f"Success! Report generated at: {html_path}")
@@ -252,7 +258,8 @@ async def run_sector_flow(sector_name, output_path, model):
         click.echo("Error: No result data available for report generation.")
         return
 
-    final_output = output_path or f"sector_{sector_name}_report.html"
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    final_output = output_path or os.path.join(REPORTS_DIR, f"sector_{sector_name}_report_{ts}.html")
     try:
         html_path = await report_service.generate_sector_report(result, final_output, model=final_model)
         click.echo(f"Success! Sector report generated at: {html_path}")

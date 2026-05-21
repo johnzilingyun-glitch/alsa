@@ -1,8 +1,20 @@
-import akshare as ak
+import os
 import pandas as pd
 from typing import Dict, Any, List
-from ..utils.network import safe_ak_call
 from datetime import datetime
+
+_AKSHARE_ENABLED = os.getenv("AKSHARE_ENABLED", "false").lower() in ("true", "1", "yes")
+if _AKSHARE_ENABLED:
+    import akshare as ak
+    from ..utils.network import safe_ak_call
+else:
+    # Stub: all ak calls return None immediately (skip network timeout)
+    class _AkStub:
+        def __getattr__(self, name):
+            return lambda *a, **kw: None
+    ak = _AkStub()
+    async def safe_ak_call(*args, **kwargs):
+        return None
 
 
 class MacroService:

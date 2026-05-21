@@ -4,10 +4,13 @@ Orchestrates sector-level multi-expert analysis flow.
 """
 import json
 import asyncio
+import os
 import re
 import uuid
 from datetime import datetime, date
 from typing import Optional, Dict, Any, List
+
+_AKSHARE_ENABLED = os.getenv("AKSHARE_ENABLED", "false").lower() in ("true", "1", "yes")
 
 
 class SectorAnalysisService:
@@ -203,8 +206,11 @@ class SectorAnalysisService:
 
     async def _fetch_sector_stocks(self, sector_name: str) -> List[Dict[str, Any]]:
         """Fetch constituent stocks for a sector with real-time prices from AkShare."""
-        import akshare as ak
-        from ..utils.network import safe_ak_call
+        if _AKSHARE_ENABLED:
+            import akshare as ak
+            from ..utils.network import safe_ak_call
+        else:
+            return []
 
         stocks = []
         try:
@@ -318,9 +324,14 @@ class SectorAnalysisService:
 
     async def _enrich_result_with_prices(self, result: Dict[str, Any]) -> Dict[str, Any]:
         """Extract stock codes from discussion, fetch real-time prices, add to result."""
-        import akshare as ak
+        if _AKSHARE_ENABLED:
+            import akshare as ak
+            from ..utils.network import safe_ak_call
+        else:
+            ak = None
+            async def safe_ak_call(*args, **kwargs):
+                return None
         import yfinance as yf
-        from ..utils.network import safe_ak_call
 
         discussion = result.get("discussion", [])
         all_text = " ".join(msg.get("content", "") for msg in discussion)

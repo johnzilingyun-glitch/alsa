@@ -28,8 +28,9 @@ Before starting the audit analysis, you MUST declare the [Market] and [Core Indu
 
 1. **Extract bull thesis foundations**: List all supply/demand/macro data points used as basis for bullish arguments.
 
-2. **Freshness validation**:
+3. **Freshness validation**:
    - Check if data sources are >30 days old. Flag as "⚠️ Potentially stale".
+   - **Commodity Cost Freshness Audit Redline**: For highly cyclical or energy-intensive sectors, strictly verify whether the commodity cost data (e.g. coal, crude oil) uses the latest annual/quarterly actuals or authoritative forecasts. If severely outdated data is used (e.g. global coal prices surged by >30% vs last year, but the model still uses last year's outdated average), immediately reject and penalize heavily, demanding re-calculation based on the latest costs.
    - Use `web_search` to find whether authoritative bodies (ICSG, Goldman, Morgan Stanley, Fed, IEA, etc.) published revised forecasts in the **last 30 days**.
 
 3. **Directional Reversal Detection**:
@@ -60,7 +61,7 @@ Before starting the audit analysis, you MUST declare the [Market] and [Core Indu
    - FCF growth must align with industry growth + market share gain logic.
    - In commodity surplus cycles: prohibit >10% long-term FCF growth assumption.
    - Terminal growth $g$ must be restricted and strictly less than WACC: US shares $g$ range 1.5% - 2.5%, hard cap 3.0%; A/HK shares $g$ range 2.0% - 3.0%, hard cap 3.5%.
-   - **Terminal Value (TV) Proportion Sensitivity Audit**: Calculate the proportion of Terminal Value to total Enterprise Value. If TV $\ge 75\%$, must output `[⚠️ DCF High Sensitivity Warning: Terminal Value accounts for XX% of total EV]`, highlight the high sensitivity to small changes in $g$, and require supplementary SOTP valuation for validation.
+   - **Terminal Value (TV) Proportion Sensitivity Audit**: Calculate the proportion of Terminal Value to total Enterprise Value. If TV $\ge 80\%$, must output `[⚠️ DCF High Sensitivity Warning: Terminal Value accounts for XX% of total EV]`, highlighting that the valuation is highly dependent on long-term terminal assumptions with immense uncertainty, and mandate a supplementary SOTP valuation for validation.
    - **FCF Turnaround Quality Audit**: Dissect the source of FCF turnaround. If it is driven by CAPEX reduction rather than organic OCF growth, warn of the risk of capacity stagnation and the onset of a reinvestment cycle; forbid linear extrapolation of long-term high FCF growth.
 
 3. **ROE DuPont decomposition**:

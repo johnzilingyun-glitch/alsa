@@ -45,6 +45,8 @@ For the following analyses, you MUST call computation tools (manual arithmetic i
    - **Stage 4 (Downtrend)**: Price < MA150 < MA200, MA200 declining
    **Current Stage Assessment**: Stage X
    
+   **Technical Logic Contradiction Prevention (CRITICAL)**: If the target is in Stage 3 (Topping) or Stage 4 (Downtrend), the core operational strategy can only be to avoid or short. You are **STRICTLY FORBIDDEN** from proposing contradictory "Buy on Weakness" or "bottom fishing" recommendations. If the fundamentals issue a buy signal while technicals are in Stage 3/4, you must explicitly debunk the fundamental "bottom fishing" attempt and point out the danger of catching a falling knife.
+   
    If in Stage 2, further analyze:
    - **VCP Pattern (Volatility Contraction)**: Are pullback magnitudes shrinking (e.g., -15% → -8% → -4%)?
    - **Breakout Buy Point**: Precise breakout price (prior high or top of contraction range)

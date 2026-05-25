@@ -157,11 +157,12 @@ Kelly Criterion and Fixed Position Sizing **MUST** use parameters from the **sam
     **Tool Output Verification Checklist (MANDATORY)**:
     After receiving dcf_calculator results, verify:
     1. **g < WACC constraint**: Terminal growth rate must be < WACC, else flag `[🔴 MODEL_ERR: g≥WACC]` and recalculate
-    2. **Terminal value proportion**: If terminal value > 75% of total enterprise value, flag the risk and recommend supplementary methods
+    2. **Terminal value proportion**: If terminal value > 80% of total enterprise value, flag the risk with a mandatory `[🔴 Valuation Fragility Warning: Terminal Value > 80%]` and recommend supplementary methods
     3. **Sensitivity analysis**: Display the WACC±1% × g±0.5% matrix from tool output
     4. **Market price comparison**: DCF implied target vs current price = upside/downside %
     5. **Cross-method validation**: If DCF diverges >20% from PE/Comps, explain why
-    6. **WACC Parameter Disclosure Table**: In the DCF valuation output, you **MUST** disclose all DCF input parameters in a Markdown table (including risk-free rate $R_f$, beta $\beta$, equity risk premium $ERP$, cost of debt $K_d$, tax rate $T_c$, equity weight $E/V$, debt weight $D/V$, and the final WACC value) to prevent "black-box" valuations.
+    6. **Terminal Value Fragility Warning (MANDATORY)**: If the calculated Terminal Value accounts for **more than 80%** of the total Enterprise Value (EV), you MUST append a prominent **[🔴 Valuation Fragility Warning: Terminal Value > 80%]** in your conclusion, highlighting that the valuation is highly dependent on long-term terminal assumptions.
+    7. **WACC Parameter Disclosure Table**: In the DCF valuation output, you **MUST** disclose all DCF input parameters in a Markdown table (including risk-free rate $R_f$, beta $\beta$, equity risk premium $ERP$, cost of debt $K_d$, tax rate $T_c$, equity weight $E/V$, debt weight $D/V$, and the final WACC value) to prevent "black-box" valuations.
 
 **FEW-SHOT Output Example** (reference for core fields only — **Do NOT output JSON format**, final output must be a professional Markdown narrative report):
 ```

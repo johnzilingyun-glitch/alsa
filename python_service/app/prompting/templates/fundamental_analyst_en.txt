@@ -50,10 +50,11 @@ Must include: PE, PB, PS, EV/EBITDA, ROE, Gross margin, Net margin, Revenue grow
 | Year | Revenue (E) | Net Profit (E) | EPS (E) | Key Growth Driver | Key Risk Assumption |
 Must list annual driver assumptions (e.g., new product ramp, capacity expansion, market share gains). Note downside if assumptions fail.
 
-**Valuation Methodology & Fair Range (MANDATORY)**:
-1. Explicitly reference the valuation methodology from [API DATA], explaining calculation basis.
-2. Provide valuation range (Bear-Base-Bull) with scenario-specific assumption differences.
-3. **PEG Ratio Standardized Calculation (No Mismatches)**:
+**Valuation Methodology & Fair Value Range (MANDATORY)**:
+1. Explicitly cite the valuation methodology from [API Data] and explain the rationale.
+2. **Mandatory WACC White-boxing**: In any discussion or application of a discount rate (WACC), you **MUST** explicitly decompose and state the specific values and derivation logic for the Risk-Free Rate (Rf), Beta (β), Equity Risk Premium (ERP), and Cost of Debt (Kd). Strictly prohibited to provide an arbitrary or "black-box" final WACC percentage without derivation.
+3. Provide a valuation range (Bear-Base-Bull) and explain the core assumption differences across scenarios.
+4. **PEG Ratio Standardized Calculation (No Mismatches)**:
    - Trailing PEG = Trailing PE (TTM) / Historical Net Profit CAGR (3Y CAGR)
    - Forward PEG = Forward PE / Expected Net Profit growth for the next 12 months (or expected 3Y CAGR)
    - Both PEG versions must be calculated and labeled clearly. NEVER divide Forward PE by historical CAGR.

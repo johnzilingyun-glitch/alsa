@@ -609,14 +609,20 @@ class LLMGateway:
             """Remove fragment paragraphs that overlap with final_content to avoid duplication."""
             if not fragments or not final:
                 return fragments
-            # Split final content into paragraphs (by double newline or ## headers)
+            
+            # If final content is substantial, it is almost certainly a complete rewrite
+            # rather than an incremental continuation. Discard all intermediate drafts.
+            if len(final) > 1000:
+                return []
+
+            # Split final content into paragraphs (by double newline)
             import re
             final_paras = set()
             for para in re.split(r'\n{2,}', final):
                 stripped = para.strip()
-                if len(stripped) > 80:
-                    # Use first 80 chars as fingerprint to catch near-duplicates
-                    final_paras.add(stripped[:80])
+                if len(stripped) > 15:
+                    # Use first 20 chars as fingerprint to catch near-duplicates
+                    final_paras.add(stripped[:20].lower())
 
             deduped = []
             for frag in fragments:
@@ -624,12 +630,14 @@ class LLMGateway:
                 kept_paras = []
                 for para in frag_paras:
                     stripped = para.strip()
-                    if len(stripped) <= 80:
+                    if len(stripped) <= 15:
                         kept_paras.append(para)
                         continue
+                    
                     # Check if this paragraph's beginning matches any final_content paragraph
-                    if stripped[:80] not in final_paras:
+                    if stripped[:20].lower() not in final_paras:
                         kept_paras.append(para)
+                
                 result_frag = "\n\n".join(kept_paras).strip()
                 if len(result_frag) > 200:
                     deduped.append(result_frag)

@@ -464,6 +464,76 @@ def format_tool_descriptions(language: str = "zh-CN") -> str:
 
 def get_openai_tools() -> list:
     """Convert TOOL_DEFINITIONS to OpenAI function calling format for DeepSeek native tool calling."""
+    # Detailed items schema for array params so the model generates correct structured JSON
+    ARRAY_ITEMS_SCHEMA = {
+        "growth_rates": {"type": "number"},
+        "intermediate_values": {"type": "number"},
+        "scenarios": {"type": "number"},
+        "kill_switches": {"type": "string"},
+        "metrics": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "description": "Metric name (e.g. Revenue, EPS)"},
+                "consensus": {"type": "number", "description": "Market consensus estimate"},
+                "actual": {"type": "number", "description": "Actual reported value"},
+                "significance": {"type": "string", "enum": ["high", "medium", "low"]},
+            },
+            "required": ["name", "consensus", "actual", "significance"],
+        },
+        "peers": {
+            "type": "object",
+            "properties": {
+                "symbol": {"type": "string"},
+                "pe": {"type": "number"},
+                "pb": {"type": "number"},
+                "ps": {"type": "number"},
+                "ev_ebitda": {"type": "number"},
+                "revenue_growth": {"type": "number"},
+                "roe": {"type": "number"},
+            },
+            "required": ["symbol"],
+        },
+        "pillars": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "description": "Pillar description"},
+                "status": {"type": "string", "enum": ["on_track", "mixed", "broken"]},
+                "weight": {"type": "number", "description": "Importance weight 0-100"},
+                "evidence": {"type": "string", "description": "Brief evidence"},
+            },
+            "required": ["name", "status", "weight"],
+        },
+        "positions": {
+            "type": "object",
+            "properties": {
+                "symbol": {"type": "string"},
+                "weight_pct": {"type": "number"},
+                "beta": {"type": "number"},
+            },
+            "required": ["symbol", "weight_pct", "beta"],
+        },
+    }
+
+    # Detailed schema for object-type params
+    OBJECT_SCHEMA = {
+        "target": {
+            "type": "object",
+            "properties": {
+                "symbol": {"type": "string"},
+                "pe": {"type": "number"},
+                "pb": {"type": "number"},
+                "ps": {"type": "number"},
+                "ev_ebitda": {"type": "number"},
+                "earnings": {"type": "number", "description": "Total earnings (for PE method)"},
+                "revenue": {"type": "number", "description": "Total revenue (for PS method)"},
+                "ebitda": {"type": "number", "description": "EBITDA (for EV/EBITDA method)"},
+                "shares_outstanding": {"type": "number"},
+                "current_price": {"type": "number"},
+            },
+            "required": ["symbol", "shares_outstanding", "current_price"],
+        },
+    }
+
     tools = []
     for tool_def in TOOL_DEFINITIONS:
         properties = {}
@@ -473,9 +543,12 @@ def get_openai_tools() -> list:
                 "type": param_info["type"],
                 "description": param_info["description"]
             }
-            # OpenAI schema requires "items" for array types
+            # Provide detailed items schema for array types
             if param_info["type"] == "array":
-                prop["items"] = {"type": "object"}
+                prop["items"] = ARRAY_ITEMS_SCHEMA.get(param_name, {"type": "object"})
+            # Provide detailed properties for object types
+            elif param_info["type"] == "object" and param_name in OBJECT_SCHEMA:
+                prop.update(OBJECT_SCHEMA[param_name])
             properties[param_name] = prop
             if param_info.get("required"):
                 required.append(param_name)
@@ -940,7 +1013,7 @@ class ToolExecutor:
         """
         # Block domains with server-side bot detection — auto-fallback to web_search
         from urllib.parse import urlparse
-        BLOCKED_DOMAINS = ["finance.yahoo.com", "yahoo.com", "login.yahoo.com", "100ppi.com", "www.100ppi.com"]
+        BLOCKED_DOMAINS = ["finance.yahoo.com", "yahoo.com", "login.yahoo.com"]
         parsed_url = urlparse(url)
         if any(domain in parsed_url.netloc for domain in BLOCKED_DOMAINS):
             fallback = await self._exec_web_search(query)
@@ -1264,16 +1337,20 @@ class ToolExecutor:
         return result
 
     async def execute_all(self, tool_calls: List[Dict[str, str]]) -> List[str]:
-        """Execute multiple tool calls (sequentially to respect rate limits)."""
-        observations = []
-        for tc in tool_calls:
+        """Execute multiple tool calls in parallel for speed (respects TokenGuard budget)."""
+        async def _run_one(tc):
             label = tc.get('url', tc.get('symbol', tc.get('query', '')))[:60]
             print(f"  [ToolExecutor] {tc['tool']}: {label}...")
-            obs = await self.execute(tc)
-            observations.append(obs)
-            # Small delay between calls
-            await asyncio.sleep(0.3)
-        return observations
+            return await self.execute(tc)
+
+        observations = await asyncio.gather(*[_run_one(tc) for tc in tool_calls], return_exceptions=True)
+        results = []
+        for obs in observations:
+            if isinstance(obs, Exception):
+                results.append(f"<tool_observation>\nTool execution error: {obs}\n</tool_observation>")
+            else:
+                results.append(obs)
+        return results
 
     def clear_cache(self):
         """Clear the financial data cache. Call between analysis jobs."""

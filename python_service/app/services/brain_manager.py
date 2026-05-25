@@ -16,6 +16,7 @@ load_dotenv(os.path.join(root_dir, ".env"), override=True)
 BRAIN_DATA_DIR = os.path.join(root_dir, "data", "brain")
 EVOLVED_GENOME_FILE = os.path.join(BRAIN_DATA_DIR, "evolved_genome.json")
 QDRANT_PATH = os.path.join(BRAIN_DATA_DIR, "qdrant_db")
+QDRANT_URL = os.getenv("QDRANT_URL", "http://localhost:6333")  # Prefer server mode for multi-process
 
 os.makedirs(BRAIN_DATA_DIR, exist_ok=True)
 
@@ -32,6 +33,7 @@ class BrainManager:
     def __init__(self):
         self.api_key = os.getenv("GEMINI_API_KEY")
         self._memory = None
+        self._memory_init_failed = False  # Prevent repeated init attempts
         self._model = None
         if self.api_key:
             os.environ["GOOGLE_API_KEY"] = self.api_key
@@ -43,38 +45,56 @@ class BrainManager:
 
     @property
     def memory(self):
-        if self._memory is None:
-            default_provider = os.getenv("DEFAULT_LLM_PROVIDER", "gemini").lower()
-            is_gemini = default_provider == "gemini" and self.api_key
+        if self._memory is not None:
+            return self._memory
+        if self._memory_init_failed:
+            return None
 
-            llm_config = {
-                "model": os.getenv("GEMINI_MODEL", "gemini-3.1-pro-preview") if is_gemini else os.getenv("DEEPSEEK_MODEL", "deepseek-v4-pro"),
-                "api_key": self.api_key if is_gemini else os.getenv("DEEPSEEK_API_KEY")
+        default_provider = os.getenv("DEFAULT_LLM_PROVIDER", "gemini").lower()
+        is_gemini = default_provider == "gemini" and self.api_key
+
+        llm_config = {
+            "model": os.getenv("GEMINI_MODEL", "gemini-3.1-pro-preview") if is_gemini else os.getenv("DEEPSEEK_MODEL", "deepseek-v4-pro"),
+            "api_key": self.api_key if is_gemini else os.getenv("DEEPSEEK_API_KEY")
+        }
+
+        # Use Qdrant server (URL) for multi-process support; fall back to local path
+        if QDRANT_URL:
+            qdrant_config = {
+                "url": QDRANT_URL,
+                "embedding_model_dims": 768 if is_gemini else 384
+            }
+        else:
+            qdrant_config = {
+                "path": QDRANT_PATH,
+                "embedding_model_dims": 768 if is_gemini else 384
             }
 
-            mem0_config = {
-                "vector_store": {
-                    "provider": "qdrant",
-                    "config": {
-                        "path": QDRANT_PATH,
-                        "embedding_model_dims": 768 if is_gemini else 384
-                    }
-                },
-                "llm": {
-                    "provider": "gemini" if is_gemini else "deepseek",
-                    "config": llm_config
-                },
-                "embedder": {
-                    "provider": "gemini" if is_gemini else "fastembed", 
-                    "config": {"model": "models/gemini-embedding-2" if is_gemini else "BAAI/bge-small-en-v1.5", "api_key": self.api_key if is_gemini else None}
-                }
+        mem0_config = {
+            "vector_store": {
+                "provider": "qdrant",
+                "config": qdrant_config
+            },
+            "llm": {
+                "provider": "gemini" if is_gemini else "deepseek",
+                "config": llm_config
+            },
+            "embedder": {
+                "provider": "gemini" if is_gemini else "fastembed", 
+                "config": {"model": "models/gemini-embedding-2" if is_gemini else "BAAI/bge-small-en-v1.5", "api_key": self.api_key if is_gemini else None}
             }
-            try:
-                self._memory = Memory.from_config(mem0_config)
-                print("BrainManager: Mem0 initialized successfully (lazy).")
-            except Exception as e:
+        }
+        try:
+            self._memory = Memory.from_config(mem0_config)
+            mode = f"server ({QDRANT_URL})" if QDRANT_URL else "local path"
+            print(f"BrainManager: Mem0 initialized successfully — Qdrant {mode}")
+        except Exception as e:
+            self._memory_init_failed = True
+            if "already accessed" in str(e):
+                print(f"BrainManager: Qdrant DB locked by another process — running without vector memory. (Use Qdrant server for multi-process access)")
+            else:
                 print(f"BrainManager: Failed to initialize Mem0: {e}")
-                return None
+            return None
         return self._memory
 
     @property

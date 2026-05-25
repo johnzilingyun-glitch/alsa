@@ -858,7 +858,7 @@ class LLMGateway:
             # Execute tools
             observations = await tool_executor.execute_all(tool_calls)
             
-            # Build continuation prompt
+            # Build continuation prompt (TokenGuard already enforces per-tool limits)
             tool_section = "\n\n--- TOOL RESULTS ---\n"
             for tc, obs in zip(tool_calls, observations):
                 label = tc.get('symbol', tc.get('query', ''))

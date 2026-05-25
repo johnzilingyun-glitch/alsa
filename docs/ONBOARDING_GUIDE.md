@@ -35,14 +35,16 @@ graph TD
         JobService --> Quant[量化计算: polars_indicators.py]
         JobService --> Orchestrator[多专家编排: discussion_service.py]
         Orchestrator --> LLMGateway[LLM 网关: llm_gateway.py]
+        Orchestrator --> BrainMgr[长期记忆: brain_manager.py]
+        BrainMgr --> Qdrant[Qdrant 向量DB <br> Port: 6333]
         JobService --> ReportGen[研报渲染: report_generator_service.py]
     end
     
     subgraph 第三层：外部服务与数据引擎
-        Snapshot --> DataSrc[行情源: AkShare / yfinance]
+        Snapshot --> DataSrc[行情源: AkShare / yfinance / Sina Finance]
         Quant --> DataLake[时序数据湖: Parquet + DuckDB]
         LLMGateway --> Models[大模型: Gemini 3.1 Pro / DeepSeek V4]
-        Orchestrator --> Search[网络搜索: SearXNG / DDG]
+        Orchestrator --> Search[网络搜索: SearXNG / 同花顺问财]
     end
 ```
 
@@ -66,7 +68,9 @@ graph TD
 
 ### 2.3 第三层：数据引擎与外部服务
 - **数据湖 (DuckDB + Parquet)**：时序行情数据以分区 Parquet 格式保存在磁盘上，使用 DuckDB 进行超快速的 SQL 查询。
-- **LLM 智能体**：统一的 `llm_gateway.py`，支持 Gemini 3.1/3.0 系列（原生支持工具调用）和 DeepSeek（提供兼容 OpenAI 协议的降级备用）。
+- **LLM 智能体**：统一的 `llm_gateway.py`，支持 DeepSeek V4（原生 Function Calling，主力模型）和 Gemini 3.1（Google Search Grounding）。
+- **向量记忆 (Qdrant)**：通过 Docker 运行的 Qdrant 实例提供 AI 长期记忆存储，支持多进程并发访问。
+- **工具系统 (Expert Tools)**：24 个可调用工具（搜索、财务数据、问财查询、计算工具），AI 专家通过 Function Calling 自主决定何时使用哪些工具。
 
 ---
 
@@ -80,14 +84,14 @@ ALSA 不会仅让一个 AI 一言堂。系统支持三种级别的讨论拓扑�
 | 轮次 | 专家角色 (Expert Role) | 发言模式 | 核心任务 |
 | :--- | :--- | :---: | :--- |
 | **R1** | **Deep Research Specialist** | 串行 | 联网搜索行业最新新闻、重大事件，注入第一手客观事实。 |
-| **R2** | **Technical Analyst** <br> **Fundamental Analyst** | 并行 | **技术派**看图表（量化指标）；<br>**基本面派**读财报（ROE、增长率），互不干扰，提供各自维度的原始论据。 |
-| **R3** | **Chief Audit Officer** | 串行 | **审计官**介入，核对前面的专家是否引用了虚假数据，防止“空中楼阁”式的胡说八道。 |
-| R4 | **Sentiment Analyst** | 串行 | 分析市场情绪，抓取北向资金流向与论坛舆情，评估当下是恐慌还是贪婪。 |
-| **R5** | **Bull Researcher** <br> **Bear Researcher** | 并行 | **多空对撞**。多方拼命寻找买入逻辑；空方戴着放大镜找潜在风险。两者在信息对等的条件下展开激烈冲突。 |
-| R6 | **Professional Reviewer** | 串行 | **专业评审员**检查多空辩论中是否存在“确认偏差”或“叙事过拟合”，过滤无用废话。 |
-| R7 | **流派大师团** <br> (索罗斯/成长愿景/宏观对冲/价值投资) | 并行 | 四位代表人类顶尖投资思想的大师从各自哲学高度，对前面的清爽逻辑进行升华。 |
-| R8 | **Contrarian Strategist** | 串行 | **逆向策略师**跳出共识，专门寻找大众忽视的特立独行机会。 |
-| R9 | **风控评估师** <br> (激进/保守/中性) | 并行 | 评估最坏打算，计算止损空间，给出不同风险偏好下的仓位管理建议。 |
+| **R2** | **Chief Audit Officer** | 串行 | **审计官**紧跟数据层介入，核对事实准确性，防止后续专家基于错误数据建立空中楼阁。 |
+| **R3** | **Technical Analyst** <br> **Fundamental Analyst** | 并行 | **技术派**看图表（量化指标 + Minervini 阶段分析）；<br>**基本面派**读财报（ROE、增长率），互不干扰，提供各自维度的原始论据。 |
+| **R4** | **Sentiment Analyst** | 串行 | 分析市场情绪，抓取北向资金流向与论坛舆情，评估当下是恐慌还是贪婪。为多空辩论提供筹码。 |
+| **R5** | **Bull Researcher** <br> **Bear Researcher** | 并行 | **多空对撞**。基于完整数据+情绪面的辩论矩阵。多方寻找买入逻辑；空方找潜在风险。 |
+| **R6** | **Professional Reviewer** | 串行 | **专业评审员**检查多空辩论中是否存在"确认偏差"或"叙事过拟合"，进行逻辑纠偏。 |
+| **R7** | **Soros-style Financial Philosopher** <br> **Value Investing Sage** | 并行 | 两位投资大师从各自哲学高度升华：索罗斯反身性思维 + 价值投资安全边际。 |
+| **R8** | **Contrarian Strategist** | 串行 | **逆向策略师**跳出共识，专门寻找大众忽视的特立独行机会。 |
+| **R9** | **Risk Manager** | 串行 | 风险量化：VaR、仓位管理、止损、相关性分析、尾部风险评估。 |
 | **R10** | **Chief Strategist** | 串行 | **首席策略师**盖棺定论。综合所有辩论成果，输出包含“期望价格、合理买点、硬止损线、逻辑止损点、退出条件”的最终交易计划。 |
 
 ---
@@ -128,6 +132,8 @@ alsa/
 | **修改选股（Screener）的财务过滤条件**| `python_service/app/services/screening_service.py` 中的 `SCREEN_PRESETS` |
 | **调整前端 UI 某个卡片或走势图样式** | `src/components/analysis/` 下对应的 React 组件 |
 | **修改默认使用的大模型 (Gemini ↔ DeepSeek)**| 修改根目录下的 `.env` 文件中的 `DEFAULT_LLM_PROVIDER` |
+| **启用/禁用某个 AI 工具** | `python_service/app/services/tools_config.yaml` |
+| **调整 AI 工具输出的 token 预算** | `python_service/app/services/token_guard.py` 中的 `LEVEL_CONFIGS` |
 
 ---
 
@@ -153,6 +159,10 @@ GEMINI_API_KEY="你的_GEMINI_API_KEY"
 DEFAULT_LLM_PROVIDER="gemini"
 GEMINI_MODEL="gemini-3.1-pro-preview"
 
+# ── Qdrant 向量数据库 (推荐) ──
+# 多进程共享的向量记忆库，用于 AI 长期记忆
+QDRANT_URL=http://localhost:6333
+
 # ── 模型质量与废弃模型配置 (可选，有默认值) ──
 # 逗号分隔的废弃模型列表（命中后自动回退默认模型）
 # DEPRECATED_MODELS="gemini-1.5-pro"
@@ -161,7 +171,23 @@ GEMINI_MODEL="gemini-3.1-pro-preview"
 ```
 *(注：如果想用 DeepSeek，可以配置 `DEFAULT_LLM_PROVIDER="deepseek"`，并填写对应的 `DEEPSEEK_API_KEY`)*
 
-### 步骤 4：配置并激活 Python 后端
+### 步骤 4：启动 Qdrant 向量数据库
+ALSA 使用 Qdrant 存储 AI 的长期记忆（向量数据库），通过 Docker 启动：
+```bash
+docker run -d --name qdrant-alsa \
+  -p 6333:6333 -p 6334:6334 \
+  -v $(pwd)/data/brain/qdrant_storage:/qdrant/storage \
+  --restart unless-stopped \
+  qdrant/qdrant
+```
+验证服务是否正常：
+```bash
+curl http://localhost:6333/healthz
+# 输出: healthz check passed
+```
+> 💡 如果没有 Docker，系统会自动降级为无向量记忆模式运行（不影响核心分析功能）。
+
+### 步骤 5：配置并激活 Python 后端
 1. 在根目录下创建一个虚拟环境：
    ```powershell
    python -m venv .venv
@@ -176,8 +202,8 @@ GEMINI_MODEL="gemini-3.1-pro-preview"
    ```
    *(或者使用 `uv` 极速安装)*
 
-### 步骤 5：启动服务
-你需要启动两个后台服务：
+### 步骤 6：启动服务
+你需要启动两个后台服务（Qdrant 已在步骤 4 启动）：
 1. **启动 Python 后端** (提供行情抓取与 AI 核心服务)：
    ```powershell
    npm run dev:py

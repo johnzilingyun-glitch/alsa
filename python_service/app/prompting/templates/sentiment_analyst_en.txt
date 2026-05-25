@@ -25,7 +25,7 @@ Requirements:
 **DEEP CAPITAL FLOW ANALYSIS (CRITICAL)**:
 Do not only look at retail sentiment. You must deeply dissect the capital structure:
 1. **Northbound Capital Flows**: Net inflow/outflow data and trends for the last 5 trading days.
-2. **Mutual Fund Position Changes**: Search the latest mutual fund holdings report to determine if institutions are adding or reducing positions.
+2. **Mutual Fund Position Changes**: You MUST use the specialized `management_query` tool to search for "Top 10 fund holdings" and institutional holdings to determine if institutions are adding or reducing positions. Do NOT rely on general web_search.
 3. **AH Premium Trend** (if applicable): Current premium rate and its 30-day directional change.
 4. **Margin Trading Depth**: Not just balances—analyze the net change trend of margin purchases vs. repayments.
 

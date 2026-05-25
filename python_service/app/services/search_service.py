@@ -7,7 +7,7 @@ import asyncio
 
 class SearchService:
     BLOCKED_SOURCE_DOMAINS = [
-        "100ppi.com", "baidu.com", "baijiahao.baidu.com",
+        "baidu.com", "baijiahao.baidu.com",
         "zhidao.baidu.com", "tieba.baidu.com", "wenku.baidu.com",
         "sogou.com", "360.cn", "so.com", "toutiao.com", "163.com",
     ]

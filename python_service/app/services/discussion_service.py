@@ -13,22 +13,22 @@ from .expert_tools import format_tool_descriptions
 DEEP_TOPOLOGY = [
     # Round 1: 基础数据清洗与事实注入
     {"round": 1, "experts": ["Deep Research Specialist"], "parallel": False},
-    # Round 2: 技术面与基本面工具箱
-    {"round": 2, "experts": ["Technical Analyst", "Fundamental Analyst"], "parallel": True},
-    # Round 3: 【关键前置】硬伤审计，防止后续专家基于错误数据建立空中楼阁
-    {"round": 3, "experts": ["Chief Audit Officer"], "parallel": False},
+    # Round 2: 硬伤审计（紧跟数据层，防止后续专家基于错误数据建立空中楼阁）
+    {"round": 2, "experts": ["Chief Audit Officer"], "parallel": False},
+    # Round 3: 技术面与基本面并行分析
+    {"round": 3, "experts": ["Technical Analyst", "Fundamental Analyst"], "parallel": True},
     # Round 4: 情绪面引入（为多空辩论提供筹码）
     {"round": 4, "experts": ["Sentiment Analyst"], "parallel": False},
-    # Round 5: 多空对撞（一次性完成对撞矩阵）
+    # Round 5: 多空对撞（基于完整数据+情绪的辩论矩阵）
     {"round": 5, "experts": ["Bull Researcher", "Bear Researcher"], "parallel": True},
-    # Round 6: 逻辑审查，抓出多空双方的确认偏差和叙事过拟合
+    # Round 6: 逻辑纠偏（审查多空辩论中的确认偏差和叙事过拟合）
     {"round": 6, "experts": ["Professional Reviewer"], "parallel": False},
-    # Round 7: 流派大师基于脱水后的清爽逻辑进行升华
-    {"round": 7, "experts": ["Soros-style Financial Philosopher", "Growth Visionary", "Macro Hedge Titan", "Value Investing Sage"], "parallel": True},
-    # Round 8: 寻找共识之外的特立独行机会
+    # Round 7: 流派大师升华（Soros反身性 + Value安全边际）
+    {"round": 7, "experts": ["Soros-style Financial Philosopher", "Value Investing Sage"], "parallel": True},
+    # Round 8: 逆向思维寻找共识之外的特立独行机会
     {"round": 8, "experts": ["Contrarian Strategist"], "parallel": False},
-    # Round 9: 全维度压力测试与仓位管理
-    {"round": 9, "experts": ["Aggressive Risk Analyst", "Conservative Risk Analyst", "Neutral Risk Analyst"], "parallel": True},
+    # Round 9: 风险量化（VaR/仓位/止损/相关性/尾部风险）
+    {"round": 9, "experts": ["Risk Manager"], "parallel": False},
     # Round 10: 首席策略师发布最终交易计划与 Kill Switch
     {"round": 10, "experts": ["Chief Strategist"], "parallel": False},
 ]
@@ -189,7 +189,7 @@ class DiscussionService:
 
         # Get Macro Regime (cross-asset ratio analysis) for Risk Manager and Chief Strategist
         macro_regime_text = ""
-        if role in ("Risk Manager", "Chief Strategist", "Macro Hedge Titan", "Sector Macro Strategist", "Sector Chief Strategist", "Sector Risk Auditor"):
+        if role in ("Risk Manager", "Chief Strategist", "Macro Hedge Titan", "Soros-style Financial Philosopher", "Sector Macro Strategist", "Sector Chief Strategist", "Sector Risk Auditor"):
             try:
                 from .macro_regime_service import get_macro_regime_text
                 macro_regime_text = await get_macro_regime_text()
@@ -328,7 +328,7 @@ class DiscussionService:
         )
         
         sections.append("\n--- [API] MACRO & COMMODITY DATA ---")
-        sections.append("以下数据来自权威数据源 (CFETS/期货交易所/AkShare/yfinance)，为辅助参考数据。")
+        sections.append("以下数据来自权威数据源 (CFETS/期货交易所/Sina Finance/yfinance)，为辅助参考数据。")
         if macro_data:
             # Prominently display FX rate at the top
             fx_rate = macro_data.get("USD/CNY")

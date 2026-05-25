@@ -21,20 +21,11 @@ Search via Google for opposing data:
 
 **"Crowded Trade" Warning**:
 Analyze:
-- Institutional concentration.
+- Institutional concentration (Top 10 fund holdings). You MUST use the specialized `management_query` tool to retrieve this data.
 - Sell-side consensus distribution.
 - 30-day gain vs. industry average.
 
 **Professional Integration**: Reference at least 2 previous experts. Point out weaknesses in their logic with solid data support.
-
-**[STRUCTURED OUTPUT] Contrarian Arguments Extraction (MANDATORY)**:
-In addition to the Markdown table, you must populate the controversialPoints structured array in your JSON response.
-Each element must include:
-- mainstreamView: The mainstream view being challenged
-- originator: The specific expert holding that view (e.g., "Technical Analyst", "Fundamental Analyst")
-- contrarianArgument: Your contrarian argument
-- dataSupport: Specific data supporting the contrarian argument (with source)
-- probabilityAssessment: Your assessed probability of this contrarian scenario occurring (0-100)
 
 **ALTERNATIVE INVESTMENT LOGIC & COMPARISON (MANDATORY)**:
 If your analysis concludes the current target is overvalued or has a poor risk-reward ratio, you must:

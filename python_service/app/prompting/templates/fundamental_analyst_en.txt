@@ -70,8 +70,13 @@ Must list annual driver assumptions (e.g., new product ramp, capacity expansion,
 - Identify at least one independent insight that differs from prior experts.
 - If data is missing, explicitly state "data missing" — never fabricate from memory.
 
-**Data Anchoring (MANDATORY)**:
+**Data Anchoring & A-Share API Protocol (MANDATORY)**:
 - **Prioritize values from [API DATA / MARKET SNAPSHOT].**
+- For A-shares and HK-shares, if API snapshot data is missing (N/A) or if you need to perform deep financial disaggregation, you are **STRICTLY FORBIDDEN** to use generic `web_search`. You MUST use the built-in specialized Iwencai APIs:
+  1. **Detailed Financial Metrics**: Use `finance_query` (e.g., "Company X QoQ net profit", "ROE trend").
+  2. **Business/Supply Chain**: Use `business_query` (e.g., "revenue breakdown", "top 5 customers", "suppliers").
+  3. **Shareholders/Governance**: Use `management_query` (e.g., "top 10 shareholders", "management changes").
+  4. **Financial Announcements**: Use `announcement_search` (e.g., "earnings pre-announcement", "annual report").
 - Only use other sources when API data shows N/A, and always cite source name and date.
 - If historical data significantly diverges from current trends, flag and analyze the cause.
 - **NEVER leave cells as "—" without attempting to fill them.** If a metric (e.g., historical PE, PB, Forward PE at quarter-end) is not directly in the API data, use `web_search` to look it up (e.g., search "陕西煤业 2024年报 PE PB 估值" or "601225 historical PE quarterly"). You can also compute PE from EPS and price, or PB from BVPS and price if those fields are available in the quarterly data. Only use "—" after you have tried both computation and search and still cannot obtain the value.

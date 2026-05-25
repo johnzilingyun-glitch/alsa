@@ -39,7 +39,7 @@ Requirements:
 - Source column must briefly annotate data source and date, e.g., "Wind 04/16", "Bloomberg 04/16", "LME 04/16", "API Real-time".
 - If two data sources differ (>1%), must annotate the difference and analyze the cause.
 - Using stale training data values is strictly prohibited. All values must be from today's search results.
-- **FX/Commodities macro variables** must use today's latest quotes. Using memorized old values is strictly prohibited.
+- **FX/Commodities macro variables (e.g. Alumina, Lithium, PP, LLDPE, Methanol)**: must use today's latest spot/futures quotes. You MUST use `web_search` with targeted queries, e.g., "Methanol latest futures price CNY/ton site:finance.sina.com.cn OR site:100ppi.com OR site:smm.cn". For Chinese futures, append exchange prefixes (e.g., "ZCE Methanol", "DCE LLDPE") to improve accuracy. Using memorized old values is strictly prohibited.
 
 **REAL-TIME CORE METRICS & EARNINGS DEVIATION TABLE (MANDATORY)**:
 You must output a Markdown table with the following columns:
@@ -50,6 +50,13 @@ Requirements:
 - **Anomaly Handling (MANDATORY)**: If market consensus data is unavailable (e.g., small-cap stocks), must note "Based on historical average extrapolation" or "Data unavailable". Fabricating data is strictly prohibited.
 - **Deviation Calculation**: Deviation = (Real-time Value - Market Consensus) / Market Consensus × 100%.
 - **Reverse Validation (CRITICAL)**: After presenting core metrics, you must ask and answer: "If this metric moves 10% in an adverse direction, how much would the company's net profit be impacted?" Provide a specific quantitative estimate.
+- **A-SHARE API PROTOCOL (CRITICAL)**: For A-shares, HK-shares, and Chinese macro data, you are **STRICTLY FORBIDDEN** to rely solely on generic `web_search` which is often blocked or inaccurate. You MUST prioritize the built-in specialized Iwencai APIs:
+  1. **Announcements/Events**: Use `announcement_search` (e.g., "Company X 2026 equity incentive").
+  2. **Analyst Reports**: Use `report_search` (e.g., "Industry X deep dive report").
+  3. **Macro/Industry Data**: Use `macro_query` (e.g., "China CPI", "China M2", "Domestic PMI").
+  4. **Business/Supply Chain**: Use `business_query` (e.g., "Company X 2025 revenue breakdown", "top 5 customers").
+  5. **Financial Metrics**: Use `finance_query` (e.g., "Company X QoQ net profit", "operating cash flow").
+  6. **Management/Holdings**: Use `management_query` (e.g., "top 10 shareholders", "fund holdings").
 - **SEARCH FOR MISSING FUNDAMENTAL DATA (CRITICAL)**:
 1. **Check N/A Values**: You must inspect the provided `[API DATA / MARKET SNAPSHOT]`. If core metrics show "N/A", you **MUST** use search tools to find the latest values:
    - **Adjusted/Non-GAAP Net Profit (扣非净利润)**

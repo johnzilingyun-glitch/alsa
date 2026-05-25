@@ -8,6 +8,7 @@ export const GEMINI_MODEL = "gemini-3.1-pro-preview";
 
 // Fallback chain: primary + backup model for resilience.
 export const MODEL_FALLBACK_CHAIN: string[] = [
+  "gemini-3.5-flash",               // Latest 3.5 Flash
   "gemini-3.1-pro-preview",         // High-reasoning 3.1
   "gemini-3.1-flash-lite-preview",  // Lightweight 3.1
   "gemini-2.5-pro",                 // 2.5 Logic
@@ -1061,6 +1062,7 @@ export async function fetchAvailableModelsList(config?: any): Promise<ModelInfo[
   const apiKey = getApiKey(config);
   
   const modelsToCheck = [
+    { id: 'gemini-3.5-flash', name: 'Gemini 3.5 Flash', description: '最新一代高速模型，性能全面超越 3.1 Flash。' },
     { id: 'gemini-3.1-flash-lite-preview', name: 'Gemini 3.1 Flash Lite (Default)', description: 'Free Tier 最强高吞吐引擎，官方赋予 15 RPM 超高配额。' },
     { id: 'gemini-3-flash-preview', name: 'Gemini 3.0 Flash (Next-Gen)', description: '下一代核心快速模型。' },
     { id: 'gemini-1.5-flash', name: 'Gemini 1.5 Flash (Stable)', description: '高稳定性容灾备用模型。' },

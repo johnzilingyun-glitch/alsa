@@ -21,3 +21,7 @@ python_service/data/
 .env
 .venv/
 .env.example
+
+# IBKR Gateway
+.ibkr-gateway.pid
+clientportal/

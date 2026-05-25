@@ -259,8 +259,8 @@ export async function startMultiRoundDiscussion(
         // Define tool based on model and role needs
         let tools: any[] | undefined = undefined;
         if (needsSearch) {
-          // Only premium models (containing "pro") use the high-cost googleSearch tool
-          if (model.includes('pro') || model.includes('ultra')) {
+          // All Gemini models support native googleSearch grounding tool
+          if (model.startsWith('gemini')) {
             tools = [{ googleSearch: {} }];
           } else {
             tools = DUCKDUCKGO_TOOLS;

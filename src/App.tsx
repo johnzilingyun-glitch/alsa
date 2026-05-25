@@ -32,6 +32,7 @@ const SignalCenter = lazy(() => import('./components/dashboard/SignalCenter').th
 const HistorySelectionDialog = lazy(() => import('./components/analysis/HistorySelectionDialog').then(m => ({ default: m.HistorySelectionDialog })));
 const MarketOverview = lazy(() => import('./components/dashboard/MarketOverview').then(m => ({ default: m.MarketOverview })));
 const DetailModal = lazy(() => import('./components/shared/DetailModal').then(m => ({ default: m.DetailModal })));
+const IBKRDashboard = lazy(() => import('./components/dashboard/IBKRDashboard').then(m => ({ default: m.IBKRDashboard })));
 
 export default function App() {
   console.log('App is rendering');
@@ -51,6 +52,7 @@ export default function App() {
   // Granular UI store selection to avoid render loops
   const analysisError = useUIStore(s => s.analysisError);
   const showAdminPanel = useUIStore(s => s.showAdminPanel);
+  const showIBKRDashboard = useUIStore(s => s.showIBKRDashboard);
   const setShowDiscussion = useUIStore(s => s.setShowDiscussion);
   const setIsSettingsOpen = useUIStore(s => s.setIsSettingsOpen);
 
@@ -290,6 +292,8 @@ export default function App() {
         <Suspense fallback={null}><SettingsModal /></Suspense>
 
         {showAdminPanel && <ErrorBoundary fallback="Admin panel encountered an error"><Suspense fallback={null}><AdminPanel /></Suspense></ErrorBoundary>}
+
+        {showIBKRDashboard && <Suspense fallback={null}><IBKRDashboard /></Suspense>}
         
         <Suspense fallback={null}><AnalysisLoadingPulse /></Suspense>
       </div>

@@ -103,6 +103,8 @@ describe('AI Discussion Commodity Data Integration', () => {
 
   it('should fetch commodities from the correct API endpoint', async () => {
     await startAgentDiscussion(mockAnalysis);
-    expect(global.fetch).toHaveBeenCalledWith(expect.stringContaining('commodities'));
+    const calls = (global.fetch as any).mock.calls;
+    const hasCommoditiesCall = calls.some((args: any[]) => typeof args[0] === 'string' && args[0].includes('commodities'));
+    expect(hasCommoditiesCall).toBe(true);
   });
 });

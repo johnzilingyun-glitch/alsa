@@ -238,10 +238,15 @@ class LLMGateway:
 
             try:
                 # Assemble generation config
+                # Gemini 3.x: temperature/top_p/top_k NOT recommended (model is optimized for defaults)
                 config = {
-                    "temperature": temperature,
                     "max_output_tokens": 8192,
                 }
+                if "gemini-3" in model.lower():
+                    # Gemini 3.x best practice: use thinking_level instead of temperature
+                    config["thinking_config"] = {"thinking_level": "medium"}
+                else:
+                    config["temperature"] = temperature
                 if "gemini" in model.lower():
                     config["tools"] = [{"google_search": {}}]
 

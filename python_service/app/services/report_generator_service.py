@@ -128,13 +128,14 @@ FIELDS TO EXTRACT:
 - risks_points: List of risk factors
 - upside: List of bull drivers
 - downside: List of bear risks
-- scenarios: List of objects with case, probability, targetPrice, logic
+- scenarios: List of objects with case, probability (INTEGER 0-100, NO % sign), targetPrice, logic
 
 CRITICAL INSTRUCTIONS:
 1. PRIORITIZE extracting financial data (profit, capex, growth) from the FINANCIAL SEARCH CONTEXT if provided.
 2. Output in VALID JSON format ONLY.
 3. If a value is missing, use null.
 4. DO NOT provide "N/A" as a value. Use strings like "11.24亿HKD" or "+5.2%".
+5. For "probability" in scenarios: output a plain INTEGER (e.g. 20, 50, 30). Do NOT append "%" symbol.
 
 JSON STRUCTURE:
 {{
@@ -703,7 +704,7 @@ CONTENT:
             scenarios = self._default_scenarios()
 
         sc_rows = "".join([
-            f'<tr><td><strong>{s.get("case", "N/A")}</strong></td><td>{s.get("probability", 0)}%</td><td><strong>{s.get("targetPrice", "N/A")}</strong></td><td>{s.get("logic", "")}</td></tr>'
+            f'<tr><td><strong>{s.get("case", "N/A")}</strong></td><td>{str(s.get("probability", 0)).rstrip("%")}%</td><td><strong>{s.get("targetPrice", "N/A")}</strong></td><td>{s.get("logic", "")}</td></tr>'
             for s in scenarios
         ])
 

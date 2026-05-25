@@ -8,6 +8,7 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 const AVAILABLE_MODELS = [
+  { id: 'gemini-3.5-flash', name: 'Gemini 3.5 Flash (Latest)', description: '最新一代高速模型，性能全面超越 3.1 Flash，推荐首选。' },
   { id: 'gemini-2.5-flash-lite', name: 'Gemini 2.5 Flash Lite (Unlimited)', description: '旗舰级速率，Paid 层级无限制 RPD，4000 RPM，适合极高频自动化分析。' },
   { id: 'gemini-3.1-flash-lite-preview', name: 'Gemini 3.1 Flash Lite (Ultra Fast)', description: '极速响应模型，Free 配额最高 (15 RPM, 500 RPD)，适合高频实时分析。' },
   { id: 'gemini-3-flash-preview', name: 'Gemini 3 Flash (Fast & Balanced)', description: '平衡型模型，Free 配额受限 (5 RPM, 20 RPD)，适合一般概览场景。' },

@@ -90,6 +90,9 @@ vi.mock('../../stores/useAnalysisStore', () => ({
 vi.mock('../../services/adminService', () => ({
   getMarketHistoryByDate: vi.fn().mockResolvedValue(null),
   getAvailableMarketDates: vi.fn().mockResolvedValue([]),
+  saveAnalysisToHistory: vi.fn().mockResolvedValue(undefined),
+  getHistoryContext: vi.fn().mockResolvedValue([]),
+  deleteHistoryItem: vi.fn().mockResolvedValue(undefined),
 }));
 
 import { MarketOverview } from '../dashboard/MarketOverview';

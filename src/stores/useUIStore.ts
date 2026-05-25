@@ -18,6 +18,7 @@ interface UIState {
   showDiscussion: boolean;
   isSettingsOpen: boolean;
   showAdminPanel: boolean;
+  showIBKRDashboard: boolean;
   selectedDetail: { type: 'log' | 'history', data: any } | null;
 
   // Error states
@@ -77,6 +78,7 @@ interface UIState {
   setShowDiscussion: (show: boolean) => void;
   setIsSettingsOpen: (open: boolean) => void;
   setShowAdminPanel: (show: boolean) => void;
+  setShowIBKRDashboard: (show: boolean) => void;
   setSelectedDetail: (detail: { type: 'log' | 'history', data: any } | null) => void;
   setAutoRefreshInterval: (interval: number) => void;
   setAnalysisLevel: (level: AnalysisLevel) => void;
@@ -100,6 +102,7 @@ export const useUIStore = create<UIState>()(
       showDiscussion: false,
       isSettingsOpen: false,
       showAdminPanel: false,
+      showIBKRDashboard: false,
       selectedDetail: null,
       analysisError: null,
       chatError: null,
@@ -162,6 +165,7 @@ export const useUIStore = create<UIState>()(
       setShowDiscussion: (showDiscussion) => set({ showDiscussion }),
       setIsSettingsOpen: (isSettingsOpen) => set({ isSettingsOpen }),
       setShowAdminPanel: (showAdminPanel) => set({ showAdminPanel }),
+      setShowIBKRDashboard: (showIBKRDashboard) => set({ showIBKRDashboard }),
       setSelectedDetail: (selectedDetail) => set({ selectedDetail }),
       setAutoRefreshInterval: (autoRefreshInterval) => set({ autoRefreshInterval }),
       setAnalysisLevel: (analysisLevel: AnalysisLevel) => set({ analysisLevel }),

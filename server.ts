@@ -10,6 +10,7 @@ import feishuRoutes from './server/feishuRoutes.js';
 import stockRoutes from './server/stockRoutes.js';
 import debugRoutes from './server/debugRoutes.js';
 import analysisRoutes from './server/routes/analysisRoutes.js';
+import ibkrRoutes from './server/routes/ibkrRoutes.js';
 import { monitor } from './server/dataSourceHealth.js';
 
 dotenv.config();
@@ -81,6 +82,7 @@ async function startServer() {
   }, historyRoutes);
   app.use('/api', feishuRoutes);
   app.use('/api', analysisRoutes);
+  app.use('/api', ibkrRoutes);
   app.use('/api', stockRoutes);
 
   // Proxy to FastAPI (Port 8001) for paths not handled by Node

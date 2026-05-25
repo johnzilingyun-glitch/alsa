@@ -48,6 +48,7 @@ const HTTP_TIMEOUT_MS = 120_000;   // REST API calls
 /** Gemini models tried in order (fast → capable) */
 const GEMINI_MODELS = [
   process.env.GEMINI_GATEWAY_MODEL,   // override via env
+  'gemini-3.5-flash',
   'gemini-3.1-pro-preview',
   'gemini-3.1-flash-lite-preview',
   'gemini-1.5-flash',
@@ -354,10 +355,9 @@ export function getPreferredProvider(requestedModel: string): GatewayProvider | 
   if (m.startsWith('gemini')) return 'gemini';
   if (m.startsWith('gpt-') || /^o\d/.test(m)) return 'openai';
   if (m.startsWith('claude')) return 'anthropic';
-  // Route all models through xbrain by default (supports deepseek, qwen, kimi, glm, etc.)
+  if (m.startsWith('deepseek')) return 'deepseek';
+  // Route all models through xbrain by default (supports qwen, kimi, glm, etc.)
   if (process.env.DEFAULT_LLM_API_KEY) return 'default';
-  // Fallback to direct deepseek only if xbrain unavailable
-  if (m.startsWith('deepseek') && process.env.DEEPSEEK_API_KEY) return 'deepseek';
   return null;
 }
 

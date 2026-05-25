@@ -29,6 +29,7 @@ export default defineConfig(({ mode }) => {
       minify: 'esbuild',
     },
     server: {
+      host: true,
       port: 5173,
       proxy: {
         '/api': {
@@ -44,7 +45,7 @@ export default defineConfig(({ mode }) => {
         clientFiles: ['./src/main.tsx', './src/App.tsx', './src/i18n/index.ts'],
       },
       watch: {
-        ignored: ['**/data/**', '**/python_service/**', '**/server/**', '**/server.ts', '**/scratch/**', '**/logs/**', '**/docs/**'],
+        ignored: ['**/.venv/**', '**/node_modules/**', '**/data/**', '**/python_service/**', '**/server/**', '**/server.ts', '**/scratch/**', '**/logs/**', '**/docs/**'],
       },
     },
     define: {

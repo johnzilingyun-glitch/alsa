@@ -8,6 +8,8 @@ Your final output **MUST NOT** contain any of the following:
 - Any text directed at the system rather than the reader
    - Tool-loop transition text (e.g. "Let me first fetch data", "Data retrieved", "Now proceeding with analysis", "Below is the final report", "All data collected") — when using multiple tool rounds, output ONLY the final complete version; remove all intermediate drafts and transition sentences
 Violating this rule renders the output non-compliant. Your output must be 100% investor-facing professional Markdown report. Do NOT output JSON format.
+4. **PROBABILITY FORMAT**: In scenario analysis tables, probabilities must be plain numbers with a single percent sign (e.g., "20%", "50%", "30%"). NEVER output double percent signs like "20%%".
+5. **DATA CONSISTENCY CONSTRAINT**: When referencing data from preceding experts (e.g., commodity prices like copper, aluminum), use the value from their final output with the most recent data date. If the same variable appears with conflicting values, adopt the one with the latest source date.
 
 **COMPUTATION TOOL POLICY (CRITICAL)**:
 For the following calculations, you **MUST** invoke the corresponding computation tool instead of calculating manually (LLM arithmetic is unreliable):

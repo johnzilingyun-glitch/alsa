@@ -1,28 +1,27 @@
 import React from 'react';
 import { AlertCircle, RefreshCw, Settings, HelpCircle, ExternalLink } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
-function classifyError(message: string): { hint: string; action?: 'retry' | 'settings' } {
+function classifyError(message: string, t: (key: string) => string): { hint: string; action?: 'retry' | 'settings' } {
   const lower = message.toLowerCase();
   if (lower.includes('所有 llm 提供商均失败') || lower.includes('llm 提供商均失败') || lower.includes('etimedout')) {
-    return { hint: '当前模型链路不可用或超时。建议在设置中检查 API Key 是否正确，或尝试切换到其他模型。', action: 'settings' };
+    return { hint: t('errorNotice.model_unavailable'), action: 'settings' };
   }
-  // Model not found: only match explicit 404/not-found indicators (avoid false positive from "所有模型均不可用")
   if (lower.includes('404') || (lower.includes('not found') && lower.includes('模型')))
-    return { hint: '当前模型已下线或不存在。请在设置中切换到可用模型。', action: 'settings' };
+    return { hint: t('errorNotice.model_deprecated'), action: 'settings' };
   if (lower.includes('配额') || lower.includes('quota') || lower.includes('429') || lower.includes('rate')) {
-    // If the error already includes diagnostic detail (原因/详情), use it as the hint
     const detailMatch = message.match(/\n(原因|详情)[:：]\s*(.+)/);
     const detail = detailMatch ? detailMatch[0].trim() : '';
-    return { hint: detail || '请求过于频繁或配额耗尽。可能是 API 角色额度受限或预付余额不足。', action: 'settings' };
+    return { hint: detail || t('errorNotice.rate_limit'), action: 'settings' };
   }
   if (lower.includes('api key') || lower.includes('未配置') || lower.includes('apikey'))
-    return { hint: '请在设置中填写 Gemini API Key。', action: 'settings' };
+    return { hint: t('errorNotice.no_api_key'), action: 'settings' };
   if (lower.includes('无法获取') || lower.includes('not found') || lower.includes('拼写'))
-    return { hint: '请检查股票代码是否正确。例如: 600519, 00700, AAPL' };
+    return { hint: t('errorNotice.invalid_symbol') };
   if (lower.includes('网络') || lower.includes('network') || lower.includes('fetch'))
-    return { hint: '网络连接异常，请检查网络后重试。', action: 'retry' };
+    return { hint: t('errorNotice.network_error'), action: 'retry' };
   if (lower.includes('503') || lower.includes('负载') || lower.includes('unavailable'))
-    return { hint: 'AI 服务暂时过载，请稍后重试。', action: 'retry' };
+    return { hint: t('errorNotice.overloaded'), action: 'retry' };
   return { hint: '', action: 'retry' };
 }
 
@@ -34,7 +33,8 @@ interface ErrorNoticeProps {
 }
 
 export function ErrorNotice({ title, message, onRetry, onOpenSettings }: ErrorNoticeProps) {
-  const { hint, action } = classifyError(message);
+  const { t } = useTranslation();
+  const { hint, action } = classifyError(message, t);
 
   return (
     <div className="p-5 rounded-2xl bg-rose-50 border border-rose-100 flex items-start gap-3">
@@ -55,7 +55,7 @@ export function ErrorNotice({ title, message, onRetry, onOpenSettings }: ErrorNo
               className="flex items-center gap-1.5 text-xs font-semibold text-rose-600 hover:text-rose-700 transition-colors"
             >
               <RefreshCw size={12} />
-              重试
+              {t('errorNotice.retry')}
             </button>
           )}
           {action === 'settings' && onOpenSettings && (
@@ -65,7 +65,7 @@ export function ErrorNotice({ title, message, onRetry, onOpenSettings }: ErrorNo
                 className="flex items-center gap-1.5 text-xs font-semibold text-rose-500 hover:text-rose-600 transition-colors"
               >
                 <Settings size={12} />
-                打开设置
+                {t('errorNotice.open_settings')}
               </button>
               {(message.toLowerCase().includes('quota') || message.includes('配额') || message.toLowerCase().includes('depleted')) && (
                 <a
@@ -75,7 +75,7 @@ export function ErrorNotice({ title, message, onRetry, onOpenSettings }: ErrorNo
                   className="flex items-center gap-1.5 text-xs font-semibold text-indigo-600 hover:text-indigo-700 transition-colors"
                 >
                   <ExternalLink size={12} />
-                  管理账单 (AI Studio)
+                  {t('errorNotice.manage_billing')}
                 </a>
               )}
             </div>

@@ -1,5 +1,7 @@
 import os
+import re
 import pandas as pd
+import aiohttp
 from typing import Dict, Any, List
 from datetime import datetime
 
@@ -44,6 +46,20 @@ class MacroService:
         "LLDPE":              "元/吨",
     }
     COMMODITY_SOURCE = "期货交易所现货报价 (AkShare)"
+
+    # 新浪期货 API — 主力连续合约代码映射
+    SINA_FUTURES_CODE_MAP = {
+        "Lithium Carbonate": "LC0",
+        "Copper":             "CU0",
+        "Aluminum":           "AL0",
+        "Alumina":            "AO0",
+        "Silicon":            "SI0",
+        "Crude Oil":          "SC0",
+        "Methanol":           "MA0",
+        "Polypropylene":      "PP0",
+        "LLDPE":              "L0",
+    }
+    SINA_FUTURES_SOURCE = "期货主力合约 (Sina Finance)"
 
     def __init__(self):
         self._cache = {}
@@ -135,14 +151,63 @@ class MacroService:
 
         return results
 
+    async def _fetch_commodity_sina(self, symbol: str) -> Dict[str, Any]:
+        """通过新浪期货 API 获取主力连续合约最新价。从海外服务器可用。"""
+        sina_code = self.SINA_FUTURES_CODE_MAP.get(symbol)
+        unit = self.COMMODITY_UNITS.get(symbol, "")
+        if not sina_code:
+            return None
+
+        url = f"https://hq.sinajs.cn/list=nf_{sina_code}"
+        headers = {"Referer": "https://finance.sina.com.cn"}
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                    if resp.status != 200:
+                        return None
+                    raw = await resp.read()
+                    # Sina returns GBK-encoded data
+                    text = raw.decode("gbk", errors="replace")
+        except Exception as e:
+            print(f"Sina futures API failed for {symbol}: {e}")
+            return None
+
+        # Parse: var hq_str_nf_XX0="名称,?,开盘,最高,最低,昨收,买价,卖价,最新价,结算价,昨结算,...,日期,...";
+        match = re.search(r'="([^"]+)"', text)
+        if not match:
+            return None
+
+        fields = match.group(1).split(",")
+        if len(fields) < 18:
+            return None
+
+        try:
+            last_price = float(fields[8])  # 最新价
+            if last_price <= 0:
+                # 非交易时段最新价可能为0，回退到结算价
+                last_price = float(fields[9])  # 结算价
+            if last_price <= 0:
+                return None
+            trade_date = fields[17] if len(fields) > 17 else datetime.now().strftime("%Y-%m-%d")
+            return {
+                "symbol": symbol,
+                "price": last_price,
+                "unit": unit,
+                "source": self.SINA_FUTURES_SOURCE,
+                "date": trade_date,
+                "note": "期货主力合约价格，与现货价格通常存在小幅基差",
+            }
+        except (ValueError, IndexError):
+            return None
+
     async def _fetch_commodity(self, symbol: str) -> Dict[str, Any]:
-        """通过 AkShare futures_spot_price 获取交易所现货报价。"""
+        """获取大宗商品价格。优先 AkShare 现货，回退新浪期货主力合约。"""
         code = self.COMMODITY_CODE_MAP.get(symbol)
         unit = self.COMMODITY_UNITS.get(symbol, "")
         if not code:
             return {"error": f"不支持的商品: {symbol}", "symbol": symbol}
 
-        # 方案1: 期货交易所现货报价 (主力)
+        # 方案1: AkShare 期货交易所现货报价 (主力)
         try:
             today = datetime.now().strftime("%Y%m%d")
             df = await safe_ak_call(ak.futures_spot_price, date=today, vars_list=[code])
@@ -162,7 +227,7 @@ class MacroService:
         except Exception as e:
             print(f"AkShare futures_spot_price failed for {symbol}: {e}")
 
-        # 方案2: 备选日期 (非交易日时今日可能无数据，回退至多 10 天覆盖长假)
+        # 方案2: AkShare 备选日期 (非交易日回退至多 10 天)
         import datetime as dt
         for days_back in range(1, 11):
             try:
@@ -183,6 +248,11 @@ class MacroService:
                             }
             except Exception:
                 continue
+
+        # 方案3: 新浪期货 API (海外可用，实时数据)
+        sina_result = await self._fetch_commodity_sina(symbol)
+        if sina_result:
+            return sina_result
 
         # 全部失败
         return {

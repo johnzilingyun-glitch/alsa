@@ -325,7 +325,7 @@ export const MarketOverview = memo(function MarketOverview({ onFetchMarketOvervi
             <div className="flex items-center justify-between">
               <h3 className="flex items-center gap-2 text-sm font-bold uppercase tracking-widest text-zinc-400">
                 <Heart size={16} className="text-rose-500 fill-rose-500/10" />
-                我的关注与智能库
+                {t('marketOverview.watchlist_title')}
               </h3>
               <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest bg-zinc-100 px-2 py-1 rounded-md">
                 Dual-Logic Tracking
@@ -341,21 +341,21 @@ export const MarketOverview = memo(function MarketOverview({ onFetchMarketOvervi
                   const price = alertPrices[stock.symbol];
                   
                   let status = 'neutral';
-                  let hint = '持仓待机';
+                  let hint = t('marketOverview.hint_holding');
                   let statusColor = 'text-zinc-600 bg-zinc-50';
                   
                   if (alert && price) {
                     if (price >= alert.target_price) {
                       status = 'gold';
-                      hint = '目标达成！🚀';
+                      hint = t('marketOverview.hint_target_hit');
                       statusColor = 'text-yellow-700 bg-yellow-100 border-yellow-200';
                     } else if (price <= alert.stop_loss) {
                       status = 'red';
-                      hint = '跌破止损！⚠️';
+                      hint = t('marketOverview.hint_stop_loss');
                       statusColor = 'text-rose-700 bg-rose-100 border-rose-200';
                     } else if (Math.abs(price - alert.entry_price) / alert.entry_price <= 0.02) {
                       status = 'indigo';
-                      hint = '最佳入手 ✨';
+                      hint = t('marketOverview.hint_best_entry');
                       statusColor = 'text-indigo-700 bg-indigo-100 border-indigo-200';
                     }
                   }
@@ -369,25 +369,25 @@ export const MarketOverview = memo(function MarketOverview({ onFetchMarketOvervi
                     
                     if (isWatchlist || isRecent) {
                       showConfirm(
-                        '移除记录',
-                        `确定要将 ${stock.symbol} ${stock.name || ''} 从列表中移除吗？`,
+                        t('marketOverview.confirm_remove_title'),
+                        t('marketOverview.confirm_remove_msg', { symbol: `${stock.symbol} ${stock.name || ''}` }),
                         async () => {
                           if (isWatchlist) {
                             try {
                               const res = await fetch(`/api/watchlist/${stock.symbol}?market=${stock.market}`, { method: 'DELETE' });
                               if (res.ok) {
                                 setWatchlist(watchlist.filter(w => w.symbol.toUpperCase() !== normalizedSymbol));
-                                showToast(`${stock.symbol} 已从自选移除`);
+                                showToast(t('marketOverview.removed', { symbol: stock.symbol }));
                               }
                             } catch (err) {
                               console.error('Failed to remove from watchlist:', err);
-                              showToast('移除失败，请重试', 'error');
+                              showToast(t('marketOverview.remove_failed'), 'error');
                             }
                           }
 
                           if (isRecent) {
                             removeRecentSearch(stock.symbol);
-                            if (!isWatchlist) showToast(`${stock.symbol} 已从历史记录移除`);
+                            if (!isWatchlist) showToast(t('marketOverview.history_removed', { symbol: stock.symbol }));
                           }
                         },
                         'danger'
@@ -417,7 +417,7 @@ export const MarketOverview = memo(function MarketOverview({ onFetchMarketOvervi
                           <button
                             onClick={(e) => handleDeleteItem(e, stock)}
                             className="p-1.5 text-zinc-300 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-all opacity-0 group-hover:opacity-100 z-10"
-                            title="从关注移除"
+                            title={t('marketOverview.remove_from_watchlist')}
                           >
                             <Trash2 size={14} />
                           </button>
@@ -439,7 +439,7 @@ export const MarketOverview = memo(function MarketOverview({ onFetchMarketOvervi
                           </div>
                         ) : (
                           <div className="text-[10px] text-zinc-400 font-medium">
-                            暂无监控计划
+                            {t('marketOverview.no_watchlist')}
                           </div>
                         )}
                         <ChevronRight size={14} className="text-zinc-200 group-hover:text-indigo-400 group-hover:translate-x-1 transition-all" />
@@ -460,7 +460,7 @@ export const MarketOverview = memo(function MarketOverview({ onFetchMarketOvervi
               {watchlist.length === 0 && recentSearches.length === 0 && (
                 <div className="md:col-span-full py-12 border-2 border-dashed border-zinc-100 rounded-2xl flex flex-col items-center justify-center text-zinc-300 gap-2">
                    <StarIcon size={32} strokeWidth={1} />
-                   <p className="text-xs font-bold uppercase tracking-[0.2em]">智能记录尚未沉淀</p>
+                   <p className="text-xs font-bold uppercase tracking-[0.2em]">{t('marketOverview.no_history')}</p>
                 </div>
               )}
             </div>
@@ -519,7 +519,7 @@ export const MarketOverview = memo(function MarketOverview({ onFetchMarketOvervi
             </div>
           )) : !displayLoading && (
             <div className="col-span-full py-8 text-center text-zinc-400 text-xs italic bg-zinc-50 rounded-2xl border border-dashed border-zinc-200">
-              暂无实时指数数据，请尝试点击刷新按钮。
+              {t('marketOverview.no_index_data')}
             </div>
           )}
         </div>
@@ -715,11 +715,11 @@ export const MarketOverview = memo(function MarketOverview({ onFetchMarketOvervi
               
               {northboundFlow && overviewMarket === 'A-Share' && (
                 <div className="mb-5 flex items-center justify-between p-3 bg-white rounded-xl border border-zinc-100">
-                  <span className="text-xs font-medium text-zinc-500">北向资金 (Northbound)</span>
+                  <span className="text-xs font-medium text-zinc-500">{t('marketOverview.northbound', 'Northbound Flow')}</span>
                   <span className={cn("text-xs font-semibold px-2 py-1 rounded bg-zinc-50", 
                     String(northboundFlow['净买额']).includes('-') ? "text-rose-500" : "text-emerald-500"
                   )}>
-                    {northboundFlow['净买额']} 亿元
+                    {northboundFlow['净买额']} {t('marketOverview.unit_yi')}
                   </span>
                 </div>
               )}

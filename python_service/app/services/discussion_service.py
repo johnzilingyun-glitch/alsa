@@ -148,7 +148,7 @@ class DiscussionService:
         # 1. Fetch Template
         prompt_name = role.lower().replace(" ", "_")
         try:
-            prompt_data = prompt_runtime.get_prompt(prompt_name, version="v1")
+            prompt_data = prompt_runtime.get_prompt(prompt_name, version="v1", language=language)
             template = prompt_data["template"]
         except:
             # Fallback to simple instruction if prompt not found in DB

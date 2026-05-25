@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { ArrowLeft, RefreshCw, TrendingUp, DollarSign, BarChart3, Wallet, X, Search, CandlestickChart, Link2 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, LineChart, Line } from 'recharts';
+import { useTranslation } from 'react-i18next';
 import { useUIStore } from '../../stores/useUIStore';
 import { 
   fetchIBKRStatus, 
@@ -21,6 +22,7 @@ import {
 type TabId = 'portfolio' | 'chart' | 'options';
 
 export function IBKRDashboard() {
+  const { t } = useTranslation();
   const { setShowIBKRDashboard } = useUIStore();
   const [activeTab, setActiveTab] = useState<TabId>('portfolio');
   const [loading, setLoading] = useState(true);
@@ -58,7 +60,7 @@ export function IBKRDashboard() {
       setDailyPnl(pnl);
       setMonthlyPnL(perf);
     } catch (e: any) {
-      setError(e.message || '加载数据失败');
+      setError(e.message || t('ibkr.load_failed'));
     } finally {
       setLoading(false);
     }
@@ -93,9 +95,9 @@ export function IBKRDashboard() {
   const fmtPnL = (val: number) => (val >= 0 ? '+' : '') + fmt(val);
 
   const tabs: { id: TabId; label: string; icon: React.ReactNode }[] = [
-    { id: 'portfolio', label: '持仓盈亏', icon: <Wallet size={16} /> },
-    { id: 'chart', label: 'K线图表', icon: <CandlestickChart size={16} /> },
-    { id: 'options', label: '期权链', icon: <Link2 size={16} /> },
+    { id: 'portfolio', label: t('ibkr.tab_portfolio'), icon: <Wallet size={16} /> },
+    { id: 'chart', label: t('ibkr.tab_chart'), icon: <CandlestickChart size={16} /> },
+    { id: 'options', label: t('ibkr.tab_options'), icon: <Link2 size={16} /> },
   ];
 
   return (
@@ -107,10 +109,10 @@ export function IBKRDashboard() {
               <ArrowLeft size={20} />
             </button>
             <div>
-              <h1 className="text-xl font-bold text-zinc-900">IBKR 实盘仪表盘</h1>
+              <h1 className="text-xl font-bold text-zinc-900">{t('ibkr.title')}</h1>
               <p className="text-xs text-zinc-500 flex items-center gap-1">
                 <span className={`w-2 h-2 rounded-full inline-block ${connected ? 'bg-emerald-500' : 'bg-red-500'}`} />
-                {connected ? '已连接' : '未连接'}
+                {connected ? t('ibkr.connected') : t('ibkr.disconnected')}
               </p>
             </div>
           </div>
@@ -124,7 +126,7 @@ export function IBKRDashboard() {
             </div>
             <button onClick={loadData} disabled={loading} className="btn-secondary h-10 px-4 rounded-xl flex items-center gap-2 disabled:opacity-50">
               <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
-              <span className="text-sm hidden sm:inline">刷新</span>
+              <span className="text-sm hidden sm:inline">{t('ibkr.refresh')}</span>
             </button>
           </div>
         </div>
@@ -144,8 +146,8 @@ export function IBKRDashboard() {
               <div className="w-20 h-20 mx-auto mb-6 rounded-2xl bg-indigo-50 flex items-center justify-center">
                 <Wallet size={36} className="text-indigo-600" />
               </div>
-              <h2 className="text-2xl font-bold text-zinc-900 mb-2">连接 IBKR 账户</h2>
-              <p className="text-sm text-zinc-500 mb-8">请先在新标签页中登录 IBKR Client Portal Gateway，登录完成后回到此页面点击下方按钮</p>
+              <h2 className="text-2xl font-bold text-zinc-900 mb-2">{t('ibkr.login_title')}</h2>
+              <p className="text-sm text-zinc-500 mb-8">{t('ibkr.login_desc')}</p>
               <div className="space-y-3">
                 <a
                   href="https://localhost:5000"
@@ -154,19 +156,19 @@ export function IBKRDashboard() {
                   className="w-full h-12 bg-indigo-600 text-white font-medium text-sm rounded-xl hover:bg-indigo-700 transition-colors flex items-center justify-center gap-2"
                 >
                   <ArrowLeft size={16} className="rotate-[135deg]" />
-                  打开 IBKR 登录页面
+                  {t('ibkr.login_open')}
                 </a>
                 <button onClick={loadData} className="w-full h-12 border border-zinc-200 text-zinc-700 font-medium text-sm rounded-xl hover:bg-zinc-50 transition-colors flex items-center justify-center gap-2">
                   <RefreshCw size={16} />
-                  已登录，刷新连接
+                  {t('ibkr.login_refresh')}
                 </button>
               </div>
               <div className="mt-8 p-4 bg-zinc-50 rounded-xl text-left">
-                <p className="text-xs font-medium text-zinc-700 mb-2">操作步骤：</p>
+                <p className="text-xs font-medium text-zinc-700 mb-2">{t('ibkr.login_steps')}</p>
                 <ol className="text-xs text-zinc-500 space-y-1.5 list-decimal list-inside">
-                  <li>点击上方按钮打开登录页面（首次需接受证书警告）</li>
-                  <li>输入 IBKR 用户名和密码完成登录</li>
-                  <li>登录成功后回到此页面，点击"已登录，刷新连接"</li>
+                  <li>{t('ibkr.login_step1')}</li>
+                  <li>{t('ibkr.login_step2')}</li>
+                  <li>{t('ibkr.login_step3')}</li>
                 </ol>
               </div>
             </div>
@@ -182,20 +184,20 @@ export function IBKRDashboard() {
             ) : (
               <>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-                  <SummaryCard icon={<Wallet size={20} />} label="账户净值" value={account ? fmt(account.netLiquidation, account.currency) : '--'} color="indigo" />
-                  <SummaryCard icon={<DollarSign size={20} />} label="今日盈亏" value={dailyPnl ? fmtPnL(dailyPnl.dailyPnl) : '--'} color={dailyPnl && dailyPnl.dailyPnl >= 0 ? 'emerald' : 'rose'} />
-                  <SummaryCard icon={<TrendingUp size={20} />} label="未实现盈亏" value={dailyPnl ? fmtPnL(dailyPnl.unrealizedPnl) : '--'} color={dailyPnl && dailyPnl.unrealizedPnl >= 0 ? 'emerald' : 'rose'} />
-                  <SummaryCard icon={<BarChart3 size={20} />} label="持仓数量" value={`${positions.length} 只`} color="zinc" />
+                  <SummaryCard icon={<Wallet size={20} />} label={t('ibkr.account_value')} value={account ? fmt(account.netLiquidation, account.currency) : '--'} color="indigo" />
+                  <SummaryCard icon={<DollarSign size={20} />} label={t('ibkr.daily_pnl')} value={dailyPnl ? fmtPnL(dailyPnl.dailyPnl) : '--'} color={dailyPnl && dailyPnl.dailyPnl >= 0 ? 'emerald' : 'rose'} />
+                  <SummaryCard icon={<TrendingUp size={20} />} label={t('ibkr.unrealized_pnl')} value={dailyPnl ? fmtPnL(dailyPnl.unrealizedPnl) : '--'} color={dailyPnl && dailyPnl.unrealizedPnl >= 0 ? 'emerald' : 'rose'} />
+                  <SummaryCard icon={<BarChart3 size={20} />} label={t('ibkr.positions_count')} value={`${positions.length} ${t('ibkr.positions_unit')}`} color="zinc" />
                 </div>
                 {monthlyPnL.length > 0 && (
                   <div className="mb-8 p-6 bg-white border border-zinc-200 rounded-2xl">
-                    <h2 className="text-lg font-bold text-zinc-900 mb-4">月度盈亏走势</h2>
+                    <h2 className="text-lg font-bold text-zinc-900 mb-4">{t('ibkr.monthly_pnl')}</h2>
                     <ResponsiveContainer width="100%" height={280}>
                       <BarChart data={monthlyPnL}>
                         <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                         <XAxis dataKey="month" tick={{ fontSize: 12 }} />
                         <YAxis tick={{ fontSize: 12 }} tickFormatter={(v: number) => `${(v * 100).toFixed(1)}%`} />
-                        <Tooltip formatter={(value: any) => [`${(Number(value) * 100).toFixed(2)}%`, '月度收益']} contentStyle={{ borderRadius: '12px', border: '1px solid #e4e4e7' }} />
+                        <Tooltip formatter={(value: any) => [`${(Number(value) * 100).toFixed(2)}%`, t('ibkr.monthly_return')]} contentStyle={{ borderRadius: '12px', border: '1px solid #e4e4e7' }} />
                         <Bar dataKey="pnl" radius={[4, 4, 0, 0]}>
                           {monthlyPnL.map((entry, i) => <Cell key={i} fill={entry.pnl >= 0 ? '#10b981' : '#f43f5e'} />)}
                         </Bar>
@@ -206,30 +208,30 @@ export function IBKRDashboard() {
                 {selectedPosition && (
                   <div className="mb-8 p-6 bg-indigo-50/50 border border-indigo-200 rounded-2xl relative">
                     <button onClick={() => setSelectedPosition(null)} className="absolute top-4 right-4 w-8 h-8 flex items-center justify-center rounded-lg hover:bg-indigo-100"><X size={16} /></button>
-                    <h3 className="text-lg font-bold text-zinc-900 mb-1">{selectedPosition.ticker} 每日盈亏</h3>
+                    <h3 className="text-lg font-bold text-zinc-900 mb-1">{selectedPosition.ticker} {t('ibkr.daily_pnl_title')}</h3>
                     <p className="text-sm text-zinc-500 mb-4">{selectedPosition.name}</p>
                     {dailyLoading ? <div className="flex justify-center py-12"><RefreshCw size={24} className="animate-spin text-indigo-500" /></div>
                       : dailyData.length > 0 ? (
                         <ResponsiveContainer width="100%" height={200}>
                           <LineChart data={dailyData}><CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" /><XAxis dataKey="date" tick={{ fontSize: 11 }} /><YAxis tick={{ fontSize: 11 }} /><Tooltip contentStyle={{ borderRadius: '12px', border: '1px solid #e4e4e7' }} /><Line type="monotone" dataKey="close" stroke="#6366f1" strokeWidth={2} dot={false} /></LineChart>
                         </ResponsiveContainer>
-                      ) : <p className="text-zinc-400 text-sm text-center py-8">暂无每日数据</p>}
+                      ) : <p className="text-zinc-400 text-sm text-center py-8">{t('ibkr.no_daily_data')}</p>}
                   </div>
                 )}
                 <div className="p-6 bg-white border border-zinc-200 rounded-2xl">
-                  <h2 className="text-lg font-bold text-zinc-900 mb-2">个股盈亏明细</h2>
-                  <p className="text-xs text-zinc-400 mb-4">点击任意行查看每日盈亏走势</p>
-                  {positions.length === 0 ? <p className="text-zinc-400 text-center py-8">暂无持仓数据</p> : (
+                  <h2 className="text-lg font-bold text-zinc-900 mb-2">{t('ibkr.position_detail')}</h2>
+                  <p className="text-xs text-zinc-400 mb-4">{t('ibkr.position_hint')}</p>
+                  {positions.length === 0 ? <p className="text-zinc-400 text-center py-8">{t('ibkr.no_positions')}</p> : (
                     <div className="overflow-x-auto">
                       <table className="w-full text-sm">
                         <thead><tr className="border-b border-zinc-100 text-zinc-500">
-                          <th className="text-left py-3 px-2 font-medium">股票</th>
-                          <th className="text-right py-3 px-2 font-medium">持仓</th>
-                          <th className="text-right py-3 px-2 font-medium">成本</th>
-                          <th className="text-right py-3 px-2 font-medium">现价</th>
-                          <th className="text-right py-3 px-2 font-medium cursor-pointer hover:text-indigo-600" onClick={() => handleSort('mktValue')}>市值{sortField === 'mktValue' && (sortDir === 'desc' ? '↓' : '↑')}</th>
-                          <th className="text-right py-3 px-2 font-medium cursor-pointer hover:text-indigo-600" onClick={() => handleSort('unrealizedPnl')}>盈亏{sortField === 'unrealizedPnl' && (sortDir === 'desc' ? '↓' : '↑')}</th>
-                          <th className="text-right py-3 px-2 font-medium cursor-pointer hover:text-indigo-600" onClick={() => handleSort('pnlPercent')}>涨跌%{sortField === 'pnlPercent' && (sortDir === 'desc' ? '↓' : '↑')}</th>
+                          <th className="text-left py-3 px-2 font-medium">{t('ibkr.col_stock')}</th>
+                          <th className="text-right py-3 px-2 font-medium">{t('ibkr.col_position')}</th>
+                          <th className="text-right py-3 px-2 font-medium">{t('ibkr.col_cost')}</th>
+                          <th className="text-right py-3 px-2 font-medium">{t('ibkr.col_price')}</th>
+                          <th className="text-right py-3 px-2 font-medium cursor-pointer hover:text-indigo-600" onClick={() => handleSort('mktValue')}>{t('ibkr.col_market_value')}{sortField === 'mktValue' && (sortDir === 'desc' ? '↓' : '↑')}</th>
+                          <th className="text-right py-3 px-2 font-medium cursor-pointer hover:text-indigo-600" onClick={() => handleSort('unrealizedPnl')}>{t('ibkr.col_pnl')}{sortField === 'unrealizedPnl' && (sortDir === 'desc' ? '↓' : '↑')}</th>
+                          <th className="text-right py-3 px-2 font-medium cursor-pointer hover:text-indigo-600" onClick={() => handleSort('pnlPercent')}>{t('ibkr.col_change')}{sortField === 'pnlPercent' && (sortDir === 'desc' ? '↓' : '↑')}</th>
                         </tr></thead>
                         <tbody>
                           {sortedPositions.map((pos) => (
@@ -262,6 +264,7 @@ export function IBKRDashboard() {
 
 // ===== TradingView Chart Tab =====
 function ChartTab({ symbol, onSymbolChange }: { symbol: string; onSymbolChange: (s: string) => void }) {
+  const { t } = useTranslation();
   const containerRef = useRef<HTMLDivElement>(null);
   const [inputValue, setInputValue] = useState(symbol);
 
@@ -307,20 +310,21 @@ function ChartTab({ symbol, onSymbolChange }: { symbol: string; onSymbolChange: 
       <form onSubmit={handleSubmit} className="mb-6 flex items-center gap-3">
         <div className="relative flex-1 max-w-md">
           <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-400" />
-          <input type="text" value={inputValue} onChange={(e) => setInputValue(e.target.value)} placeholder="输入股票代码，如 AAPL, MSFT, SSE:600519" className="w-full h-12 pl-11 pr-4 rounded-xl border border-zinc-200 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-indigo-600/10 focus:border-indigo-600/40" />
+          <input type="text" value={inputValue} onChange={(e) => setInputValue(e.target.value)} placeholder={t('ibkr.chart_placeholder')} className="w-full h-12 pl-11 pr-4 rounded-xl border border-zinc-200 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-indigo-600/10 focus:border-indigo-600/40" />
         </div>
-        <button type="submit" className="h-12 px-6 bg-indigo-600 text-white font-medium text-sm rounded-xl hover:bg-indigo-700 transition-colors">查看K线</button>
+        <button type="submit" className="h-12 px-6 bg-indigo-600 text-white font-medium text-sm rounded-xl hover:bg-indigo-700 transition-colors">{t('ibkr.chart_view')}</button>
       </form>
       <div className="border border-zinc-200 rounded-2xl overflow-hidden" style={{ height: 'calc(100vh - 280px)', minHeight: '500px' }}>
         <div ref={containerRef} className="tradingview-widget-container h-full w-full" />
       </div>
-      <p className="mt-3 text-xs text-zinc-400 text-center">K线数据由 TradingView 提供 · 支持全球股票、ETF、期货、加密货币 · 支持技术指标和画线工具</p>
+      <p className="mt-3 text-xs text-zinc-400 text-center">{t('ibkr.chart_powered_by')}</p>
     </div>
   );
 }
 
 // ===== Options Chain Tab =====
 function OptionsTab() {
+  const { t } = useTranslation();
   const [symbol, setSymbol] = useState('');
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [selectedContract, setSelectedContract] = useState<any>(null);
@@ -338,7 +342,7 @@ function OptionsTab() {
     try {
       const results = await fetchSearchContract(symbol.trim().toUpperCase());
       setSearchResults(results);
-      if (results.length === 0) setError('未找到该合约');
+      if (results.length === 0) setError(t('ibkr.options_not_found'));
     } catch (e: any) {
       setError(e.message);
     } finally {
@@ -393,23 +397,23 @@ function OptionsTab() {
       <form onSubmit={handleSearch} className="mb-6 flex items-center gap-3">
         <div className="relative flex-1 max-w-md">
           <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-400" />
-          <input type="text" value={symbol} onChange={(e) => setSymbol(e.target.value)} placeholder="输入股票代码查看期权链，如 AAPL, TSLA" className="w-full h-12 pl-11 pr-4 rounded-xl border border-zinc-200 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-indigo-600/10 focus:border-indigo-600/40" />
+          <input type="text" value={symbol} onChange={(e) => setSymbol(e.target.value)} placeholder={t('ibkr.options_placeholder')} className="w-full h-12 pl-11 pr-4 rounded-xl border border-zinc-200 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-indigo-600/10 focus:border-indigo-600/40" />
         </div>
         <button type="submit" disabled={loading} className="h-12 px-6 bg-indigo-600 text-white font-medium text-sm rounded-xl hover:bg-indigo-700 transition-colors disabled:opacity-50">
-          {loading ? <RefreshCw size={16} className="animate-spin" /> : '搜索'}
+          {loading ? <RefreshCw size={16} className="animate-spin" /> : t('ibkr.options_search')}
         </button>
       </form>
 
       {error && (
         <div className="mb-6 p-4 bg-rose-50 border border-rose-200 rounded-xl text-sm text-rose-700">
           {error}
-          {!selectedContract && <p className="mt-1 text-rose-500 text-xs">需要 IBKR Client Portal Gateway 已连接并登录</p>}
+          {!selectedContract && <p className="mt-1 text-rose-500 text-xs">{t('ibkr.options_need_gateway')}</p>}
         </div>
       )}
 
       {searchResults.length > 0 && (
         <div className="mb-6 p-4 border border-zinc-200 rounded-2xl">
-          <h3 className="text-sm font-bold text-zinc-700 mb-3">搜索结果</h3>
+          <h3 className="text-sm font-bold text-zinc-700 mb-3">{t('ibkr.options_results')}</h3>
           <div className="space-y-2">
             {searchResults.map((r: any, i: number) => (
               <button key={i} onClick={() => handleSelectContract(r)} className="w-full text-left p-3 rounded-xl hover:bg-zinc-50 border border-zinc-100 transition-colors">
@@ -432,7 +436,7 @@ function OptionsTab() {
           </div>
           {selectedContract.sections && (
             <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-xs text-zinc-500">到期月份：</span>
+              <span className="text-xs text-zinc-500">{t('ibkr.options_expiry')}</span>
               {selectedContract.sections
                 .filter((s: any) => s.secType === 'OPT')
                 .flatMap((s: any) => (s.months || '').split(';').filter(Boolean))
@@ -449,46 +453,46 @@ function OptionsTab() {
 
       {strikes && (
         <div className="p-6 bg-white border border-zinc-200 rounded-2xl">
-          <h3 className="text-lg font-bold text-zinc-900 mb-4">期权链 · {selectedContract?.symbol} · {selectedMonth}</h3>
+          <h3 className="text-lg font-bold text-zinc-900 mb-4">{t('ibkr.options_chain')} · {selectedContract?.symbol} · {selectedMonth}</h3>
           {strikes.call && strikes.put ? (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead><tr className="border-b border-zinc-100">
-                  <th className="text-center py-2 px-3 font-medium text-emerald-600" colSpan={2}>看涨 (Call)</th>
-                  <th className="text-center py-2 px-3 font-bold text-zinc-900 bg-zinc-50">行权价</th>
-                  <th className="text-center py-2 px-3 font-medium text-rose-600" colSpan={2}>看跌 (Put)</th>
+                  <th className="text-center py-2 px-3 font-medium text-emerald-600" colSpan={2}>{t('ibkr.options_call')}</th>
+                  <th className="text-center py-2 px-3 font-bold text-zinc-900 bg-zinc-50">{t('ibkr.options_strike')}</th>
+                  <th className="text-center py-2 px-3 font-medium text-rose-600" colSpan={2}>{t('ibkr.options_put')}</th>
                 </tr></thead>
                 <tbody>
                   {(strikes.call || []).map((strike: number) => (
                     <tr key={strike} className="border-b border-zinc-50 hover:bg-zinc-50">
-                      <td className="py-2 px-3 text-center"><button onClick={() => handleLoadChain(strike, 'C')} className="text-xs text-indigo-600 hover:underline">查看</button></td>
+                      <td className="py-2 px-3 text-center"><button onClick={() => handleLoadChain(strike, 'C')} className="text-xs text-indigo-600 hover:underline">{t('ibkr.options_view')}</button></td>
                       <td className="py-2 px-3 text-right text-emerald-600 font-medium">C</td>
                       <td className="py-2 px-3 text-center font-bold text-zinc-900 bg-zinc-50">{strike}</td>
                       <td className="py-2 px-3 text-left text-rose-600 font-medium">P</td>
-                      <td className="py-2 px-3 text-center"><button onClick={() => handleLoadChain(strike, 'P')} className="text-xs text-indigo-600 hover:underline">查看</button></td>
+                      <td className="py-2 px-3 text-center"><button onClick={() => handleLoadChain(strike, 'P')} className="text-xs text-indigo-600 hover:underline">{t('ibkr.options_view')}</button></td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
-          ) : <p className="text-zinc-400 text-center py-8">暂无期权数据。请确保 IBKR Gateway 已连接。</p>}
+          ) : <p className="text-zinc-400 text-center py-8">{t('ibkr.options_no_data')}</p>}
         </div>
       )}
 
       {optionChain.length > 0 && (
         <div className="mt-6 p-6 bg-white border border-zinc-200 rounded-2xl">
-          <h3 className="text-sm font-bold text-zinc-700 mb-3">期权合约详情</h3>
+          <h3 className="text-sm font-bold text-zinc-700 mb-3">{t('ibkr.options_detail')}</h3>
           <div className="overflow-x-auto">
             <table className="w-full text-xs">
               <thead><tr className="border-b border-zinc-100 text-zinc-500">
-                <th className="text-left py-2 px-2">合约</th><th className="text-right py-2 px-2">行权价</th><th className="text-right py-2 px-2">类型</th><th className="text-right py-2 px-2">到期日</th><th className="text-right py-2 px-2">Conid</th>
+                <th className="text-left py-2 px-2">{t('ibkr.options_col_contract')}</th><th className="text-right py-2 px-2">{t('ibkr.options_col_strike')}</th><th className="text-right py-2 px-2">{t('ibkr.options_col_type')}</th><th className="text-right py-2 px-2">{t('ibkr.options_col_expiry')}</th><th className="text-right py-2 px-2">{t('ibkr.options_col_conid')}</th>
               </tr></thead>
               <tbody>
                 {optionChain.map((opt: any, i: number) => (
                   <tr key={i} className="border-b border-zinc-50">
                     <td className="py-2 px-2 font-medium">{opt.symbol || opt.ticker}</td>
                     <td className="text-right py-2 px-2">{opt.strike}</td>
-                    <td className="text-right py-2 px-2">{opt.right === 'C' ? '看涨' : '看跌'}</td>
+                    <td className="text-right py-2 px-2">{opt.right === 'C' ? t('ibkr.options_type_call') : t('ibkr.options_type_put')}</td>
                     <td className="text-right py-2 px-2">{opt.maturityDate || opt.expiry}</td>
                     <td className="text-right py-2 px-2 text-zinc-400">{opt.conid}</td>
                   </tr>
@@ -502,8 +506,8 @@ function OptionsTab() {
       {!selectedContract && !loading && searchResults.length === 0 && (
         <div className="mt-8 p-8 border-2 border-dashed border-zinc-200 rounded-2xl text-center">
           <Link2 size={48} className="mx-auto text-zinc-300 mb-4" />
-          <h3 className="text-lg font-bold text-zinc-700 mb-2">查看期权链</h3>
-          <p className="text-sm text-zinc-500 max-w-md mx-auto">输入股票代码搜索，然后选择到期月份查看完整期权链。需要 IBKR Client Portal Gateway 已连接。</p>
+          <h3 className="text-lg font-bold text-zinc-700 mb-2">{t('ibkr.options_view_chain')}</h3>
+          <p className="text-sm text-zinc-500 max-w-md mx-auto">{t('ibkr.options_search_hint')}</p>
         </div>
       )}
     </div>

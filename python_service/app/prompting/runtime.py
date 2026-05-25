@@ -10,15 +10,18 @@ class PromptRuntimeService:
         template = self.env.get_template(template_name)
         return template.render(**context)
 
-    def get_prompt(self, name: str, version: str = "v1") -> Dict[str, Any]:
+    def get_prompt(self, name: str, version: str = "v1", language: str = "zh-CN") -> Dict[str, Any]:
         """
         Retrieves a prompt template from the filesystem.
-        Prioritizes _zh suffix for compatibility with existing discussion service logic.
+        Respects the language parameter: loads _zh for zh-CN, _en for others.
         """
-        # Try different possible extensions and suffixes
+        lang_suffix = "zh" if language == "zh-CN" else "en"
+        fallback_suffix = "en" if lang_suffix == "zh" else "zh"
+        
+        # Try preferred language first, then fallback
         possible_files = [
-            f"{name}_zh.txt",
-            f"{name}_en.txt",
+            f"{name}_{lang_suffix}.txt",
+            f"{name}_{fallback_suffix}.txt",
             f"{name}.txt",
             f"{name}.jinja2"
         ]

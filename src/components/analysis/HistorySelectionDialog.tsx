@@ -1,6 +1,7 @@
 import React from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Clock, RefreshCw, FileText, X } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 interface HistoryItem {
   job_id: string;
@@ -21,8 +22,8 @@ interface HistorySelectionDialogProps {
   onClose: () => void;
 }
 
-function formatTime(isoStr: string | null): string {
-  if (!isoStr) return '未知时间';
+function formatTime(isoStr: string | null, t: (key: string, opts?: any) => string): string {
+  if (!isoStr) return t('historyDialog.unknown_time');
   const d = new Date(isoStr);
   const now = new Date();
   const diffMs = now.getTime() - d.getTime();
@@ -30,14 +31,15 @@ function formatTime(isoStr: string | null): string {
   const diffHours = Math.floor(diffMins / 60);
   const diffDays = Math.floor(diffHours / 24);
 
-  if (diffMins < 1) return '刚刚';
-  if (diffMins < 60) return `${diffMins} 分钟前`;
-  if (diffHours < 24) return `${diffHours} 小时前`;
-  if (diffDays < 7) return `${diffDays} 天前`;
-  return d.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  if (diffMins < 1) return t('historyDialog.just_now');
+  if (diffMins < 60) return t('historyDialog.minutes_ago', { count: diffMins });
+  if (diffHours < 24) return t('historyDialog.hours_ago', { count: diffHours });
+  if (diffDays < 7) return t('historyDialog.days_ago', { count: diffDays });
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
 export function HistorySelectionDialog({ isOpen, symbol, items, onSelect, onForceNew, onClose }: HistorySelectionDialogProps) {
+  const { t } = useTranslation();
   if (!isOpen) return null;
 
   return (
@@ -63,9 +65,9 @@ export function HistorySelectionDialog({ isOpen, symbol, items, onSelect, onForc
                 <FileText size={18} />
               </div>
               <div>
-                <h3 className="text-sm font-bold text-zinc-900">发现历史分析记录</h3>
+                <h3 className="text-sm font-bold text-zinc-900">{t('historyDialog.title')}</h3>
                 <p className="text-[11px] text-zinc-400 mt-0.5">
-                  <span className="font-mono font-semibold text-indigo-600">{symbol}</span> 有 {items.length} 条历史记录
+                  <span className="font-mono font-semibold text-indigo-600">{symbol}</span> {t('historyDialog.subtitle', { count: items.length })}
                 </p>
               </div>
             </div>
@@ -88,7 +90,7 @@ export function HistorySelectionDialog({ isOpen, symbol, items, onSelect, onForc
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
                     <Clock size={12} className="text-zinc-400 flex-shrink-0" />
-                    <span className="text-xs font-semibold text-zinc-700">{formatTime(item.finished_at)}</span>
+                    <span className="text-xs font-semibold text-zinc-700">{formatTime(item.finished_at, t)}</span>
                   </div>
                   <div className="flex items-center gap-2 mt-0.5">
                     <span className="text-[10px] text-zinc-400">{item.model || 'unknown'}</span>
@@ -97,7 +99,7 @@ export function HistorySelectionDialog({ isOpen, symbol, items, onSelect, onForc
                   </div>
                 </div>
                 <span className="text-[10px] text-indigo-500 font-semibold opacity-0 group-hover:opacity-100 transition-opacity">
-                  查看 →
+                  {t('historyDialog.view')}
                 </span>
               </button>
             ))}
@@ -110,7 +112,7 @@ export function HistorySelectionDialog({ isOpen, symbol, items, onSelect, onForc
               className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-indigo-600 text-white text-xs font-semibold hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-600/20"
             >
               <RefreshCw size={14} />
-              强制重新分析
+              {t('historyDialog.force_reanalyze')}
             </button>
           </div>
         </motion.div>

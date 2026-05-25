@@ -63,11 +63,15 @@ class AnalysisJobService:
             def report_discussion_progress(round, total, msg, count=None, error_type=None):
                 self.update_job_progress(job_id, "discussion", 50 + int((round/total) * 40), round=round, total_rounds=total, message=msg, count=count, error_type=error_type)
 
+            # Determine language: explicit config > market-based auto-detection
+            language = (config or {}).get("language") or ("en" if market == "us" else "zh-CN")
+
             discussion_messages = await discussion_service.run_discussion(
                 symbol, 
                 snapshot.get("name", symbol), 
                 snapshot, 
                 level=level,
+                language=language,
                 model=requested_model,
                 on_progress=report_discussion_progress,
                 job_id=job_id,

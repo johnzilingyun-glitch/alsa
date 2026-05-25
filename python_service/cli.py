@@ -87,12 +87,13 @@ def set(key, value):
 @click.option("--output", "-o", default=None, help="Custom path for HTML report.")
 @click.option("--model", "-model", default=None, help="Gemini model version (e.g. 1.5-pro, 2.0-flash).")
 @click.option("--guard", "-g", default="high", type=click.Choice(["none", "low", "medium", "high"]), help="Token guard level (none/low/medium/high).")
-def analyze(query, market, level, output, model, guard):
+@click.option("--lang", default=None, type=click.Choice(["zh", "en"]), help="Report language (auto-detected from market if omitted).")
+def analyze(query, market, level, output, model, guard, lang):
     """Analyze a stock and generate an HTML report."""
     click.echo(f"Starting analysis for: {query} (Level: {level}, Guard: {guard})")
     
     # Run async logic
-    asyncio.run(run_analysis_flow(query, market, level, output, model, guard))
+    asyncio.run(run_analysis_flow(query, market, level, output, model, guard, lang))
 
 
 @cli.command("sector")
@@ -110,7 +111,7 @@ def sector_analyze(sector_name, output, model):
         click.echo("No sector specified. Running market scan to recommend sectors...")
         asyncio.run(run_market_scan_then_sector(output, model))
 
-async def run_analysis_flow(query, market, level, output_path, model, guard="high"):
+async def run_analysis_flow(query, market, level, output_path, model, guard="high", lang=None):
     # 0. Set token guard level
     from python_service.app.services.token_guard import token_guard
     token_guard.set_level(guard)
@@ -157,7 +158,8 @@ async def run_analysis_flow(query, market, level, output_path, model, guard="hig
     
     # 3. Start Job
     click.echo("\nFetching data and running expert discussion...")
-    job_id = await service.start_job(symbol, resolved_market, level=level, model=final_model)
+    cli_config = {"language": f"{'zh-CN' if lang == 'zh' else 'en'}"} if lang else None
+    job_id = await service.start_job(symbol, resolved_market, level=level, model=final_model, config=cli_config)
     click.echo(f"Job ID: {job_id}")
     
     # 4. Wait for completion (polling)

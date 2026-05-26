@@ -1,6 +1,7 @@
 import os
 import asyncio
-from fastapi import FastAPI
+import time
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from .app.api.router import api_router
 from .app.db.sqlite import init_db, build_session_factory, DATABASE_URL
@@ -13,6 +14,13 @@ from .app.db.repositories.job_repo import JobRepository
 from .app.services.market_snapshot_service import MarketSnapshotService
 from .app.lake.parquet_store import ParquetMarketStore
 
+# Institutional modules
+from .app.risk.kill_switch import KillSwitch
+from .app.risk.pre_trade import PreTradeRiskGateway
+from .app.observability.metrics import MetricsCollector
+from .app.observability.audit import AuditLogger, AuditAction
+from .app.prompting.version_registry import PromptVersionRegistry
+
 app = FastAPI(title="ALSA Institutional Backend", version="1.0.0")
 
 # Enable CORS
@@ -24,6 +32,19 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.middleware("http")
+async def record_api_metrics(request: Request, call_next):
+    """Record API latency and status for observability."""
+    start = time.perf_counter()
+    response = await call_next(request)
+    latency_ms = (time.perf_counter() - start) * 1000
+    metrics_collector.record("api_latency_ms", latency_ms, tags={
+        "endpoint": request.url.path,
+        "method": request.method,
+        "status": str(response.status_code),
+    })
+    return response
+
 # Initialize Singletons
 session_factory = build_session_factory(DATABASE_URL)
 parquet_store = ParquetMarketStore()
@@ -33,6 +54,13 @@ alert_repo = AlertRepository(session_factory)
 journal_repo = JournalRepository(session_factory)
 market_snapshot_service = MarketSnapshotService(parquet_store)
 analysis_job_service = AnalysisJobService(job_repo, market_snapshot_service)
+
+# Institutional singletons
+kill_switch = KillSwitch()
+risk_gateway = PreTradeRiskGateway()
+metrics_collector = MetricsCollector()
+audit_logger = AuditLogger()
+prompt_registry = PromptVersionRegistry()
 
 # Dependency helpers
 def get_analysis_job_service():
@@ -46,6 +74,21 @@ def get_alert_repo():
 
 def get_journal_repo():
     return journal_repo
+
+def get_kill_switch():
+    return kill_switch
+
+def get_risk_gateway():
+    return risk_gateway
+
+def get_metrics_collector():
+    return metrics_collector
+
+def get_audit_logger():
+    return audit_logger
+
+def get_prompt_registry():
+    return prompt_registry
 
 @app.on_event("startup")
 async def startup_event():

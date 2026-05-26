@@ -29,3 +29,41 @@ def test_lancedb_returns_best_match(tmp_path):
     assert len(results) >= 1
     assert results[0]["doc_id"] == "r1"
     assert "Direct sales" in results[0]["text"]
+
+
+def test_lancedb_search_filters_documents_by_as_of_date(tmp_path):
+    db_root = tmp_path / "lancedb"
+    store = LanceResearchStore(str(db_root))
+
+    store.upsert_documents([
+        {
+            "doc_id": "past_doc",
+            "symbol": "MSFT",
+            "text": "Past visible filing",
+            "vector": [1.0] * 384,
+            "source_type": "filing",
+            "published_at": "2026-01-01T00:00:00Z",
+            "observed_at": "2026-01-01T00:01:00Z",
+            "ingested_at": "2026-01-01T00:02:00Z",
+            "effective_from": "2026-01-01T00:02:00Z",
+            "effective_to": None,
+            "credibility_score": 0.95,
+        },
+        {
+            "doc_id": "future_doc",
+            "symbol": "MSFT",
+            "text": "Future earnings surprise",
+            "vector": [1.0] * 384,
+            "source_type": "news",
+            "published_at": "2026-02-01T00:00:00Z",
+            "observed_at": "2026-02-01T00:01:00Z",
+            "ingested_at": "2026-02-01T00:02:00Z",
+            "effective_from": "2026-02-01T00:02:00Z",
+            "effective_to": None,
+            "credibility_score": 0.90,
+        },
+    ])
+
+    results = store.search("MSFT", [1.0] * 384, as_of_date="2026-01-15T00:00:00Z", limit=10)
+
+    assert [row["doc_id"] for row in results] == ["past_doc"]

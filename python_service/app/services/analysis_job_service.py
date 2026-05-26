@@ -4,6 +4,7 @@ import uuid
 from datetime import datetime, date
 from typing import Optional, Dict, Any, List
 from ..db.repositories.job_repo import JobRepository
+from ..decision.trading_fields_validator import TradingFieldsValidator
 from .market_snapshot_service import MarketSnapshotService
 from ..quant.polars_indicators import compute_indicator_frame
 
@@ -81,10 +82,14 @@ class AnalysisJobService:
             self.update_job_progress(job_id, "finalizing", 90)
             # 4. Final Payload — enrich stockInfo with quote data for Flash UI
             quote = snapshot.get("quote", {})
+            snapshot_id = snapshot.get("snapshot_id")
             from datetime import datetime as _dt
             result = {
                 "symbol": symbol,
                 "market": market,
+                "snapshot_id": snapshot_id,
+                "as_of_date": snapshot.get("as_of_date"),
+                "data_quality": snapshot.get("data_quality"),
                 "stockInfo": {
                     "symbol": symbol,
                     "market": market,
@@ -113,6 +118,20 @@ class AnalysisJobService:
             structured = self._extract_structured_fields(discussion_messages)
             result.update(structured)
             
+            # Validate trading fields — reject garbage regex output, enforce numeric sanity
+            validation = TradingFieldsValidator.validate(structured)
+            result["_validation"] = {
+                "is_valid": validation.is_valid,
+                "signal_eligible": validation.signal_eligible,
+                "errors": validation.errors,
+            }
+            if not validation.is_valid and structured.get("tradingPlan"):
+                # Mark trading plan as unvalidated so downstream never treats it as a signal
+                structured["tradingPlan"]["_validated"] = False
+                structured["tradingPlan"]["_validation_errors"] = validation.errors
+            elif validation.signal_eligible:
+                structured["tradingPlan"]["_validated"] = True
+            
             # 5. Create Analysis Run and Update Job
             with self.job_repo.session_factory() as session:
                 # Derive verdict from structured extraction
@@ -129,6 +148,7 @@ class AnalysisJobService:
                     job_id=job_id,
                     symbol=symbol,
                     market=market,
+                    snapshot_id=snapshot_id,
                     summary_verdict=verdict,
                     score=run_score,
                     risk_level="medium"
@@ -142,6 +162,7 @@ class AnalysisJobService:
                 if db_job:
                     db_job.status = "completed"
                     db_job.analysis_id = analysis_run.analysis_id
+                    db_job.snapshot_id = snapshot_id
                     
                     def json_serial(obj):
                         if isinstance(obj, (datetime, date)):
@@ -188,10 +209,14 @@ class AnalysisJobService:
         self.update_job_progress(job_id, "finalizing", 90, message="正在保存已获取的部分内容...")
         
         quote = snapshot.get("quote", {})
+        snapshot_id = snapshot.get("snapshot_id")
         from datetime import datetime as _dt
         result = {
             "symbol": symbol,
             "market": market,
+            "snapshot_id": snapshot_id,
+            "as_of_date": snapshot.get("as_of_date"),
+            "data_quality": snapshot.get("data_quality"),
             "stockInfo": {
                 "symbol": symbol,
                 "market": market,
@@ -221,6 +246,7 @@ class AnalysisJobService:
                 job_id=job_id,
                 symbol=symbol,
                 market=market,
+                snapshot_id=snapshot_id,
                 summary_verdict=verdict,
                 score=50.0,  # Lower score for partial
                 risk_level="medium"
@@ -233,6 +259,7 @@ class AnalysisJobService:
             if db_job:
                 db_job.status = "completed"
                 db_job.analysis_id = analysis_run.analysis_id
+                db_job.snapshot_id = snapshot_id
                 
                 def json_serial(obj):
                     if isinstance(obj, (datetime, date)):

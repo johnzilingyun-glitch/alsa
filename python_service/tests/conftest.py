@@ -12,6 +12,7 @@ os.environ["SQLITE_PATH"] = test_db_path
 
 import pytest
 from sqlmodel import SQLModel
+from sqlalchemy import text
 from python_service.app.db.sqlite import engine
 
 @pytest.fixture(scope="session", autouse=True)
@@ -41,8 +42,8 @@ def clean_database():
     from sqlmodel import Session
     with Session(engine) as session:
         # Disable foreign key checks for SQLite truncation
-        session.execute("PRAGMA foreign_keys = OFF;")
+        session.execute(text("PRAGMA foreign_keys = OFF;"))
         for table in reversed(SQLModel.metadata.sorted_tables):
-            session.execute(f"DELETE FROM {table.name};")
-        session.execute("PRAGMA foreign_keys = ON;")
+            session.execute(text(f"DELETE FROM {table.name};"))
+        session.execute(text("PRAGMA foreign_keys = ON;"))
         session.commit()

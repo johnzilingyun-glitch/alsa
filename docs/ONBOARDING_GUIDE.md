@@ -259,3 +259,80 @@ python python_service/cli.py analyze "TSLA" -l deep -o ./tesla_report.html
 1. **首轮硬事实注入**：在 AI 辩论的第一轮，`Deep Research Specialist` 会直接拉取 API 提供的确定性财报数据，将其作为系统提示词（System Prompt）牢牢锁死在上下文的最上方。
 2. **三轮硬伤审计（CAO 审计官）**：第三轮的 `Chief Audit Officer`（首席审计官）是专门被赋予“挑刺”任务的 AI。它不负责给出股票评级，只负责逐字检查前面几位专家说的数据是否跟第一轮 API 抓取的数据一致。一旦发现不一致，立即在上下文中打回修正。
 3. **优先级排序机制 (Priority)**：系统在 Prompt 中强制注入约定——“API 提供的实时快照是最高真理，网络搜索数据是二级参考，你的历史记忆排在最末位。三者冲突时，必须采信 API 快照”。
+---
+
+## 8. 机构级风控与运维模块 (Institutional Modules)
+
+> 2025 年新增。这些模块为 ALSA 补齐了从「研究工具」到「准生产交易辅助系统」的关键基础设施。
+
+### 8.1 模块总览
+
+```text
+python_service/app/
+├── risk/                  # 风险控制
+│   ├── pre_trade.py       # 盘前风控网关（单票集中度 / 日内新增暴露 / 仓位上限）
+│   └── kill_switch.py     # 紧急熔断开关（8 种触发器 + 分级降级）
+├── decision/              # 决策治理
+│   ├── court.py           # 证据法庭 — 多 Agent 证据仲裁
+│   ├── trading_fields_validator.py  # 交易字段正则校验（价格 / 仓位 / 评分）
+│   └── schemas.py         # AgentDecisionOutput / AgentClaim / ConflictLevel
+├── backtest/              # 事件驱动回测
+│   ├── engine.py          # 回测引擎（组合账本 / 逐日盯市 / 绩效指标）
+│   ├── costs.py           # A 股成本模型（佣金 / 印花税 / 滑点）
+│   └── simulator.py       # 成交模拟器（涨跌停拒绝 / 停牌处理）
+├── observability/         # 可观测性
+│   ├── metrics.py         # 内存指标收集器（带标签 / 统计 / 速率）
+│   └── audit.py           # 审计日志（10 类动作 / 自动轮转）
+├── prompting/
+│   └── version_registry.py # PromptOps 版本治理（金丝雀 / 灰度 / 废弃生命周期）
+├── evaluation/
+│   └── model_eval.py      # 模型评估框架（golden / regression / adversarial 套件）
+└── reconciliation/
+    └── engine.py          # 每日对账引擎（持仓匹配 + 现金容差）
+```
+
+### 8.2 API 端点 (路由前缀 `/api/institutional/`)
+
+| 方法 | 路径 | 用途 |
+|:---|:---|:---|
+| GET | `/kill-switch` | 查看熔断开关状态 |
+| POST | `/kill-switch/trigger` | 手动触发熔断（body: `{trigger, reason}`) |
+| POST | `/kill-switch/reset` | 重置熔断（需 `approval_id`） |
+| POST | `/risk/pre-trade-check` | 提交盘前风控校验请求 |
+| GET | `/metrics/summary` | 获取系统指标摘要（延迟 / 计数 / 速率） |
+| GET | `/audit/recent?limit=50` | 获取最近审计日志 |
+
+### 8.3 HTTP 中间件
+
+所有 API 请求自动被 `record_api_metrics` 中间件拦截，记录：
+- 请求耗时 (ms)
+- 请求方法 / 路径 / 状态码
+
+数据流向 `MetricsCollector` 单例，可通过 `/api/institutional/metrics/summary` 查询。
+
+### 8.4 集成点
+
+| 模块 | 接入位置 | 说明 |
+|:---|:---|:---|
+| `TradingFieldsValidator` | `analysis_job_service.py` | 分析任务完成后自动校验交易计划字段 |
+| `MetricsCollector` | `main.py` 中间件 | 全局 API 延迟采集 |
+| `KillSwitch` | `main.py` 单例 + API | 供前端/运维触发紧急熔断 |
+| `PreTradeRiskGateway` | `main.py` 单例 + API | 交易前风控校验 |
+| `AuditLogger` | `main.py` 单例 + API | 操作审计日志 |
+| `PromptVersionRegistry` | `main.py` 单例 | Prompt 版本治理 |
+
+### 8.5 测试覆盖
+
+共 84 个单元测试，覆盖所有新增模块：
+```bash
+cd /home/zily/alsa
+rm -f python_service/data/test_app.db
+.venv/bin/python -m pytest python_service/tests/test_pre_trade_risk.py \
+  python_service/tests/test_kill_switch.py \
+  python_service/tests/test_prompt_ops.py \
+  python_service/tests/test_decision_court.py \
+  python_service/tests/test_backtest_engine.py \
+  python_service/tests/test_observability.py \
+  python_service/tests/test_reconciliation.py \
+  python_service/tests/test_model_eval.py -q
+```

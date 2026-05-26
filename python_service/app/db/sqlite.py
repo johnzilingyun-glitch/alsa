@@ -1,6 +1,9 @@
 import os
 from sqlmodel import SQLModel, create_engine, Session
 
+# Import table models once so SQLModel.metadata is populated for every init path.
+from . import models as _models  # noqa: F401
+
 # Unified Institutional Database Path
 current_dir = os.path.dirname(os.path.abspath(__file__))
 # Navigate up to the project root (python_service/app/db -> python_service/app -> python_service -> root)

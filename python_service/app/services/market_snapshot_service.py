@@ -3,6 +3,8 @@ from typing import List, Dict, Any
 import asyncio
 import os
 import pandas as pd
+import uuid
+from datetime import datetime, timezone
 
 # Only import akshare if enabled (geo-blocked from non-China servers)
 AKSHARE_ENABLED = os.getenv("AKSHARE_ENABLED", "false").lower() == "true"
@@ -103,7 +105,19 @@ class MarketSnapshotService:
                 return {}
 
             rows = df.tail(120).to_dict(orient="records")
-            self.store.write_ohlc("ohlc", market, symbol, rows)
+            data_cutoff = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+            vendor = "akshare" if market == "A-Share" and AKSHARE_ENABLED else "yfinance"
+            ohlc_observation = self.store.write_ohlc(
+                "ohlc",
+                market,
+                symbol,
+                rows,
+                vendor=vendor,
+                observed_at=data_cutoff,
+                ingested_at=data_cutoff,
+                published_at=data_cutoff,
+                effective_from=data_cutoff,
+            )
 
             # A+H cross-listing check (depends on quote name, so runs after)
             cross_listing = None
@@ -114,6 +128,9 @@ class MarketSnapshotService:
             print(f"Snapshot created for {symbol} in {elapsed:.1f}s")
 
             return {
+                "snapshot_id": f"snap_{uuid.uuid4().hex[:12]}",
+                "as_of_date": data_cutoff,
+                "data_cutoff": data_cutoff,
                 "name": quote.get("name", symbol),
                 "price": quote.get("price"),
                 "changePercent": quote.get("changePercent"),
@@ -123,6 +140,8 @@ class MarketSnapshotService:
                 "financials": financials,
                 "quote": quote,
                 "crossListing": cross_listing,
+                "source_observations": [ohlc_observation] if ohlc_observation else [],
+                "data_quality": self._score_snapshot_quality(rows, quote, financials),
             }
         except Exception as e:
             print(f"Snapshot creation failed for {symbol}: {e}")
@@ -158,6 +177,33 @@ class MarketSnapshotService:
         except Exception as e:
             print(f"A+H cross-listing check failed for {symbol}: {e}")
             return None
+
+    @staticmethod
+    def _score_snapshot_quality(rows: List[Dict[str, Any]], quote: Dict[str, Any], financials: Dict[str, Any]) -> Dict[str, Any]:
+        score = 0.55
+        warnings = []
+        if len(rows) >= 60:
+            score += 0.20
+        else:
+            warnings.append({"code": "SHORT_HISTORY", "severity": "medium", "message": "Less than 60 OHLC rows available."})
+        if quote.get("price") is not None:
+            score += 0.15
+        else:
+            warnings.append({"code": "MISSING_PRICE", "severity": "high", "message": "Latest quote price is missing."})
+        if financials:
+            score += 0.10
+        else:
+            warnings.append({"code": "MISSING_FINANCIALS", "severity": "low", "message": "Financial summary is missing."})
+        return {
+            "score": round(min(score, 1.0), 2),
+            "blocking_errors": [],
+            "warnings": warnings,
+            "field_coverage": {
+                "ohlc": 1.0 if rows else 0.0,
+                "quote": 1.0 if quote.get("price") is not None else 0.0,
+                "financials": 1.0 if financials else 0.0,
+            },
+        }
 
 # Singleton instance
 from ..lake.parquet_store import ParquetMarketStore

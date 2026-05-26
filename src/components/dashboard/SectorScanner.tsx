@@ -5,6 +5,7 @@ import {
   CheckCircle2, AlertTriangle, TrendingUp, ExternalLink
 } from 'lucide-react';
 import { saveAnalysisToHistory } from '../../services/aiService';
+import { useConfigStore } from '../../stores/useConfigStore';
 
 interface SectorInfo {
   name: string;
@@ -14,6 +15,8 @@ interface SectorInfo {
 type Phase = 'idle' | 'scanning' | 'select' | 'analyzing' | 'report';
 
 export function SectorScanner() {
+  const { config } = useConfigStore();
+  const model = config?.model || null;
   const [phase, setPhase] = useState<Phase>('idle');
   const [scanJobId, setScanJobId] = useState<string | null>(null);
   const [scanResult, setScanResult] = useState<string>('');
@@ -30,6 +33,16 @@ export function SectorScanner() {
 
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // New Date, Force Rescan & Calendar states
+  const [selectedDate, setSelectedDate] = useState<string>(() => {
+    return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Shanghai' });
+  });
+  const [forceRescan, setForceRescan] = useState<boolean>(false);
+  const [hasHistoryPrompt, setHasHistoryPrompt] = useState<boolean>(false);
+  const [historyDates, setHistoryDates] = useState<string[]>([]);
+  const [calendarYear, setCalendarYear] = useState<number>(new Date().getFullYear());
+  const [calendarMonth, setCalendarMonth] = useState<number>(new Date().getMonth());
+
   // Cleanup polls on unmount
   useEffect(() => {
     return () => {
@@ -37,8 +50,118 @@ export function SectorScanner() {
     };
   }, []);
 
+  const fetchHistoryDates = useCallback(async () => {
+    try {
+      const res = await fetch('/api/sector/history/dates');
+      const data = await res.json();
+      if (data.success && data.data?.dates) {
+        setHistoryDates(data.data.dates);
+      }
+    } catch (e) {
+      console.error('Failed to fetch history dates', e);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchHistoryDates();
+  }, [fetchHistoryDates]);
+
+  useEffect(() => {
+    if (historyDates.includes(selectedDate)) {
+      setHasHistoryPrompt(true);
+    } else {
+      setHasHistoryPrompt(false);
+    }
+  }, [selectedDate, historyDates]);
+
+  const loadHistoryScan = useCallback(async (dateStr: string) => {
+    setPhase('scanning');
+    setScanProgress('正在载入历史扫描数据...');
+    setScanError(null);
+    setScanResult('');
+    setSectors([]);
+    try {
+      const res = await fetch(`/api/sector/history?date=${dateStr}&type=scan`);
+      const data = await res.json();
+      if (data.success && data.data?.result) {
+        const payload = data.data.result;
+        setScanResult(payload.result || '');
+        setSectors((payload.sectors || []).map((s: string) => ({ name: s, selected: false })));
+        setScanJobId(data.data.job_id);
+        setPhase('select');
+        setHasHistoryPrompt(false);
+      } else {
+        throw new Error('加载历史扫描数据失败');
+      }
+    } catch (err: any) {
+      setScanError(err.message);
+      setPhase('idle');
+    }
+  }, []);
+
+  const loadAnalysisReport = useCallback(async (jobId: string, sectorName: string) => {
+    let fetchedHtml = '';
+    try {
+      const reportRes = await fetch(`/api/sector/report/${jobId}`);
+      if (reportRes.ok) {
+        fetchedHtml = await reportRes.text();
+        setReportHtml(fetchedHtml);
+      }
+    } catch (e) {
+      console.error('Failed to load report html', e);
+    }
+    void saveAnalysisToHistory('sector', {
+      sectorName: sectorName,
+      jobId: jobId,
+      reportHtml: fetchedHtml ? true : false,
+      stockInfo: {
+        symbol: sectorName,
+        name: `${sectorName}板块分析`,
+        market: 'sector',
+        lastUpdated: new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' }),
+      },
+    });
+    setPhase('report');
+  }, []);
+
+  const prevMonth = useCallback(() => {
+    setCalendarMonth(m => {
+      if (m === 0) {
+        setCalendarYear(y => y - 1);
+        return 11;
+      }
+      return m - 1;
+    });
+  }, []);
+
+  const nextMonth = useCallback(() => {
+    setCalendarMonth(m => {
+      if (m === 11) {
+        setCalendarYear(y => y + 1);
+        return 0;
+      }
+      return m + 1;
+    });
+  }, []);
+
+  const getCalendarDays = useCallback(() => {
+    const daysInMonth = new Date(calendarYear, calendarMonth + 1, 0).getDate();
+    const firstDayIndex = new Date(calendarYear, calendarMonth, 1).getDay();
+    const days = [];
+    for (let i = 0; i < firstDayIndex; i++) {
+      days.push(null);
+    }
+    for (let d = 1; d <= daysInMonth; d++) {
+      days.push(d);
+    }
+    return days;
+  }, [calendarYear, calendarMonth]);
+
   // ---------- Scan ----------
-  const startScan = useCallback(async () => {
+  const startScan = useCallback(async (overrideForce?: boolean) => {
+    if (pollRef.current) clearInterval(pollRef.current);
+    const isForce = overrideForce !== undefined ? overrideForce : forceRescan;
+    
     setPhase('scanning');
     setScanError(null);
     setScanResult('');
@@ -49,7 +172,7 @@ export function SectorScanner() {
       const res = await fetch('/api/sector/scan', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
+        body: JSON.stringify({ model, date: selectedDate, force: isForce }),
       });
       const data = await res.json();
       if (!data.success) throw new Error(data.error?.message || '启动扫描失败');
@@ -57,12 +180,28 @@ export function SectorScanner() {
       const jobId = data.data.job_id;
       setScanJobId(jobId);
 
+      if (data.data.status === 'completed') {
+        const payload = data.data.result;
+        setScanResult(payload.result || '');
+        setSectors((payload.sectors || []).map((s: string) => ({ name: s, selected: false })));
+        setPhase('select');
+        setHasHistoryPrompt(false);
+        fetchHistoryDates();
+        return;
+      }
+
       // Start polling
       pollRef.current = setInterval(async () => {
         try {
           const pollRes = await fetch(`/api/sector/scan/${jobId}`);
           const pollData = await pollRes.json();
-          if (!pollData.success) return;
+          if (!pollData.success) {
+            // Stop polling if the job is not found or other errors
+            if (pollRef.current) clearInterval(pollRef.current);
+            setScanError(pollData.error?.message || '扫描任务不存在或已失效');
+            setPhase('idle');
+            return;
+          }
 
           const job = pollData.data;
           setScanProgress(job.progress || '扫描中...');
@@ -72,23 +211,28 @@ export function SectorScanner() {
             setScanResult(job.result || '');
             setSectors((job.sectors || []).map((s: string) => ({ name: s, selected: false })));
             setPhase('select');
+            setHasHistoryPrompt(false);
+            fetchHistoryDates();
           } else if (job.status === 'failed') {
             if (pollRef.current) clearInterval(pollRef.current);
             setScanError(job.error || '扫描失败');
             setPhase('idle');
           }
         } catch {
-          // ignore poll errors
+          // ignore poll network errors, keep trying
         }
       }, 3000);
     } catch (err: any) {
       setScanError(err.message);
       setPhase('idle');
     }
-  }, []);
+  }, [model, selectedDate, forceRescan, fetchHistoryDates]);
 
   // ---------- Analyze ----------
-  const startAnalysis = useCallback(async (sectorName: string) => {
+  const startAnalysis = useCallback(async (sectorName: string, overrideForce?: boolean) => {
+    if (pollRef.current) clearInterval(pollRef.current);
+    const isForce = overrideForce !== undefined ? overrideForce : forceRescan;
+
     setSelectedSector(sectorName);
     setPhase('analyzing');
     setAnalyzeError(null);
@@ -99,7 +243,7 @@ export function SectorScanner() {
       const res = await fetch('/api/sector/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sector_name: sectorName }),
+        body: JSON.stringify({ sector_name: sectorName, model, date: selectedDate, force: isForce }),
       });
       const data = await res.json();
       if (!data.success) throw new Error(data.error?.message || '启动分析失败');
@@ -107,56 +251,45 @@ export function SectorScanner() {
       const jobId = data.data.job_id;
       setAnalyzeJobId(jobId);
 
+      if (data.data.status === 'completed') {
+        await loadAnalysisReport(jobId, sectorName);
+        fetchHistoryDates();
+        return;
+      }
+
       // Poll for analysis completion
       pollRef.current = setInterval(async () => {
         try {
           const pollRes = await fetch(`/api/sector/analyze/${jobId}`);
           const pollData = await pollRes.json();
-          if (!pollData.success) return;
+          if (!pollData.success) {
+            if (pollRef.current) clearInterval(pollRef.current);
+            setAnalyzeError(pollData.error?.message || '分析任务不存在或已失效');
+            setPhase('select');
+            return;
+          }
 
           const job = pollData.data;
           setAnalyzeProgress(job.progress);
 
           if (job.status === 'completed') {
             if (pollRef.current) clearInterval(pollRef.current);
-            // Fetch HTML report
-            let fetchedHtml = '';
-            try {
-              const reportRes = await fetch(`/api/sector/report/${jobId}`);
-              if (reportRes.ok) {
-                fetchedHtml = await reportRes.text();
-                setReportHtml(fetchedHtml);
-              }
-            } catch {
-              // report generation optional
-            }
-            // Save to history
-            void saveAnalysisToHistory('sector', {
-              sectorName: sectorName,
-              jobId: jobId,
-              reportHtml: fetchedHtml ? true : false,
-              stockInfo: {
-                symbol: sectorName,
-                name: `${sectorName}板块分析`,
-                market: 'sector',
-                lastUpdated: new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' }),
-              },
-            });
-            setPhase('report');
+            await loadAnalysisReport(jobId, sectorName);
+            fetchHistoryDates();
           } else if (job.status === 'failed') {
             if (pollRef.current) clearInterval(pollRef.current);
             setAnalyzeError(job.error || '分析失败');
             setPhase('select');
           }
         } catch {
-          // ignore poll errors
+          // ignore poll network errors
         }
       }, 3000);
     } catch (err: any) {
       setAnalyzeError(err.message);
       setPhase('select');
     }
-  }, []);
+  }, [model, selectedDate, forceRescan, loadAnalysisReport, fetchHistoryDates]);
 
   const reset = useCallback(() => {
     if (pollRef.current) clearInterval(pollRef.current);
@@ -199,7 +332,9 @@ export function SectorScanner() {
         )}
       </div>
 
-      <AnimatePresence mode="wait">
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 items-start">
+        <div className="lg:col-span-3 space-y-4">
+          <AnimatePresence mode="wait">
         {/* IDLE — Start button */}
         {phase === 'idle' && (
           <motion.div
@@ -217,13 +352,73 @@ export function SectorScanner() {
                 使用实时数据搜索 + 多专家分析，推荐5-8个热门板块并提供深度分析
               </p>
             </div>
-            <button
-              onClick={startScan}
-              className="flex items-center gap-2 px-6 py-3 bg-indigo-600 text-white rounded-xl font-medium text-sm hover:bg-indigo-700 transition-colors shadow-sm"
-            >
-              <Search size={16} />
-              开始板块扫描
-            </button>
+
+            {/* Controls */}
+            <div className="flex flex-wrap items-center justify-center gap-4 mt-2">
+              {/* Date Selector */}
+              <div className="flex items-center gap-2 p-2 bg-white rounded-xl border border-zinc-200/60 shadow-sm">
+                <span className="text-xs font-medium text-zinc-500">选择日期</span>
+                <input
+                  type="date"
+                  value={selectedDate}
+                  onChange={(e) => setSelectedDate(e.target.value)}
+                  className="text-xs font-semibold text-zinc-700 bg-transparent border-0 outline-none focus:ring-0 cursor-pointer"
+                />
+              </div>
+
+              {/* Force Rescan Switch */}
+              <label className="flex items-center gap-2 p-2 bg-white rounded-xl border border-zinc-200/60 shadow-sm cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={forceRescan}
+                  onChange={(e) => setForceRescan(e.target.checked)}
+                  className="rounded text-indigo-600 focus:ring-indigo-500 border-zinc-300 w-4 h-4"
+                />
+                <span className="text-xs font-medium text-zinc-600">强制重新扫描</span>
+              </label>
+            </div>
+
+            {/* History Prompt Alert */}
+            {hasHistoryPrompt && (
+              <motion.div
+                initial={{ opacity: 0, y: -10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="w-full max-w-md p-4 bg-indigo-50 border border-indigo-100 rounded-2xl flex flex-col gap-3 shadow-sm text-center"
+              >
+                <p className="text-xs font-medium text-indigo-700 leading-relaxed">
+                  💡 系统检测到该日期 <strong>({selectedDate})</strong> 已有保存的历史扫描数据。
+                  您可以直接载入该日期的数据，也可以强制重新发起大模型扫描。
+                </p>
+                <div className="flex items-center justify-center gap-3">
+                  <button
+                    onClick={() => loadHistoryScan(selectedDate)}
+                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-semibold text-xs transition-colors shadow-sm"
+                  >
+                    直接载入历史数据
+                  </button>
+                  <button
+                    onClick={() => {
+                      setForceRescan(true);
+                      startScan(true);
+                    }}
+                    className="px-4 py-2 bg-white hover:bg-zinc-100 text-zinc-600 border border-zinc-200 rounded-xl font-semibold text-xs transition-colors"
+                  >
+                    重新扫描
+                  </button>
+                </div>
+              </motion.div>
+            )}
+
+            {!hasHistoryPrompt && (
+              <button
+                onClick={() => startScan()}
+                className="flex items-center gap-2 px-6 py-3 bg-indigo-600 text-white rounded-xl font-medium text-sm hover:bg-indigo-700 transition-colors shadow-sm mt-2"
+              >
+                <Search size={16} />
+                开始板块扫描
+              </button>
+            )}
+
             {scanError && (
               <p className="text-rose-500 text-xs flex items-center gap-1">
                 <AlertTriangle size={12} /> {scanError}
@@ -417,6 +612,86 @@ export function SectorScanner() {
           </motion.div>
         )}
       </AnimatePresence>
+        </div>
+
+        {/* Sidebar Calendar Panel */}
+        {(phase === 'idle' || phase === 'select') && (
+          <motion.div
+            initial={{ opacity: 0, x: 20 }}
+            animate={{ opacity: 1, x: 0 }}
+            className="bg-white/80 backdrop-blur-md rounded-2xl border border-zinc-200/60 p-4 shadow-sm space-y-4"
+          >
+            <div className="flex items-center justify-between border-b border-zinc-100 pb-2">
+              <span className="text-xs font-bold text-zinc-500 flex items-center gap-1">
+                <TrendingUp size={14} className="text-indigo-500" />
+                历史扫描日历
+              </span>
+              <div className="flex items-center gap-1.5">
+                <button
+                  onClick={prevMonth}
+                  className="p-1 hover:bg-zinc-100 rounded text-zinc-400 hover:text-zinc-700 transition-colors text-xs font-bold"
+                >
+                  &lt;
+                </button>
+                <span className="text-xs font-bold text-zinc-700 min-w-16 text-center">
+                  {calendarYear}年{calendarMonth + 1}月
+                </span>
+                <button
+                  onClick={nextMonth}
+                  className="p-1 hover:bg-zinc-100 rounded text-zinc-400 hover:text-zinc-700 transition-colors text-xs font-bold"
+                >
+                  &gt;
+                </button>
+              </div>
+            </div>
+
+            {/* Calendar Days grid */}
+            <div className="grid grid-cols-7 gap-1 text-center text-xs">
+              {['日', '一', '二', '三', '四', '五', '六'].map(w => (
+                <div key={w} className="font-semibold text-zinc-400 py-1 text-[10px]">{w}</div>
+              ))}
+              {getCalendarDays().map((day, idx) => {
+                if (day === null) return <div key={`empty-${idx}`} className="p-2" />;
+
+                const dateStr = `${calendarYear}-${String(calendarMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+                const hasData = historyDates.includes(dateStr);
+                const isSelected = selectedDate === dateStr;
+                const isToday = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Shanghai' }) === dateStr;
+
+                return (
+                  <button
+                    key={dateStr}
+                    onClick={() => {
+                      setSelectedDate(dateStr);
+                      if (hasData) {
+                        loadHistoryScan(dateStr);
+                      }
+                    }}
+                    className={`
+                      relative p-1.5 rounded-lg transition-all flex flex-col items-center justify-center font-medium h-8 w-8 mx-auto text-[11px]
+                      ${isSelected ? 'bg-indigo-600 text-white font-bold shadow-sm' : 'hover:bg-zinc-100 text-zinc-700'}
+                      ${isToday && !isSelected ? 'border border-indigo-200 text-indigo-600' : ''}
+                    `}
+                  >
+                    <span>{day}</span>
+                    {hasData && (
+                      <span className={`
+                        absolute bottom-1 w-1 h-1 rounded-full
+                        ${isSelected ? 'bg-white' : 'bg-indigo-500'}
+                      `} />
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+            
+            <div className="text-[10px] text-zinc-400 bg-zinc-50 rounded-xl p-2.5 leading-relaxed">
+              💡 <strong>日历说明</strong>：
+              日历中带有<strong>蓝色圆点</strong>的日期代表有历史保存的扫描数据。点击对应的日期即可直接载入查看。
+            </div>
+          </motion.div>
+        )}
+      </div>
     </div>
   );
 }

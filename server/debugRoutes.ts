@@ -211,7 +211,7 @@ router.post('/env/update', (req, res) => {
     }
 
     try {
-        const envPath = path.join(process.cwd(), '.env');
+        const envPath = path.join(process.cwd(), '.env.runtime');
         let envContent = fs.existsSync(envPath) ? fs.readFileSync(envPath, 'utf8') : '';
 
         for (const [key, value] of Object.entries(safeUpdates)) {
@@ -230,7 +230,7 @@ router.post('/env/update', (req, res) => {
         res.json({ success: true, updated: Object.keys(safeUpdates) });
     } catch (error) {
         logError(error, 'env_update');
-        res.status(500).json({ error: 'Failed to update .env' });
+        res.status(500).json({ error: 'Failed to update .env.runtime' });
     }
 });
 

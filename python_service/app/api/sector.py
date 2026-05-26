@@ -21,11 +21,15 @@ _scan_tasks: Dict[str, asyncio.Task] = {}
 
 class SectorScanRequest(BaseModel):
     model: Optional[str] = None
+    date: Optional[str] = None
+    force: Optional[bool] = False
 
 
 class SectorAnalyzeRequest(BaseModel):
     sector_name: str
     model: Optional[str] = None
+    date: Optional[str] = None
+    force: Optional[bool] = False
 
 
 def _resolve_model(requested: Optional[str] = None) -> str:
@@ -65,9 +69,49 @@ def _sanitize_for_json(obj):
 @router.post("/scan")
 async def start_scan(req: SectorScanRequest):
     """Start an async market sector scan."""
-    job_id = f"scan_{uuid.uuid4().hex[:8]}"
+    from ..db.sqlite import build_session_factory, DATABASE_URL
+    from ..db.models import AnalysisJob
+    from sqlmodel import select
+
+    target_date = req.date if req.date else datetime.now().strftime("%Y-%m-%d")
     model = _resolve_model(req.model)
 
+    # Cache check
+    if not req.force:
+        session_factory = build_session_factory(DATABASE_URL)
+        with session_factory() as session:
+            statement = select(AnalysisJob).where(
+                AnalysisJob.symbol == "market_sector_scan",
+                AnalysisJob.market == "sector",
+                AnalysisJob.status == "completed",
+                AnalysisJob.snapshot_id == target_date
+            ).order_by(AnalysisJob.finished_at.desc())
+            existing_job = session.exec(statement).first()
+            if existing_job:
+                result_data = None
+                if existing_job.result_payload:
+                    try:
+                        result_data = json.loads(existing_job.result_payload)
+                    except Exception:
+                        pass
+                
+                if result_data:
+                    # Register in-memory for status polling compatibility
+                    _scan_jobs[existing_job.job_id] = {
+                        "status": "completed",
+                        "progress": "已从历史数据载入",
+                        "result": result_data.get("result"),
+                        "sectors": result_data.get("sectors"),
+                        "error": None,
+                        "created_at": existing_job.created_at.isoformat() if existing_job.created_at else datetime.now().isoformat()
+                    }
+                    return success_response({
+                        "job_id": existing_job.job_id,
+                        "status": "completed",
+                        "result": result_data
+                    })
+
+    job_id = f"scan_{uuid.uuid4().hex[:8]}"
     _scan_jobs[job_id] = {
         "status": "running",
         "progress": "正在扫描A股市场板块轮动...",
@@ -77,7 +121,7 @@ async def start_scan(req: SectorScanRequest):
         "created_at": datetime.now().isoformat(),
     }
 
-    task = asyncio.create_task(_run_scan(job_id, model))
+    task = asyncio.create_task(_run_scan(job_id, model, target_date))
     _scan_tasks[job_id] = task
     task.add_done_callback(lambda t: _scan_tasks.pop(job_id, None))
 
@@ -93,7 +137,7 @@ async def get_scan_status(job_id: str):
     return success_response(job)
 
 
-async def _run_scan(job_id: str, model: str):
+async def _run_scan(job_id: str, model: str, target_date: str):
     """Execute the market sector scan via LLM + tools."""
     from ..services.llm_gateway import llm_gateway
     from ..prompting.runtime import prompt_runtime
@@ -112,7 +156,7 @@ You are an institutional-grade AI analyst. You MUST use web_search to get real-t
 {template}
 
 --- CONTEXT ---
-Current Date: {datetime.now().strftime('%Y-%m-%d')}
+Current Date: {target_date}
 Market: A-Share (中国A股)
 """
 
@@ -136,6 +180,40 @@ Market: A-Share (中国A股)
         _scan_jobs[job_id]["result"] = scan_result
         _scan_jobs[job_id]["sectors"] = sectors
         _scan_jobs[job_id]["progress"] = "扫描完成"
+
+        # Save to SQLite database
+        from ..db.sqlite import build_session_factory, DATABASE_URL
+        from ..db.models import AnalysisJob
+        from sqlmodel import select
+        session_factory = build_session_factory(DATABASE_URL)
+        with session_factory() as session:
+            statement = select(AnalysisJob).where(
+                AnalysisJob.symbol == "market_sector_scan",
+                AnalysisJob.market == "sector",
+                AnalysisJob.snapshot_id == target_date
+            )
+            for old_job in session.exec(statement).all():
+                session.delete(old_job)
+
+            job = AnalysisJob(
+                job_id=job_id,
+                symbol="market_sector_scan",
+                market="sector",
+                analysis_level="scan",
+                requested_model=model,
+                resolved_model=model,
+                snapshot_id=target_date,
+                status="completed",
+                created_at=datetime.now(),
+                started_at=datetime.now(),
+                finished_at=datetime.now(),
+                result_payload=json.dumps({
+                    "result": scan_result,
+                    "sectors": sectors
+                })
+            )
+            session.add(job)
+            session.commit()
 
     except Exception as e:
         import traceback
@@ -170,13 +248,38 @@ async def start_sector_analysis(req: SectorAnalyzeRequest):
     from ..db.sqlite import build_session_factory, DATABASE_URL
     from ..db.repositories.job_repo import JobRepository
     from ..services.sector_analysis_service import SectorAnalysisService
+    from ..db.models import AnalysisJob
+    from sqlmodel import select
 
     session_factory = build_session_factory(DATABASE_URL)
     job_repo = JobRepository(session_factory)
     service = SectorAnalysisService(job_repo)
 
+    target_date = req.date if req.date else datetime.now().strftime("%Y-%m-%d")
     model = _resolve_model(req.model)
-    job_id = await service.start_sector_job(req.sector_name, model=model)
+
+    # Cache check
+    if not req.force:
+        with session_factory() as session:
+            statement = select(AnalysisJob).where(
+                AnalysisJob.symbol == req.sector_name,
+                AnalysisJob.market == "sector",
+                AnalysisJob.status == "completed",
+                AnalysisJob.snapshot_id == target_date
+            ).order_by(AnalysisJob.finished_at.desc())
+            existing_job = session.exec(statement).first()
+            if existing_job:
+                # Register in-memory reference
+                _scan_jobs[f"analyze_{existing_job.job_id}"] = {
+                    "service": service,
+                    "job_repo": job_repo,
+                }
+                return success_response({
+                    "job_id": existing_job.job_id,
+                    "status": "completed"
+                })
+
+    job_id = await service.start_sector_job(req.sector_name, model=model, target_date=target_date)
 
     # Keep reference so we can poll progress
     _scan_jobs[f"analyze_{job_id}"] = {
@@ -370,3 +473,66 @@ async def export_sector_share_card(job_id: str):
         media_type="image/png",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+# ---------- History ----------
+
+@router.get("/history/dates")
+async def get_history_dates():
+    """Retrieve all dates (snapshot_ids) that have completed scans or analyses."""
+    from ..db.sqlite import build_session_factory, DATABASE_URL
+    from ..db.models import AnalysisJob
+    from sqlmodel import select
+
+    session_factory = build_session_factory(DATABASE_URL)
+    with session_factory() as session:
+        statement = select(AnalysisJob.snapshot_id).where(
+            AnalysisJob.market == "sector",
+            AnalysisJob.status == "completed",
+            AnalysisJob.snapshot_id != None
+        )
+        dates = session.exec(statement).all()
+        # Filter to only valid date format YYYY-MM-DD
+        valid_dates = sorted(list(set(d for d in dates if d and re.match(r'^\d{4}-\d{2}-\d{2}$', d))))
+        return success_response({"dates": valid_dates})
+
+
+@router.get("/history")
+async def get_history_by_date(date: str, type: str, sector_name: Optional[str] = None):
+    """Retrieve historical scan or analysis result for a given date."""
+    from ..db.sqlite import build_session_factory, DATABASE_URL
+    from ..db.models import AnalysisJob
+    from sqlmodel import select
+
+    if type not in ("scan", "analysis"):
+        return error_response("INVALID_PARAM", "Type must be scan or analysis")
+
+    symbol = "market_sector_scan" if type == "scan" else sector_name
+    if not symbol:
+        return error_response("INVALID_PARAM", "sector_name is required for analysis type")
+
+    session_factory = build_session_factory(DATABASE_URL)
+    with session_factory() as session:
+        statement = select(AnalysisJob).where(
+            AnalysisJob.symbol == symbol,
+            AnalysisJob.market == "sector",
+            AnalysisJob.status == "completed",
+            AnalysisJob.snapshot_id == date
+        ).order_by(AnalysisJob.finished_at.desc())
+        job = session.exec(statement).first()
+        if not job:
+            return error_response("NOT_FOUND", "No historical record found for this date")
+
+        result_data = None
+        if job.result_payload:
+            try:
+                result_data = json.loads(job.result_payload)
+            except Exception:
+                pass
+
+        return success_response({
+            "job_id": job.job_id,
+            "status": job.status,
+            "result": result_data,
+            "finished_at": job.finished_at.isoformat() if job.finished_at else None
+        })

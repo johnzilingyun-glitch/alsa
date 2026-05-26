@@ -16,6 +16,7 @@ os.makedirs(REPORTS_DIR, exist_ok=True)
 
 # Load env BEFORE imports so singletons (e.g. llm_gateway) can read API keys
 load_dotenv(os.path.join(root_dir, ".env"), override=True)
+load_dotenv(os.path.join(root_dir, ".env.runtime"), override=True)
 
 from python_service.app.db.sqlite import init_db, build_session_factory
 from python_service.app.db.repositories.job_repo import JobRepository

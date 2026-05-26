@@ -6,7 +6,7 @@ class JobRepository:
     def __init__(self, session_factory: Callable[[], Session]):
         self.session_factory = session_factory
 
-    def create(self, job_id: str, symbol: str, market: str, level: str = "standard", model: Optional[str] = None) -> AnalysisJob:
+    def create(self, job_id: str, symbol: str, market: str, level: str = "standard", model: Optional[str] = None, snapshot_id: Optional[str] = None) -> AnalysisJob:
         with self.session_factory() as session:
             job = AnalysisJob(
                 job_id=job_id, 
@@ -14,6 +14,7 @@ class JobRepository:
                 market=market, 
                 analysis_level=level,
                 requested_model=model,
+                snapshot_id=snapshot_id,
                 status="queued"
             )
             session.add(job)

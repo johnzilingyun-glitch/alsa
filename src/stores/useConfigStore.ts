@@ -39,10 +39,10 @@ export const useConfigStore = create<ConfigState>((set) => {
       const saved = localStorage.getItem('gemini_config');
       const parsed = saved ? JSON.parse(saved) : { model: 'gemini-3.1-pro-preview' };
       // Pre-fill API keys from env if not already set by user
-      if (!parsed.deepseekApiKey && process.env.DEEPSEEK_API_KEY) {
+      if (parsed.deepseekApiKey === undefined && process.env.DEEPSEEK_API_KEY) {
         parsed.deepseekApiKey = process.env.DEEPSEEK_API_KEY;
       }
-      if (!parsed.apiKey && process.env.GEMINI_API_KEY) {
+      if (parsed.apiKey === undefined && process.env.GEMINI_API_KEY) {
         parsed.apiKey = process.env.GEMINI_API_KEY;
       }
       return parsed;

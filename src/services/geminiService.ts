@@ -68,7 +68,7 @@ function getServiceMode(config?: { serviceMode?: ServiceMode }): ServiceMode {
 }
 
 function createBackendBridgeClient(config?: { model?: string; serviceMode?: ServiceMode }) {
-  const fallbackModel = config?.model || 'gemini-1.5-flash';
+  const fallbackModel = config?.model || 'gemini-3.1-pro-preview';
   console.log('[BackendBridge] Bridge client created with fallbackModel:', fallbackModel);
   
   return {
@@ -259,9 +259,9 @@ export async function generateAndParseJsonWithRetry<T>(
   const parseDelayMs = options?.parseDelayMs ?? 1200;
   const maxToolLoops = 3; // Prevent infinite tool loops
 
-  // Build fallback model list: start with the requested model, then add alternatives
+  // Strict mode: Only use the requested model, no silent fallback downgrades allowed.
   const requestedModel = params.model || GEMINI_MODEL;
-  const modelsToTry = [requestedModel, ...MODEL_FALLBACK_CHAIN.filter(m => m !== requestedModel)];
+  const modelsToTry = [requestedModel];
 
   let lastError: unknown;
   let consecutiveQuotaErrors = 0;

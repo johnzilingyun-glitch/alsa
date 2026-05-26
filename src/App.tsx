@@ -107,22 +107,31 @@ export default function App() {
     }
   }, [urlSearchPending, initialUrlParams.symbol, handleSearch]);
 
-  // Watch for model or API key changes: trigger AI enrichment if we're on the home page
-  // Using a ref for the function to avoid dependency-induced loops
-  const fetchRef = useRef(fetchMarketOverview);
-  useEffect(() => { fetchRef.current = fetchMarketOverview; }, [fetchMarketOverview]);
+  // Watch for model or API key changes, but only trigger AI enrichment when settings modal is CLOSED.
+  // This prevents multiple re-renders and rate limit calls while typing.
+  const isSettingsOpen = useUIStore(s => s.isSettingsOpen);
+  const prevSettingsOpen = useRef(isSettingsOpen);
+  const initialConfigRef = useRef({ model, apiKey, deepseekApiKey });
 
-  const hasTriggeredRef = useRef(false);
   useEffect(() => {
-    if (!analysis && (model || apiKey || deepseekApiKey)) {
-      if (hasTriggeredRef.current) {
-        console.log('[App] Model/Key changed, triggering AI enrichment');
-        void fetchRef.current(true, true);
-      } else {
-        hasTriggeredRef.current = true;
+    if (isSettingsOpen && !prevSettingsOpen.current) {
+      // Record initial values when modal opens
+      initialConfigRef.current = { model, apiKey, deepseekApiKey };
+    } else if (!isSettingsOpen && prevSettingsOpen.current) {
+      // Checked when modal closes
+      const oldCfg = initialConfigRef.current;
+      const changed = 
+        oldCfg.model !== model || 
+        oldCfg.apiKey !== apiKey || 
+        oldCfg.deepseekApiKey !== deepseekApiKey;
+
+      if (changed && !analysis) {
+        console.log('[App] Settings saved with model/key changes, triggering AI enrichment');
+        void fetchMarketOverview(true, true);
       }
     }
-  }, [model, apiKey, deepseekApiKey, !!analysis]); 
+    prevSettingsOpen.current = isSettingsOpen;
+  }, [isSettingsOpen, model, apiKey, deepseekApiKey, analysis, fetchMarketOverview]);
 
   // Restoration: Initialize watchlist & alerts (deferred — not needed for first paint)
   useEffect(() => {

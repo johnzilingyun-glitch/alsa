@@ -6,7 +6,6 @@ import { getMarketOverview, getMarketSnapshot, getHistoryContext } from '../serv
 import { getBeijingDate } from '../services/dateUtils';
 
 export function useMarketData(fetchAdminData: () => Promise<void>) {
-  const geminiConfig = useConfigStore(s => s.config);
   const setOverviewLoading = useUIStore(s => s.setOverviewLoading);
   const setOverviewError = useUIStore(s => s.setOverviewError);
   const overviewMarket = useMarketStore(s => s.overviewMarket);
@@ -72,6 +71,7 @@ export function useMarketData(fetchAdminData: () => Promise<void>) {
     }
 
     try {
+      const geminiConfig = useConfigStore.getState().config;
       const data = await getMarketOverview(geminiConfig, overviewMarket, forceRefresh, 1);
       setMarketOverview(overviewMarket, data);
       setMarketLastUpdated(overviewMarket, data.generatedAt || Date.now());
@@ -91,8 +91,7 @@ export function useMarketData(fetchAdminData: () => Promise<void>) {
     } finally {
       setOverviewLoading(false);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [geminiConfig, overviewMarket, setMarketOverview, setMarketLastUpdated, setOverviewError, setOverviewLoading]);
+  }, [overviewMarket, setMarketOverview, setMarketLastUpdated, setOverviewError, setOverviewLoading, fetchAdminData]);
 
   useEffect(() => {
     if (_hasHydrated) {

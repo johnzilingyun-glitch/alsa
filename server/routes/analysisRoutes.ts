@@ -27,7 +27,7 @@ router.post('/analysis/jobs', async (req, res) => {
       market,
       status: 'queued',
       promptVersion: promptVersion || 'v1',
-      model: model || 'gemini-1.5-flash',
+      model: model || config?.model || 'gemini-3.1-pro-preview',
       config: config || {},
       outputPayload: {}
     });

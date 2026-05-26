@@ -35,10 +35,10 @@ export function SettingsModal() {
 
   // Sync API keys to .env on the server
   const syncEnvKeys = useCallback((cfg: typeof config) => {
-    const updates: Record<string, string> = {};
-    if (cfg.deepseekApiKey) updates.DEEPSEEK_API_KEY = cfg.deepseekApiKey;
-    if (cfg.apiKey) updates.GEMINI_API_KEY = cfg.apiKey;
-    if (Object.keys(updates).length === 0) return;
+    const updates: Record<string, string> = {
+      DEEPSEEK_API_KEY: cfg.deepseekApiKey || '',
+      GEMINI_API_KEY: cfg.apiKey || '',
+    };
     fetch('/api/diagnostics/env/update', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

@@ -14,6 +14,7 @@ import ibkrRoutes from './server/routes/ibkrRoutes.js';
 import { monitor } from './server/dataSourceHealth.js';
 
 dotenv.config();
+dotenv.config({ path: '.env.runtime' });
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);

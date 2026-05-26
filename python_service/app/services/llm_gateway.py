@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 # Load .env
 root_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 load_dotenv(os.path.join(root_dir, ".env"), override=True)
+load_dotenv(os.path.join(root_dir, ".env.runtime"), override=True)
 
 
 class RateLimiter:
@@ -50,8 +51,8 @@ class RateLimiter:
 
 class LLMGateway:
     def __init__(self, gemini_api_key=None, deepseek_api_key=None):
-        self.gemini_api_key = gemini_api_key or os.getenv("GEMINI_API_KEY")
-        self.deepseek_api_key = deepseek_api_key or os.getenv("DEEPSEEK_API_KEY")
+        self._gemini_api_key_override = gemini_api_key
+        self._deepseek_api_key_override = deepseek_api_key
         self.deepseek_base_url = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
         self.default_api_key = os.getenv("DEFAULT_LLM_API_KEY")
         self.default_base_url = os.getenv("DEFAULT_LLM_BASE_URL", "http://xbrain-dify-service-test.xiaopeng.link/llm_api")
@@ -59,6 +60,8 @@ class LLMGateway:
         self._gemini_client = None
         self._deepseek_client = None
         self._default_client = None
+        self._last_gemini_key = None
+        self._last_deepseek_key = None
 
         # Rate limiter for the default relay (中转站) to prevent 503 errors
         # min_interval: minimum seconds between consecutive requests
@@ -69,15 +72,36 @@ class LLMGateway:
             min_interval=_min_interval, max_concurrent=_max_concurrent
         )
         
-        if not self.default_api_key and not self.gemini_api_key:
+        # Check initially
+        init_gemini_key = gemini_api_key or os.getenv("GEMINI_API_KEY")
+        if not self.default_api_key and not init_gemini_key:
             print("WARNING: Neither DEFAULT_LLM_API_KEY nor GEMINI_API_KEY found in LLMGateway.")
 
+    def get_gemini_api_key(self, api_key=None):
+        if api_key:
+            return api_key
+        if self._gemini_api_key_override:
+            return self._gemini_api_key_override
+        load_dotenv(os.path.join(root_dir, ".env"), override=True)
+        load_dotenv(os.path.join(root_dir, ".env.runtime"), override=True)
+        return os.getenv("GEMINI_API_KEY")
+
+    def get_deepseek_api_key(self, api_key=None):
+        if api_key:
+            return api_key
+        if self._deepseek_api_key_override:
+            return self._deepseek_api_key_override
+        load_dotenv(os.path.join(root_dir, ".env"), override=True)
+        load_dotenv(os.path.join(root_dir, ".env.runtime"), override=True)
+        return os.getenv("DEEPSEEK_API_KEY")
+
     def gemini_client(self, api_key=None):
-        target_key = api_key or self.gemini_api_key
-        if self._gemini_client is None or (api_key and api_key != self.gemini_api_key):
+        target_key = self.get_gemini_api_key(api_key)
+        if self._gemini_client is None or (target_key and target_key != self._last_gemini_key):
             if target_key:
                 try:
-                    return genai.Client(api_key=target_key)
+                    self._gemini_client = genai.Client(api_key=target_key)
+                    self._last_gemini_key = target_key
                 except Exception as e:
                     print(f"Failed to initialize Gemini Client: {e}")
                     return None
@@ -86,13 +110,14 @@ class LLMGateway:
         return self._gemini_client
 
     def deepseek_client(self, api_key=None):
-        target_key = api_key or self.deepseek_api_key
-        if self._deepseek_client is None or (api_key and api_key != self.deepseek_api_key):
+        target_key = self.get_deepseek_api_key(api_key)
+        if self._deepseek_client is None or (target_key and target_key != self._last_deepseek_key):
             if target_key:
-                return OpenAI(
+                self._deepseek_client = OpenAI(
                     api_key=target_key,
                     base_url=self.deepseek_base_url
                 )
+                self._last_deepseek_key = target_key
             else:
                 raise ValueError("DEEPSEEK_API_KEY is missing.")
         return self._deepseek_client

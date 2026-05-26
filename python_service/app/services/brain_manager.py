@@ -11,6 +11,7 @@ from .gep_models import EvolutionaryState, Genome, Gene
 # Ensure we load .env from the root directory (4 levels up from this file)
 root_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 load_dotenv(os.path.join(root_dir, ".env"), override=True)
+load_dotenv(os.path.join(root_dir, ".env.runtime"), override=True)
 
 # Configuration for Mem0 and EvolveR
 BRAIN_DATA_DIR = os.path.join(root_dir, "data", "brain")

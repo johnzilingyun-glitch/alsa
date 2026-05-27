@@ -1,3 +1,22 @@
+// ── Sector/Stock Report Download API ─────────────────────────────
+// GET /reports/download?file=xxx_report.html  下载/alsa/reports下的HTML/PDF
+router.get('/reports/download', async (req, res) => {
+  const file = req.query.file as string;
+  if (!file || !/^[\w\-.]+\.(html|pdf)$/i.test(file)) {
+    return res.status(400).json({ error: 'Invalid file name.' });
+  }
+  const reportsDir = path.resolve(__dirname, '../../reports');
+  const filePath = path.join(reportsDir, file);
+  if (!filePath.startsWith(reportsDir)) {
+    return res.status(403).json({ error: 'Access denied.' });
+  }
+  if (!fs.existsSync(filePath)) {
+    return res.status(404).json({ error: 'File not found.' });
+  }
+  res.download(filePath, file, err => {
+    if (err) res.status(500).json({ error: 'Download failed.' });
+  });
+});
 import { Router } from 'express';
 import axios from 'axios';
 import fs from 'fs';

@@ -2,7 +2,7 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Search, Loader2, ChevronRight, ArrowLeft, X, BarChart3,
-  CheckCircle2, AlertTriangle, TrendingUp, ExternalLink
+  CheckCircle2, AlertTriangle, TrendingUp, ExternalLink, Download, FileText
 } from 'lucide-react';
 import { saveAnalysisToHistory } from '../../services/aiService';
 import { useConfigStore } from '../../stores/useConfigStore';
@@ -582,14 +582,33 @@ export function SectorScanner() {
                   <ArrowLeft size={12} /> 分析其他板块
                 </button>
                 {reportHtml && analyzeJobId && (
-                  <a
-                    href={`/api/sector/report/${analyzeJobId}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-xs text-indigo-500 hover:text-indigo-700 flex items-center gap-1 transition-colors px-3 py-1.5 rounded-lg border border-indigo-200 hover:border-indigo-300"
-                  >
-                    <ExternalLink size={12} /> 在新窗口查看报告
-                  </a>
+                  <div className="flex items-center gap-2">
+                    <a
+                      href={`/api/sector/report/${analyzeJobId}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-xs text-indigo-500 hover:text-indigo-700 flex items-center gap-1 transition-colors px-3 py-1.5 rounded-lg border border-indigo-200 hover:border-indigo-300 bg-white"
+                      title="在新窗口查看报告"
+                    >
+                      <ExternalLink size={12} /> 查看
+                    </a>
+                    <a
+                      href={`/api/sector/report/${analyzeJobId}/html`}
+                      download
+                      className="text-xs text-emerald-600 hover:text-emerald-700 flex items-center gap-1 transition-colors px-3 py-1.5 rounded-lg border border-emerald-200 hover:border-emerald-300 bg-white"
+                      title="下载为 HTML"
+                    >
+                      <FileText size={12} /> HTML
+                    </a>
+                    <a
+                      href={`/api/sector/report/${analyzeJobId}/pdf`}
+                      download
+                      className="text-xs text-rose-600 hover:text-rose-700 flex items-center gap-1 transition-colors px-3 py-1.5 rounded-lg border border-rose-200 hover:border-rose-300 bg-white"
+                      title="下载为 PDF"
+                    >
+                      <Download size={12} /> PDF
+                    </a>
+                  </div>
                 )}
               </div>
             </div>

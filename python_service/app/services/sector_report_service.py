@@ -22,7 +22,7 @@ class SectorReportService:
         for msg in discussion:
             role = msg.get("role", "Expert")
             content = msg.get("content", "")
-            if not content or len(content.strip()) < 50:
+            if not content or len(content.strip()) < 150:
                 continue
             html_content = self._markdown_to_html(content)
             expert_sections.append({"role": role, "html": html_content})

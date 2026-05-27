@@ -35,10 +35,17 @@ class SectorAnalyzeRequest(BaseModel):
 def _resolve_model(requested: Optional[str] = None) -> str:
     if requested:
         return requested
-    provider = os.getenv("DEFAULT_LLM_PROVIDER", "deepseek").lower()
-    if provider == "deepseek":
+    
+    # Fallback based on available API keys
+    has_gemini = bool(os.getenv("GEMINI_API_KEY"))
+    has_deepseek = bool(os.getenv("DEEPSEEK_API_KEY"))
+    
+    if has_gemini:
+        return os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
+    elif has_deepseek:
         return os.getenv("DEEPSEEK_MODEL", "deepseek-v4-pro")
-    return os.getenv("GEMINI_MODEL", "gemini-3.1-pro-preview")
+    else:
+        raise ValueError("请在配置中添加大模型 API Key（Gemini 或 DeepSeek）")
 
 
 def _sanitize_for_json(obj):
@@ -74,7 +81,10 @@ async def start_scan(req: SectorScanRequest):
     from sqlmodel import select
 
     target_date = req.date if req.date else datetime.now().strftime("%Y-%m-%d")
-    model = _resolve_model(req.model)
+    try:
+        model = _resolve_model(req.model)
+    except ValueError as e:
+        return error_response(str(e))
 
     # Cache check
     if not req.force:
@@ -125,6 +135,7 @@ async def start_scan(req: SectorScanRequest):
     _scan_tasks[job_id] = task
     task.add_done_callback(lambda t: _scan_tasks.pop(job_id, None))
 
+    print(f"[SectorScan] Started {job_id} with model={model}, date={target_date}")
     return success_response({"job_id": job_id, "status": "running"})
 
 
@@ -163,10 +174,24 @@ Market: A-Share (中国A股)
         _scan_jobs[job_id]["progress"] = "正在搜索和分析市场数据..."
 
         use_tools = "deepseek" in model.lower()
-        if use_tools:
-            scan_result = await llm_gateway.generate_with_tools(context, model=model, max_tool_rounds=20)
-        else:
-            scan_result = await llm_gateway.generate_content(context, model=model)
+        scan_timeout = 300  # 5 minutes max for LLM call
+
+        try:
+            if use_tools:
+                scan_result = await asyncio.wait_for(
+                    llm_gateway.generate_with_tools(context, model=model, max_tool_rounds=20),
+                    timeout=scan_timeout
+                )
+            else:
+                scan_result = await asyncio.wait_for(
+                    llm_gateway.generate_content(context, model=model),
+                    timeout=scan_timeout
+                )
+        except asyncio.TimeoutError:
+            _scan_jobs[job_id]["status"] = "failed"
+            _scan_jobs[job_id]["error"] = f"扫描超时（{scan_timeout}秒），模型: {model}"
+            print(f"[SectorScan] Timeout after {scan_timeout}s for job {job_id}, model={model}")
+            return
 
         if not scan_result:
             _scan_jobs[job_id]["status"] = "failed"
@@ -256,7 +281,10 @@ async def start_sector_analysis(req: SectorAnalyzeRequest):
     service = SectorAnalysisService(job_repo)
 
     target_date = req.date if req.date else datetime.now().strftime("%Y-%m-%d")
-    model = _resolve_model(req.model)
+    try:
+        model = _resolve_model(req.model)
+    except ValueError as e:
+        return error_response(str(e))
 
     # Cache check
     if not req.force:
@@ -412,6 +440,33 @@ def _get_sector_result(job_id: str):
     return result
 
 
+@router.get("/report/{job_id}/html")
+async def export_sector_html(job_id: str):
+    """Export sector report as HTML file."""
+    from ..services.sector_report_service import SectorReportService
+    from fastapi.responses import Response
+
+    result = _get_sector_result(job_id)
+    if not result:
+        return error_response("NO_RESULT", "No analysis result available")
+
+    report_service = SectorReportService()
+    sector_name = result.get("symbol", "sector")
+    output_path = f"sector_{sector_name}_report.html"
+    model = _resolve_model()
+    html_path = await report_service.generate_sector_report(result, output_path, model=model)
+
+    with open(html_path, "r", encoding="utf-8") as f:
+        html_content = f.read()
+
+    import urllib.parse
+    filename = f"SectorReport_{sector_name}_{job_id}.html"
+    encoded_filename = urllib.parse.quote(filename)
+    return Response(
+        content=html_content,
+        media_type="text/html",
+        headers={"Content-Disposition": f"attachment; filename*=utf-8''{encoded_filename}"},
+    )
 @router.get("/report/{job_id}/pdf")
 async def export_sector_pdf(job_id: str):
     """Export sector report as PDF."""
@@ -433,11 +488,13 @@ async def export_sector_pdf(job_id: str):
         html_content = f.read()
 
     pdf_bytes = await export_service.html_to_pdf(html_content, landscape=False)
+    import urllib.parse
     filename = f"SectorReport_{sector_name}_{job_id}.pdf"
+    encoded_filename = urllib.parse.quote(filename)
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers={"Content-Disposition": f"attachment; filename*=utf-8''{encoded_filename}"},
     )
 
 

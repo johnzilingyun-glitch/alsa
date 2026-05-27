@@ -65,6 +65,25 @@ export const MarketOverview = memo(function MarketOverview({ onFetchMarketOvervi
             result.data.forEach((quote: any) => {
               if (quote.price) {
                 updateAlertPriceRef.current(quote.symbol, quote.price);
+              } else if (quote.error) {
+                const errStr = String(quote.error);
+                // Only delete if the data source explicitly confirms the symbol does not exist.
+                // If it's a network timeout, rate limit, or other 500 error, we keep it.
+                const isSymbolInvalid = errStr.includes('Quote not found for symbol') || 
+                                        errStr.includes('No data found, symbol may be delisted');
+                
+                if (isSymbolInvalid) {
+                  console.warn(`[Auto-Cleanup] Symbol ${quote.symbol} is invalid (not a data source outage). Removing from local storage...`);
+                  // Remove from recent searches
+                  useMarketStore.getState().removeRecentSearch(quote.symbol);
+                  // Remove from watchlist
+                  const currentWatchlist = useMarketStore.getState().watchlist;
+                  if (currentWatchlist.some(w => w.symbol.toUpperCase() === quote.symbol.toUpperCase())) {
+                    useMarketStore.getState().setWatchlist(currentWatchlist.filter(w => w.symbol.toUpperCase() !== quote.symbol.toUpperCase()));
+                  }
+                } else {
+                  console.warn(`[Price Sync] Data source issue for ${quote.symbol}, skipping cleanup: ${errStr}`);
+                }
               }
             });
             refreshAlertStatusRef.current();

@@ -3,6 +3,7 @@ from typing import List, Dict, Any
 import asyncio
 import os
 import pandas as pd
+import numpy as np
 import uuid
 from datetime import datetime, timezone
 
@@ -126,6 +127,9 @@ class MarketSnapshotService:
 
             elapsed = time.time() - t0
             print(f"Snapshot created for {symbol} in {elapsed:.1f}s")
+            
+            # Compute Quant Ensemble indicators
+            quant_ensemble = self._compute_quant_ensemble(df)
 
             return {
                 "snapshot_id": f"snap_{uuid.uuid4().hex[:12]}",
@@ -136,6 +140,7 @@ class MarketSnapshotService:
                 "changePercent": quote.get("changePercent"),
                 "currency": quote.get("currency"),
                 "history": rows,
+                "quantEnsemble": quant_ensemble,
                 "valuation": valuation,
                 "financials": financials,
                 "quote": quote,
@@ -204,6 +209,76 @@ class MarketSnapshotService:
                 "financials": 1.0 if financials else 0.0,
             },
         }
+
+    @staticmethod
+    def _compute_quant_ensemble(df: pd.DataFrame) -> dict:
+        if df is None or df.empty or len(df) < 30:
+            return {}
+        
+        try:
+            close = df['close'].astype(float)
+            high = df['high'].astype(float)
+            low = df['low'].astype(float)
+            
+            # 1. Z-score (20-day mean reversion)
+            mean_20 = close.rolling(20).mean()
+            std_20 = close.rolling(20).std()
+            z_score = (close.iloc[-1] - mean_20.iloc[-1]) / std_20.iloc[-1] if std_20.iloc[-1] != 0 else 0
+            
+            # 2. RSI (14-day)
+            delta = close.diff()
+            gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+            loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+            rs = gain / loss
+            rsi = 100 - (100 / (1 + rs.iloc[-1])) if loss.iloc[-1] != 0 else 50
+            
+            # 3. Momentum (20-day)
+            momentum = ((close.iloc[-1] / close.iloc[-20]) - 1) * 100
+            
+            # 4. Volatility (Annualized 20-day)
+            daily_return = close.pct_change()
+            volatility = daily_return.rolling(20).std().iloc[-1] * np.sqrt(252) * 100
+            
+            # 5. ADX (14-day)
+            up_move = high.diff()
+            down_move = -low.diff()
+            
+            plus_dm = np.where((up_move > down_move) & (up_move > 0), up_move, 0)
+            minus_dm = np.where((down_move > up_move) & (down_move > 0), down_move, 0)
+            
+            tr1 = high - low
+            tr2 = (high - close.shift(1)).abs()
+            tr3 = (low - close.shift(1)).abs()
+            tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+            
+            atr = tr.rolling(14).mean()
+            plus_di = 100 * (pd.Series(plus_dm).rolling(14).mean() / atr)
+            minus_di = 100 * (pd.Series(minus_dm).rolling(14).mean() / atr)
+            
+            dx = 100 * (plus_di - minus_di).abs() / (plus_di + minus_di).replace(0, 1)
+            adx = dx.rolling(14).mean().iloc[-1]
+            
+            # 6. Hurst Exponent (simplified)
+            lags = range(2, 20)
+            tau = [np.sqrt(np.std(np.subtract(close.values[lag:], close.values[:-lag]))) for lag in lags]
+            poly = np.polyfit(np.log(lags), np.log(tau), 1)
+            hurst = poly[0] * 2.0
+            
+            return {
+                "trendScore": int(min(max(adx if not pd.isna(adx) else 50, 0), 100)),
+                "momentumScore": int(min(max(50 + momentum*2, 0), 100)),
+                "meanReversionSignal": "oversold" if z_score < -2 else "overbought" if z_score > 2 else "neutral",
+                "indicators": {
+                    "ADX": round(float(adx), 2) if not pd.isna(adx) else 50.0,
+                    "Z_score": round(float(z_score), 2) if not pd.isna(z_score) else 0.0,
+                    "RSI": round(float(rsi), 2) if not pd.isna(rsi) else 50.0,
+                    "Hurst": round(float(hurst), 2) if not pd.isna(hurst) else 0.5,
+                    "Volatility_pct": round(float(volatility), 2) if not pd.isna(volatility) else 0.0
+                }
+            }
+        except Exception as e:
+            print("Quant calc error:", e)
+            return {}
 
 # Singleton instance
 from ..lake.parquet_store import ParquetMarketStore

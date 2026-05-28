@@ -28,6 +28,7 @@ export function SectorScanner() {
   const [analyzeProgress, setAnalyzeProgress] = useState<any>(null);
   const [analyzeError, setAnalyzeError] = useState<string | null>(null);
   const [selectedSector, setSelectedSector] = useState<string>('');
+  const [customSector, setCustomSector] = useState<string>('');
 
   const [reportHtml, setReportHtml] = useState<string>('');
 
@@ -293,25 +294,37 @@ export function SectorScanner() {
 
   const reset = useCallback(() => {
     if (pollRef.current) clearInterval(pollRef.current);
+    
+    // Attempt to cancel backend tasks
+    if (phase === 'scanning' && scanJobId) {
+      fetch(`/api/sector/scan/${scanJobId}/cancel`, { method: 'POST' }).catch(() => {});
+    } else if (phase === 'analyzing' && analyzeJobId) {
+      fetch(`/api/sector/analyze/${analyzeJobId}/cancel`, { method: 'POST' }).catch(() => {});
+    }
+
     setPhase('idle');
     setScanJobId(null);
     setScanResult('');
     setSectors([]);
     setScanError(null);
     setAnalyzeJobId(null);
-    setAnalyzeProgress(null);
     setAnalyzeError(null);
+    setAnalyzeProgress(null);
     setReportHtml('');
-  }, []);
+    setHasHistoryPrompt(false);
+  }, [phase, scanJobId, analyzeJobId]);
 
   const backToSelect = useCallback(() => {
     if (pollRef.current) clearInterval(pollRef.current);
+    if (phase === 'analyzing' && analyzeJobId) {
+      fetch(`/api/sector/analyze/${analyzeJobId}/cancel`, { method: 'POST' }).catch(() => {});
+    }
     setPhase('select');
     setAnalyzeJobId(null);
     setAnalyzeProgress(null);
     setAnalyzeError(null);
     setReportHtml('');
-  }, []);
+  }, [phase, analyzeJobId]);
 
   // ---------- Render ----------
   return (
@@ -424,6 +437,39 @@ export function SectorScanner() {
                 <AlertTriangle size={12} /> {scanError}
               </p>
             )}
+
+            {/* Custom Sector Input for IDLE phase */}
+            <div className="w-full max-w-md mt-6 pt-6 border-t border-indigo-100/60">
+              <p className="text-xs text-zinc-500 text-center mb-3">或者，直接输入您关心的自定义主题：</p>
+              <div className="flex items-center gap-2 bg-white p-2 rounded-xl border border-zinc-200/60 shadow-sm focus-within:border-indigo-300 focus-within:shadow-md transition-all">
+                <Search size={16} className="text-zinc-400 ml-2" />
+                <input
+                  type="text"
+                  placeholder="输入主题/板块名称 (如: 低空经济)..."
+                  value={customSector}
+                  onChange={e => setCustomSector(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter' && customSector.trim()) {
+                      startAnalysis(customSector.trim());
+                      setCustomSector('');
+                    }
+                  }}
+                  className="flex-1 text-sm bg-transparent border-0 outline-none px-2 text-zinc-700 w-full"
+                />
+                <button
+                  onClick={() => {
+                    if (customSector.trim()) {
+                      startAnalysis(customSector.trim());
+                      setCustomSector('');
+                    }
+                  }}
+                  disabled={!customSector.trim()}
+                  className="px-4 py-1.5 bg-indigo-50 text-indigo-600 font-medium text-xs rounded-lg hover:bg-indigo-100 disabled:opacity-50 transition-colors flex-shrink-0"
+                >
+                  开始深度分析
+                </button>
+              </div>
+            </div>
           </motion.div>
         )}
 
@@ -507,8 +553,38 @@ export function SectorScanner() {
             </div>
 
             {sectors.length === 0 && (
-              <p className="text-center text-zinc-400 text-sm py-4">未能提取到推荐板块，请重新扫描</p>
+              <p className="text-center text-zinc-400 text-sm py-4">未能提取到推荐板块，请重新扫描，或下方手动输入</p>
             )}
+
+            {/* Custom Sector Input */}
+            <div className="flex items-center gap-2 mt-4 bg-white p-2 rounded-xl border border-zinc-200/60 shadow-sm focus-within:border-indigo-300 focus-within:shadow-md transition-all">
+              <Search size={16} className="text-zinc-400 ml-2" />
+              <input
+                type="text"
+                placeholder="输入自定义主题/板块名称进行分析 (如: 低空经济, 固态电池)..."
+                value={customSector}
+                onChange={e => setCustomSector(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter' && customSector.trim()) {
+                    startAnalysis(customSector.trim());
+                    setCustomSector('');
+                  }
+                }}
+                className="flex-1 text-sm bg-transparent border-0 outline-none px-2 text-zinc-700"
+              />
+              <button
+                onClick={() => {
+                  if (customSector.trim()) {
+                    startAnalysis(customSector.trim());
+                    setCustomSector('');
+                  }
+                }}
+                disabled={!customSector.trim()}
+                className="px-4 py-1.5 bg-indigo-50 text-indigo-600 font-medium text-xs rounded-lg hover:bg-indigo-100 disabled:opacity-50 transition-colors"
+              >
+                开始深度分析
+              </button>
+            </div>
           </motion.div>
         )}
 

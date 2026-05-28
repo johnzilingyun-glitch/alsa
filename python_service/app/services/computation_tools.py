@@ -36,7 +36,29 @@ def dcf_calculate(params: Dict[str, Any]) -> str:
         fcf_base = float(params.get("fcf_base", 0))
         growth_rates = params.get("growth_rates", [0.10, 0.08, 0.07, 0.06, 0.05])
         terminal_growth = float(params.get("terminal_growth", 0.03))
-        wacc = float(params.get("wacc", 0.09))
+        
+        # WACC Breakdown logic
+        rf = params.get("rf")
+        beta = params.get("beta")
+        erp = params.get("erp")
+        kd = params.get("kd")
+        tax_rate = float(params.get("tax_rate", 0.25))
+        debt_weight = float(params.get("debt_weight", 0.3))
+        equity_weight = 1.0 - debt_weight
+        
+        wacc_breakdown = ""
+        if rf is not None and beta is not None and erp is not None:
+            ke = float(rf) + float(beta) * float(erp)
+            if kd is not None:
+                wacc = equity_weight * ke + debt_weight * float(kd) * (1.0 - tax_rate)
+                wacc_breakdown = f" (Breakdown: Ke={ke:.2%}, Kd={float(kd):.2%}, Wd={debt_weight:.0%}, Tax={tax_rate:.0%}, Rf={float(rf):.2%}, Beta={float(beta):.2f}, ERP={float(erp):.2%})"
+            else:
+                wacc = ke
+                wacc_breakdown = f" (Breakdown: 100% Equity, CAPM Ke={ke:.2%}, Rf={float(rf):.2%}, Beta={float(beta):.2f}, ERP={float(erp):.2%})"
+        else:
+            wacc = float(params.get("wacc", 0.09))
+            wacc_breakdown = " [BLACK BOX WACC]"
+
         shares = float(params.get("shares_outstanding", 1))
         net_debt = float(params.get("net_debt", 0))
         currency = params.get("currency", "USD")
@@ -109,7 +131,7 @@ def dcf_calculate(params: Dict[str, Any]) -> str:
         for i, (label, row) in enumerate(zip(labels, sensitivity)):
             lines.append(f"| {label} | {row[0]} | {row[1]} | {row[2]} |")
         lines.append("")
-        lines.append(f"**Assumptions**: WACC={wacc:.2%}, Terminal g={terminal_growth:.2%}, Shares={shares:.1f}M")
+        lines.append(f"**Assumptions**: WACC={wacc:.2%}{wacc_breakdown}, Terminal g={terminal_growth:.2%}, Shares={shares:.1f}M")
 
         return _obs("\n".join(lines))
     except Exception as e:

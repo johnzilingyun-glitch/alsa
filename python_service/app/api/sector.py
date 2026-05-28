@@ -148,6 +148,19 @@ async def get_scan_status(job_id: str):
     return success_response(job)
 
 
+@router.post("/scan/{job_id}/cancel")
+async def cancel_scan(job_id: str):
+    """Cancel a running scan job."""
+    task = _scan_tasks.get(job_id)
+    if task and not task.done():
+        task.cancel()
+        if job_id in _scan_jobs:
+            _scan_jobs[job_id]["status"] = "cancelled"
+            _scan_jobs[job_id]["error"] = "已手动取消"
+        return success_response({"status": "cancelled"})
+    return error_response("NOT_FOUND", "Running scan job not found or already completed")
+
+
 async def _run_scan(job_id: str, model: str, target_date: str):
     """Execute the market sector scan via LLM + tools."""
     from ..services.llm_gateway import llm_gateway
@@ -290,10 +303,10 @@ async def start_sector_analysis(req: SectorAnalyzeRequest):
     if not req.force:
         with session_factory() as session:
             statement = select(AnalysisJob).where(
-                AnalysisJob.symbol == req.sector_name,
                 AnalysisJob.market == "sector",
                 AnalysisJob.status == "completed",
-                AnalysisJob.snapshot_id == target_date
+                AnalysisJob.snapshot_id == target_date,
+                AnalysisJob.symbol.like(f"%{req.sector_name}%")
             ).order_by(AnalysisJob.finished_at.desc())
             existing_job = session.exec(statement).first()
             if existing_job:
@@ -366,6 +379,20 @@ async def get_sector_analysis_status(job_id: str):
     }))
 
 
+@router.post("/analyze/{job_id}/cancel")
+async def cancel_sector_analysis(job_id: str):
+    """Cancel a running sector analysis job."""
+    meta = _scan_jobs.get(f"analyze_{job_id}")
+    if meta:
+        service = meta["service"]
+        task = service._running_tasks.get(job_id)
+        if task and not task.done():
+            task.cancel()
+            service.job_repo.update_status(job_id, "cancelled")
+            return success_response({"status": "cancelled"})
+    return error_response("NOT_FOUND", "Running analysis job not found or already completed")
+
+
 @router.get("/report/{job_id}")
 async def get_sector_report(job_id: str):
     """Generate and return sector HTML report."""
@@ -401,8 +428,12 @@ async def get_sector_report(job_id: str):
         return error_response("NO_RESULT", "No analysis result available for report")
 
     report_service = SectorReportService()
-    sector_name = result.get("symbol", "sector")
-    output_path = f"sector_{sector_name}_report.html"
+    date_str = datetime.now().strftime("%Y-%m-%d")
+    last_updated = result.get("stockInfo", {}).get("lastUpdated", "")
+    if last_updated:
+        date_str = last_updated[:10].replace("/", "-")
+        
+    output_path = f"/home/zily/alsa/reports/sector/{date_str}/report_{job_id}.html"
 
     model = _resolve_model()
     html_path = await report_service.generate_sector_report(result, output_path, model=model)
@@ -451,8 +482,12 @@ async def export_sector_html(job_id: str):
         return error_response("NO_RESULT", "No analysis result available")
 
     report_service = SectorReportService()
-    sector_name = result.get("symbol", "sector")
-    output_path = f"sector_{sector_name}_report.html"
+    date_str = datetime.now().strftime("%Y-%m-%d")
+    last_updated = result.get("stockInfo", {}).get("lastUpdated", "")
+    if last_updated:
+        date_str = last_updated[:10].replace("/", "-")
+        
+    output_path = f"/home/zily/alsa/reports/sector/{date_str}/report_{job_id}.html"
     model = _resolve_model()
     html_path = await report_service.generate_sector_report(result, output_path, model=model)
 
@@ -460,7 +495,7 @@ async def export_sector_html(job_id: str):
         html_content = f.read()
 
     import urllib.parse
-    filename = f"SectorReport_{sector_name}_{job_id}.html"
+    filename = f"SectorReport_{job_id}.html"
     encoded_filename = urllib.parse.quote(filename)
     return Response(
         content=html_content,
@@ -479,8 +514,12 @@ async def export_sector_pdf(job_id: str):
         return error_response("NO_RESULT", "No analysis result available")
 
     report_service = SectorReportService()
-    sector_name = result.get("symbol", "sector")
-    output_path = f"sector_{sector_name}_report.html"
+    date_str = datetime.now().strftime("%Y-%m-%d")
+    last_updated = result.get("stockInfo", {}).get("lastUpdated", "")
+    if last_updated:
+        date_str = last_updated[:10].replace("/", "-")
+        
+    output_path = f"/home/zily/alsa/reports/sector/{date_str}/report_{job_id}.html"
     model = _resolve_model()
     html_path = await report_service.generate_sector_report(result, output_path, model=model)
 
@@ -489,7 +528,7 @@ async def export_sector_pdf(job_id: str):
 
     pdf_bytes = await export_service.html_to_pdf(html_content, landscape=False)
     import urllib.parse
-    filename = f"SectorReport_{sector_name}_{job_id}.pdf"
+    filename = f"SectorReport_{job_id}.pdf"
     encoded_filename = urllib.parse.quote(filename)
     return Response(
         content=pdf_bytes,
@@ -524,7 +563,7 @@ async def export_sector_share_card(job_id: str):
         report_type="sector",
     )
     png_bytes = await export_service.html_to_image(card_html, width=460)
-    filename = f"ShareCard_Sector_{sector_name}.png"
+    filename = f"ShareCard_Sector_{job_id}.png"
     return Response(
         content=png_bytes,
         media_type="image/png",
@@ -570,26 +609,79 @@ async def get_history_by_date(date: str, type: str, sector_name: Optional[str] =
 
     session_factory = build_session_factory(DATABASE_URL)
     with session_factory() as session:
-        statement = select(AnalysisJob).where(
-            AnalysisJob.symbol == symbol,
-            AnalysisJob.market == "sector",
-            AnalysisJob.status == "completed",
-            AnalysisJob.snapshot_id == date
-        ).order_by(AnalysisJob.finished_at.desc())
-        job = session.exec(statement).first()
-        if not job:
-            return error_response("NOT_FOUND", "No historical record found for this date")
+        if type == "scan":
+            # Fetch the main scan job if it exists
+            statement = select(AnalysisJob).where(
+                AnalysisJob.symbol == symbol,
+                AnalysisJob.market == "sector",
+                AnalysisJob.status == "completed",
+                AnalysisJob.snapshot_id == date
+            ).order_by(AnalysisJob.finished_at.desc())
+            job = session.exec(statement).first()
 
-        result_data = None
-        if job.result_payload:
-            try:
-                result_data = json.loads(job.result_payload)
-            except Exception:
-                pass
+            # Also fetch all manually analyzed sectors for this date
+            manual_statement = select(AnalysisJob.symbol).where(
+                AnalysisJob.market == "sector",
+                AnalysisJob.status == "completed",
+                AnalysisJob.snapshot_id == date,
+                AnalysisJob.symbol != "market_sector_scan"
+            )
+            manual_sectors = session.exec(manual_statement).all()
 
-        return success_response({
-            "job_id": job.job_id,
-            "status": job.status,
+            if not job and not manual_sectors:
+                return error_response("NOT_FOUND", "No historical record found for this date")
+
+            # Build or extend the scan result payload
+            result_data = None
+            sectors_set = set()
+            
+            if job and job.result_payload:
+                try:
+                    result_data = json.loads(job.result_payload)
+                    sectors_set.update(result_data.get("sectors", []))
+                except Exception:
+                    pass
+            
+            if not result_data:
+                result_data = {
+                    "result": "当日未执行全市场扫描大模型分析。以下为手动分析保存的板块/主题：", 
+                    "sectors": []
+                }
+            
+            # Merge custom manually analyzed sectors
+            for s in manual_sectors:
+                if s:
+                    sectors_set.add(s)
+            
+            result_data["sectors"] = list(sectors_set)
+
+            return success_response({
+                "job_id": job.job_id if job else "custom_history",
+                "status": "completed",
+                "result": result_data
+            })
+        else:
+            statement = select(AnalysisJob).where(
+                AnalysisJob.market == "sector",
+                AnalysisJob.status == "completed",
+                AnalysisJob.snapshot_id == date,
+                AnalysisJob.symbol.like(f"%{symbol}%")
+            ).order_by(AnalysisJob.finished_at.desc())
+            
+            job = session.exec(statement).first()
+            if not job:
+                return error_response("NOT_FOUND", "No historical record found for this date")
+
+            result_data = None
+            if job.result_payload:
+                try:
+                    result_data = json.loads(job.result_payload)
+                except Exception:
+                    pass
+
+            return success_response({
+                "job_id": job.job_id,
+                "status": job.status,
             "result": result_data,
             "finished_at": job.finished_at.isoformat() if job.finished_at else None
         })

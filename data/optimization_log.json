@@ -1125,5 +1125,19 @@
     "oldValue": "startup",
     "newValue": "active",
     "description": "Server started and background tasks initialized"
+  },
+  {
+    "timestamp": "2026-05-28T08:05:56.192Z",
+    "field": "export_html_report",
+    "oldValue": "markdown",
+    "newValue": "pro_html_backend",
+    "description": "成功导出专业 HTML 研报 (后端渲染): QINGHAI SALT LAKE INDUSTRY CO L"
+  },
+  {
+    "timestamp": "2026-05-28T08:06:19.588Z",
+    "field": "export_html_report",
+    "oldValue": "markdown",
+    "newValue": "pro_html_backend",
+    "description": "成功导出专业 HTML 研报 (后端渲染): QINGHAI SALT LAKE INDUSTRY CO L"
   }
 ]

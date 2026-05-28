@@ -39,6 +39,23 @@ tools:
   management_query:
     enabled: true
     description: "Shareholder/management data via 同花顺问财 (股东, 股本, 实控人, 高管)"
+  commodity_price_query:
+    enabled: true
+    description: "Commodity spot/market prices query via 同花顺问财 comprehensive search"
+  futures_query:
+    enabled: true
+    description: "Futures and commodity spot prices query via 同花顺问财"
+  valuation_query:
+    enabled: true
+    description: "Stock valuation multiples query via 同花顺问财"
+  industry_query:
+    enabled: true
+    description: "Industry concepts and concept stocks query via 同花顺问财"
+  policy_query:
+    enabled: true
+    description: "Policy support and policy-driven stocks query via 同花顺问财"
+
+
 
   # ──── Computation Tools ────
   dcf_calculator:

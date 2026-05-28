@@ -209,18 +209,24 @@ TOOL_DEFINITIONS = [
     # ────── COMPUTATION TOOLS (deterministic, no LLM math needed) ──────
     {
         "name": "dcf_calculator",
-        "description": "Perform a full Discounted Cash Flow valuation with sensitivity table. Returns intrinsic value per share. Use this instead of calculating DCF manually — this tool guarantees arithmetic accuracy. Provide FCF, growth rates, WACC, shares outstanding, and net debt.",
+        "description": "Perform a full Discounted Cash Flow valuation with sensitivity table. Returns intrinsic value per share. To avoid WACC black-box audits, you MUST provide rf, beta, erp, and kd to calculate WACC dynamically. Provide FCF, growth rates, shares outstanding, and net debt.",
         "parameters": {
             "fcf_base": {"type": "number", "description": "Current year Free Cash Flow in millions", "required": True},
             "growth_rates": {"type": "array", "description": "List of 5 yearly FCF growth rates, e.g. [0.15, 0.12, 0.10, 0.08, 0.06]", "required": True},
             "terminal_growth": {"type": "number", "description": "Perpetual growth rate (must be < WACC), e.g. 0.03", "required": True},
-            "wacc": {"type": "number", "description": "Weighted Average Cost of Capital, e.g. 0.09", "required": True},
+            "wacc": {"type": "number", "description": "Weighted Average Cost of Capital (e.g. 0.09). Only use if rf/beta/erp are missing.", "required": False},
+            "rf": {"type": "number", "description": "Risk-free rate (e.g. 0.04)", "required": False},
+            "beta": {"type": "number", "description": "Beta coefficient (e.g. 1.2)", "required": False},
+            "erp": {"type": "number", "description": "Equity Risk Premium (e.g. 0.05)", "required": False},
+            "kd": {"type": "number", "description": "Cost of debt (e.g. 0.05)", "required": False},
+            "debt_weight": {"type": "number", "description": "Debt to capital ratio (e.g. 0.3)", "required": False},
+            "tax_rate": {"type": "number", "description": "Corporate tax rate (e.g. 0.25)", "required": False},
             "shares_outstanding": {"type": "number", "description": "Shares outstanding in millions", "required": True},
             "net_debt": {"type": "number", "description": "Net debt in millions (debt - cash). Negative if net cash.", "required": True},
             "currency": {"type": "string", "description": "Currency (USD/CNY/HKD)", "required": False},
         },
         "examples": [
-            'tool: dcf_calculator\nreason: Calculate intrinsic value via DCF\nfcf_base: 85000\ngrowth_rates: [0.15, 0.12, 0.10, 0.08, 0.06]\nterminal_growth: 0.03\nwacc: 0.09\nshares_outstanding: 7440\nnet_debt: -45000\ncurrency: USD',
+            'tool: dcf_calculator\nreason: Calculate intrinsic value via DCF\nparams: {"fcf_base": 85000, "growth_rates": [0.15, 0.12, 0.10, 0.08, 0.06], "terminal_growth": 0.03, "rf": 0.04, "beta": 1.2, "erp": 0.05, "kd": 0.05, "shares_outstanding": 7440, "net_debt": -45000, "currency": "USD"}'
         ],
     },
     {
@@ -380,6 +386,77 @@ TOOL_DEFINITIONS = [
             'tool: cagr_calculator\nreason: Calculate 3-year revenue CAGR\nparams: {"start_value": 168000, "end_value": 245000, "years": 3}',
         ],
     },
+    {
+        "name": "commodity_price_query",
+        "description": "Query spot/market prices, historical trends, and weekly report quotes for commodities, materials, resources, and chemical products (e.g. 氯化钾, 尿素, 碳酸锂, 聚乙烯, 铁矿石). Source: 同花顺问财 (Iwencai) comprehensive search. Returns recent industry reports and market quotes.",
+        "parameters": {
+            "query": {
+                "type": "string",
+                "description": "Commodity search query in natural language. e.g. '国产60%氯化钾价格', '尿素市场报价'.",
+                "required": True,
+            }
+        },
+        "examples": [
+            'tool: commodity_price_query\nreason: Check current spot price of potassium chloride\nquery:国产60%氯化钾 价格',
+            'tool: commodity_price_query\nreason: Get latest market quotation for urea\nquery: 尿素 最新市场报价',
+        ],
+    },
+    {
+        "name": "futures_query",
+        "description": "Query futures and commodity spot prices, basis, contract details, and indexes (e.g. 螺纹钢现货价, 黄金期货价格, 铜库存). Source: 同花顺问财 (Iwencai). Supports natural language queries in Chinese. Returns structured data with indicator values, time, and units.",
+        "parameters": {
+            "query": {
+                "type": "string",
+                "description": "Futures/commodity query in natural language. e.g. '螺纹钢现货价最新', '甲醇期货结算价'.",
+                "required": True,
+            }
+        },
+        "examples": [
+            'tool: futures_query\nreason: Check current spot price of steel rebar\nquery: 螺纹钢现货价格',
+        ],
+    },
+    {
+        "name": "valuation_query",
+        "description": "Query precise stock valuation metrics including PE (ttm/static/dynamic), PB, PS, dividend yield, and market cap. Source: 同花顺问财 (Iwencai). Supports natural language queries. Use for checking real-time valuation multiples.",
+        "parameters": {
+            "query": {
+                "type": "string",
+                "description": "Stock valuation query in natural language. e.g. '贵州茅台市盈率市净率', '腾讯控股最新股息率'.",
+                "required": True,
+            }
+        },
+        "examples": [
+            'tool: valuation_query\nreason: Check current valuation multiples for Moutai\nquery: 贵州茅台 市盈率 市净率',
+        ],
+    },
+    {
+        "name": "industry_query",
+        "description": "Query industry concepts, sector thematic indices, and concept stock inclusion reasons. Source: 同花顺问财 (Iwencai). Use for understanding stock concept associations.",
+        "parameters": {
+            "query": {
+                "type": "string",
+                "description": "Industry or concept stock query. e.g. '低空经济概念股有哪些', '优刻得纳入低空经济概念原因'.",
+                "required": True,
+            }
+        },
+        "examples": [
+            'tool: industry_query\nreason: Identify concept stocks and reasons\nquery: 低空经济 概念股及纳入原因',
+        ],
+    },
+    {
+        "name": "policy_query",
+        "description": "Query policy support details, national/regional strategic directives, and policy-driven concept stock lists. Source: 同花顺问财 (Iwencai).",
+        "parameters": {
+            "query": {
+                "type": "string",
+                "description": "Policy query in natural language. e.g. '低空经济政策支持利好个股'.",
+                "required": True,
+            }
+        },
+        "examples": [
+            'tool: policy_query\nreason: Find policy-driven concept stocks\nquery: 半导体产业政策利好股票',
+        ],
+    },
 ]
 
 
@@ -439,7 +516,7 @@ def format_tool_descriptions(language: str = "zh-CN") -> str:
     lines.append("<tool_call>")
     lines.append("tool: dcf_calculator")
     lines.append("reason: Calculate intrinsic value for MSFT")
-    lines.append("params: {\"fcf_base\": 85000, \"growth_rates\": [0.15, 0.12, 0.10, 0.08, 0.06], \"terminal_growth\": 0.03, \"wacc\": 0.09, \"shares_outstanding\": 7440, \"net_debt\": -45000, \"currency\": \"USD\"}")
+    lines.append("params: {\"fcf_base\": 85000, \"growth_rates\": [0.15, 0.12, 0.10, 0.08, 0.06], \"terminal_growth\": 0.03, \"rf\": 0.04, \"beta\": 1.1, \"erp\": 0.05, \"kd\": 0.045, \"debt_weight\": 0.1, \"tax_rate\": 0.21, \"shares_outstanding\": 7440, \"net_debt\": -45000, \"currency\": \"USD\"}")
     lines.append("</tool_call>")
     lines.append("")
     lines.append("<tool_call>")
@@ -725,8 +802,18 @@ class ToolExecutor:
                 raw = await self._exec_finance_query(query)
             elif tool_name == "management_query":
                 raw = await self._exec_management_query(query)
+            elif tool_name == "commodity_price_query":
+                raw = await self._exec_commodity_price_query(query)
+            elif tool_name == "futures_query":
+                raw = await self._exec_futures_query(query)
+            elif tool_name == "valuation_query":
+                raw = await self._exec_valuation_query(query)
+            elif tool_name == "industry_query":
+                raw = await self._exec_industry_query(query)
+            elif tool_name == "policy_query":
+                raw = await self._exec_policy_query(query)
             else:
-                return f"<tool_observation>\nError: Unknown tool '{tool_name}'. Available: web_search, news_search, announcement_search, report_search, knowledge_search, deep_scrape, financial_data, macro_query, business_query, finance_query, management_query, dcf_calculator, position_sizer, kelly_calculator, beat_miss_scorer, comps_valuation, pillar_scorer, dupont_decomposition, minervini_stage, earnings_quality_audit, drawdown_scenario, risk_reward, stop_loss_validator, cagr_calculator.\n</tool_observation>"
+                return f"<tool_observation>\nError: Unknown tool '{tool_name}'. Available: web_search, news_search, announcement_search, report_search, knowledge_search, deep_scrape, financial_data, macro_query, business_query, finance_query, management_query, commodity_price_query, futures_query, valuation_query, industry_query, policy_query, dcf_calculator, position_sizer, kelly_calculator, beat_miss_scorer, comps_valuation, pillar_scorer, dupont_decomposition, minervini_stage, earnings_quality_audit, drawdown_scenario, risk_reward, stop_loss_validator, cagr_calculator.\n</tool_observation>"
             
             # TokenGuard: enforce per-tool char limits and round budget
             return token_guard.enforce(tool_name, raw)
@@ -904,6 +991,69 @@ class ToolExecutor:
     async def _exec_management_query(self, query: str) -> str:
         """Query company shareholder/management data via Iwencai (同花顺问财)."""
         return await self._exec_iwencai_query(query, "hithink-management-query", "Management/shareholder data")
+
+    async def _exec_commodity_price_query(self, query: str) -> str:
+        """Search for commodity spot prices using Iwencai comprehensive search."""
+        import os
+        from datetime import datetime
+        MAX_ITEMS = 8
+        MAX_TITLE = 80
+        MAX_CONTENT = 250
+
+        lines = ["<tool_observation>"]
+        lines.append(f"Commodity Price Search: {query}")
+        lines.append(f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+        lines.append("")
+
+        try:
+            from .data_providers.iwencai_news import search_comprehensive
+            raw = await search_comprehensive(query)
+            if raw.get("status_code") == 0 and raw.get("data"):
+                # Sort by publish date descending
+                items = raw["data"]
+                def get_date(x):
+                    d = x.get("publish_date", "")
+                    return d if d else "0000-00-00"
+                items.sort(key=get_date, reverse=True)
+                
+                count = 0
+                for item in items:
+                    if count >= MAX_ITEMS:
+                        break
+                    title = item.get("title", "")[:MAX_TITLE]
+                    content = item.get("summary", "")[:MAX_CONTENT]
+                    date = item.get("publish_date", "")[:10]
+                    source = item.get("extra", {}).get("real_publish_source", "")[:20]
+                    
+                    lines.append(f"{count+1}. [{date}] {title} ({source})")
+                    if content:
+                        lines.append(f"   {content}")
+                    count += 1
+                if count == 0:
+                    lines.append("No results found in Iwencai comprehensive search.")
+            else:
+                lines.append("No results found in Iwencai comprehensive search.")
+        except Exception as e:
+            lines.append(f"Error querying Iwencai: {str(e)}")
+
+        lines.append("</tool_observation>")
+        return "\n".join(lines)
+
+    async def _exec_futures_query(self, query: str) -> str:
+        """Query futures and commodity spot prices via Iwencai (同花顺问财)."""
+        return await self._exec_iwencai_query(query, "hithink-futures-query", "Futures/commodity data")
+
+    async def _exec_valuation_query(self, query: str) -> str:
+        """Query stock valuation metrics via Iwencai (同花顺问财)."""
+        return await self._exec_iwencai_query(query, "hithink-valuation-query", "Valuation data")
+
+    async def _exec_industry_query(self, query: str) -> str:
+        """Query industry/sector themes and concept stocks via Iwencai (同花顺问财)."""
+        return await self._exec_iwencai_query(query, "hithink-industry-query", "Industry data")
+
+    async def _exec_policy_query(self, query: str) -> str:
+        """Query national/local policy drivers and concept inclusions via Iwencai (同花顺问财)."""
+        return await self._exec_iwencai_query(query, "hithink-policy-query", "Policy data")
 
     async def _exec_iwencai_query(self, query: str, skill_id: str, label: str) -> str:
         """Generic Iwencai query2data API call for structured data skills.

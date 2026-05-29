@@ -152,7 +152,7 @@ export async function startMultiRoundDiscussion(
   const backtest = performBacktest(analysis, previousAnalysis);
 
   // Store reflection from backtest outcomes for future retrieval
-  reflectAndRemember(analysis, backtest);
+  await reflectAndRemember(analysis, backtest);
 
   // --- NEW: Generate Quantitative Baseline ---
   const { coreVariables: discoveredVars, industryAnchors: discoveredAnchors } = discoverIndustryAnchors(analysis, commoditiesData);
@@ -783,11 +783,11 @@ export async function startAgentDiscussion(
   ` : "";
 
   // Inject reflection memory from past outcomes
-  const memories = retrieveMemories(analysis.stockInfo.symbol, analysis.sentiment);
+  const memories = await retrieveMemories(analysis.stockInfo.symbol, analysis.sentiment);
   const reflectionMemory = formatMemoryForPrompt(memories);
 
   // Store reflection if we have backtest data (learn from this cycle)
-  reflectAndRemember(analysis, resolvedBacktest);
+  await reflectAndRemember(analysis, resolvedBacktest);
 
   const brainContext = await getBrainContext(analysis.stockInfo.symbol);
 

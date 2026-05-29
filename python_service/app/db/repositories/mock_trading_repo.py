@@ -61,6 +61,68 @@ class MockTradingRepo:
             return True
         return False
 
+    def merge_accounts(self, source_account_ids: List[str], target_account_id: str, total_cash_to_add: float, total_initial_balance_to_add: float):
+        """Move all positions, trades, anomalies, and snapshots from source accounts to target account."""
+        target_account = self.get_account(target_account_id)
+        if not target_account:
+            return False
+
+        # Add converted cash and initial balance
+        target_account.current_cash += total_cash_to_add
+        target_account.initial_balance += total_initial_balance_to_add
+        self.session.add(target_account)
+
+        # Merge relationships
+        for source_id in source_account_ids:
+            # Positions: if target already has same symbol/market, merge shares and average cost
+            stmt_pos = select(MockPosition).where(MockPosition.account_id == source_id)
+            source_positions = self.session.exec(stmt_pos).all()
+            for src_pos in source_positions:
+                tgt_pos = self.get_position(target_account_id, src_pos.symbol, src_pos.market)
+                if tgt_pos:
+                    if src_pos.shares > 0:
+                        new_shares = tgt_pos.shares + src_pos.shares
+                        new_cost = ((tgt_pos.shares * tgt_pos.average_cost) + (src_pos.shares * src_pos.average_cost)) / new_shares
+                        tgt_pos.shares = new_shares
+                        tgt_pos.average_cost = new_cost
+                        self.session.add(tgt_pos)
+                    self.session.delete(src_pos)
+                else:
+                    src_pos.account_id = target_account_id
+                    self.session.add(src_pos)
+
+            # Trades
+            stmt_trades = select(MockTrade).where(MockTrade.account_id == source_id)
+            source_trades = self.session.exec(stmt_trades).all()
+            for trade in source_trades:
+                trade.account_id = target_account_id
+                self.session.add(trade)
+
+            # Anomalies
+            stmt_anomalies = select(AnomalyLog).where(AnomalyLog.account_id == source_id)
+            source_anomalies = self.session.exec(stmt_anomalies).all()
+            for anomaly in source_anomalies:
+                anomaly.account_id = target_account_id
+                self.session.add(anomaly)
+
+            # Snapshots
+            stmt_snapshots = select(MockAccountSnapshot).where(MockAccountSnapshot.account_id == source_id)
+            source_snapshots = self.session.exec(stmt_snapshots).all()
+            for snapshot in source_snapshots:
+                snapshot.account_id = target_account_id
+                self.session.add(snapshot)
+            
+            # Archive source account
+            src_acc = self.get_account(source_id)
+            if src_acc:
+                src_acc.status = "archived"
+                self.session.add(src_acc)
+
+        self.session.commit()
+        self.session.refresh(target_account)
+        return target_account
+
+
     # ── Position CRUD ─────────────────────────────────────────────
 
     def get_position(self, account_id: str, symbol: str, market: str) -> Optional[MockPosition]:

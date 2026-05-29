@@ -1,19 +1,23 @@
 import { useState, useEffect, useCallback } from 'react';
-import { ArrowLeft, RefreshCw, TrendingUp, DollarSign, BarChart3, Wallet, Plus, Trash2, Activity, AlertTriangle, Clock, ChevronDown } from 'lucide-react';
+import { ArrowLeft, RefreshCw, TrendingUp, DollarSign, BarChart3, Wallet, Plus, Trash2, Activity, AlertTriangle, Clock, Combine } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import { useUIStore } from '../../stores/useUIStore';
 import {
   listMockAccounts, createMockAccount, deleteMockAccount,
-  getPortfolio, listTrades, listSnapshots, listAnomalies,
+  getPortfolio, getPortfolioWithPrices, listTrades, listSnapshots, listAnomalies,
   type MockAccount, type PortfolioSummary, type MockTrade, type Snapshot, type AnomalyEntry
 } from '../../services/api/mockTradingClient';
+import { getQuotes } from '../../services/api/stockClient';
+import { TradeTicketModal } from './TradeTicketModal';
+import { AccountMergeModal } from './AccountMergeModal';
 
 type TabId = 'portfolio' | 'trades' | 'anomalies';
 
 const MARKET_OPTIONS = [
-  { value: 'A-Share', label: 'A股 · CNY', currency: 'CNY', default: '1,000,000' },
-  { value: 'HK-Share', label: '港股 · HKD', currency: 'HKD', default: '2,000,000' },
-  { value: 'US-Share', label: '美股 · USD', currency: 'USD', default: '1,000,000' },
+  { value: 'A-Share', label: 'A股 · CNY', currency: 'CNY', default: 1000000 },
+  { value: 'HK-Share', label: '港股 · HKD', currency: 'HKD', default: 2000000 },
+  { value: 'US-Share', label: '美股 · USD', currency: 'USD', default: 1000000 },
+  { value: 'Global', label: '全球组合 · CNY', currency: 'CNY', default: 1000000 },
 ];
 
 const PIE_COLORS = ['#6366f1', '#10b981', '#f59e0b', '#f43f5e', '#8b5cf6', '#06b6d4', '#ec4899'];
@@ -29,8 +33,11 @@ export function MockTradingDashboard() {
   const [activeTab, setActiveTab] = useState<TabId>('portfolio');
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
+  const [showTradeTicket, setShowTradeTicket] = useState(false);
+  const [showMerge, setShowMerge] = useState(false);
   const [newName, setNewName] = useState('');
-  const [newMarket, setNewMarket] = useState('A-Share');
+  const [newMarket, setNewMarket] = useState('Global');
+  const [newInitialBalance, setNewInitialBalance] = useState<string>('');
 
   const loadAccounts = useCallback(async () => {
     setLoading(true);
@@ -46,8 +53,20 @@ export function MockTradingDashboard() {
 
   const loadAccountData = useCallback(async (acc: MockAccount) => {
     try {
-      const [pf, tr, sn, an] = await Promise.all([
-        getPortfolio(acc.account_id).catch(() => null),
+      // Fetch initial portfolio to get symbols
+      let pf = await getPortfolio(acc.account_id).catch(() => null);
+      if (pf && pf.positions.length > 0) {
+        // Fetch live quotes
+        const symbols = pf.positions.map(p => p.symbol);
+        const quotes = await getQuotes(symbols).catch(() => []);
+        const priceMap: Record<string, number> = {};
+        quotes.forEach(q => { priceMap[q.symbol] = q.price; });
+        
+        // Fetch updated portfolio with live prices
+        pf = await getPortfolioWithPrices(acc.account_id, priceMap).catch(() => pf);
+      }
+
+      const [tr, sn, an] = await Promise.all([
         listTrades(acc.account_id).catch(() => []),
         listSnapshots(acc.account_id).catch(() => []),
         listAnomalies(acc.account_id).catch(() => []),
@@ -65,12 +84,38 @@ export function MockTradingDashboard() {
     if (selectedAccount) loadAccountData(selectedAccount);
   }, [selectedAccount, loadAccountData]);
 
+  // 3-minute polling for live prices
+  useEffect(() => {
+    let interval: NodeJS.Timeout;
+    if (selectedAccount && portfolio && portfolio.positions.length > 0) {
+      interval = setInterval(async () => {
+        try {
+          const symbols = portfolio.positions.map(p => p.symbol);
+          const quotes = await getQuotes(symbols);
+          const priceMap: Record<string, number> = {};
+          quotes.forEach(q => {
+            if (q.price) priceMap[q.symbol] = q.price;
+          });
+          const updatedPf = await getPortfolioWithPrices(selectedAccount.account_id, priceMap);
+          setPortfolio(updatedPf);
+        } catch (e) {
+          console.error("Failed to update live prices:", e);
+        }
+      }, 3 * 60 * 1000);
+    }
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [selectedAccount, portfolio]);
+
   const handleCreate = async () => {
     if (!newName.trim()) return;
     try {
-      await createMockAccount(newName.trim(), newMarket);
+      const initBal = newInitialBalance ? Number(newInitialBalance) : undefined;
+      await createMockAccount(newName.trim(), newMarket, initBal);
       setShowCreate(false);
       setNewName('');
+      setNewInitialBalance('');
       await loadAccounts();
     } catch (e) { console.error(e); }
   };
@@ -109,8 +154,13 @@ export function MockTradingDashboard() {
             </div>
           </div>
           <div className="flex items-center gap-3">
+            {accounts.length > 1 && (
+              <button onClick={() => setShowMerge(true)} className="h-10 px-4 border border-zinc-200 text-zinc-700 text-sm font-medium rounded-xl hover:bg-zinc-50 transition-colors flex items-center gap-2">
+                <Combine size={16} /> 合并账号
+              </button>
+            )}
             <button onClick={() => setShowCreate(true)} className="h-10 px-4 bg-indigo-600 text-white text-sm font-medium rounded-xl hover:bg-indigo-700 transition-colors flex items-center gap-2">
-              <Plus size={16} /> 新建账号
+                <Plus size={16} /> 新建账号
             </button>
             <button onClick={loadAccounts} disabled={loading} className="h-10 px-4 border border-zinc-200 text-sm font-medium rounded-xl hover:bg-zinc-50 transition-colors flex items-center gap-2 disabled:opacity-50">
               <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
@@ -168,22 +218,31 @@ export function MockTradingDashboard() {
               <SummaryCard icon={<BarChart3 size={20} />} label="持仓数" value={`${portfolio.positions.length} 只`} color="zinc" />
             </div>
 
-            {/* Tabs */}
-            <div className="flex items-center bg-zinc-100 rounded-xl p-1 mb-6 w-fit">
-              {tabs.map(tab => (
-                <button
-                  key={tab.id}
-                  onClick={() => setActiveTab(tab.id)}
-                  className={`flex items-center gap-1.5 px-5 py-2.5 rounded-lg text-sm font-medium transition-all ${
-                    activeTab === tab.id ? 'bg-white text-zinc-900 shadow-sm' : 'text-zinc-500 hover:text-zinc-700'
-                  }`}
-                >
-                  {tab.icon}{tab.label}
-                  {tab.id === 'anomalies' && anomalies.length > 0 && (
-                    <span className="ml-1 w-5 h-5 flex items-center justify-center text-[10px] font-bold bg-rose-500 text-white rounded-full">{anomalies.length}</span>
-                  )}
-                </button>
-              ))}
+            {/* Tabs & Manual Trade */}
+            <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center bg-zinc-100 rounded-xl p-1 w-fit">
+                {tabs.map(tab => (
+                  <button
+                    key={tab.id}
+                    onClick={() => setActiveTab(tab.id)}
+                    className={`flex items-center gap-1.5 px-5 py-2.5 rounded-lg text-sm font-medium transition-all ${
+                      activeTab === tab.id ? 'bg-white text-zinc-900 shadow-sm' : 'text-zinc-500 hover:text-zinc-700'
+                    }`}
+                  >
+                    {tab.icon}{tab.label}
+                    {tab.id === 'anomalies' && anomalies.length > 0 && (
+                      <span className="ml-1 w-5 h-5 flex items-center justify-center text-[10px] font-bold bg-rose-500 text-white rounded-full">{anomalies.length}</span>
+                    )}
+                  </button>
+                ))}
+              </div>
+              
+              <button 
+                onClick={() => setShowTradeTicket(true)}
+                className="h-10 px-4 bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-bold rounded-xl transition-colors shadow-sm shadow-emerald-500/20"
+              >
+                手动买卖
+              </button>
             </div>
 
             {/* Portfolio Tab */}
@@ -218,7 +277,7 @@ export function MockTradingDashboard() {
                               ...portfolio.positions.map(p => ({ name: p.symbol, value: p.market_value || p.shares * p.average_cost })),
                             ]}
                             cx="50%" cy="50%" innerRadius={50} outerRadius={80} paddingAngle={3} dataKey="value"
-                            label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                            label={({ name, percent }) => `${name} ${((percent || 0) * 100).toFixed(0)}%`}
                           >
                             {[portfolio.current_cash, ...portfolio.positions.map(p => p.market_value || 0)].map((_, i) => (
                               <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
@@ -407,7 +466,7 @@ export function MockTradingDashboard() {
                 {MARKET_OPTIONS.map(m => (
                   <button
                     key={m.value}
-                    onClick={() => setNewMarket(m.value)}
+                    onClick={() => { setNewMarket(m.value); setNewInitialBalance(m.default.toString()); }}
                     className={`px-3 py-3 rounded-xl text-xs font-bold border transition-all ${
                       newMarket === m.value
                         ? 'border-indigo-500 bg-indigo-50 text-indigo-700'
@@ -415,10 +474,20 @@ export function MockTradingDashboard() {
                     }`}
                   >
                     <div>{m.label}</div>
-                    <div className="text-[10px] font-normal text-zinc-400 mt-1">初始 {m.default}</div>
+                    <div className="text-[10px] font-normal text-zinc-400 mt-1">推荐 {m.default.toLocaleString()}</div>
                   </button>
                 ))}
               </div>
+            </div>
+            <div>
+              <label className="text-[10px] font-bold text-zinc-500 uppercase block mb-1">自定义初始资金 (选填)</label>
+              <input
+                type="number"
+                value={newInitialBalance}
+                onChange={e => setNewInitialBalance(e.target.value)}
+                placeholder="默认使用市场推荐金额"
+                className="w-full px-4 py-3 rounded-xl border border-zinc-200 text-sm focus:outline-none focus:border-indigo-400"
+              />
             </div>
             <div className="flex gap-3">
               <button onClick={() => setShowCreate(false)} className="flex-1 py-3 rounded-xl border border-zinc-200 text-xs font-bold text-zinc-500 hover:bg-zinc-50">取消</button>
@@ -426,6 +495,24 @@ export function MockTradingDashboard() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Trade Ticket Modal */}
+      {showTradeTicket && selectedAccount && (
+        <TradeTicketModal
+          account={selectedAccount}
+          onClose={() => setShowTradeTicket(false)}
+          onSuccess={() => loadAccountData(selectedAccount)}
+        />
+      )}
+
+      {/* Account Merge Modal */}
+      {showMerge && (
+        <AccountMergeModal
+          accounts={accounts}
+          onClose={() => setShowMerge(false)}
+          onSuccess={() => loadAccounts()}
+        />
       )}
     </div>
   );

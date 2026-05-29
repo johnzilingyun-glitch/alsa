@@ -1,0 +1,12 @@
+# Qlib Paper Trading Environment Dependencies
+# Note: Qlib officially supports Python 3.7/3.8/3.9. 
+# We recommend creating a dedicated Python 3.9 environment for this system.
+# Example: uv venv -p 3.9 .venv_qlib && source .venv_qlib/bin/activate && uv pip install -r requirements.txt
+
+pyqlib==0.9.7
+pandas
+numpy
+scipy
+scikit-learn
+pymongo
+pytest

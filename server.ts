@@ -101,7 +101,8 @@ async function startServer() {
         '/api/alerts',
         '/api/analysis',
         '/api/sector',
-        '/api/mock-trading'
+        '/api/mock-trading',
+        '/api/backtest'
       ];
       return targets.some(t => path.startsWith(t));
     },

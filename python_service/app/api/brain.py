@@ -19,13 +19,18 @@ async def get_brain_context(user_id: str = "default", query: Optional[str] = Non
     except Exception as e:
         return {"success": False, "error": str(e)}
 
+class FeedbackPayload(BaseModel):
+    role: str
+    feedback: str
+    context: Optional[str] = None
+
 @router.post("/feedback")
-async def process_brain_feedback(payload: Dict[str, Any]):
+async def process_brain_feedback(payload: FeedbackPayload):
     """
     Record user feedback to evolve prompts and store long-term facts.
     """
     try:
-        brain_manager.process_feedback(payload)
+        brain_manager.process_feedback(payload.model_dump())
         return {"success": True, "message": "Feedback processed and brain evolved."}
     except Exception as e:
         return {"success": False, "error": str(e)}
@@ -38,6 +43,17 @@ async def get_evolution_instructions():
     try:
         instructions = brain_manager.get_evolved_instructions()
         return {"success": True, "data": instructions}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+@router.get("/evolution/history")
+async def get_evolution_history(role: str):
+    """
+    Retrieve evolution history (genes/mutations) for a specific role.
+    """
+    try:
+        history = brain_manager.get_evolution_history(role)
+        return {"success": True, "data": history}
     except Exception as e:
         return {"success": False, "error": str(e)}
 

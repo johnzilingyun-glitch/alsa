@@ -98,6 +98,25 @@ async def delete_account(account_id: str):
         raise HTTPException(404, "Account not found")
     return {"success": True}
 
+class MergeAccounts(BaseModel):
+    source_account_ids: List[str]
+    target_account_id: str
+
+@router.post("/accounts/merge", status_code=200)
+async def merge_accounts(payload: MergeAccounts):
+    svc = _get_service()
+    if payload.target_account_id in payload.source_account_ids:
+        raise HTTPException(400, "Target account cannot be in source accounts")
+    acc = svc.merge_accounts(payload.source_account_ids, payload.target_account_id)
+    if not acc:
+        raise HTTPException(404, "Target account not found or merge failed")
+    return {"success": True, "data": {
+        "account_id": acc.account_id,
+        "name": acc.name,
+        "current_cash": acc.current_cash,
+        "initial_balance": acc.initial_balance,
+    }}
+
 
 # ══════════════════════════════════════════════════════════════════
 # Trade Execution

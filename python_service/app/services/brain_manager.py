@@ -168,6 +168,27 @@ class BrainManager:
         """
         return {role: genome.alpha.content for role, genome in self.state.genomes.items() if genome.alpha}
 
+    def get_evolution_history(self, role: str) -> List[Dict[str, Any]]:
+        """
+        Retrieves the history of genetic mutations for a role.
+        """
+        genome = self.state.genomes.get(role)
+        if not genome:
+            return []
+        
+        history = []
+        for gene in sorted(genome.population, key=lambda g: g.created_at, reverse=True):
+            history.append({
+                "id": gene.id,
+                "version": gene.version,
+                "content": gene.content,
+                "fitness": gene.fitness,
+                "feedback_logs": gene.feedback_logs,
+                "created_at": gene.created_at.isoformat(),
+                "is_alpha": gene.id == genome.alpha_id
+            })
+        return history
+
     def _load_genome_state(self) -> EvolutionaryState:
         if not os.path.exists(EVOLVED_GENOME_FILE):
             return self._initialize_default_state()
@@ -290,8 +311,9 @@ class BrainManager:
         Return ONLY the updated, comprehensive list of instructions.
         """
         try:
+            model_name = os.getenv('GEMINI_MODEL', 'gemini-3.1-pro-preview')
             response = self.model.models.generate_content(
-                model='gemini-3.1-pro-preview',
+                model=model_name,
                 contents=prompt
             )
             mutated_content = response.text.strip()
@@ -326,8 +348,9 @@ class BrainManager:
         Return ONLY the winning Gene ID.
         """
         try:
+            model_name = os.getenv('GEMINI_MODEL', 'gemini-3.1-pro-preview')
             response = self.model.models.generate_content(
-                model='gemini-3.1-pro-preview',
+                model=model_name,
                 contents=prompt
             )
             winning_id = response.text.strip()

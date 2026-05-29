@@ -68,3 +68,20 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 ---
 
 **These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.
+
+## 5. Proactive Automation (自主闭环)
+
+**自己能完成的就不要让用户去手动操作。**
+
+- If a server needs to be restarted after a code change, write a script or use tools to restart it yourself rather than asking the user to do it.
+- If a dependency needs to be installed, install it.
+- If a file needs to be moved, move it.
+- Take initiative to complete the entire workflow automatically whenever possible.
+
+## 6. Verification and Testing (测试闭环)
+
+**每次开发完成都要将新加的代码逻辑，UI功能都测试一遍，防止遗漏出问题。**
+
+- After adding or modifying any code logic or UI component, write unit tests or E2E tests (using the project's testing frameworks like Vitest, Pytest, React Testing Library) to verify the behavior.
+- Ensure the newly added UI renders correctly and state transitions function as intended without reference errors or typos.
+- Run the tests locally and ensure they pass before declaring the task complete.

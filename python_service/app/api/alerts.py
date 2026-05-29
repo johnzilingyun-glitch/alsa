@@ -44,12 +44,12 @@ async def list_closed_alerts(repo: AlertRepository = Depends(get_repo)):
     return {"items": items}
 
 @router.delete("/{alert_id}")
-async def delete_alert(alert_id: int, repo: AlertRepository = Depends(get_repo)):
+async def delete_alert(alert_id: str, repo: AlertRepository = Depends(get_repo)):
     repo.delete_by_id(alert_id)
     return {"success": True}
 
 @router.patch("/{alert_id}/status")
-async def update_alert_status(alert_id: int, status: str, repo: AlertRepository = Depends(get_repo)):
+async def update_alert_status(alert_id: str, status: str, repo: AlertRepository = Depends(get_repo)):
     repo.update_status(alert_id, status)
     return {"success": True}
 

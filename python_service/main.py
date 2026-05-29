@@ -4,6 +4,7 @@ import time
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from .app.api.router import api_router
+from .app.api import backtest
 from .app.db.sqlite import init_db, build_session_factory, DATABASE_URL
 from .app.services.market_data_service import market_data_service
 from .app.db.repositories.watchlist_repo import WatchlistRepository
@@ -114,6 +115,7 @@ async def startup_event():
 
 # Include the unified API router
 app.include_router(api_router, prefix="/api")
+app.include_router(backtest.router, prefix="/api/backtest", tags=["backtest"])
 
 @app.get("/api/health")
 async def health_check():

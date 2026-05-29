@@ -3,6 +3,13 @@ from sqlmodel import Session
 from ..db.repositories.mock_trading_repo import MockTradingRepo
 from ..db.models import MockTrade, MockAccount, MARKET_DEFAULT_BALANCE
 import logging
+import sys
+import os
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
+try:
+    from paper_trading_system.execution_layer.market_configs import get_exchange_kwargs
+except ImportError:
+    def get_exchange_kwargs(market): return {"trade_unit": 1}
 
 logger = logging.getLogger(__name__)
 
@@ -15,6 +22,23 @@ class MockTradingService:
     def __init__(self, session: Session):
         self.session = session
         self.repo = MockTradingRepo(session)
+
+    def _get_exchange_rate(self, from_curr: str, to_curr: str) -> float:
+        """Static FX rates for mock trading."""
+        if from_curr == to_curr:
+            return 1.0
+        
+        rates_to_usd = {
+            "USD": 1.0,
+            "CNY": 0.138,  # 1 CNY ~ 0.138 USD
+            "HKD": 0.128,  # 1 HKD ~ 0.128 USD
+        }
+        
+        from_usd = rates_to_usd.get(from_curr, 1.0)
+        to_usd = rates_to_usd.get(to_curr, 1.0)
+        
+        # from -> USD -> to
+        return from_usd / to_usd
 
     # ── Account Management ────────────────────────────────────────
 
@@ -32,6 +56,32 @@ class MockTradingService:
 
     def list_accounts(self, user_id: str = "default_user") -> List[MockAccount]:
         return self.repo.list_accounts(user_id)
+
+    def merge_accounts(self, source_account_ids: List[str], target_account_id: str) -> Optional[MockAccount]:
+        """Merge multiple source accounts into one target account, applying FX to cash."""
+        target_account = self.repo.get_account(target_account_id)
+        if not target_account:
+            logger.error(f"Target account {target_account_id} not found.")
+            return None
+
+        total_cash_to_add = 0.0
+        total_initial_balance_to_add = 0.0
+
+        for source_id in source_account_ids:
+            src_acc = self.repo.get_account(source_id)
+            if src_acc and src_acc.status == "active" and src_acc.account_id != target_account_id:
+                fx = self._get_exchange_rate(src_acc.currency, target_account.currency)
+                total_cash_to_add += src_acc.current_cash * fx
+                total_initial_balance_to_add += src_acc.initial_balance * fx
+        
+        if total_cash_to_add > 0 or len(source_account_ids) > 0:
+            return self.repo.merge_accounts(
+                source_account_ids=source_account_ids,
+                target_account_id=target_account_id,
+                total_cash_to_add=total_cash_to_add,
+                total_initial_balance_to_add=total_initial_balance_to_add,
+            )
+        return target_account
 
     # ── Trade Execution ───────────────────────────────────────────
 
@@ -53,23 +103,36 @@ class MockTradingService:
             logger.error(f"Cannot execute trade. Account {account_id} not found or inactive.")
             return None
 
-        total_value = shares * execution_price
+        market_cfg = get_exchange_kwargs(market)
+        open_cost_rate = market_cfg.get("open_cost", 0.0)
+        close_cost_rate = market_cfg.get("close_cost", 0.0)
+        min_cost = market_cfg.get("min_cost", 0.0)
+
+        from ..db.models import MARKET_CURRENCY
+        trade_currency = MARKET_CURRENCY.get(market, "CNY")
+        fx_rate = self._get_exchange_rate(trade_currency, account.currency)
+
+        trade_value = shares * execution_price
         realized_pnl = None
 
         if action == "BUY":
-            if account.current_cash < total_value:
-                logger.error(f"Insufficient funds in {account_id}. Need {total_value}, have {account.current_cash}.")
+            cost = max(trade_value * open_cost_rate, min_cost)
+            total_required = trade_value + cost
+            total_required_base = total_required * fx_rate
+            
+            if account.current_cash < total_required_base:
+                logger.error(f"Insufficient funds in {account_id}. Need {total_required_base} {account.currency}, have {account.current_cash}.")
                 return None
 
-            self.repo.update_cash(account_id, -total_value)
+            self.repo.update_cash(account_id, -total_required_base)
 
             pos = self.repo.get_position(account_id, symbol, market)
             if pos and pos.shares > 0:
                 new_shares = pos.shares + shares
-                new_cost = ((pos.shares * pos.average_cost) + total_value) / new_shares
+                new_cost = ((pos.shares * pos.average_cost) + total_required) / new_shares
                 self.repo.upsert_position(account_id, symbol, market, new_shares, new_cost)
             else:
-                self.repo.upsert_position(account_id, symbol, market, shares, execution_price)
+                self.repo.upsert_position(account_id, symbol, market, shares, total_required / shares if shares > 0 else 0)
 
         elif action == "SELL":
             pos = self.repo.get_position(account_id, symbol, market)
@@ -77,10 +140,14 @@ class MockTradingService:
                 logger.error(f"Insufficient shares in {account_id} to sell {shares} of {symbol}.")
                 return None
 
-            # Calculate realized PnL
-            realized_pnl = (execution_price - pos.average_cost) * shares
+            cost = max(trade_value * close_cost_rate, min_cost)
+            total_received = trade_value - cost
+            total_received_base = total_received * fx_rate
+            
+            # Calculate realized PnL against average cost (in trade currency, then converted to base)
+            realized_pnl = (total_received - (pos.average_cost * shares)) * fx_rate
 
-            self.repo.update_cash(account_id, total_value)
+            self.repo.update_cash(account_id, total_received_base)
 
             new_shares = pos.shares - shares
             if new_shares == 0:
@@ -150,8 +217,15 @@ class MockTradingService:
             # Calculate shares from AI-specified position size %
             equity = self._estimate_equity(account, {})
             budget = equity * (ai_size_pct / 100.0)
-            shares = int(budget // current_price)
+            raw_shares = budget / current_price
+            
+            # Apply market-specific trade unit rounding (e.g. 100 for A-Share)
+            market_cfg = get_exchange_kwargs(market)
+            trade_unit = market_cfg.get("trade_unit", 1)
+            shares = int(raw_shares // trade_unit) * trade_unit
+            
             if shares <= 0:
+                logger.warning(f"[SIGNAL] Budget too small to buy 1 unit of {symbol}. Budget: {budget}, Price: {current_price}, Unit: {trade_unit}")
                 return None
             logger.info(f"[SIGNAL] Entry hit for {symbol} @ {current_price}. Buying {shares} shares ({ai_size_pct}% of equity).")
             return self.execute_trade(
@@ -176,20 +250,29 @@ class MockTradingService:
         pos_details = []
         total_market_value = 0.0
 
+        from ..db.models import MARKET_CURRENCY
+        
         for p in positions:
+            trade_currency = MARKET_CURRENCY.get(p.market, "CNY")
+            fx_rate = self._get_exchange_rate(trade_currency, account.currency)
+            
             cur_price = price_map.get(p.symbol, p.average_cost)
-            mkt_val = cur_price * p.shares
-            unrealized = (cur_price - p.average_cost) * p.shares
+            mkt_val_trade = cur_price * p.shares
+            unrealized_trade = (cur_price - p.average_cost) * p.shares
             unrealized_pct = ((cur_price / p.average_cost) - 1) * 100 if p.average_cost > 0 else 0
-            total_market_value += mkt_val
+            
+            mkt_val_base = mkt_val_trade * fx_rate
+            unrealized_base = unrealized_trade * fx_rate
+            
+            total_market_value += mkt_val_base
             pos_details.append({
                 "symbol": p.symbol,
                 "market": p.market,
                 "shares": p.shares,
                 "average_cost": p.average_cost,
                 "current_price": cur_price,
-                "market_value": round(mkt_val, 2),
-                "unrealized_pnl": round(unrealized, 2),
+                "market_value": round(mkt_val_base, 2),
+                "unrealized_pnl": round(unrealized_base, 2),
                 "unrealized_pnl_pct": round(unrealized_pct, 2),
             })
 
@@ -213,8 +296,15 @@ class MockTradingService:
 
     def _estimate_equity(self, account: MockAccount, price_map: Dict[str, float]) -> float:
         """Quick equity estimate. Falls back to cash if no prices available."""
+        from ..db.models import MARKET_CURRENCY
+        
         positions = self.repo.list_positions(account.account_id)
-        mkt_val = sum(price_map.get(p.symbol, p.average_cost) * p.shares for p in positions)
+        mkt_val = 0.0
+        for p in positions:
+            trade_currency = MARKET_CURRENCY.get(p.market, "CNY")
+            fx_rate = self._get_exchange_rate(trade_currency, account.currency)
+            mkt_val += price_map.get(p.symbol, p.average_cost) * p.shares * fx_rate
+            
         return account.current_cash + mkt_val
 
     # ── Anomaly Detection ─────────────────────────────────────────

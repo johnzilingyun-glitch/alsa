@@ -1,10 +1,12 @@
-import React from 'react';
-import { ExternalLink } from 'lucide-react';
+import React, { useState } from 'react';
+import { ExternalLink, Target, CheckCircle2 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useTranslation } from 'react-i18next';
 import { cn } from './utils';
-import type { StockAnalysis } from '../../types';
+import type { StockAnalysis, Market } from '../../types';
+import { alertsClient } from '../../services/api/alertsClient';
+import { useUIStore } from '../../stores/useUIStore';
 
 interface SidebarSummaryProps {
   analysis: StockAnalysis;
@@ -12,8 +14,46 @@ interface SidebarSummaryProps {
 
 export function SidebarSummary({ analysis }: SidebarSummaryProps) {
   const { t } = useTranslation();
+  const [isAdding, setIsAdding] = useState(false);
+  const [added, setAdded] = useState(false);
+  const showToast = useUIStore(s => s.showToast);
   const isNotRecommended = analysis.tradingPlan?.entryPrice?.includes('不推荐') || 
                           analysis.tradingPlan?.entryPrice?.includes('Not Recommended');
+
+  const handleAddToSignalCenter = async () => {
+    if (!analysis.tradingPlan || !analysis.stockInfo) return;
+    setIsAdding(true);
+    try {
+      const { entryPrice, targetPrice, stopLoss } = analysis.tradingPlan as any;
+      const parseNum = (s: string) => {
+        const match = String(s || '').match(/[\d.]+/);
+        return match ? parseFloat(match[0]) : 0;
+      };
+      const entry = parseNum(entryPrice);
+      const target = parseNum(targetPrice);
+      const stop = parseNum(stopLoss);
+      
+      if (entry > 0 && target > 0 && stop > 0) {
+        await alertsClient.create({
+          symbol: analysis.stockInfo.symbol,
+          name: analysis.stockInfo.name,
+          market: analysis.stockInfo.market as Market,
+          entry_price: entry,
+          target_price: target,
+          stop_loss: stop,
+          currency: analysis.stockInfo.currency || 'CNY',
+        });
+        setAdded(true);
+        showToast('成功添加至智能交易信号中心', 'success');
+      } else {
+        showToast('交易计划中未能提取有效的数值，无法添加', 'error');
+      }
+    } catch (e: any) {
+      showToast('添加失败: ' + e.message, 'error');
+    } finally {
+      setIsAdding(false);
+    }
+  };
 
   return (
     <div className="grid grid-cols-1 gap-8 md:grid-cols-2">
@@ -33,12 +73,27 @@ export function SidebarSummary({ analysis }: SidebarSummaryProps) {
             ? "border-rose-500/20 bg-rose-500/5 shadow-[0_0_40px_-15px_rgba(244,63,94,0.1)]" 
             : "border-indigo-100 bg-indigo-600/5 shadow-[0_0_40px_-15px_rgba(16,185,129,0.1)]"
         )}>
-          <h3 className={cn(
-            "flex items-center gap-2 text-xl font-semibold tracking-tight",
-            isNotRecommended ? "text-rose-400" : "text-indigo-600"
-          )}>
-            {t('analysis.conference.execution_plan')} {isNotRecommended && `(${t('analysis.scenarios.low')})`}
-          </h3>
+          <div className="flex items-center justify-between mb-2">
+            <h3 className={cn(
+              "flex items-center gap-2 text-xl font-semibold tracking-tight",
+              isNotRecommended ? "text-rose-400" : "text-indigo-600"
+            )}>
+              {t('analysis.conference.execution_plan')} {isNotRecommended && `(${t('analysis.scenarios.low')})`}
+            </h3>
+            {!isNotRecommended && (
+              <button
+                onClick={handleAddToSignalCenter}
+                disabled={isAdding || added}
+                className={cn(
+                  "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all",
+                  added ? "bg-emerald-100 text-emerald-700" : "bg-indigo-100 text-indigo-700 hover:bg-indigo-200 disabled:opacity-50"
+                )}
+              >
+                {added ? <CheckCircle2 size={14} /> : <Target size={14} />}
+                {added ? '已加信号监控' : '添加信号监控'}
+              </button>
+            )}
+          </div>
           {!isNotRecommended ? (
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
               <div className="p-3 rounded-2xl bg-white border border-zinc-200">

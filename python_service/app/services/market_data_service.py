@@ -92,7 +92,8 @@ class MarketDataService:
                 processed_symbols.append(suffixed)
                 symbol_map[suffixed] = s
             elif s.isdigit() and len(s) <= 5:
-                suffixed = f"{s.zfill(4)}.HK"
+                clean_s = s.lstrip('0') or '0'
+                suffixed = f"{clean_s.zfill(4)}.HK"
                 processed_symbols.append(suffixed)
                 symbol_map[suffixed] = s
             else:

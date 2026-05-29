@@ -39,26 +39,38 @@ export interface MemoryMatch {
   relevanceScore: number;
 }
 
-// ── Storage (localStorage-backed) ──────────────────────────────────
-
-const STORAGE_KEY = 'reflection_memory';
-const MAX_ENTRIES = 200;
-
-function loadMemory(): ReflectionEntry[] {
-  if (typeof localStorage === 'undefined') return [];
+async function loadMemory(): Promise<ReflectionEntry[]> {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? JSON.parse(raw) : [];
+    const res = await fetch('/api/reflections/?limit=100');
+    if (!res.ok) return [];
+    return res.json();
   } catch {
     return [];
   }
 }
 
-function saveMemory(entries: ReflectionEntry[]): void {
-  if (typeof localStorage === 'undefined') return;
-  // Keep only the latest MAX_ENTRIES
-  const trimmed = entries.slice(-MAX_ENTRIES);
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(trimmed));
+async function saveMemory(entry: ReflectionEntry): Promise<void> {
+  try {
+    const payload = {
+      symbol: entry.symbol,
+      date: entry.date,
+      score: entry.score,
+      recommendation: entry.recommendation,
+      outcome_status: entry.outcome.status,
+      outcome_return: entry.outcome.returnSincePrev,
+      lessons: entry.lessons,
+      agent_reflections: entry.agentReflections,
+      market_context: entry.marketContext
+    };
+
+    await fetch('/api/reflections/', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+  } catch (e) {
+    console.error('Failed to save reflection memory:', e);
+  }
 }
 
 // ── Tokenizer (simple BM25-compatible) ─────────────────────────────
@@ -134,27 +146,48 @@ export function generateReflection(
   };
 }
 
-// ── Memory Storage ─────────────────────────────────────────────────
-
-export function storeReflection(entry: ReflectionEntry): void {
-  const memory = loadMemory();
-  memory.push(entry);
-  saveMemory(memory);
+export async function storeReflection(entry: ReflectionEntry): Promise<void> {
+  await saveMemory(entry);
 }
+
+import { alertsClient } from './api/alertsClient';
 
 // ── Memory Retrieval (BM25-inspired keyword matching) ──────────────
 
-export function retrieveMemories(
+export async function retrieveMemories(
   symbol: string,
   marketContext: string,
   maxResults: number = 3,
-): MemoryMatch[] {
-  const memory = loadMemory();
-  if (memory.length === 0) return [];
+): Promise<MemoryMatch[]> {
+  const memory = await loadMemory();
+  
+  // Also fetch manual postmortems
+  let manualMemories: any[] = [];
+  try {
+    const closedAlerts = await alertsClient.listClosed();
+    manualMemories = closedAlerts
+      .filter((a: any) => a.symbol === symbol && a.postmortem_notes)
+      .map((a: any) => ({
+        id: a.alert_id,
+        symbol: a.symbol,
+        date: a.exit_date || a.created_at,
+        recommendation: a.outcome_category || 'MANUAL_TRADE',
+        score: a.decision_quality_score || 5,
+        outcome: { status: 'Closed', returnSincePrev: a.realized_return_pct ? `${a.realized_return_pct}%` : 'N/A' },
+        lessons: [a.lessons_learned || '', a.postmortem_notes || ''].filter(Boolean),
+        agentReflections: [{ insight: 'Manual Trader Postmortem' }],
+        marketContext: a.market
+      }));
+  } catch (e) {
+    console.error('Failed to fetch manual postmortems:', e);
+  }
+
+  const allMemories = [...memory, ...manualMemories];
+  if (allMemories.length === 0) return [];
 
   const queryTokens = new Set(tokenize(`${symbol} ${marketContext}`));
 
-  const scored = memory.map(entry => {
+  const scored = allMemories.map(entry => {
     let score = 0;
 
     // Exact symbol match is highest priority
@@ -162,7 +195,7 @@ export function retrieveMemories(
 
     // Keyword overlap with lessons and market context
     const docTokens = tokenize(
-      `${entry.symbol} ${entry.lessons.join(' ')} ${entry.marketContext} ${entry.agentReflections.map(r => r.insight).join(' ')}`
+      `${entry.symbol} ${entry.lessons.join(' ')} ${entry.marketContext} ${entry.agentReflections.map((r: any) => r.insight).join(' ')}`
     );
 
     for (const token of docTokens) {
@@ -210,12 +243,12 @@ ${lines.join('\n\n')}
 
 // ── Public API: Reflect & Remember (called after backtest) ─────────
 
-export function reflectAndRemember(
+export async function reflectAndRemember(
   analysis: StockAnalysis,
   backtest: BacktestResult | null,
-): void {
+): Promise<void> {
   if (!backtest) return;
 
   const entry = generateReflection(analysis, backtest);
-  storeReflection(entry);
+  await storeReflection(entry);
 }

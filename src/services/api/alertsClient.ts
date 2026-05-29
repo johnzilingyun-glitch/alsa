@@ -21,6 +21,7 @@ export interface SearchAlert {
   mfe_pct?: number;
   postmortem_notes?: string;
   decision_quality_score?: number;
+  lessons_learned?: string;
 }
 
 export interface PostmortemPayload {
@@ -70,7 +71,7 @@ export const alertsClient = {
     return res.json();
   },
 
-  delete: async (id: number) => {
+  delete: async (id: string) => {
     const res = await fetch(`/api/alerts/${id}`, { method: 'DELETE' });
     if (!res.ok) throw new Error('Failed to delete alert');
     return res.json();

@@ -20,6 +20,7 @@ interface UIState {
   showAdminPanel: boolean;
   showIBKRDashboard: boolean;
   showMockTradingDashboard: boolean;
+  showBacktestPanel: boolean;
   selectedDetail: { type: 'log' | 'history', data: any } | null;
 
   // Error states
@@ -81,6 +82,7 @@ interface UIState {
   setShowAdminPanel: (show: boolean) => void;
   setShowIBKRDashboard: (show: boolean) => void;
   setShowMockTradingDashboard: (show: boolean) => void;
+  setShowBacktestPanel: (show: boolean) => void;
   setSelectedDetail: (detail: { type: 'log' | 'history', data: any } | null) => void;
   setAutoRefreshInterval: (interval: number) => void;
   setAnalysisLevel: (level: AnalysisLevel) => void;
@@ -106,6 +108,7 @@ export const useUIStore = create<UIState>()(
       showAdminPanel: false,
       showIBKRDashboard: false,
       showMockTradingDashboard: false,
+      showBacktestPanel: false,
       selectedDetail: null,
       analysisError: null,
       chatError: null,
@@ -170,6 +173,7 @@ export const useUIStore = create<UIState>()(
       setShowAdminPanel: (showAdminPanel) => set({ showAdminPanel }),
       setShowIBKRDashboard: (showIBKRDashboard) => set({ showIBKRDashboard }),
       setShowMockTradingDashboard: (showMockTradingDashboard) => set({ showMockTradingDashboard }),
+      setShowBacktestPanel: (showBacktestPanel) => set({ showBacktestPanel }),
       setSelectedDetail: (selectedDetail) => set({ selectedDetail }),
       setAutoRefreshInterval: (autoRefreshInterval) => set({ autoRefreshInterval }),
       setAnalysisLevel: (analysisLevel: AnalysisLevel) => set({ analysisLevel }),

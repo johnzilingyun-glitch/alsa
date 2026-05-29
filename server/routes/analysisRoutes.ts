@@ -1,3 +1,22 @@
+import { Router } from 'express';
+import axios from 'axios';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import { createAnalysisRepository } from '../repositories/analysisRepository.js';
+import { gatewayGenerate } from '../llmGateway.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+const axiosClient = axios.create({
+  timeout: 5000,
+});
+
+const router = Router();
+const repo = createAnalysisRepository();
+const PYTHON_SERVICE_URL = process.env.PYTHON_SERVICE_URL || 'http://127.0.0.1:8001';
+
 // ── Sector/Stock Report Download API ─────────────────────────────
 // GET /reports/download?file=xxx_report.html  下载/alsa/reports下的HTML/PDF
 router.get('/reports/download', async (req, res) => {
@@ -17,21 +36,6 @@ router.get('/reports/download', async (req, res) => {
     if (err) res.status(500).json({ error: 'Download failed.' });
   });
 });
-import { Router } from 'express';
-import axios from 'axios';
-import fs from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
-import { createAnalysisRepository } from '../repositories/analysisRepository.js';
-import { gatewayGenerate } from '../llmGateway.js';
-
-const axiosClient = axios.create({
-  timeout: 5000,
-});
-
-const router = Router();
-const repo = createAnalysisRepository();
-const PYTHON_SERVICE_URL = process.env.PYTHON_SERVICE_URL || 'http://127.0.0.1:8001';
 
 router.post('/analysis/jobs', async (req, res) => {
   const { symbol, market, model, promptVersion, config } = req.body;
@@ -237,8 +241,6 @@ router.get('/history/recent', async (req, res) => {
 // Cancel / stop analysis — creates a .stop file that LLM gateway checks
 router.post('/analysis/cancel', async (req, res) => {
   try {
-    const __filename = fileURLToPath(import.meta.url);
-    const __dirname = path.dirname(__filename);
     // The Python service checks for .stop in its cwd (alsa/alsa root)
     const projectRoot = path.resolve(__dirname, '..', '..');
     const stopFilePath = path.join(projectRoot, '.stop');

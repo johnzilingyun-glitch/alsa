@@ -118,10 +118,10 @@ class TestExecutionEngine:
         assert trade is not None
         assert trade.action == "BUY"
         updated = service.repo.get_account(acc.account_id)
-        assert updated.current_cash == 1_000_000.0 - 15_000.0
+        assert updated.current_cash == 1_000_000.0 - 15_075.0
         pos = service.repo.get_position(acc.account_id, "AAPL", "US-Share")
         assert pos.shares == 100
-        assert pos.average_cost == 150.0
+        assert pos.average_cost == 150.75
 
     def test_buy_averaging_up(self, service: MockTradingService):
         acc = service.create_account(name="Test", market="US-Share")
@@ -129,16 +129,16 @@ class TestExecutionEngine:
         service.execute_trade(acc.account_id, "AAPL", "US-Share", "BUY", 100, 200.0, "MANUAL")
         pos = service.repo.get_position(acc.account_id, "AAPL", "US-Share")
         assert pos.shares == 200
-        assert pos.average_cost == 150.0
+        assert pos.average_cost == 150.75
 
     def test_sell_with_realized_pnl(self, service: MockTradingService):
         acc = service.create_account(name="Test", market="US-Share")
         service.execute_trade(acc.account_id, "TSLA", "US-Share", "BUY", 10, 200.0, "MANUAL")
         trade = service.execute_trade(acc.account_id, "TSLA", "US-Share", "SELL", 5, 250.0, "MANUAL")
         assert trade is not None
-        assert trade.realized_pnl == 250.0  # (250-200)*5
+        assert trade.realized_pnl == 238.75
         updated = service.repo.get_account(acc.account_id)
-        assert updated.current_cash == 999_250.0
+        assert updated.current_cash == 999_233.75
 
     def test_sell_all_zeroes_position(self, service: MockTradingService):
         acc = service.create_account(name="Test", market="US-Share")
@@ -277,9 +277,9 @@ class TestPortfolioAnalytics:
         assert summary["currency"] == "USD"
         assert len(summary["positions"]) == 2
         aapl = next(p for p in summary["positions"] if p["symbol"] == "AAPL")
-        assert aapl["unrealized_pnl"] == 1000.0
+        assert aapl["unrealized_pnl"] == (100 * 160) - 15075.0
         tsla = next(p for p in summary["positions"] if p["symbol"] == "TSLA")
-        assert tsla["unrealized_pnl"] == -1000.0
+        assert tsla["unrealized_pnl"] == (50 * 180) - 10050.0
 
     def test_empty_portfolio_summary(self, service: MockTradingService):
         acc = service.create_account(name="Empty", market="A-Share")

@@ -108,6 +108,20 @@ class SearchAlert(SQLModel, table=True):
     thesis_stage: Optional[str] = None  # IDEA/WATCHING/ENTERED/EXITED/POSTMORTEM
     lessons_learned: Optional[str] = None  # Post-trade reflection
 
+class ReflectionMemory(SQLModel, table=True):
+    reflection_id: str = Field(primary_key=True, default_factory=lambda: f"ref_{uuid.uuid4().hex[:8]}")
+    user_id: str = Field(default="default_user")
+    symbol: str = Field(index=True)
+    date: str
+    recommendation: str
+    score: float
+    outcome_status: str
+    outcome_return: str
+    lessons: str  # JSON list string
+    agent_reflections: str  # JSON list string
+    market_context: str
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
 class Catalyst(SQLModel, table=True):
     """Track upcoming catalysts (earnings, product launches, regulatory events) for signals."""
     catalyst_id: str = Field(primary_key=True, default_factory=lambda: f"cat_{uuid.uuid4().hex[:8]}")
@@ -163,11 +177,13 @@ MARKET_DEFAULT_BALANCE = {
     "A-Share": 1000000.0,   # 100万 CNY
     "HK-Share": 2000000.0,  # 200万 HKD
     "US-Share": 1000000.0,  # 100万 USD
+    "Global": 1000000.0,    # 100万 CNY (Base for global is configurable, default CNY)
 }
 MARKET_CURRENCY = {
     "A-Share": "CNY",
     "HK-Share": "HKD",
     "US-Share": "USD",
+    "Global": "CNY",
 }
 
 class MockAccount(SQLModel, table=True):

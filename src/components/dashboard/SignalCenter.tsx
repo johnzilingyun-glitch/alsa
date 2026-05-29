@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { X, Target, TrendingUp, ShieldAlert, Activity, ExternalLink, ChevronRight, BarChart3, AlertCircle, Archive, CheckCircle2 } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { X, Target, TrendingUp, ShieldAlert, Activity, ExternalLink, ChevronRight, BarChart3, AlertCircle, Archive, CheckCircle2, Trash2, Plus, Search } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useTranslation } from 'react-i18next';
 import { useMarketStore } from '../../stores/useMarketStore';
@@ -19,7 +19,7 @@ interface SignalCenterProps {
 
 export function SignalCenter({ isOpen, onClose }: SignalCenterProps) {
   const { t } = useTranslation();
-  const { searchAlerts, alertPrices, historyItems } = useMarketStore();
+  const { searchAlerts, alertPrices, historyItems, setAlerts } = useMarketStore();
   const { setSymbol, setMarket, setAnalysis } = useAnalysisStore();
   const [tab, setTab] = useState<'active' | 'closed'>('active');
   const [closedAlerts, setClosedAlerts] = useState<AlertType[]>([]);
@@ -31,6 +31,118 @@ export function SignalCenter({ isOpen, onClose }: SignalCenterProps) {
     decision_quality: 5,
   });
   const [pmSubmitting, setPmSubmitting] = useState(false);
+  
+  const [isManualAdding, setIsManualAdding] = useState(false);
+  const [manualForm, setManualForm] = useState<Partial<AlertType>>({
+    symbol: '',
+    name: '',
+    market: 'A-Share' as any,
+    entry_price: 0,
+    target_price: 0,
+    stop_loss: 0,
+    currency: 'CNY',
+  });
+  const [isDeleting, setIsDeleting] = useState<string | null>(null);
+
+  const [suggestions, setSuggestions] = useState<any[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [isComposing, setIsComposing] = useState(false);
+  const [selectedIndex, setSelectedIndex] = useState(-1);
+  const searchContainerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const fetchSuggestions = async () => {
+      const sym = manualForm.symbol || '';
+      const mkt = manualForm.market || 'A-Share';
+      if (!sym || sym.trim().length < 1 || isComposing) {
+        setSuggestions([]);
+        setShowSuggestions(false);
+        return;
+      }
+      try {
+        const params = new URLSearchParams();
+        params.set('input', sym);
+        params.set('market', mkt);
+        const res = await fetch(`/api/stock/suggest?${params.toString()}`, { signal: controller.signal });
+        if (res.ok) {
+          const data = await res.json();
+          setSuggestions(data);
+          setShowSuggestions(data.length > 0);
+          setSelectedIndex(-1);
+        }
+      } catch (e: any) {
+        if (e.name !== 'AbortError') console.error('Failed to fetch suggestions:', e);
+      }
+    };
+    const timeout = setTimeout(fetchSuggestions, 300);
+    return () => { clearTimeout(timeout); controller.abort(); };
+  }, [manualForm.symbol, manualForm.market, isComposing]);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (searchContainerRef.current && !searchContainerRef.current.contains(e.target as Node)) {
+        setShowSuggestions(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const handleSelectSuggestion = (s: any) => {
+    const finalSym = s.symbol || s.fullSymbol;
+    setManualForm(f => ({ ...f, symbol: finalSym, name: s.name || f.name }));
+    setShowSuggestions(false);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (!showSuggestions || suggestions.length === 0) return;
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setSelectedIndex(prev => (prev + 1) % suggestions.length);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setSelectedIndex(prev => (prev - 1 + suggestions.length) % suggestions.length);
+    } else if (e.key === 'Enter' && selectedIndex >= 0) {
+      e.preventDefault();
+      handleSelectSuggestion(suggestions[selectedIndex]);
+    } else if (e.key === 'Escape') {
+      setShowSuggestions(false);
+    }
+  };
+
+  const handleDeleteAlert = async (alertId: string, isClosed: boolean) => {
+    if (!confirm('确定要删除这条监控记录吗？')) return;
+    setIsDeleting(alertId);
+    try {
+      await alertsClient.delete(alertId);
+      if (isClosed) {
+        setClosedAlerts(prev => prev.filter(a => a.alert_id !== alertId));
+      } else {
+        setAlerts(searchAlerts.filter(a => a.alert_id !== alertId));
+      }
+    } catch (e) {
+      console.error('Delete failed:', e);
+    } finally {
+      setIsDeleting(null);
+    }
+  };
+
+  const handleManualSubmit = async () => {
+    if (!manualForm.symbol || !manualForm.entry_price || !manualForm.target_price || !manualForm.stop_loss) {
+      alert('请填写完整信息');
+      return;
+    }
+    try {
+      await alertsClient.create(manualForm as AlertType);
+      setIsManualAdding(false);
+      // refresh active
+      const res = await alertsClient.list();
+      setAlerts(res.items || []);
+    } catch (e) {
+      console.error('Create failed:', e);
+    }
+  };
 
   useEffect(() => {
     if (isOpen && tab === 'closed') {
@@ -111,6 +223,12 @@ export function SignalCenter({ isOpen, onClose }: SignalCenterProps) {
                     <Archive size={12} className="inline mr-1" />复盘记录
                   </button>
                 </div>
+                <button
+                  onClick={() => setIsManualAdding(true)}
+                  className="flex items-center gap-1 bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-2 rounded-xl text-xs font-bold transition-colors"
+                >
+                  <Plus size={14} /> 手动添加
+                </button>
                 <button
                 onClick={onClose}
                 className="flex h-10 w-10 items-center justify-center rounded-full text-zinc-400 transition-colors hover:bg-zinc-100 hover:text-zinc-900"
@@ -224,7 +342,14 @@ export function SignalCenter({ isOpen, onClose }: SignalCenterProps) {
                         </div>
 
                         {/* Postmortem Button */}
-                        <div className="flex justify-end mt-3 pt-3 border-t border-zinc-100/50">
+                        <div className="flex justify-end mt-3 pt-3 border-t border-zinc-100/50 gap-4">
+                          <button
+                            onClick={() => handleDeleteAlert(alert.alert_id!, false)}
+                            disabled={isDeleting === alert.alert_id}
+                            className="text-[10px] font-bold text-zinc-400 hover:text-rose-600 uppercase tracking-widest flex items-center gap-1 transition-colors disabled:opacity-50"
+                          >
+                            <Trash2 size={12} /> {isDeleting === alert.alert_id ? '删除中' : '删除'}
+                          </button>
                           <button
                             onClick={() => {
                               setPostmortemTarget(alert);
@@ -283,9 +408,18 @@ export function SignalCenter({ isOpen, onClose }: SignalCenterProps) {
                               <span className="font-bold text-zinc-900">{a.name}</span>
                               <span className="text-[10px] text-zinc-400 ml-2 font-mono">{a.symbol}</span>
                             </div>
-                            <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-white border">
-                              {catLabel[a.outcome_category || ''] || a.outcome_category}
-                            </span>
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-white border">
+                                {catLabel[a.outcome_category || ''] || a.outcome_category}
+                              </span>
+                              <button
+                                onClick={() => handleDeleteAlert(a.alert_id!, true)}
+                                disabled={isDeleting === a.alert_id}
+                                className="text-zinc-400 hover:text-rose-600 transition-colors disabled:opacity-50"
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            </div>
                           </div>
                           <div className="grid grid-cols-5 gap-4 text-center">
                             <div>
@@ -438,6 +572,135 @@ export function SignalCenter({ isOpen, onClose }: SignalCenterProps) {
                         disabled={pmSubmitting}
                         className="flex-1 py-2.5 rounded-xl bg-indigo-600 text-white text-xs font-bold hover:bg-indigo-700 transition-colors disabled:opacity-50"
                       >{pmSubmitting ? '保存中...' : '保存复盘'}</button>
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {/* Manual Add Modal */}
+            <AnimatePresence>
+              {isManualAdding && (
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  className="absolute inset-0 bg-white/95 backdrop-blur-sm z-10 flex items-center justify-center p-8"
+                >
+                  <div className="w-full max-w-md space-y-5">
+                    <div className="text-center">
+                      <h3 className="text-lg font-bold text-zinc-900">手动添加监控信号</h3>
+                      <p className="text-xs text-zinc-400 mt-1">输入您自定义的交易计划</p>
+                    </div>
+
+                    <div className="space-y-4">
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="relative" ref={searchContainerRef}>
+                          <label className="text-[10px] font-bold text-zinc-500 uppercase block mb-1">代码 (Symbol)</label>
+                          <input
+                            value={manualForm.symbol}
+                            onCompositionStart={() => setIsComposing(true)}
+                            onCompositionEnd={(e) => {
+                              setIsComposing(false);
+                              setManualForm(f => ({ ...f, symbol: e.currentTarget.value }));
+                            }}
+                            onChange={e => setManualForm(f => ({ ...f, symbol: e.target.value }))}
+                            onFocus={() => { if (suggestions.length > 0) setShowSuggestions(true); }}
+                            onKeyDown={handleKeyDown}
+                            className="w-full px-3 py-2 rounded-lg border border-zinc-200 text-sm focus:outline-none focus:border-indigo-400"
+                            placeholder="e.g. AAPL / 腾讯"
+                            autoComplete="off"
+                          />
+                          {showSuggestions && suggestions.length > 0 && (
+                            <div className="absolute top-[100%] left-0 right-0 mt-1 z-[60] overflow-hidden rounded-xl border border-zinc-100 bg-white shadow-xl shadow-indigo-600/10">
+                              <div className="p-1 max-h-40 overflow-y-auto custom-scrollbar">
+                                {suggestions.map((s, idx) => (
+                                  <button
+                                    key={`sugg-${s.symbol}-${idx}`}
+                                    type="button"
+                                    onClick={() => handleSelectSuggestion(s)}
+                                    onMouseEnter={() => setSelectedIndex(idx)}
+                                    className={`flex w-full items-center justify-between px-2 py-1.5 rounded-lg transition-all ${
+                                      idx === selectedIndex ? 'bg-indigo-50 text-indigo-700' : 'text-zinc-700 hover:bg-zinc-50'
+                                    }`}
+                                  >
+                                    <div className="flex items-center gap-2">
+                                      <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${idx === selectedIndex ? 'bg-indigo-100 text-indigo-600' : 'bg-zinc-100 text-zinc-500'}`}>
+                                        {s.symbol}
+                                      </span>
+                                      <span className="font-bold text-xs truncate max-w-[100px] text-left">{s.name}</span>
+                                    </div>
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                        <div>
+                          <label className="text-[10px] font-bold text-zinc-500 uppercase block mb-1">名称 (Name)</label>
+                          <input
+                            value={manualForm.name}
+                            onChange={e => setManualForm(f => ({ ...f, name: e.target.value }))}
+                            className="w-full px-3 py-2 rounded-lg border border-zinc-200 text-sm focus:outline-none focus:border-indigo-400"
+                            placeholder="e.g. 苹果"
+                          />
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-3 gap-3">
+                        <div>
+                          <label className="text-[10px] font-bold text-zinc-500 uppercase block mb-1">入场 (Entry)</label>
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={manualForm.entry_price || ''}
+                            onChange={e => setManualForm(f => ({ ...f, entry_price: parseFloat(e.target.value) || 0 }))}
+                            className="w-full px-3 py-2 rounded-lg border border-zinc-200 text-sm focus:outline-none focus:border-indigo-400"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[10px] font-bold text-zinc-500 uppercase block mb-1">目标 (Target)</label>
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={manualForm.target_price || ''}
+                            onChange={e => setManualForm(f => ({ ...f, target_price: parseFloat(e.target.value) || 0 }))}
+                            className="w-full px-3 py-2 rounded-lg border border-zinc-200 text-sm focus:outline-none focus:border-indigo-400"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[10px] font-bold text-zinc-500 uppercase block mb-1">止损 (Stop)</label>
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={manualForm.stop_loss || ''}
+                            onChange={e => setManualForm(f => ({ ...f, stop_loss: parseFloat(e.target.value) || 0 }))}
+                            className="w-full px-3 py-2 rounded-lg border border-zinc-200 text-sm focus:outline-none focus:border-indigo-400"
+                          />
+                        </div>
+                      </div>
+                      <div>
+                        <label className="text-[10px] font-bold text-zinc-500 uppercase block mb-1">市场类别</label>
+                        <select
+                          value={manualForm.market}
+                          onChange={e => setManualForm(f => ({ ...f, market: e.target.value as any, currency: e.target.value === 'A-Share' ? 'CNY' : e.target.value === 'HK-Share' ? 'HKD' : 'USD' }))}
+                          className="w-full px-3 py-2 rounded-lg border border-zinc-200 text-sm focus:outline-none focus:border-indigo-400 bg-white"
+                        >
+                          <option value="A-Share">A股 (A-Share)</option>
+                          <option value="HK-Share">港股 (HK-Share)</option>
+                          <option value="US-Share">美股 (US-Share)</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="flex gap-3">
+                      <button
+                        onClick={() => setIsManualAdding(false)}
+                        className="flex-1 py-2.5 rounded-xl border border-zinc-200 text-xs font-bold text-zinc-500 hover:bg-zinc-50 transition-colors"
+                      >取消</button>
+                      <button
+                        onClick={handleManualSubmit}
+                        className="flex-1 py-2.5 rounded-xl bg-indigo-600 text-white text-xs font-bold hover:bg-indigo-700 transition-colors"
+                      >确认添加</button>
                     </div>
                   </div>
                 </motion.div>

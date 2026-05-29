@@ -90,9 +90,13 @@ export interface AnomalyEntry {
 export async function createMockAccount(name: string, market: string, initialBalance?: number): Promise<MockAccount> {
   const body: any = { name, market };
   if (initialBalance !== undefined) body.initial_balance = initialBalance;
+  const payload: any = { name, market };
+  if (initialBalance !== undefined) {
+    payload.initial_balance = initialBalance;
+  }
   return fetchJSON(`${BASE}/accounts`, {
     method: 'POST',
-    body: JSON.stringify(body),
+    body: JSON.stringify(payload),
   });
 }
 
@@ -100,25 +104,40 @@ export async function listMockAccounts(): Promise<MockAccount[]> {
   return fetchJSON(`${BASE}/accounts`);
 }
 
-export async function deleteMockAccount(accountId: string): Promise<void> {
-  await fetch(`${BASE}/accounts/${accountId}`, { method: 'DELETE' });
+export async function deleteMockAccount(accountId: string): Promise<boolean> {
+  const res = await fetch(`${BASE}/accounts/${accountId}`, { method: 'DELETE' });
+  return res.ok;
 }
 
-// ── Trade API ────────────────────────────────────────────────────
+export async function mergeAccounts(sourceAccountIds: string[], targetAccountId: string): Promise<MockAccount> {
+  return fetchJSON(`${BASE}/accounts/merge`, {
+    method: 'POST',
+    body: JSON.stringify({ source_account_ids: sourceAccountIds, target_account_id: targetAccountId }),
+  });
+}
 
-export async function executeTrade(payload: {
-  account_id: string;
-  symbol: string;
-  market: string;
-  action: string;
-  shares: number;
-  execution_price: number;
-  trigger_source?: string;
-  position_size_pct?: number;
-}): Promise<MockTrade> {
+// ── Trades & Signals ─────────────────────────────────────────────
+
+export async function executeTrade(
+  accountId: string,
+  symbol: string,
+  market: string,
+  action: 'BUY' | 'SELL',
+  shares: number,
+  executionPrice: number,
+  triggerSource: string = 'MANUAL'
+): Promise<MockTrade> {
   return fetchJSON(`${BASE}/trades`, {
     method: 'POST',
-    body: JSON.stringify(payload),
+    body: JSON.stringify({
+      account_id: accountId,
+      symbol,
+      market,
+      action,
+      shares,
+      execution_price: executionPrice,
+      trigger_source: triggerSource,
+    })
   });
 }
 
@@ -133,7 +152,14 @@ export async function getPortfolio(accountId: string): Promise<PortfolioSummary>
   return fetchJSON(`${BASE}/portfolio/${accountId}`);
 }
 
-export async function getPositions(accountId: string): Promise<MockPosition[]> {
+export async function getPortfolioWithPrices(accountId: string, prices: Record<string, number>): Promise<PortfolioSummary> {
+  return fetchJSON(`${BASE}/portfolio/${accountId}`, {
+    method: 'POST',
+    body: JSON.stringify(prices),
+  });
+}
+
+export async function listPositions(accountId: string): Promise<MockPosition[]> {
   return fetchJSON(`${BASE}/positions/${accountId}`);
 }
 

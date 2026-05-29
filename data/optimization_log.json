@@ -1139,5 +1139,47 @@
     "oldValue": "markdown",
     "newValue": "pro_html_backend",
     "description": "成功导出专业 HTML 研报 (后端渲染): QINGHAI SALT LAKE INDUSTRY CO L"
+  },
+  {
+    "timestamp": "2026-05-29T06:50:07.128Z",
+    "field": "server",
+    "oldValue": "startup",
+    "newValue": "active",
+    "description": "Server started and background tasks initialized"
+  },
+  {
+    "timestamp": "2026-05-29T08:05:50.388Z",
+    "field": "server",
+    "oldValue": "startup",
+    "newValue": "active",
+    "description": "Server started and background tasks initialized"
+  },
+  {
+    "timestamp": "2026-05-29T09:42:09.459Z",
+    "field": "server",
+    "oldValue": "startup",
+    "newValue": "active",
+    "description": "Server started and background tasks initialized"
+  },
+  {
+    "timestamp": "2026-05-29T11:22:08.321Z",
+    "field": "server",
+    "oldValue": "startup",
+    "newValue": "active",
+    "description": "Server started and background tasks initialized"
+  },
+  {
+    "timestamp": "2026-05-29T11:23:33.522Z",
+    "field": "server",
+    "oldValue": "startup",
+    "newValue": "active",
+    "description": "Server started and background tasks initialized"
+  },
+  {
+    "timestamp": "2026-05-29T11:27:23.970Z",
+    "field": "server",
+    "oldValue": "startup",
+    "newValue": "active",
+    "description": "Server started and background tasks initialized"
   }
 ]

@@ -153,33 +153,6 @@ export function useStockAnalysis() {
       // Save to history for the HistoryModal
       void saveAnalysisToHistory('stock', result);
       
-      // Auto-create trading signal alert from tradingPlan
-      if (result.tradingPlan && result.stockInfo) {
-        try {
-          const { entryPrice, targetPrice, stopLoss } = result.tradingPlan as any;
-          const parseNum = (s: string) => {
-            const match = String(s || '').match(/[\d.]+/);
-            return match ? parseFloat(match[0]) : 0;
-          };
-          const entry = parseNum(entryPrice);
-          const target = parseNum(targetPrice);
-          const stop = parseNum(stopLoss);
-          if (entry > 0 && target > 0 && stop > 0) {
-            void alertsClient.create({
-              symbol: result.stockInfo.symbol,
-              name: result.stockInfo.name,
-              market: result.stockInfo.market as Market,
-              entry_price: entry,
-              target_price: target,
-              stop_loss: stop,
-              currency: result.stockInfo.currency || 'CNY',
-            });
-          }
-        } catch (alertErr) {
-          console.warn('Failed to save search alert:', alertErr);
-        }
-      }
-      
       // Add to recent searches
       if (result.stockInfo) {
         addRecentSearch({

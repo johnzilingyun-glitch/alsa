@@ -1,0 +1,15 @@
+{
+  "start_date": "2020-01-01",
+  "end_date": "2021-12-31",
+  "model": "MockAgent",
+  "final_account": 9966534.98865366,
+  "metrics": {
+    "risk": {
+      "mean": -6.871907086469941e-06,
+      "std": 0.0002013082370448301,
+      "annualized_return": -0.0016355138865798461,
+      "information_ratio": -0.5266283222013615,
+      "max_drawdown": -0.004696005266223179
+    }
+  }
+}

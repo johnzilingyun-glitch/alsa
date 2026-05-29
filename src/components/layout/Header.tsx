@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, memo } from 'react';
-import { Download, Bell, History, Clock, Settings, Loader2, Search, TrendingUp, Zap, BarChart3, Microscope, Languages, Menu, X, Target, Activity } from 'lucide-react';
+import { Download, Bell, History, Clock, Settings, Loader2, Search, TrendingUp, Zap, BarChart3, Microscope, Languages, Menu, X, Target, Activity, BrainCircuit, Wrench, BarChart2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useTranslation } from 'react-i18next';
 import { Market, AnalysisLevel } from '../../types';
@@ -9,6 +9,7 @@ import { useAnalysisStore } from '../../stores/useAnalysisStore';
 import { useConfigStore } from '../../stores/useConfigStore';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+import { BrainEvolutionModal } from '../dashboard/BrainEvolutionModal';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -28,7 +29,7 @@ export const Header = memo(function Header({
 }: HeaderProps) {
   const { t, i18n } = useTranslation();
   const loading = useUIStore(selectLoading);
-  const { isTriggeringReport, showAdminPanel, setShowAdminPanel, setIsSettingsOpen, analysisLevel, setAnalysisLevel, serviceStatus, setShowIBKRDashboard, setShowMockTradingDashboard } = useUIStore();
+  const { isTriggeringReport, showAdminPanel, setShowAdminPanel, setIsSettingsOpen, analysisLevel, setAnalysisLevel, serviceStatus, setShowIBKRDashboard, setShowMockTradingDashboard, setShowBacktestPanel } = useUIStore();
   const { dailyReport, activeAlertStatus } = useMarketStore();
   const { symbol, setSymbol, market, setMarket } = useAnalysisStore();
   const { language, setLanguage } = useConfigStore();
@@ -39,7 +40,10 @@ export const Header = memo(function Header({
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(-1);
   const [showMobileMenu, setShowMobileMenu] = useState(false);
+  const [showBrainEvolution, setShowBrainEvolution] = useState(false);
+  const [showToolbox, setShowToolbox] = useState(false);
   const searchContainerRef = useRef<HTMLFormElement>(null);
+  const toolboxRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setLocalSymbol(symbol);
@@ -83,11 +87,14 @@ export const Header = memo(function Header({
     return () => { clearTimeout(timeout); controller.abort(); };
   }, [localSymbol, market, isComposing]);
 
-  // Click outside to close
+  // Click outside to close dropdowns
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (searchContainerRef.current && !searchContainerRef.current.contains(e.target as Node)) {
         setShowSuggestions(false);
+      }
+      if (toolboxRef.current && !toolboxRef.current.contains(e.target as Node)) {
+        setShowToolbox(false);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
@@ -122,6 +129,7 @@ export const Header = memo(function Header({
   };
 
   return (
+    <>
     <header className="mb-12 animate-premium text-zinc-950 dark:text-white relative z-10">
       {/* Service Status Banner */}
       <AnimatePresence>
@@ -256,16 +264,14 @@ export const Header = memo(function Header({
               <Activity size={20} strokeWidth={1.5} />
             </button>
             <button
-              onClick={() => {
-                setShowAdminPanel(!showAdminPanel);
-                if (!showAdminPanel) onFetchAdminData();
-              }}
-              className="btn-secondary w-12 h-12 p-0 flex items-center justify-center rounded-xl"
-              aria-label={t('header.sysLogs')}
-              title={t('header.sysLogs')}
+              onClick={() => setShowBacktestPanel(true)}
+              className="btn-secondary w-12 h-12 p-0 flex items-center justify-center rounded-xl relative overflow-hidden group"
+              aria-label="回测"
+              title="AI 量化回测引擎"
             >
-              <Clock size={20} strokeWidth={1.5} />
+              <BarChart2 size={20} strokeWidth={1.5} className="group-hover:scale-110 transition-transform" />
             </button>
+
             <button
               onClick={() => setIsSettingsOpen(true)}
               className="btn-secondary w-12 h-12 p-0 flex items-center justify-center rounded-xl"
@@ -274,6 +280,31 @@ export const Header = memo(function Header({
             >
               <Settings size={20} strokeWidth={1.5} />
             </button>
+
+            {/* Toolbox Dropdown */}
+            <div className="relative" ref={toolboxRef}>
+              <button
+                onClick={() => setShowToolbox(!showToolbox)}
+                className="btn-secondary w-12 h-12 p-0 flex items-center justify-center rounded-xl"
+                aria-label="Toolbox"
+                title="Toolbox"
+              >
+                <Wrench size={20} strokeWidth={1.5} />
+              </button>
+              {showToolbox && (
+                <div className="absolute top-14 right-0 z-50 bg-white rounded-2xl shadow-2xl border border-zinc-200 p-3 min-w-[200px] space-y-1 animate-in fade-in slide-in-from-top-2">
+                  <button onClick={() => { setShowAdminPanel(!showAdminPanel); if (!showAdminPanel) onFetchAdminData(); setShowToolbox(false); }} className="flex w-full items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-zinc-600 hover:bg-zinc-50 transition-colors">
+                    <Activity size={18} /> Console
+                  </button>
+                  <button onClick={() => { setShowAdminPanel(!showAdminPanel); if (!showAdminPanel) onFetchAdminData(); setShowToolbox(false); }} className="flex w-full items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-zinc-600 hover:bg-zinc-50 transition-colors">
+                    <Clock size={18} /> {t('header.sysLogs')}
+                  </button>
+                  <button onClick={() => { setShowBrainEvolution(true); setShowToolbox(false); }} className="flex w-full items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-purple-600 hover:bg-purple-50 transition-colors">
+                    <BrainCircuit size={18} /> 🧠 进化 AI
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Mobile: hamburger menu */}
@@ -306,8 +337,17 @@ export const Header = memo(function Header({
                 <button onClick={() => { setShowMockTradingDashboard(true); setShowMobileMenu(false); }} className="flex w-full items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-zinc-600 hover:bg-zinc-50 transition-colors">
                   <Activity size={18} /> 模拟交易
                 </button>
+                <button onClick={() => { setShowBacktestPanel(true); setShowMobileMenu(false); }} className="flex w-full items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-zinc-600 hover:bg-zinc-50 transition-colors">
+                  <BarChart2 size={18} /> 量化回测
+                </button>
                 <button onClick={() => { setIsSettingsOpen(true); setShowMobileMenu(false); }} className="flex w-full items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-zinc-600 hover:bg-zinc-50 transition-colors">
                   <Settings size={18} /> {t('header.settings')}
+                </button>
+                <button onClick={() => { setShowAdminPanel(!showAdminPanel); if (!showAdminPanel) onFetchAdminData(); setShowMobileMenu(false); }} className="flex w-full items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-zinc-600 hover:bg-zinc-50 transition-colors">
+                  <Activity size={18} /> Console
+                </button>
+                <button onClick={() => { setShowBrainEvolution(true); setShowMobileMenu(false); }} className="flex w-full items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-purple-600 hover:bg-purple-50 transition-colors">
+                  <BrainCircuit size={18} /> 🧠 进化 AI
                 </button>
               </div>
             )}
@@ -443,5 +483,10 @@ export const Header = memo(function Header({
       </form>
       </div>
     </header>
+    <BrainEvolutionModal 
+      isOpen={showBrainEvolution} 
+      onClose={() => setShowBrainEvolution(false)} 
+    />
+    </>
   );
 });

@@ -123,7 +123,9 @@ export const useMarketStore = create<MarketState>()(
         watchlist: state.watchlist,
         recentSearches: state.recentSearches,
         overviewMarket: state.overviewMarket,
-        // Exclude marketOverviews, historyItems, optimizationLogs to keep localStorage small and hydration fast
+        marketOverviews: state.marketOverviews,
+        marketLastUpdatedTimes: state.marketLastUpdatedTimes,
+        // Exclude historyItems, optimizationLogs to keep localStorage small and hydration fast
       }),
       onRehydrateStorage: () => (state) => {
         state?.setHasHydrated(true);

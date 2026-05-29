@@ -1,0 +1,266 @@
+from typing import Optional, List, Dict
+from sqlmodel import Session
+from ..db.repositories.mock_trading_repo import MockTradingRepo
+from ..db.models import MockTrade, MockAccount, MARKET_DEFAULT_BALANCE
+import logging
+
+logger = logging.getLogger(__name__)
+
+# Anomaly thresholds (user-confirmed)
+STOCK_ANOMALY_THRESHOLD_PCT = 7.0   # single stock daily move > ±7%
+ACCOUNT_ANOMALY_THRESHOLD_PCT = 3.0 # total account equity daily move > ±3%
+
+
+class MockTradingService:
+    def __init__(self, session: Session):
+        self.session = session
+        self.repo = MockTradingRepo(session)
+
+    # ── Account Management ────────────────────────────────────────
+
+    def create_account(
+        self,
+        name: str,
+        market: str = "A-Share",
+        user_id: str = "default_user",
+        initial_balance: Optional[float] = None,
+    ) -> MockAccount:
+        return self.repo.create_account(name=name, market=market, user_id=user_id, initial_balance=initial_balance)
+
+    def delete_account(self, account_id: str) -> bool:
+        return self.repo.delete_account(account_id)
+
+    def list_accounts(self, user_id: str = "default_user") -> List[MockAccount]:
+        return self.repo.list_accounts(user_id)
+
+    # ── Trade Execution ───────────────────────────────────────────
+
+    def execute_trade(
+        self,
+        account_id: str,
+        symbol: str,
+        market: str,
+        action: str,
+        shares: int,
+        execution_price: float,
+        trigger_source: str,
+        related_alert_id: Optional[str] = None,
+        position_size_pct: Optional[float] = None,
+    ) -> Optional[MockTrade]:
+        """Execute a mock trade. Updates cash, position, and records the trade."""
+        account = self.repo.get_account(account_id)
+        if not account or account.status != "active":
+            logger.error(f"Cannot execute trade. Account {account_id} not found or inactive.")
+            return None
+
+        total_value = shares * execution_price
+        realized_pnl = None
+
+        if action == "BUY":
+            if account.current_cash < total_value:
+                logger.error(f"Insufficient funds in {account_id}. Need {total_value}, have {account.current_cash}.")
+                return None
+
+            self.repo.update_cash(account_id, -total_value)
+
+            pos = self.repo.get_position(account_id, symbol, market)
+            if pos and pos.shares > 0:
+                new_shares = pos.shares + shares
+                new_cost = ((pos.shares * pos.average_cost) + total_value) / new_shares
+                self.repo.upsert_position(account_id, symbol, market, new_shares, new_cost)
+            else:
+                self.repo.upsert_position(account_id, symbol, market, shares, execution_price)
+
+        elif action == "SELL":
+            pos = self.repo.get_position(account_id, symbol, market)
+            if not pos or pos.shares < shares:
+                logger.error(f"Insufficient shares in {account_id} to sell {shares} of {symbol}.")
+                return None
+
+            # Calculate realized PnL
+            realized_pnl = (execution_price - pos.average_cost) * shares
+
+            self.repo.update_cash(account_id, total_value)
+
+            new_shares = pos.shares - shares
+            if new_shares == 0:
+                self.repo.upsert_position(account_id, symbol, market, 0, 0.0)
+            else:
+                self.repo.upsert_position(account_id, symbol, market, new_shares, pos.average_cost)
+        else:
+            logger.error(f"Unknown action {action}")
+            return None
+
+        trade = self.repo.record_trade(
+            account_id=account_id,
+            symbol=symbol,
+            market=market,
+            action=action,
+            shares=shares,
+            execution_price=execution_price,
+            trigger_source=trigger_source,
+            related_alert_id=related_alert_id,
+            position_size_pct=position_size_pct,
+            realized_pnl=realized_pnl,
+        )
+        return trade
+
+    # ── Signal-Triggered Auto-Trade ──────────────────────────────
+
+    def check_and_execute_signal(
+        self,
+        account_id: str,
+        alert: Dict,
+        current_price: float,
+    ) -> Optional[MockTrade]:
+        """
+        Check if current_price triggers a signal entry/exit and execute accordingly.
+        `alert` is a dict with keys: alert_id, symbol, market, entry_price, target_price, stop_loss,
+                                      position_size_pct (from AI).
+        """
+        symbol = alert["symbol"]
+        market = alert["market"]
+        alert_id = alert.get("alert_id")
+        ai_size_pct = alert.get("position_size_pct", 10.0)  # default 10% if AI didn't specify
+
+        account = self.repo.get_account(account_id)
+        if not account or account.status != "active":
+            return None
+
+        pos = self.repo.get_position(account_id, symbol, market)
+        has_position = pos and pos.shares > 0
+
+        # ── SELL triggers (only if we hold the stock) ──
+        if has_position:
+            if current_price >= alert["target_price"]:
+                logger.info(f"[SIGNAL] Target hit for {symbol} @ {current_price}. Selling all.")
+                return self.execute_trade(
+                    account_id, symbol, market, "SELL", pos.shares,
+                    current_price, "AI_SIGNAL", alert_id, ai_size_pct,
+                )
+            if current_price <= alert["stop_loss"]:
+                logger.info(f"[SIGNAL] Stop-loss hit for {symbol} @ {current_price}. Selling all.")
+                return self.execute_trade(
+                    account_id, symbol, market, "SELL", pos.shares,
+                    current_price, "AI_SIGNAL", alert_id, ai_size_pct,
+                )
+
+        # ── BUY trigger (only if we don't already hold) ──
+        if not has_position and current_price <= alert["entry_price"]:
+            # Calculate shares from AI-specified position size %
+            equity = self._estimate_equity(account, {})
+            budget = equity * (ai_size_pct / 100.0)
+            shares = int(budget // current_price)
+            if shares <= 0:
+                return None
+            logger.info(f"[SIGNAL] Entry hit for {symbol} @ {current_price}. Buying {shares} shares ({ai_size_pct}% of equity).")
+            return self.execute_trade(
+                account_id, symbol, market, "BUY", shares,
+                current_price, "AI_SIGNAL", alert_id, ai_size_pct,
+            )
+
+        return None
+
+    # ── Portfolio Analytics ───────────────────────────────────────
+
+    def get_portfolio_summary(self, account_id: str, price_map: Dict[str, float]) -> Optional[Dict]:
+        """
+        Return a portfolio summary with current equity, PnL, and per-position detail.
+        price_map: { "AAPL": 190.5, "601398.SH": 5.12 }
+        """
+        account = self.repo.get_account(account_id)
+        if not account:
+            return None
+
+        positions = self.repo.list_positions(account_id)
+        pos_details = []
+        total_market_value = 0.0
+
+        for p in positions:
+            cur_price = price_map.get(p.symbol, p.average_cost)
+            mkt_val = cur_price * p.shares
+            unrealized = (cur_price - p.average_cost) * p.shares
+            unrealized_pct = ((cur_price / p.average_cost) - 1) * 100 if p.average_cost > 0 else 0
+            total_market_value += mkt_val
+            pos_details.append({
+                "symbol": p.symbol,
+                "market": p.market,
+                "shares": p.shares,
+                "average_cost": p.average_cost,
+                "current_price": cur_price,
+                "market_value": round(mkt_val, 2),
+                "unrealized_pnl": round(unrealized, 2),
+                "unrealized_pnl_pct": round(unrealized_pct, 2),
+            })
+
+        total_equity = account.current_cash + total_market_value
+        total_pnl = total_equity - account.initial_balance
+        total_pnl_pct = ((total_equity / account.initial_balance) - 1) * 100 if account.initial_balance > 0 else 0
+
+        return {
+            "account_id": account.account_id,
+            "name": account.name,
+            "market": account.market,
+            "currency": account.currency,
+            "initial_balance": account.initial_balance,
+            "current_cash": round(account.current_cash, 2),
+            "positions_market_value": round(total_market_value, 2),
+            "total_equity": round(total_equity, 2),
+            "total_pnl": round(total_pnl, 2),
+            "total_pnl_pct": round(total_pnl_pct, 2),
+            "positions": pos_details,
+        }
+
+    def _estimate_equity(self, account: MockAccount, price_map: Dict[str, float]) -> float:
+        """Quick equity estimate. Falls back to cash if no prices available."""
+        positions = self.repo.list_positions(account.account_id)
+        mkt_val = sum(price_map.get(p.symbol, p.average_cost) * p.shares for p in positions)
+        return account.current_cash + mkt_val
+
+    # ── Anomaly Detection ─────────────────────────────────────────
+
+    def check_anomalies(
+        self,
+        account_id: str,
+        price_changes: Dict[str, float],  # { "AAPL": -8.5, "TSLA": 12.3 } in %
+        account_equity_change_pct: Optional[float] = None,
+    ) -> List[Dict]:
+        """
+        Check for anomalies in position stock moves and account equity swings.
+        Returns list of dicts with anomaly info for each trigger.
+        """
+        anomalies = []
+
+        # Per-stock check
+        for symbol, change_pct in price_changes.items():
+            if abs(change_pct) >= STOCK_ANOMALY_THRESHOLD_PCT:
+                event_type = "SPIKE" if change_pct > 0 else "DROP"
+                entry = self.repo.log_anomaly(
+                    account_id=account_id,
+                    event_type=event_type,
+                    magnitude_pct=round(change_pct, 2),
+                    symbol=symbol,
+                )
+                anomalies.append({
+                    "log_id": entry.log_id,
+                    "symbol": symbol,
+                    "event_type": event_type,
+                    "magnitude_pct": change_pct,
+                })
+
+        # Account-level check
+        if account_equity_change_pct is not None and abs(account_equity_change_pct) >= ACCOUNT_ANOMALY_THRESHOLD_PCT:
+            event_type = "SPIKE" if account_equity_change_pct > 0 else "DROP"
+            entry = self.repo.log_anomaly(
+                account_id=account_id,
+                event_type=event_type,
+                magnitude_pct=round(account_equity_change_pct, 2),
+            )
+            anomalies.append({
+                "log_id": entry.log_id,
+                "symbol": None,
+                "event_type": event_type,
+                "magnitude_pct": account_equity_change_pct,
+            })
+
+        return anomalies

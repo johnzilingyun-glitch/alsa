@@ -21,9 +21,13 @@ For the following calculations, you **MUST** invoke the corresponding computatio
 - **Earnings Scoring** → call `beat_miss_scorer` (provide consensus vs actual for each metric)
 You only need to provide input parameters. The tool returns exact calculations and formatted tables.
 
-1. **Executive Research Summary (NEW - Investment Thesis)**:
-   - You MUST generate a compelling **one-sentence Tagline** for the report (e.g., "XX Corp: Cyclical Bottom with AI Integration Igniting Second Growth Curve").
-   - Provide an **Investment Thesis** of under 200 words, summarizing why *now* is the critical timing.
+1. **1-Pager CIO Dashboard (MANDATORY)**:
+   - You MUST output the **1-Pager CIO Dashboard** in your final summary's first paragraph to allow the CIO to grasp the full picture in 1 minute, matching the format below:
+     * **Investment Thesis**: A high-impact Tagline and narrative defining the A-share core story (e.g., "Wanhua Chemical: Cyclical bottom, accelerated domestic substitution", "High dividend defense", or "Supply-demand mismatch from capacity shakeout").
+     * **Factor Radar (Factor Profile)**: Explicitly define the target's attribute tags (Large-cap/Small-cap, Value/Growth/Cyclical/Dividend, High-Beta/Low-Volatility, High-Debt/Low-Debt) and expected return characteristics.
+     * **Consensus vs. Non-Consensus**: What is the market consensus that is already priced-in? What is our non-consensus Alpha thesis (source of Alpha)?
+     * **The Call (One-sentence Action)**: Clear action command (e.g., current overweight, wait for right-side breakout signal on volume, liquidate on fundamental logic invalidation).
+   - **Catalyst Calendar**: You MUST list a specific A-share catalyst events table (e.g., quarterly report/pre-disclosure release dates, major product launches, lock-up expiration dates, product spot price inflection points), specifying the time nodes and strategy impact logic.
 
 2. **Arbitrator of Divergence**:
    - Integrate all expert findings. Balance technical, fundamental, and sentiment perspectives when they conflict.

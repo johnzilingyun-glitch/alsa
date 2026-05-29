@@ -33,6 +33,7 @@ const HistorySelectionDialog = lazy(() => import('./components/analysis/HistoryS
 const MarketOverview = lazy(() => import('./components/dashboard/MarketOverview').then(m => ({ default: m.MarketOverview })));
 const DetailModal = lazy(() => import('./components/shared/DetailModal').then(m => ({ default: m.DetailModal })));
 const IBKRDashboard = lazy(() => import('./components/dashboard/IBKRDashboard').then(m => ({ default: m.IBKRDashboard })));
+const MockTradingDashboard = lazy(() => import('./components/dashboard/MockTradingDashboard').then(m => ({ default: m.MockTradingDashboard })));
 
 export default function App() {
   console.log('App is rendering');
@@ -53,6 +54,7 @@ export default function App() {
   const analysisError = useUIStore(s => s.analysisError);
   const showAdminPanel = useUIStore(s => s.showAdminPanel);
   const showIBKRDashboard = useUIStore(s => s.showIBKRDashboard);
+  const showMockTradingDashboard = useUIStore(s => s.showMockTradingDashboard);
   const setShowDiscussion = useUIStore(s => s.setShowDiscussion);
   const setIsSettingsOpen = useUIStore(s => s.setIsSettingsOpen);
 
@@ -303,6 +305,7 @@ export default function App() {
         {showAdminPanel && <ErrorBoundary fallback="Admin panel encountered an error"><Suspense fallback={null}><AdminPanel /></Suspense></ErrorBoundary>}
 
         {showIBKRDashboard && <Suspense fallback={null}><IBKRDashboard /></Suspense>}
+        {showMockTradingDashboard && <Suspense fallback={null}><MockTradingDashboard /></Suspense>}
         
         <Suspense fallback={null}><AnalysisLoadingPulse /></Suspense>
       </div>

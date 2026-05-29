@@ -79,6 +79,17 @@ class ReportGeneratorService:
             "fund": fundamentals,
             "verdict": ui_data.get("verdict", ""),
             "action_stance": ui_data.get("action_stance", ""),
+            "tagline": ui_data.get("tagline", ""),
+            "investment_thesis": ui_data.get("investment_thesis", ""),
+            "factor_profile": ui_data.get("factor_profile", {}),
+            "consensus_vs_non_consensus": ui_data.get("consensus_vs_non_consensus", {}),
+            "the_call": ui_data.get("the_call", ""),
+            "catalyst_calendar": ui_data.get("catalyst_calendar", []),
+            "stock_archetype": ui_data.get("stock_archetype", ""),
+            "wacc_breakdown": ui_data.get("wacc_breakdown", {}),
+            "kill_switch": ui_data.get("kill_switch", {}),
+            "market_wind_control": ui_data.get("market_wind_control", {}),
+            "trading_discipline": ui_data.get("trading_discipline", {}),
             "data_completeness": ui_data.get("data_completeness", {"score": 100, "missing": [], "impact": ""}),
             "peer_comparison": ui_data.get("peer_comparison", []),
             "summary": ui_data.get("summary", "总结提炼中..."),
@@ -111,6 +122,17 @@ class ReportGeneratorService:
 FIELDS TO EXTRACT:
 - verdict: ONE sentence (max 20 words) conclusion for busy fund managers. Example: "高ROE周期股，技术破位中，等待22-24元安全边际共振"
 - action_stance: Clarify the relationship between recommendation and trading plan. Example: "当前持仓HOLD，新仓等待L1入场条件触发后试探性建仓"
+- tagline: Compelling tagline/hook of the report. Example: "藏格矿业：钾锂双轮驱动，周期筑底期现金牛价值凸显"
+- investment_thesis: A-share core narrative in one sentence. Example: "行业出清带来的供需错配与国产替代加速"
+- factor_profile: Object with {{size: "大盘/小盘/中盘", style: "成长/价值/周期/红利", volatility: "高Beta/低波动/中等", expected_return: "收益特征说明"}}
+- consensus_vs_non_consensus: Object with {{market_consensus: "市场已price-in的共识", our_alpha: "我们看到的Alpha预期差"}}
+- the_call: One-sentence final action command. Example: "当前超配，等待均线放量金叉后分批入场，若跌破止损位强制止损"
+- catalyst_calendar: List of objects with {{event: "催化剂事件描述", date: "预计时间节点", impact_logic: "影响逻辑"}}
+- stock_archetype: Stock classification, must be one of: "Cyclical", "Growth", "Dividend", "Consumer/Moat"
+- wacc_breakdown: Object with {{rf: "无风险利率(如2.3%)", beta: "贝塔系数(如1.1)", erp: "股权风险溢价(如6.0%)", kd: "债务成本", tc: "所得税率", d_v: "有息负债占比", e_v: "权益占比", wacc: "计算后的WACC", source: "数据来源与逻辑"}}
+- kill_switch: Object with {{condition: "防伪红线触发条件描述", status: "预警状态，如安全(SAFE)或触发(TRIGGERED)"}}
+- market_wind_control: Object representing market-specific risk features based on Listing Market. (A-Share: {{lockup_date: "限售股解禁日期/规模", lockup_impact: "解禁影响分析", reduction_plan: "大股东/高管减持计划及进度", crowding_level: "机构持仓拥挤度分析"}}; HK-Share: {{lockup_date: "基石/大股东禁售期解禁评估", lockup_impact: "减持冲击及公告变动", reduction_plan: "大股东抵押/质押股份比例", crowding_level: "港股通南向资金持股变动与占比"}}; US-Share: {{lockup_date: "内部人交易 Form 4 净买/卖", lockup_impact: "10b5-1 计划执行情况", reduction_plan: "空头头寸占比 Short Interest", crowding_level: "13F 机构持仓变动"}})
+- trading_discipline: Object with {{left_side_condition: "左侧建仓条件(如极度缩量地量支撑)", right_side_trigger: "右侧买入触发点", max_drawdown_limit: "单票最大回撤熔断上限(如-8%或-10%)", thesis_invalidation_trigger: "逻辑证伪退出触发器"}}
 - data_completeness: Object with {{score: 0-100, missing: [list of critical missing data items], impact: \"description of impact on conclusions\"}}
 - peer_comparison: List of objects with {{name, symbol, pe, pb, roe, margin, marketCap, vs_target}} for 3-5 comparable peers
 - summary: Short executive summary (2-3 sentences)
@@ -149,6 +171,19 @@ JSON STRUCTURE:
 {{
   "verdict": "一句话结论(max 20 words)",
   "action_stance": "明确当前持仓建议与新仓操作指引的关系",
+  "tagline": "...",
+  "investment_thesis": "...",
+  "factor_profile": {{"size": "...", "style": "...", "volatility": "...", "expected_return": "..."}},
+  "consensus_vs_non_consensus": {{"market_consensus": "...", "our_alpha": "..."}},
+  "the_call": "...",
+  "catalyst_calendar": [
+    {{"event": "...", "date": "...", "impact_logic": "..."}}
+  ],
+  "stock_archetype": "Cyclical",
+  "wacc_breakdown": {{"rf": "...", "beta": "...", "erp": "...", "kd": "...", "tc": "...", "d_v": "...", "e_v": "...", "wacc": "...", "source": "..."}},
+  "kill_switch": {{"condition": "...", "status": "..."}},
+  "market_wind_control": {{"lockup_date": "...", "lockup_impact": "...", "reduction_plan": "...", "crowding_level": "..."}},
+  "trading_discipline": {{"left_side_condition": "...", "right_side_trigger": "...", "max_drawdown_limit": "...", "thesis_invalidation_trigger": "..."}},
   "data_completeness": {{"score": 85, "missing": ["PP现货价", "焦炭价"], "impact": "影响利润敏感性分析精度"}},
   "peer_comparison": [{{"name": "万华化学", "symbol": "002415", "pe": 15.2, "pb": 3.1, "roe": 18.5, "margin": 22.3, "marketCap": "3200亿", "vs_target": "估值溢价合理"}}],
   "summary": "...",
@@ -168,6 +203,7 @@ JSON STRUCTURE:
 }}
 
 OUTPUT ONLY THE JSON OBJECT.
+
 """
         # Append search context if available to help fill missing fundamental data
         search_ctx = snapshot.get("financials", {}).get("searchContext", "")
@@ -611,7 +647,7 @@ CONTENT:
 
     def _get_locale(self, market: str) -> dict:
         """Return localized labels based on market."""
-        if market == "us":
+        if market == "US-Share":
             return {
                 "page_title": "Deep Research Report",
                 "executive_summary": "Executive Summary",
@@ -630,6 +666,41 @@ CONTENT:
                 "scenario_target": "Target Price",
                 "scenario_logic": "Key Driver",
                 "discussion_log": "Expert Deliberation Log",
+                "layer1_title": "Layer 1: Core Decision Package (1-Pager CIO Dashboard)",
+                "layer2_title": "Layer 2: Investment Case & Data Evidence",
+                "layer3_title": "Layer 3: Execution Plan & Risk Discipline",
+                "appendix_title": "Appendix: Internal Research Debate Log",
+                "card_factor_profile": "🎯 Factor Profile",
+                "card_consensus": "⚖️ Consensus vs. Non-Consensus",
+                "card_the_call": "📣 The Call (Action Directive)",
+                "card_scenarios": "📉 Scenario Analysis & Price Forecast",
+                "card_valuation": "🔍 Valuation Engine & Model Audit",
+                "card_archetype_label": "Stock Archetype",
+                "card_kill_switch": "🚨 Kill Switch (Falsification Redline)",
+                "card_wacc": "WACC Model Disaggregation",
+                "card_trading_steps": "📈 Trading Execution Steps",
+                "card_wind_control": "⚠️ Market Event & Funding Control",
+                "card_lr_signal": "🚦 Left/Right Side Signal Conditions",
+                "card_drawdown": "🛡️ Drawdown Control & Thesis Invalidation",
+                "label_thesis_narrative": "Investment Thesis Narrative",
+                "label_size": "Size:",
+                "label_style": "Style:",
+                "label_volatility": "Volatility:",
+                "label_expected_return": "Expected Return:",
+                "label_market_consensus": "Market Consensus (Priced-in)",
+                "label_our_alpha": "Alpha Edge (Our thesis)",
+                "label_left_side": "Left-Side Support Entry:",
+                "label_right_side": "Right-Side Breakout Trigger:",
+                "label_max_drawdown": "Max Single-Stock Drawdown:",
+                "label_invalidation": "Core Thesis Invalidation Trigger:",
+                "label_unclassified": "Unclassified",
+                "label_no_expectation": "No expected return profile specified",
+                "label_no_consensus": "No consensus identified",
+                "label_no_alpha": "No alpha edge identified",
+                "label_no_left": "No left-side entry defined",
+                "label_no_right": "No right-side trigger defined",
+                "label_default_drawdown": "-8% to -10%",
+                "label_no_invalidation": "No thesis invalidation trigger set",
                 "disclaimer": "Disclaimer: This report is autonomously generated by ALSA Multi-Agent Matrix for reference only. Not investment advice.",
                 "copyright": "© 2026 ALSA Intelligent Analysis System",
                 "signal_healthy": "Healthy",
@@ -663,6 +734,41 @@ CONTENT:
             "scenario_target": "目标价",
             "scenario_logic": "核心驱动逻辑",
             "discussion_log": "专家研讨深度记录 (Expert Deliberation Log)",
+                "layer1_title": "第一层：核心决策包 (1-Pager CIO Dashboard)",
+                "layer2_title": "第二层：逻辑链条与数据实证 (Investment Case)",
+                "layer3_title": "第三层：交易执行单与风险防线 (Execution Plan & Risk Discipline)",
+                "appendix_title": "附录：内部投研辩论日志 (Debate Log & Model Audit)",
+                "card_factor_profile": "🎯 因子雷达 (Factor Profile)",
+                "card_consensus": "⚖️ 多空共识差 (Consensus vs. Non-Consensus)",
+                "card_the_call": "📣 一句话决断 (The Call)",
+                "card_scenarios": "📉 情景演练及期望价格预测",
+                "card_valuation": "🔍 估值引擎与模型审计 (Valuation Engine & Model Audit)",
+                "card_archetype_label": "标的分类属性 (Stock Archetype)",
+                "card_kill_switch": "🚨 防伪红线 (Kill Switch)",
+                "card_wacc": "WACC 贴现模型白箱审计 (WACC Model Disaggregation)",
+                "card_trading_steps": "📈 交易操作步骤 (Trading Execution Steps)",
+                "card_wind_control": "⚠️ 市场原生事件与筹码风控 (Event & Funding Control)",
+                "card_lr_signal": "🚦 左右侧交易信号条件",
+                "card_drawdown": "🛡️ 回撤风控与逻辑证伪出局",
+                "label_thesis_narrative": "核心定调 (Investment Thesis Narrative)",
+                "label_size": "市值:",
+                "label_style": "风格:",
+                "label_volatility": "波动:",
+                "label_expected_return": "收益预期特征：",
+                "label_market_consensus": "市场共识 (Priced-in)",
+                "label_our_alpha": "Alpha 预期差 (Our edge)",
+                "label_left_side": "左侧支撑买入：",
+                "label_right_side": "右侧放量突破：",
+                "label_max_drawdown": "单票回撤上限：",
+                "label_invalidation": "核心逻辑证伪触发器：",
+                "label_unclassified": "未分类",
+                "label_no_expectation": "未明确预期特征",
+                "label_no_consensus": "未明确共识",
+                "label_no_alpha": "未明确预期差",
+                "label_no_left": "未规定左侧买点",
+                "label_no_right": "未规定右侧买点",
+                "label_default_drawdown": "-8% 到 -10%",
+                "label_no_invalidation": "未设定逻辑止损触发器",
             "disclaimer": "免责声明：本报告由 ALSA 多代理矩阵自主生成，仅供参考，不构成投资建议。",
             "copyright": "© 2026 ALSA 智能分析系统",
             "signal_healthy": "健康",
@@ -689,7 +795,8 @@ CONTENT:
 
         def md(t): return markdown2.markdown(t) if t else ""
 
-        # Verdict banner
+        # Raw variable extractions with safe defaults
+        tagline = d.get("tagline") or f"{info.get('name', '')} ({info.get('symbol', '')}) 投资分析报告"
         verdict = d.get("verdict", "")
         rec = d.get("recommendation", "WATCH")
         rec_lower = rec.lower() if rec else "hold"
@@ -697,10 +804,34 @@ CONTENT:
         verdict_html = ""
         if verdict:
             verdict_html = f'<div class="verdict-banner"><span class="verdict-text">{verdict}</span><span class="verdict-rec {rec_class}">{rec}</span></div>'
-
-        # Action stance
+        
         action_stance = d.get("action_stance", "")
         action_html = f'<div class="action-stance">{action_stance}</div>' if action_stance else ""
+
+        # 1-Pager Dashboard Elements
+        thesis = d.get("investment_thesis") or d.get("summary") or "分析整理中..."
+        factor = d.get("factor_profile") or {}
+        consensus = d.get("consensus_vs_non_consensus") or {}
+        the_call = d.get("the_call") or verdict or "暂无明确决断建议"
+        
+        # Catalyst Calendar
+        catalysts = d.get("catalyst_calendar") or []
+        catalyst_html = ""
+        if catalysts and isinstance(catalysts, list):
+            cat_rows = "".join([
+                f'<tr><td><span class="calendar-date">{c.get("date", "N/A")}</span></td><td><strong>{c.get("event", "N/A")}</strong></td><td>{c.get("impact_logic", "")}</td></tr>'
+                for c in catalysts if isinstance(c, dict)
+            ])
+            if cat_rows:
+                catalyst_html = f'''
+                <div class="dashboard-card calendar-card">
+                    <h3 class="card-title">📅 催化剂事件日历 (Catalyst Calendar)</h3>
+                    <table class="calendar-table">
+                        <thead><tr><th>预计时间</th><th>事件描述</th><th>对策略影响逻辑</th></tr></thead>
+                        <tbody>{cat_rows}</tbody>
+                    </table>
+                </div>
+                '''
 
         # Data completeness warning
         dc = d.get("data_completeness", {})
@@ -717,6 +848,61 @@ CONTENT:
                 <div>缺失关键数据: {missing_str}</div>
                 {f'<div style="margin-top:4px;color:#b45309;">影响: {dc_impact}</div>' if dc_impact else ''}
             </div>'''
+
+        # Adaptive Valuation Panel
+        archetype = d.get("stock_archetype") or ""
+        archetype_zh = {
+            "Cyclical": "强周期型 (Cyclical)",
+            "Growth": "高成长型 (Growth)",
+            "Dividend": "稳健红利型 (Dividend)",
+            "Consumer/Moat": "消费/护城河型 (Consumer/Moat)",
+            "Financial": "金融股 (Financial)",
+            "Biotech": "创新药/生物科技 (Biotech)"
+        }.get(archetype, archetype or "通用分析型")
+        
+        kill_switch = d.get("kill_switch") or {}
+        ks_condition = kill_switch.get("condition") or "分析师未配置具体防伪红线条件"
+        ks_status = kill_switch.get("status") or "SAFE"
+        ks_class = "triggered" if ks_status.upper() in ("TRIGGERED", "WARN", "触发") else "safe"
+        ks_status_zh = "已触发预警 (TRIGGERED)" if ks_class == "triggered" else "安全 (SAFE)"
+        
+        # WACC Breakdown Table
+        wacc_data = d.get("wacc_breakdown") or {}
+        wacc_table_html = ""
+        if wacc_data and isinstance(wacc_data, dict) and wacc_data.get("wacc"):
+            wacc_table_html = f'''
+            <table class="wacc-table">
+                <thead>
+                    <tr>
+                        <th>Rf (无风险利率)</th>
+                        <th>Beta (贝塔系数)</th>
+                        <th>ERP (股权溢价)</th>
+                        <th>Kd (债务成本)</th>
+                        <th>Tc (所得税率)</th>
+                        <th>D/V (负债比)</th>
+                        <th>E/V (权益比)</th>
+                        <th>WACC (贴现率)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>{wacc_data.get("rf", "N/A")}</td>
+                        <td>{wacc_data.get("beta", "N/A")}</td>
+                        <td>{wacc_data.get("erp", "N/A")}</td>
+                        <td>{wacc_data.get("kd", "N/A")}</td>
+                        <td>{wacc_data.get("tc", "N/A")}</td>
+                        <td>{wacc_data.get("d_v", "N/A")}</td>
+                        <td>{wacc_data.get("e_v", "N/A")}</td>
+                        <td><strong>{wacc_data.get("wacc", "N/A")}</strong></td>
+                    </tr>
+                    <tr>
+                        <td colspan="8" class="wacc-source"><strong>WACC 参数来源与逻辑：</strong> {wacc_data.get("source", "未披露")}</td>
+                    </tr>
+                </tbody>
+            </table>
+            '''
+        else:
+            wacc_table_html = '<div class="no-data-msg">本期分析未应用DCF模型折现，或WACC参数由评审专家判定为不适用/未披露。</div>'
 
         # Peer comparison table
         peers = d.get("peer_comparison", [])
@@ -735,13 +921,15 @@ CONTENT:
                     <td>{p.get("marketCap", "N/A")}</td>
                     <td>{p.get("vs_target", "")}</td>
                 </tr>'''
-            peer_section_html = f'''<section class="section">
-                <h2 class="section-title">同业横向对比 (Peer Comparison)</h2>
+            peer_section_html = f'''
+            <div class="comps-wrapper">
+                <h3 class="comps-title">📊 行业可比公司对标 (Comps Peer Comparison)</h3>
+                <div class="comps-desc">注：可比公司中位数已执行离群值（如亏损公司及极端估值）剔除过滤</div>
                 <table class="peer-table">
                     <thead><tr><th>公司</th><th>代码</th><th>PE</th><th>PB</th><th>ROE</th><th>净利率</th><th>市值</th><th>对标评价</th></tr></thead>
                     <tbody>{peer_rows}</tbody>
                 </table>
-            </section>'''
+            </div>'''
 
         # Categorized Metrics
         categories = [
@@ -774,6 +962,7 @@ CONTENT:
                 "title": locale["cat_growth"],
                 "metrics": [
                     ("营收同比增长 (YoY)", "收入扩张速度"),
+                    ("营收同比-单季 (YoY-Q)", "近期经营动能"),
                     ("营收环比增长 (QoQ)", "近期经营动能"),
                     ("净利润同比增长 (YoY)", "盈利增长速度"),
                     ("净利润环比增长 (QoQ)", "近期盈利弹性"),
@@ -829,14 +1018,16 @@ CONTENT:
             items_html = "".join([
                 self._render_fund_item(k, desc, fund.get(k, "N/A"))
                 for k, desc in cat["metrics"]
-                if k in fund  # Skip metrics not populated (e.g. 扣非净利润 for US stocks)
+                if k in fund  # Skip metrics not populated
             ])
-            detailed_fund_html += f"""
-            <div class="fund-category">
-                <div class="fund-category-title">{cat['title']}</div>
-                <div class="fund-category-grid">{items_html}</div>
-            </div>"""
+            if items_html:
+                detailed_fund_html += f"""
+                <div class="fund-category">
+                    <div class="fund-category-title">{cat['title']}</div>
+                    <div class="fund-category-grid">{items_html}</div>
+                </div>"""
 
+        # Scenarios
         scenarios = d.get("scenarios", [])
         if not isinstance(scenarios, list) or (len(scenarios) > 0 and not isinstance(scenarios[0], dict)):
             scenarios = self._default_scenarios()
@@ -862,6 +1053,10 @@ CONTENT:
                 <div class="trade-logic">{s.get('logic', '')}</div>
             </div>"""
 
+        # Market wind control and disciplines
+        wind_control = d.get("market_wind_control") or {}
+        discipline = d.get("trading_discipline") or {}
+
         moat_list = "".join([f'<li>{p}</li>' for p in d.get("moat_points", [])])
         macro_list = "".join([f'<li>{p}</li>' for p in d.get("macro_points", [])])
         risk_points_html = "".join([f'<li>{p}</li>' for p in d.get("risks_points", [])])
@@ -871,37 +1066,458 @@ CONTENT:
             for m in d["discussion"]
         ])
 
+        # Determine market and render specific wind control HTML
+        market_str = info.get("market") or ""
+        if market_str == "A-Share" or market_str.lower() in ("cn", "ashare", "a-share"):
+            wind_control_html = f"""
+                    <div class="wind-card">
+                        <div class="wind-card-title">📅 限售股解禁日历</div>
+                        <div class="wind-card-body">
+                            <strong>解禁信息：</strong> {wind_control.get("lockup_date") or "无近三个月大额解禁信息"}<br>
+                            <strong>解禁冲击：</strong> {wind_control.get("lockup_impact") or "解禁冲击评估为低/无"}
+                        </div>
+                    </div>
+                    <div class="wind-card">
+                        <div class="wind-card-title">📢 减持公告与拥挤度</div>
+                        <div class="wind-card-body">
+                            <strong>减持情况：</strong> {wind_control.get("reduction_plan") or "无未完成减持公告"}<br>
+                            <strong>机构拥挤：</strong> {wind_control.get("crowding_level") or "机构仓位拥挤度适中"}
+                        </div>
+                    </div>"""
+        elif market_str == "HK-Share" or market_str.lower() in ("hk", "hkshare", "hk-share"):
+            wind_control_html = f"""
+                    <div class="wind-card">
+                        <div class="wind-card-title">📅 基石/主要股东禁售解禁</div>
+                        <div class="wind-card-body">
+                            <strong>禁售解禁：</strong> {wind_control.get("lockup_date") or "无近三个月大额禁售解禁信息"}<br>
+                            <strong>减持/解禁冲击：</strong> {wind_control.get("lockup_impact") or "解禁及减持冲击低/无"}
+                        </div>
+                    </div>
+                    <div class="wind-card">
+                        <div class="wind-card-title">📢 港股通持股与大股东质押</div>
+                        <div class="wind-card-body">
+                            <strong>港股通持股：</strong> {wind_control.get("crowding_level") or "南向资金持股变动稳健"}<br>
+                            <strong>股份质押/减持：</strong> {wind_control.get("reduction_plan") or "大股东及质押风险为安全/无"}
+                        </div>
+                    </div>"""
+        else: # US-Share
+            wind_control_html = f"""
+                    <div class="wind-card">
+                        <div class="wind-card-title">📅 内部人交易 Form 4</div>
+                        <div class="wind-card-body">
+                            <strong>内部人交易：</strong> {wind_control.get("lockup_date") or "无大额内部人买卖交易记录"}<br>
+                            <strong>10b5-1 计划：</strong> {wind_control.get("lockup_impact") or "无正在执行的10b5-1大额减持计划"}
+                        </div>
+                    </div>
+                    <div class="wind-card">
+                        <div class="wind-card-title">📢 空头头寸与机构持仓</div>
+                        <div class="wind-card-body">
+                            <strong>空头占比：</strong> {wind_control.get("reduction_plan") or "空头头寸占比 (Short Interest) 处于安全低位"}<br>
+                            <strong>机构持仓：</strong> {wind_control.get("crowding_level") or "13F 机构持仓未见踩踏或大幅抛售"}
+                        </div>
+                    </div>"""
+
         return f"""<!DOCTYPE html>
-<html lang="{'en' if info.get('market') == 'us' else 'zh-CN'}">
+<html lang="{'en' if info.get('market') == 'US-Share' else 'zh-CN'}">
 <head>
     <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{info["name"]} ({info["symbol"]}) - {locale["page_title"]}</title>
     <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Outfit:wght@500;600;700;800&display=swap');
         :root {{
-            --primary: #1e293b; --accent: #3b82f6; --text: #334155; --light: #f8fafc; --border: #e2e8f0; --bull: #10b981; --bear: #ef4444;
+            --bg: #f8fafc;
+            --primary: #0f172a;
+            --primary-light: #1e293b;
+            --accent: #2563eb;
+            --accent-glow: rgba(37, 99, 235, 0.15);
+            --text: #334155;
+            --text-light: #64748b;
+            --border: #e2e8f0;
+            --card-bg: #ffffff;
+            
+            --bull: #10b981;
+            --bull-bg: #ecfdf5;
+            --bear: #ef4444;
+            --bear-bg: #fef2f2;
+            --warning: #f59e0b;
+            --warning-bg: #fffbeb;
         }}
-        body {{ font-family: 'Inter', -apple-system, system-ui, sans-serif; color: var(--text); line-height: 1.6; margin: 0; background: #f1f5f9; }}
-        .report-page {{ max-width: 1000px; margin: 40px auto; background: #fff; padding: 60px 80px; box-shadow: 0 4px 20px rgba(0,0,0,0.05); border-radius: 4px; border: 1px solid var(--border); }}
         
-        /* Header Styling */
-        .report-header {{ border-bottom: 2px solid var(--primary); padding-bottom: 25px; margin-bottom: 40px; display: flex; justify-content: space-between; align-items: center; }}
-        .brand-logo {{ font-size: 12px; font-weight: 700; color: var(--accent); text-transform: uppercase; letter-spacing: 2px; margin-bottom: 10px; }}
-        .ticker-info h1 {{ margin: 0; font-size: 32px; font-weight: 800; color: var(--primary); }}
-        .ticker-sub {{ color: #64748b; font-size: 14px; font-weight: 500; margin-top: 5px; }}
+        body {{
+            font-family: 'Inter', -apple-system, sans-serif;
+            color: var(--text);
+            line-height: 1.6;
+            margin: 0;
+            background: var(--bg);
+            -webkit-font-smoothing: antialiased;
+        }}
+        
+        .report-page {{
+            max-width: 1100px;
+            margin: 40px auto;
+            background: var(--card-bg);
+            padding: 50px 70px;
+            box-shadow: 0 10px 30px -5px rgba(0, 0, 0, 0.05);
+            border-radius: 12px;
+            border: 1px solid var(--border);
+        }}
+        
+        /* Layer Headers */
+        .layer-title {{
+            font-family: 'Outfit', sans-serif;
+            font-size: 24px;
+            font-weight: 800;
+            color: var(--primary);
+            border-bottom: 2px solid var(--primary);
+            padding-bottom: 12px;
+            margin-top: 50px;
+            margin-bottom: 25px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            display: flex;
+            align-items: center;
+        }}
+        .layer-title::before {{
+            content: '';
+            display: inline-block;
+            width: 6px;
+            height: 24px;
+            background: var(--accent);
+            margin-right: 12px;
+            border-radius: 3px;
+        }}
+        .layer-title .layer-num {{
+            font-size: 14px;
+            background: var(--accent-glow);
+            color: var(--accent);
+            padding: 2px 10px;
+            border-radius: 20px;
+            margin-left: 12px;
+            font-weight: 700;
+        }}
+        
+        /* Brand Header */
+        .report-header {{
+            border-bottom: 2px solid var(--primary);
+            padding-bottom: 25px;
+            margin-bottom: 45px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }}
+        .brand-logo {{
+            font-family: 'Outfit', sans-serif;
+            font-size: 12px;
+            font-weight: 800;
+            color: var(--accent);
+            text-transform: uppercase;
+            letter-spacing: 3px;
+            margin-bottom: 10px;
+        }}
+        .ticker-info h1 {{
+            margin: 0;
+            font-family: 'Outfit', sans-serif;
+            font-size: 34px;
+            font-weight: 800;
+            color: var(--primary);
+        }}
+        .ticker-sub {{
+            color: var(--text-light);
+            font-size: 14px;
+            font-weight: 500;
+            margin-top: 5px;
+        }}
         .price-box {{ text-align: right; }}
-        .current-price {{ font-size: 36px; font-weight: 800; color: var(--primary); line-height: 1; }}
-        .price-pct {{ font-size: 18px; font-weight: 700; color: {chg_color}; margin-top: 5px; }}
+        .current-price {{
+            font-family: 'Outfit', sans-serif;
+            font-size: 38px;
+            font-weight: 800;
+            color: var(--primary);
+            line-height: 1;
+        }}
+        .price-pct {{
+            font-size: 18px;
+            font-weight: 700;
+            color: {chg_color};
+            margin-top: 5px;
+        }}
+        
+        /* Verdict Banners */
+        .verdict-banner {{
+            background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+            color: #fff;
+            padding: 20px 30px;
+            border-radius: 8px;
+            margin-bottom: 25px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            box-shadow: 0 4px 15px rgba(15, 23, 42, 0.15);
+        }}
+        .verdict-text {{
+            font-size: 18px;
+            font-weight: 700;
+            letter-spacing: 0.3px;
+        }}
+        .verdict-rec {{
+            padding: 6px 18px;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }}
+        .verdict-rec.buy {{ background: rgba(16, 185, 129, 0.2); color: #6ee7b7; border: 1px solid #10b981; }}
+        .verdict-rec.sell {{ background: rgba(239, 68, 68, 0.2); color: #fca5a5; border: 1px solid #ef4444; }}
+        .verdict-rec.hold {{ background: rgba(245, 158, 11, 0.2); color: #fcd34d; border: 1px solid #f59e0b; }}
+        
+        .action-stance {{
+            background: var(--warning-bg);
+            border: 1px solid #fde68a;
+            border-radius: 8px;
+            padding: 15px 25px;
+            margin-bottom: 30px;
+            font-size: 14px;
+            color: #92400e;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+        }}
+        .action-stance::before {{ content: '🎯'; margin-right: 12px; font-size: 18px; }}
 
-        /* Sections */
-        .section {{ margin-bottom: 50px; text-align: left; }}
-        .section-title {{ font-size: 20px; font-weight: 800; color: var(--primary); border-bottom: 1px solid var(--border); padding-bottom: 12px; margin-bottom: 25px; display: flex; align-items: center; text-transform: uppercase; letter-spacing: 0.5px; text-align: left; }}
-        .section-title::before {{ content: ''; display: inline-block; width: 4px; height: 20px; background: var(--accent); margin-right: 12px; vertical-align: middle; border-radius: 2px; }}
+        /* Dashboard Container */
+        .dashboard-grid {{
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 25px;
+            margin-bottom: 30px;
+        }}
+        .dashboard-card {{
+            background: #fff;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 25px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.02);
+            transition: all 0.2s ease;
+        }}
+        .dashboard-card:hover {{
+            box-shadow: 0 8px 12px -1px rgba(0, 0, 0, 0.04);
+            transform: translateY(-2px);
+        }}
+        .dashboard-card.full-width {{
+            grid-column: 1 / -1;
+        }}
+        .card-title {{
+            margin-top: 0;
+            margin-bottom: 15px;
+            font-family: 'Outfit', sans-serif;
+            font-size: 16px;
+            font-weight: 700;
+            color: var(--primary);
+            display: flex;
+            align-items: center;
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 10px;
+        }}
+        
+        /* Profile Tags */
+        .profile-tag-list {{
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-bottom: 15px;
+        }}
+        .profile-tag {{
+            background: var(--bg);
+            border: 1px solid var(--border);
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--primary-light);
+        }}
+        .profile-tag span {{ color: var(--accent); margin-right: 4px; }}
+        
+        /* Consensus Splitting */
+        .consensus-split {{
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }}
+        .consensus-box {{
+            padding: 15px;
+            border-radius: 6px;
+            font-size: 13px;
+        }}
+        .consensus-box.market {{
+            background: #f1f5f9;
+            border-left: 4px solid #94a3b8;
+        }}
+        .consensus-box.alpha {{
+            background: var(--accent-glow);
+            border-left: 4px solid var(--accent);
+            color: #1e3a8a;
+        }}
+        .consensus-box-title {{
+            font-weight: 700;
+            margin-bottom: 8px;
+            text-transform: uppercase;
+            font-size: 11px;
+            letter-spacing: 0.5px;
+        }}
+        
+        /* Calendar / Timelines */
+        .calendar-table {{
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }}
+        .calendar-table th {{
+            text-align: left;
+            padding: 10px 12px;
+            font-weight: 700;
+            color: var(--text-light);
+            border-bottom: 2px solid var(--border);
+        }}
+        .calendar-table td {{
+            padding: 12px;
+            border-bottom: 1px solid var(--border);
+        }}
+        .calendar-date {{
+            background: #e2e8f0;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-weight: 700;
+            color: var(--primary-light);
+        }}
+
+        /* Valuation details */
+        .valuation-top-row {{
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 25px;
+            margin-bottom: 25px;
+        }}
+        .archetype-box {{
+            background: #f8fafc;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }}
+        .archetype-label {{ font-size: 13px; color: var(--text-light); font-weight: 500; }}
+        .archetype-val {{ font-family: 'Outfit', sans-serif; font-size: 18px; font-weight: 800; color: var(--accent); }}
+        
+        .kill-switch-box {{
+            border-radius: 8px;
+            padding: 20px;
+            border: 1px solid #fecaca;
+            background: var(--bear-bg);
+            color: #991b1b;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }}
+        .kill-switch-box.safe {{
+            border: 1px solid #a7f3d0;
+            background: var(--bull-bg);
+            color: #065f46;
+        }}
+        .ks-header-row {{
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }}
+        .ks-title {{ font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 1px; }}
+        .ks-status {{
+            font-size: 11px;
+            font-weight: 800;
+            padding: 2px 8px;
+            border-radius: 4px;
+            color: #fff;
+            background: var(--bear);
+        }}
+        .ks-status.safe {{ background: var(--bull); }}
+        .ks-condition {{ font-size: 13px; font-weight: 500; }}
+        
+        .wacc-table {{
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 12px;
+            margin-bottom: 30px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            overflow: hidden;
+        }}
+        .wacc-table th {{
+            background: #f1f5f9;
+            padding: 10px;
+            font-weight: 700;
+            color: var(--primary-light);
+            border: 1px solid var(--border);
+            text-align: center;
+        }}
+        .wacc-table td {{
+            padding: 10px;
+            text-align: center;
+            border: 1px solid var(--border);
+        }}
+        .wacc-source {{
+            text-align: left !important;
+            background: #fafafa;
+            color: var(--text-light);
+            font-size: 11px;
+            padding: 12px !important;
+        }}
+        
+        /* Comps */
+        .comps-wrapper {{
+            margin-bottom: 35px;
+        }}
+        .comps-title {{
+            font-family: 'Outfit', sans-serif;
+            font-size: 16px;
+            font-weight: 700;
+            margin-bottom: 6px;
+            color: var(--primary);
+        }}
+        .comps-desc {{
+            font-size: 11px;
+            color: var(--text-light);
+            margin-bottom: 12px;
+        }}
+        .peer-table {{
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+            border: 1px solid var(--border);
+        }}
+        .peer-table th {{
+            background: #f8fafc;
+            padding: 12px 10px;
+            text-align: center;
+            font-weight: 700;
+            color: var(--primary-light);
+            border: 1px solid var(--border);
+        }}
+        .peer-table td {{
+            padding: 12px 10px;
+            text-align: center;
+            border: 1px solid var(--border);
+        }}
+        .peer-table tr:first-child td {{
+            background: #f0f7ff;
+            font-weight: 600;
+        }}
 
         /* Detailed Fund Section */
-        .fund-category {{ margin-bottom: 30px; }}
-        .fund-category-title {{ font-size: 14px; font-weight: 700; color: var(--accent); margin-bottom: 15px; text-transform: uppercase; letter-spacing: 1px; }}
+        .fund-category {{ margin-bottom: 35px; }}
+        .fund-category-title {{ font-size: 14px; font-weight: 800; color: var(--accent); margin-bottom: 15px; text-transform: uppercase; letter-spacing: 1px; }}
         .fund-category-grid {{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }}
-        .fund-item {{ background: #fdfdfd; border: 1px solid #f1f5f9; padding: 12px 15px; display: flex; justify-content: space-between; align-items: center; border-radius: 4px; }}
+        .fund-item {{ background: #fdfdfd; border: 1px solid #f1f5f9; padding: 12px 15px; display: flex; justify-content: space-between; align-items: center; border-radius: 6px; }}
         .fund-item-label {{ font-size: 13px; color: #475569; font-weight: 500; }}
         .fund-item-label span {{ display: block; font-size: 10px; color: #94a3b8; font-weight: 400; }}
         .fund-item-value {{ font-size: 14px; font-weight: 700; color: var(--primary); }}
@@ -910,13 +1526,8 @@ CONTENT:
         .signal-yellow {{ background: #f59e0b; box-shadow: 0 0 4px #f59e0b80; }}
         .signal-red {{ background: #ef4444; box-shadow: 0 0 4px #ef444480; }}
         .signal-gray {{ background: #cbd5e1; }}
-
-        /* Executive Summary Box */
-        .summary-box {{ background: #f0f7ff; border-radius: 8px; padding: 30px; margin-bottom: 50px; border: 1px solid #dbeafe; text-align: left; }}
-        .summary-box h2 {{ margin: 0 0 15px 0; font-size: 20px; color: var(--accent); font-weight: 800; }}
-        .summary-content {{ font-size: 16px; color: #1e293b; line-height: 1.8; }}
         
-        /* Analysis & Others... */
+        /* Card Grids */
         .thesis-grid {{ display: grid; grid-template-columns: 1fr 1fr; gap: 25px; text-align: left; }}
         .thesis-card {{ padding: 25px; border-radius: 8px; border: 1px solid var(--border); background: #fff; }}
         .thesis-card.bull {{ border-top: 5px solid var(--bull); background: #f0fdf4; }}
@@ -928,21 +1539,38 @@ CONTENT:
         .thesis-list li {{ margin-bottom: 10px; }}
 
         .analysis-block {{ background: #f8fafc; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; margin-bottom: 30px; }}
-        .analysis-text {{ font-size: 16px; color: #1e293b; line-height: 1.8; padding: 30px 30px 10px 30px; border-bottom: none; }}
-        .analysis-highlights {{ padding: 0 30px 30px 30px; }}
+        .analysis-text {{ font-size: 16px; color: #1e293b; line-height: 1.8; padding: 25px 25px 10px 25px; }}
+        .analysis-highlights {{ padding: 0 25px 25px 25px; }}
         .analysis-highlights-title {{ font-size: 12px; font-weight: 800; color: #64748b; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 15px; display: flex; align-items: center; }}
         .analysis-highlights-title::before {{ content: '⚡'; margin-right: 8px; }}
         .analysis-list {{ padding: 0; margin: 0; list-style: none; display: grid; grid-template-columns: 1fr; gap: 8px; }}
         .analysis-list li {{ position: relative; padding-left: 20px; font-size: 14px; color: #475569; line-height: 1.6; }}
         .analysis-list li::before {{ content: '•'; position: absolute; left: 0; color: var(--accent); font-weight: bold; font-size: 18px; line-height: 1; }}
 
+        /* Execution Plan */
         .trading-grid {{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin-top: 20px; text-align: left; }}
         .trade-card {{ background: #fff; border: 1px solid var(--border); border-radius: 8px; padding: 20px; text-align: center; }}
         .trade-level {{ font-size: 12px; font-weight: 700; color: #64748b; text-transform: uppercase; margin-bottom: 8px; }}
         .trade-price {{ font-size: 24px; font-weight: 800; color: var(--accent); margin-bottom: 8px; }}
         .trade-weight {{ font-size: 13px; font-weight: 600; color: #1e293b; background: #e0f2fe; display: inline-block; padding: 2px 10px; border-radius: 4px; margin-bottom: 12px; }}
         .trade-logic {{ font-size: 13px; color: #64748b; line-height: 1.5; }}
-
+        
+        /* A-Share Wind Control Card Layout */
+        .wind-control-grid {{
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 25px;
+            margin-bottom: 30px;
+        }}
+        .wind-card {{
+            background: #fff;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 20px;
+        }}
+        .wind-card-title {{ font-size: 14px; font-weight: 800; color: var(--primary); margin-bottom: 12px; border-left: 4px solid var(--warning); padding-left: 8px; }}
+        .wind-card-body {{ font-size: 13px; color: var(--text); line-height: 1.6; }}
+        
         .risk-section {{ margin-top: 40px; background: #fff1f2; border: 1px solid #fecaca; border-radius: 8px; padding: 30px; text-align: left; }}
         .risk-header {{ font-weight: 800; color: #991b1b; display: flex; align-items: center; margin-bottom: 15px; font-size: 18px; }}
         .risk-header::before {{ content: '⚠️'; margin-right: 12px; }}
@@ -950,63 +1578,44 @@ CONTENT:
         .risk-content ul {{ padding-left: 20px; margin: 0; }}
         .risk-content li {{ margin-bottom: 8px; }}
 
-        .data-table {{ width: 100%; border-collapse: collapse; font-size: 14px; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; text-align: left; }}
-        .data-table th {{ background: var(--light); padding: 15px; text-align: left; font-weight: 700; color: var(--primary); }}
+        .data-table {{ width: 100%; border-collapse: collapse; font-size: 14px; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; text-align: left; }}
+        .data-table th {{ background: var(--bg); padding: 15px; text-align: left; font-weight: 700; color: var(--primary); }}
         .data-table td {{ padding: 15px; border-top: 1px solid var(--border); }}
 
-        .score-badge {{ background: #64748b; color: #fff; padding: 6px 15px; border-radius: 4px; font-size: 14px; font-weight: 700; margin-left: 20px; text-transform: none; }}
+        .score-badge {{ background: var(--primary-light); color: #fff; padding: 6px 15px; border-radius: 4px; font-size: 14px; font-weight: 700; margin-left: 20px; text-transform: none; }}
         
+        /* Collapsible Discussion Appendix */
         .discussion-log {{ margin-top: 60px; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; text-align: left; }}
-        .log-header {{ background: #475569; color: #fff; padding: 15px 25px; font-weight: 700; }}
-        .log-msg {{ padding: 40px 30px; border-bottom: 1px solid var(--border); background: #fff; }}
-        .log-role {{ margin-bottom: 20px; display: flex; align-items: center; }}
-        .log-role span {{ background: var(--light); color: var(--accent); border: 1px solid var(--border); padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: 1px; }}
-        .log-body {{ font-size: 15px; color: #334155; line-height: 1.8; border-left: 4px solid var(--light); padding-left: 20px; }}
-        .log-body h1, .log-body h2, .log-body h3 {{ color: var(--primary); margin-top: 25px; margin-bottom: 15px; }}
-        .log-body table {{ width: 100%; border-collapse: collapse; margin: 20px 0; border: 1px solid var(--border); }}
-        .log-body th {{ background: var(--light); padding: 12px; border: 1px solid var(--border); font-weight: 700; }}
-        .log-body td {{ padding: 10px 12px; border: 1px solid var(--border); }}
-
-        /* Verdict Banner */
-        .verdict-banner {{ background: linear-gradient(135deg, #1e293b 0%, #334155 100%); color: #fff; padding: 18px 30px; border-radius: 8px; margin-bottom: 30px; display: flex; align-items: center; justify-content: space-between; }}
-        .verdict-text {{ font-size: 18px; font-weight: 700; letter-spacing: 0.3px; }}
-        .verdict-rec {{ background: rgba(255,255,255,0.15); padding: 6px 16px; border-radius: 4px; font-size: 14px; font-weight: 700; }}
-        .verdict-rec.buy {{ background: rgba(16,185,129,0.2); color: #6ee7b7; }}
-        .verdict-rec.sell {{ background: rgba(239,68,68,0.2); color: #fca5a5; }}
-        .verdict-rec.hold {{ background: rgba(245,158,11,0.2); color: #fcd34d; }}
-
-        /* Action Stance */
-        .action-stance {{ background: #fffbeb; border: 1px solid #fde68a; border-radius: 6px; padding: 12px 20px; margin-bottom: 30px; font-size: 14px; color: #92400e; font-weight: 500; display: flex; align-items: center; }}
-        .action-stance::before {{ content: '🎯'; margin-right: 10px; }}
-
-        /* Data Completeness Warning */
-        .data-warning {{ background: #fff7ed; border: 1px solid #fed7aa; border-radius: 6px; padding: 12px 20px; margin-bottom: 30px; font-size: 13px; color: #9a3412; }}
-        .data-warning-header {{ font-weight: 700; margin-bottom: 6px; display: flex; align-items: center; }}
-        .data-warning-header::before {{ content: '📊'; margin-right: 8px; }}
-        .data-bar {{ height: 6px; background: #e5e7eb; border-radius: 3px; overflow: hidden; margin: 8px 0; }}
-        .data-bar-fill {{ height: 100%; border-radius: 3px; transition: width 0.3s; }}
-        .data-bar-fill.high {{ background: #10b981; }}
-        .data-bar-fill.medium {{ background: #f59e0b; }}
-        .data-bar-fill.low {{ background: #ef4444; }}
-
-        /* Peer Comparison */
-        .peer-table {{ width: 100%; border-collapse: collapse; font-size: 13px; }}
-        .peer-table th {{ background: var(--light); padding: 10px 12px; text-align: center; font-weight: 700; color: var(--primary); border: 1px solid var(--border); }}
-        .peer-table td {{ padding: 10px 12px; text-align: center; border: 1px solid var(--border); }}
-        .peer-table tr:first-child td {{ background: #f0f7ff; font-weight: 600; }}
-        .peer-highlight {{ background: #dbeafe; font-weight: 700; }}
-
-        /* Collapsible Discussion */
         .discussion-toggle {{ cursor: pointer; user-select: none; }}
-        .discussion-toggle summary {{ background: #475569; color: #fff; padding: 15px 25px; font-weight: 700; list-style: none; display: flex; align-items: center; justify-content: space-between; }}
-        .discussion-toggle summary::after {{ content: '▶ \u5c55\u5f00\u67e5\u770b'; font-size: 12px; opacity: 0.7; }}
-        .discussion-toggle[open] summary::after {{ content: '▼ \u6536\u8d77'; }}
+        .discussion-toggle summary {{ background: var(--primary-light); color: #fff; padding: 18px 25px; font-weight: 700; list-style: none; display: flex; align-items: center; justify-content: space-between; }}
+        .discussion-toggle summary::after {{ content: '▶ 展开查看投研辩论'; font-size: 13px; opacity: 0.8; font-weight: 400; }}
+        .discussion-toggle[open] summary::after {{ content: '▼ 收起投研辩论'; }}
+        
+        .log-msg {{ padding: 30px 25px; border-bottom: 1px solid var(--border); background: #fff; }}
+        .log-role {{ margin-bottom: 15px; display: flex; align-items: center; }}
+        .log-role span {{ background: var(--bg); color: var(--accent); border: 1px solid var(--border); padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: 1px; }}
+        .log-body {{ font-size: 14px; color: #334155; line-height: 1.8; border-left: 4px solid var(--border); padding-left: 20px; }}
+        .log-body h1, .log-body h2, .log-body h3 {{ color: var(--primary); margin-top: 25px; margin-bottom: 15px; font-size: 15px; }}
+        .log-body table {{ width: 100%; border-collapse: collapse; margin: 20px 0; border: 1px solid var(--border); }}
+        .log-body th {{ background: var(--bg); padding: 10px; border: 1px solid var(--border); font-weight: 700; }}
+        .log-body td {{ padding: 8px 10px; border: 1px solid var(--border); }}
 
         .report-footer {{ margin-top: 60px; padding-top: 20px; border-top: 1px solid var(--border); color: #94a3b8; font-size: 12px; text-align: center; }}
+        
+        /* No Data Msg styling */
+        .no-data-msg {{
+            background: #f8fafc;
+            border: 1px dashed var(--border);
+            border-radius: 6px;
+            padding: 15px;
+            color: var(--text-light);
+            text-align: center;
+            font-size: 13px;
+        }}
 
         @media print {{
             body {{ background: #fff; }}
-            .report-page {{ box-shadow: none; margin: 0; padding: 40px; border: none; max-width: 100%; }}
+            .report-page {{ box-shadow: none; margin: 0; padding: 30px; border: none; max-width: 100%; }}
             .discussion-toggle {{ display: none; }}
         }}
     </style>
@@ -1030,9 +1639,84 @@ CONTENT:
         {data_warning_html}
         {action_html}
 
-        <div class="summary-box">
-            <h2>{locale["executive_summary"]}</h2>
-            <div class="summary-content">{md(d["summary"])}</div>
+        <!-- {locale["layer1_title"]} -->
+        <h2 class="layer-title">{locale["layer1_title"]} <span class="layer-num">L1</span></h2>
+        
+        <div class="dashboard-grid">
+            <div class="dashboard-card full-width">
+                <h3 class="card-title">💡 tagline 投资亮点</h3>
+                <div style="font-size: 18px; font-weight: 800; color: var(--accent); margin-bottom: 12px;">{tagline}</div>
+                <div style="font-size: 14px; font-weight: 700; color: var(--primary-light); margin-bottom: 8px;">{locale["label_thesis_narrative"]}</div>
+                <div style="font-size: 14px; line-height: 1.7; color: var(--text);">{thesis}</div>
+            </div>
+            
+            <div class="dashboard-card">
+                <h3 class="card-title">{locale["card_factor_profile"]}</h3>
+                <div class="profile-tag-list">
+                    <div class="profile-tag"><span>{locale["label_size"]}</span> {factor.get("size") or locale["label_unclassified"]}</div>
+                    <div class="profile-tag"><span>{locale["label_style"]}</span> {factor.get("style") or locale["label_unclassified"]}</div>
+                    <div class="profile-tag"><span>{locale["label_volatility"]}</span> {factor.get("volatility") or locale["label_unclassified"]}</div>
+                </div>
+                <div style="font-size: 13px; color: var(--text); font-weight: 500;">
+                    <strong>{locale["label_expected_return"]}</strong> {factor.get("expected_return") or locale["label_no_expectation"]}
+                </div>
+            </div>
+            
+            <div class="dashboard-card">
+                <h3 class="card-title">{locale["card_consensus"]}</h3>
+                <div class="consensus-split">
+                    <div class="consensus-box market">
+                        <div class="consensus-box-title">{locale["label_market_consensus"]}</div>
+                        <div>{consensus.get("market_consensus") or locale["label_no_consensus"]}</div>
+                    </div>
+                    <div class="consensus-box alpha">
+                        <div class="consensus-box-title">{locale["label_our_alpha"]}</div>
+                        <div>{consensus.get("our_alpha") or locale["label_no_alpha"]}</div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="dashboard-card full-width">
+                <h3 class="card-title">{locale["card_the_call"]}</h3>
+                <div style="font-size: 15px; font-weight: 700; color: #1e3a8a; background: var(--accent-glow); padding: 12px 20px; border-radius: 6px; border-left: 4px solid var(--accent);">
+                    {the_call}
+                </div>
+            </div>
+            
+            <div class="dashboard-card full-width">
+                <h3 class="card-title">{locale["card_scenarios"]}</h3>
+                <table class="data-table">
+                    <thead><tr><th>{locale["scenario_case"]}</th><th>{locale["scenario_prob"]}</th><th>{locale["scenario_target"]}</th><th>{locale["scenario_logic"]}</th></tr></thead>
+                    <tbody>{sc_rows}</tbody>
+                </table>
+            </div>
+        </div>
+        
+        {catalyst_html}
+
+        <!-- {locale["layer2_title"]} -->
+        <h2 class="layer-title">{locale["layer2_title"]} <span class="layer-num">L2</span></h2>
+        
+        <div class="dashboard-grid">
+            <div class="dashboard-card full-width">
+                <h3 class="card-title">{locale["card_valuation"]}</h3>
+                <div class="valuation-top-row">
+                    <div class="archetype-box">
+                        <div class="archetype-label">{locale["card_archetype_label"]}</div>
+                        <div class="archetype-val">{archetype_zh}</div>
+                    </div>
+                    <div class="kill-switch-box {ks_class}">
+                        <div class="ks-header-row">
+                            <span class="ks-title">{locale["card_kill_switch"]}</span>
+                            <span class="ks-status {ks_class}">{ks_status_zh}</span>
+                        </div>
+                        <div class="ks-condition">{ks_condition}</div>
+                    </div>
+                </div>
+                
+                <div style="margin-top:20px; margin-bottom:10px; font-size:14px; font-weight:700; color: var(--primary-light);">{locale["card_wacc"]}</div>
+                {wacc_table_html}
+            </div>
         </div>
 
         <section class="section">
@@ -1045,6 +1729,8 @@ CONTENT:
             </div>
             {detailed_fund_html}
         </section>
+        
+        {peer_section_html}
 
         <section class="section">
             <h2 class="section-title">{locale["core_variables"]}</h2>
@@ -1086,16 +1772,41 @@ CONTENT:
             </div>
         </section>
 
-        <section class="section">
-            <h2 class="section-title">
-                {locale["trading_plan"]}
-                <span class="score-badge">共识得分: {d["score"]} | {d["recommendation"]}</span>
-            </h2>
-            <div style="font-size:15px; margin-bottom:25px; color:#475569; text-align:left;">{md(d["trading_plan"])}</div>
-            <div class="trading-grid">
-                {trading_steps_html}
+        <!-- {locale["layer3_title"]} -->
+        <h2 class="layer-title">{locale["layer3_title"]} <span class="layer-num">L3</span></h2>
+        
+        <div class="dashboard-grid">
+            <div class="dashboard-card full-width">
+                <h3 class="card-title">{locale["card_trading_steps"]}</h3>
+                <div style="font-size:14px; margin-bottom:25px; color:#475569; text-align:left;">{md(d["trading_plan"])}</div>
+                <div class="trading-grid">
+                    {trading_steps_html}
+                </div>
             </div>
-        </section>
+            
+            <div class="dashboard-card full-width">
+                <h3 class="card-title">{locale["card_wind_control"]}</h3>
+                <div class="wind-control-grid">
+                    {wind_control_html}
+                </div>
+            </div>
+            
+            <div class="dashboard-card">
+                <h3 class="card-title">{locale["card_lr_signal"]}</h3>
+                <div style="font-size:13px; line-height:1.7;">
+                    <strong>{locale["label_left_side"]}</strong> {discipline.get("left_side_condition") or locale["label_no_left"]}<br><br>
+                    <strong>{locale["label_right_side"]}</strong> {discipline.get("right_side_trigger") or locale["label_no_right"]}
+                </div>
+            </div>
+            
+            <div class="dashboard-card">
+                <h3 class="card-title">{locale["card_drawdown"]}</h3>
+                <div style="font-size:13px; line-height:1.7;">
+                    <strong>{locale["label_max_drawdown"]}</strong> <span style="color:var(--bear); font-weight:700;">{discipline.get("max_drawdown_limit") or locale["label_default_drawdown"]}</span><br><br>
+                    <strong>{locale["label_invalidation"]}</strong> {discipline.get("thesis_invalidation_trigger") or locale["label_no_invalidation"]}
+                </div>
+            </div>
+        </div>
 
         <section class="section" id="risk-warning">
             <div class="risk-section">
@@ -1108,16 +1819,7 @@ CONTENT:
             </div>
         </section>
 
-        <section class="section">
-            <h2 class="section-title">{locale["scenario_title"]}</h2>
-            <table class="data-table">
-                <thead><tr><th>{locale["scenario_case"]}</th><th>{locale["scenario_prob"]}</th><th>{locale["scenario_target"]}</th><th>{locale["scenario_logic"]}</th></tr></thead>
-                <tbody>{sc_rows}</tbody>
-            </table>
-        </section>
-
-        {peer_section_html}
-
+        <!-- {locale["appendix_title"]} -->
         <details class="discussion-toggle discussion-log">
             <summary>{locale["discussion_log"]}</summary>
             {log_html}

@@ -33,10 +33,12 @@ Risks must cover:
    Example: "If next quarter revenue growth falls below 10%, the growth thesis is invalidated — exit regardless of price."
 3. Stops must be actionable: gap between stop price and current price must exceed daily volatility (based on [API DATA] volatility metrics).
 
-**Position Size Derivation (MANDATORY)**:
+**Position Size Derivation & Drawdown Cut (MANDATORY)**:
 1. Reference quantitative risk metrics (Risk Metrics) from [API DATA].
 2. Based on annualized volatility, use half-Kelly formula to suggest maximum single-position allocation (%).
-3. Calculate max drawdown scenarios at different position sizes under -10%/-20%/-30% price moves.
+3. Mandate single-stock maximum drawdown limit: Set a hard ceiling for maximum drawdown from entry price (typically -8% to -10%). If price hits this threshold, unconditional liquidation must be executed.
+4. Calculate max drawdown scenarios at different position sizes under -10%/-20%/-30% price moves on total account equity.
+
 
 **Consensus Bias Alert (CRITICAL)**:
 - If multiple experts converge on similar views, explicitly flag "Consensus Bias" risk.
@@ -60,7 +62,7 @@ Based on the current market environment, provide exposure guidance:
    | Market Breadth | Advance/Decline ratio, New Highs/Lows | XX | Healthy/Neutral/Deteriorating |
    | Trend Participation | % of stocks in uptrend | XX | Broad/Concentrated/Narrowing |
    | Valuation Level | Market PE percentile, risk premium | XX | Cheap/Fair/Expensive |
-   | Capital Flow | Institutional net flow, fund flows | XX | Inflow/Neutral/Outflow |
+   | Capital Flow | Institutional net flow, cross-market flows (e.g. Northbound/Southbound/US institutional flows) | XX | Inflow/Neutral/Outflow |
    | Volatility Environment | VIX percentile, fear/greed indicator | XX | Calm/Normal/Panic |
    
 2. **Exposure Ceiling**: Based on composite score, recommend max position allocation:

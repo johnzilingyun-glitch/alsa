@@ -1,0 +1,776 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test (000408.SZ) - 深度研究报告</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Outfit:wght@500;600;700;800&display=swap');
+        :root {
+            --bg: #f8fafc;
+            --primary: #0f172a;
+            --primary-light: #1e293b;
+            --accent: #2563eb;
+            --accent-glow: rgba(37, 99, 235, 0.15);
+            --text: #334155;
+            --text-light: #64748b;
+            --border: #e2e8f0;
+            --card-bg: #ffffff;
+            
+            --bull: #10b981;
+            --bull-bg: #ecfdf5;
+            --bear: #ef4444;
+            --bear-bg: #fef2f2;
+            --warning: #f59e0b;
+            --warning-bg: #fffbeb;
+        }
+        
+        body {
+            font-family: 'Inter', -apple-system, sans-serif;
+            color: var(--text);
+            line-height: 1.6;
+            margin: 0;
+            background: var(--bg);
+            -webkit-font-smoothing: antialiased;
+        }
+        
+        .report-page {
+            max-width: 1100px;
+            margin: 40px auto;
+            background: var(--card-bg);
+            padding: 50px 70px;
+            box-shadow: 0 10px 30px -5px rgba(0, 0, 0, 0.05);
+            border-radius: 12px;
+            border: 1px solid var(--border);
+        }
+        
+        /* Layer Headers */
+        .layer-title {
+            font-family: 'Outfit', sans-serif;
+            font-size: 24px;
+            font-weight: 800;
+            color: var(--primary);
+            border-bottom: 2px solid var(--primary);
+            padding-bottom: 12px;
+            margin-top: 50px;
+            margin-bottom: 25px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            display: flex;
+            align-items: center;
+        }
+        .layer-title::before {
+            content: '';
+            display: inline-block;
+            width: 6px;
+            height: 24px;
+            background: var(--accent);
+            margin-right: 12px;
+            border-radius: 3px;
+        }
+        .layer-title .layer-num {
+            font-size: 14px;
+            background: var(--accent-glow);
+            color: var(--accent);
+            padding: 2px 10px;
+            border-radius: 20px;
+            margin-left: 12px;
+            font-weight: 700;
+        }
+        
+        /* Brand Header */
+        .report-header {
+            border-bottom: 2px solid var(--primary);
+            padding-bottom: 25px;
+            margin-bottom: 45px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .brand-logo {
+            font-family: 'Outfit', sans-serif;
+            font-size: 12px;
+            font-weight: 800;
+            color: var(--accent);
+            text-transform: uppercase;
+            letter-spacing: 3px;
+            margin-bottom: 10px;
+        }
+        .ticker-info h1 {
+            margin: 0;
+            font-family: 'Outfit', sans-serif;
+            font-size: 34px;
+            font-weight: 800;
+            color: var(--primary);
+        }
+        .ticker-sub {
+            color: var(--text-light);
+            font-size: 14px;
+            font-weight: 500;
+            margin-top: 5px;
+        }
+        .price-box { text-align: right; }
+        .current-price {
+            font-family: 'Outfit', sans-serif;
+            font-size: 38px;
+            font-weight: 800;
+            color: var(--primary);
+            line-height: 1;
+        }
+        .price-pct {
+            font-size: 18px;
+            font-weight: 700;
+            color: #10b981;
+            margin-top: 5px;
+        }
+        
+        /* Verdict Banners */
+        .verdict-banner {
+            background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+            color: #fff;
+            padding: 20px 30px;
+            border-radius: 8px;
+            margin-bottom: 25px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            box-shadow: 0 4px 15px rgba(15, 23, 42, 0.15);
+        }
+        .verdict-text {
+            font-size: 18px;
+            font-weight: 700;
+            letter-spacing: 0.3px;
+        }
+        .verdict-rec {
+            padding: 6px 18px;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        .verdict-rec.buy { background: rgba(16, 185, 129, 0.2); color: #6ee7b7; border: 1px solid #10b981; }
+        .verdict-rec.sell { background: rgba(239, 68, 68, 0.2); color: #fca5a5; border: 1px solid #ef4444; }
+        .verdict-rec.hold { background: rgba(245, 158, 11, 0.2); color: #fcd34d; border: 1px solid #f59e0b; }
+        
+        .action-stance {
+            background: var(--warning-bg);
+            border: 1px solid #fde68a;
+            border-radius: 8px;
+            padding: 15px 25px;
+            margin-bottom: 30px;
+            font-size: 14px;
+            color: #92400e;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+        }
+        .action-stance::before { content: '🎯'; margin-right: 12px; font-size: 18px; }
+
+        /* Dashboard Container */
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 25px;
+            margin-bottom: 30px;
+        }
+        .dashboard-card {
+            background: #fff;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 25px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.02);
+            transition: all 0.2s ease;
+        }
+        .dashboard-card:hover {
+            box-shadow: 0 8px 12px -1px rgba(0, 0, 0, 0.04);
+            transform: translateY(-2px);
+        }
+        .dashboard-card.full-width {
+            grid-column: 1 / -1;
+        }
+        .card-title {
+            margin-top: 0;
+            margin-bottom: 15px;
+            font-family: 'Outfit', sans-serif;
+            font-size: 16px;
+            font-weight: 700;
+            color: var(--primary);
+            display: flex;
+            align-items: center;
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 10px;
+        }
+        
+        /* Profile Tags */
+        .profile-tag-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+        .profile-tag {
+            background: var(--bg);
+            border: 1px solid var(--border);
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--primary-light);
+        }
+        .profile-tag span { color: var(--accent); margin-right: 4px; }
+        
+        /* Consensus Splitting */
+        .consensus-split {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+        .consensus-box {
+            padding: 15px;
+            border-radius: 6px;
+            font-size: 13px;
+        }
+        .consensus-box.market {
+            background: #f1f5f9;
+            border-left: 4px solid #94a3b8;
+        }
+        .consensus-box.alpha {
+            background: var(--accent-glow);
+            border-left: 4px solid var(--accent);
+            color: #1e3a8a;
+        }
+        .consensus-box-title {
+            font-weight: 700;
+            margin-bottom: 8px;
+            text-transform: uppercase;
+            font-size: 11px;
+            letter-spacing: 0.5px;
+        }
+        
+        /* Calendar / Timelines */
+        .calendar-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+        .calendar-table th {
+            text-align: left;
+            padding: 10px 12px;
+            font-weight: 700;
+            color: var(--text-light);
+            border-bottom: 2px solid var(--border);
+        }
+        .calendar-table td {
+            padding: 12px;
+            border-bottom: 1px solid var(--border);
+        }
+        .calendar-date {
+            background: #e2e8f0;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-weight: 700;
+            color: var(--primary-light);
+        }
+
+        /* Valuation details */
+        .valuation-top-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 25px;
+            margin-bottom: 25px;
+        }
+        .archetype-box {
+            background: #f8fafc;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .archetype-label { font-size: 13px; color: var(--text-light); font-weight: 500; }
+        .archetype-val { font-family: 'Outfit', sans-serif; font-size: 18px; font-weight: 800; color: var(--accent); }
+        
+        .kill-switch-box {
+            border-radius: 8px;
+            padding: 20px;
+            border: 1px solid #fecaca;
+            background: var(--bear-bg);
+            color: #991b1b;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }
+        .kill-switch-box.safe {
+            border: 1px solid #a7f3d0;
+            background: var(--bull-bg);
+            color: #065f46;
+        }
+        .ks-header-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+        .ks-title { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 1px; }
+        .ks-status {
+            font-size: 11px;
+            font-weight: 800;
+            padding: 2px 8px;
+            border-radius: 4px;
+            color: #fff;
+            background: var(--bear);
+        }
+        .ks-status.safe { background: var(--bull); }
+        .ks-condition { font-size: 13px; font-weight: 500; }
+        
+        .wacc-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 12px;
+            margin-bottom: 30px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            overflow: hidden;
+        }
+        .wacc-table th {
+            background: #f1f5f9;
+            padding: 10px;
+            font-weight: 700;
+            color: var(--primary-light);
+            border: 1px solid var(--border);
+            text-align: center;
+        }
+        .wacc-table td {
+            padding: 10px;
+            text-align: center;
+            border: 1px solid var(--border);
+        }
+        .wacc-source {
+            text-align: left !important;
+            background: #fafafa;
+            color: var(--text-light);
+            font-size: 11px;
+            padding: 12px !important;
+        }
+        
+        /* Comps */
+        .comps-wrapper {
+            margin-bottom: 35px;
+        }
+        .comps-title {
+            font-family: 'Outfit', sans-serif;
+            font-size: 16px;
+            font-weight: 700;
+            margin-bottom: 6px;
+            color: var(--primary);
+        }
+        .comps-desc {
+            font-size: 11px;
+            color: var(--text-light);
+            margin-bottom: 12px;
+        }
+        .peer-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+            border: 1px solid var(--border);
+        }
+        .peer-table th {
+            background: #f8fafc;
+            padding: 12px 10px;
+            text-align: center;
+            font-weight: 700;
+            color: var(--primary-light);
+            border: 1px solid var(--border);
+        }
+        .peer-table td {
+            padding: 12px 10px;
+            text-align: center;
+            border: 1px solid var(--border);
+        }
+        .peer-table tr:first-child td {
+            background: #f0f7ff;
+            font-weight: 600;
+        }
+
+        /* Detailed Fund Section */
+        .fund-category { margin-bottom: 35px; }
+        .fund-category-title { font-size: 14px; font-weight: 800; color: var(--accent); margin-bottom: 15px; text-transform: uppercase; letter-spacing: 1px; }
+        .fund-category-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+        .fund-item { background: #fdfdfd; border: 1px solid #f1f5f9; padding: 12px 15px; display: flex; justify-content: space-between; align-items: center; border-radius: 6px; }
+        .fund-item-label { font-size: 13px; color: #475569; font-weight: 500; }
+        .fund-item-label span { display: block; font-size: 10px; color: #94a3b8; font-weight: 400; }
+        .fund-item-value { font-size: 14px; font-weight: 700; color: var(--primary); }
+        .signal-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
+        .signal-green { background: #10b981; box-shadow: 0 0 4px #10b98180; }
+        .signal-yellow { background: #f59e0b; box-shadow: 0 0 4px #f59e0b80; }
+        .signal-red { background: #ef4444; box-shadow: 0 0 4px #ef444480; }
+        .signal-gray { background: #cbd5e1; }
+        
+        /* Card Grids */
+        .thesis-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 25px; text-align: left; }
+        .thesis-card { padding: 25px; border-radius: 8px; border: 1px solid var(--border); background: #fff; }
+        .thesis-card.bull { border-top: 5px solid var(--bull); background: #f0fdf4; }
+        .thesis-card.bear { border-top: 5px solid var(--bear); background: #fef2f2; }
+        .thesis-tag { font-size: 12px; font-weight: 700; text-transform: uppercase; margin-bottom: 15px; }
+        .bull .thesis-tag { color: var(--bull); }
+        .bear .thesis-tag { color: var(--bear); }
+        .thesis-list { padding-left: 18px; margin: 0; font-size: 14px; color: #475569; }
+        .thesis-list li { margin-bottom: 10px; }
+
+        .analysis-block { background: #f8fafc; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; margin-bottom: 30px; }
+        .analysis-text { font-size: 16px; color: #1e293b; line-height: 1.8; padding: 25px 25px 10px 25px; }
+        .analysis-highlights { padding: 0 25px 25px 25px; }
+        .analysis-highlights-title { font-size: 12px; font-weight: 800; color: #64748b; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 15px; display: flex; align-items: center; }
+        .analysis-highlights-title::before { content: '⚡'; margin-right: 8px; }
+        .analysis-list { padding: 0; margin: 0; list-style: none; display: grid; grid-template-columns: 1fr; gap: 8px; }
+        .analysis-list li { position: relative; padding-left: 20px; font-size: 14px; color: #475569; line-height: 1.6; }
+        .analysis-list li::before { content: '•'; position: absolute; left: 0; color: var(--accent); font-weight: bold; font-size: 18px; line-height: 1; }
+
+        /* Execution Plan */
+        .trading-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin-top: 20px; text-align: left; }
+        .trade-card { background: #fff; border: 1px solid var(--border); border-radius: 8px; padding: 20px; text-align: center; }
+        .trade-level { font-size: 12px; font-weight: 700; color: #64748b; text-transform: uppercase; margin-bottom: 8px; }
+        .trade-price { font-size: 24px; font-weight: 800; color: var(--accent); margin-bottom: 8px; }
+        .trade-weight { font-size: 13px; font-weight: 600; color: #1e293b; background: #e0f2fe; display: inline-block; padding: 2px 10px; border-radius: 4px; margin-bottom: 12px; }
+        .trade-logic { font-size: 13px; color: #64748b; line-height: 1.5; }
+        
+        /* A-Share Wind Control Card Layout */
+        .wind-control-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 25px;
+            margin-bottom: 30px;
+        }
+        .wind-card {
+            background: #fff;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 20px;
+        }
+        .wind-card-title { font-size: 14px; font-weight: 800; color: var(--primary); margin-bottom: 12px; border-left: 4px solid var(--warning); padding-left: 8px; }
+        .wind-card-body { font-size: 13px; color: var(--text); line-height: 1.6; }
+        
+        .risk-section { margin-top: 40px; background: #fff1f2; border: 1px solid #fecaca; border-radius: 8px; padding: 30px; text-align: left; }
+        .risk-header { font-weight: 800; color: #991b1b; display: flex; align-items: center; margin-bottom: 15px; font-size: 18px; }
+        .risk-header::before { content: '⚠️'; margin-right: 12px; }
+        .risk-content { font-size: 14px; color: #991b1b; }
+        .risk-content ul { padding-left: 20px; margin: 0; }
+        .risk-content li { margin-bottom: 8px; }
+
+        .data-table { width: 100%; border-collapse: collapse; font-size: 14px; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; text-align: left; }
+        .data-table th { background: var(--bg); padding: 15px; text-align: left; font-weight: 700; color: var(--primary); }
+        .data-table td { padding: 15px; border-top: 1px solid var(--border); }
+
+        .score-badge { background: var(--primary-light); color: #fff; padding: 6px 15px; border-radius: 4px; font-size: 14px; font-weight: 700; margin-left: 20px; text-transform: none; }
+        
+        /* Collapsible Discussion Appendix */
+        .discussion-log { margin-top: 60px; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; text-align: left; }
+        .discussion-toggle { cursor: pointer; user-select: none; }
+        .discussion-toggle summary { background: var(--primary-light); color: #fff; padding: 18px 25px; font-weight: 700; list-style: none; display: flex; align-items: center; justify-content: space-between; }
+        .discussion-toggle summary::after { content: '▶ 展开查看投研辩论'; font-size: 13px; opacity: 0.8; font-weight: 400; }
+        .discussion-toggle[open] summary::after { content: '▼ 收起投研辩论'; }
+        
+        .log-msg { padding: 30px 25px; border-bottom: 1px solid var(--border); background: #fff; }
+        .log-role { margin-bottom: 15px; display: flex; align-items: center; }
+        .log-role span { background: var(--bg); color: var(--accent); border: 1px solid var(--border); padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: 1px; }
+        .log-body { font-size: 14px; color: #334155; line-height: 1.8; border-left: 4px solid var(--border); padding-left: 20px; }
+        .log-body h1, .log-body h2, .log-body h3 { color: var(--primary); margin-top: 25px; margin-bottom: 15px; font-size: 15px; }
+        .log-body table { width: 100%; border-collapse: collapse; margin: 20px 0; border: 1px solid var(--border); }
+        .log-body th { background: var(--bg); padding: 10px; border: 1px solid var(--border); font-weight: 700; }
+        .log-body td { padding: 8px 10px; border: 1px solid var(--border); }
+
+        .report-footer { margin-top: 60px; padding-top: 20px; border-top: 1px solid var(--border); color: #94a3b8; font-size: 12px; text-align: center; }
+        
+        /* No Data Msg styling */
+        .no-data-msg {
+            background: #f8fafc;
+            border: 1px dashed var(--border);
+            border-radius: 6px;
+            padding: 15px;
+            color: var(--text-light);
+            text-align: center;
+            font-size: 13px;
+        }
+
+        @media print {
+            body { background: #fff; }
+            .report-page { box-shadow: none; margin: 0; padding: 30px; border: none; max-width: 100%; }
+            .discussion-toggle { display: none; }
+        }
+    </style>
+</head>
+<body>
+    <div class="report-page">
+        <header class="report-header">
+            <div class="ticker-info">
+                <div class="brand-logo">ALSA Multi-Agent Intelligence</div>
+                <h1>Test</h1>
+                <div class="ticker-sub">000408.SZ | HK-Share | 研究报告号: 202605281845</div>
+            </div>
+            <div class="price-box">
+                <div class="current-price">29.50 <span style="font-size:16px; font-weight:400; color:#94a3b8;">HKD</span></div>
+                <div class="price-pct">+2.8%</div>
+                <div style="font-size:11px; color:#94a3b8; margin-top:5px;">数据更新: 2026-05-28 18:45</div>
+            </div>
+        </header>
+
+        <div class="verdict-banner"><span class="verdict-text">v</span><span class="verdict-rec buy">BUY</span></div>
+        
+        <div class="action-stance">Buy</div>
+
+        <!-- 第一层：核心决策包 (1-Pager CIO Dashboard) -->
+        <h2 class="layer-title">第一层：核心决策包 (1-Pager CIO Dashboard) <span class="layer-num">L1</span></h2>
+        
+        <div class="dashboard-grid">
+            <div class="dashboard-card full-width">
+                <h3 class="card-title">💡 tagline 投资亮点</h3>
+                <div style="font-size: 18px; font-weight: 800; color: var(--accent); margin-bottom: 12px;">Tag</div>
+                <div style="font-size: 14px; font-weight: 700; color: var(--primary-light); margin-bottom: 8px;">核心定调 (Investment Thesis Narrative)</div>
+                <div style="font-size: 14px; line-height: 1.7; color: var(--text);">thesis</div>
+            </div>
+            
+            <div class="dashboard-card">
+                <h3 class="card-title">🎯 因子雷达 (Factor Profile)</h3>
+                <div class="profile-tag-list">
+                    <div class="profile-tag"><span>市值:</span> Mid</div>
+                    <div class="profile-tag"><span>风格:</span> Cyc</div>
+                    <div class="profile-tag"><span>波动:</span> Med</div>
+                </div>
+                <div style="font-size: 13px; color: var(--text); font-weight: 500;">
+                    <strong>收益预期特征：</strong> D+
+                </div>
+            </div>
+            
+            <div class="dashboard-card">
+                <h3 class="card-title">⚖️ 多空共识差 (Consensus vs. Non-Consensus)</h3>
+                <div class="consensus-split">
+                    <div class="consensus-box market">
+                        <div class="consensus-box-title">市场共识 (Priced-in)</div>
+                        <div>Bear</div>
+                    </div>
+                    <div class="consensus-box alpha">
+                        <div class="consensus-box-title">Alpha 预期差 (Our edge)</div>
+                        <div>Alpha</div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="dashboard-card full-width">
+                <h3 class="card-title">📣 一句话决断 (The Call)</h3>
+                <div style="font-size: 15px; font-weight: 700; color: #1e3a8a; background: var(--accent-glow); padding: 12px 20px; border-radius: 6px; border-left: 4px solid var(--accent);">
+                    Buy 28
+                </div>
+            </div>
+            
+            <div class="dashboard-card full-width">
+                <h3 class="card-title">📉 情景演练及期望价格预测</h3>
+                <table class="data-table">
+                    <thead><tr><th>演练情景</th><th>概率</th><th>目标价</th><th>核心驱动逻辑</th></tr></thead>
+                    <tbody><tr><td><strong>Bull</strong></td><td>30%</td><td><strong>35</strong></td><td>Up</td></tr></tbody>
+                </table>
+            </div>
+        </div>
+        
+        
+                <div class="dashboard-card calendar-card">
+                    <h3 class="card-title">📅 催化剂事件日历 (Catalyst Calendar)</h3>
+                    <table class="calendar-table">
+                        <thead><tr><th>预计时间</th><th>事件描述</th><th>对策略影响逻辑</th></tr></thead>
+                        <tbody><tr><td><span class="calendar-date">2026-06</span></td><td><strong>R</strong></td><td>C</td></tr></tbody>
+                    </table>
+                </div>
+                
+
+        <!-- 第二层：逻辑链条与数据实证 (Investment Case) -->
+        <h2 class="layer-title">第二层：逻辑链条与数据实证 (Investment Case) <span class="layer-num">L2</span></h2>
+        
+        <div class="dashboard-grid">
+            <div class="dashboard-card full-width">
+                <h3 class="card-title">🔍 估值引擎与模型审计 (Valuation Engine & Model Audit)</h3>
+                <div class="valuation-top-row">
+                    <div class="archetype-box">
+                        <div class="archetype-label">标的分类属性 (Stock Archetype)</div>
+                        <div class="archetype-val">强周期型 (Cyclical)</div>
+                    </div>
+                    <div class="kill-switch-box safe">
+                        <div class="ks-header-row">
+                            <span class="ks-title">🚨 防伪红线 (Kill Switch)</span>
+                            <span class="ks-status safe">安全 (SAFE)</span>
+                        </div>
+                        <div class="ks-condition">P<1800</div>
+                    </div>
+                </div>
+                
+                <div style="margin-top:20px; margin-bottom:10px; font-size:14px; font-weight:700; color: var(--primary-light);">WACC 贴现模型白箱审计 (WACC Model Disaggregation)</div>
+                
+            <table class="wacc-table">
+                <thead>
+                    <tr>
+                        <th>Rf (无风险利率)</th>
+                        <th>Beta (贝塔系数)</th>
+                        <th>ERP (股权溢价)</th>
+                        <th>Kd (债务成本)</th>
+                        <th>Tc (所得税率)</th>
+                        <th>D/V (负债比)</th>
+                        <th>E/V (权益比)</th>
+                        <th>WACC (贴现率)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>2.3%</td>
+                        <td>1.05</td>
+                        <td>6%</td>
+                        <td>4%</td>
+                        <td>15%</td>
+                        <td>5%</td>
+                        <td>95%</td>
+                        <td><strong>8.3%</strong></td>
+                    </tr>
+                    <tr>
+                        <td colspan="8" class="wacc-source"><strong>WACC 参数来源与逻辑：</strong> s</td>
+                    </tr>
+                </tbody>
+            </table>
+            
+            </div>
+        </div>
+
+        <section class="section">
+            <h2 class="section-title">深度基本面指标 (Deep Fundamental Data)</h2>
+            <div style="font-size: 11px; color: #94a3b8; margin-bottom: 15px;">
+                <span class="signal-dot signal-green"></span>健康
+                <span style="margin-left: 12px;"><span class="signal-dot signal-yellow"></span>中性/关注</span>
+                <span style="margin-left: 12px;"><span class="signal-dot signal-red"></span>风险/较差</span>
+                <span style="margin-left: 12px;"><span class="signal-dot signal-gray"></span>无数据/不适用</span>
+            </div>
+            
+        </section>
+        
+        
+
+        <section class="section">
+            <h2 class="section-title">核心博弈变量 (Core Variables)</h2>
+            <div class="thesis-grid">
+                <div class="thesis-card bull">
+                    <div class="thesis-tag">看涨逻辑驱动 (Bull Thesis)</div>
+                    <ul class="thesis-list"><li>o</li></ul>
+                </div>
+                <div class="thesis-card bear">
+                    <div class="thesis-tag">风险与压制因素 (Bear Thesis)</div>
+                    <ul class="thesis-list"><li>k</li></ul>
+                </div>
+            </div>
+        </section>
+
+        <section class="section">
+            <h2 class="section-title">基本面护城河深度解析 (Fundamental & Moat)</h2>
+            <div class="analysis-block">
+                <div class="analysis-text"><p>m</p>
+</div>
+                <div class="analysis-highlights">
+                    <div class="analysis-highlights-title">关键护城河要素 (Key Moat Factors)</div>
+                    <ul class="analysis-list">
+                        <li>mp</li>
+                    </ul>
+                </div>
+            </div>
+        </section>
+
+        <section class="section">
+            <h2 class="section-title">宏观与资金技术面剖析 (Technical & Macro)</h2>
+            <div class="analysis-block">
+                <div class="analysis-text"><p>ma</p>
+</div>
+                <div class="analysis-highlights">
+                    <div class="analysis-highlights-title">宏观与资金技术面剖析 (Technical & Macro)</div>
+                    <ul class="analysis-list">
+                        <li>mp</li>
+                    </ul>
+                </div>
+            </div>
+        </section>
+
+        <!-- 第三层：交易执行单与风险防线 (Execution Plan & Risk Discipline) -->
+        <h2 class="layer-title">第三层：交易执行单与风险防线 (Execution Plan & Risk Discipline) <span class="layer-num">L3</span></h2>
+        
+        <div class="dashboard-grid">
+            <div class="dashboard-card full-width">
+                <h3 class="card-title">📈 交易操作步骤 (Trading Execution Steps)</h3>
+                <div style="font-size:14px; margin-bottom:25px; color:#475569; text-align:left;"><p>plan</p>
+</div>
+                <div class="trading-grid">
+                    
+            <div class="trade-card">
+                <div class="trade-level">L1</div>
+                <div class="trade-price">28</div>
+                <div class="trade-weight">占比: 30%</div>
+                <div class="trade-logic">MA200</div>
+            </div>
+                </div>
+            </div>
+            
+            <div class="dashboard-card full-width">
+                <h3 class="card-title">⚠️ 市场原生事件与筹码风控 (Event & Funding Control)</h3>
+                <div class="wind-control-grid">
+                    
+                    <div class="wind-card">
+                        <div class="wind-card-title">📅 基石/主要股东禁售解禁</div>
+                        <div class="wind-card-body">
+                            <strong>禁售解禁：</strong> 2026-09(50M)<br>
+                            <strong>减持/解禁冲击：</strong> 3p
+                        </div>
+                    </div>
+                    <div class="wind-card">
+                        <div class="wind-card-title">📢 港股通持股与大股东质押</div>
+                        <div class="wind-card-body">
+                            <strong>港股通持股：</strong> 25p<br>
+                            <strong>股份质押/减持：</strong> No
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="dashboard-card">
+                <h3 class="card-title">🚦 左右侧交易信号条件</h3>
+                <div style="font-size:13px; line-height:1.7;">
+                    <strong>左侧支撑买入：</strong> VD<br><br>
+                    <strong>右侧放量突破：</strong> MA60
+                </div>
+            </div>
+            
+            <div class="dashboard-card">
+                <h3 class="card-title">🛡️ 回撤风控与逻辑证伪出局</h3>
+                <div style="font-size:13px; line-height:1.7;">
+                    <strong>单票回撤上限：</strong> <span style="color:var(--bear); font-weight:700;">-10%</span><br><br>
+                    <strong>核心逻辑证伪触发器：</strong> X
+                </div>
+            </div>
+        </div>
+
+        <section class="section" id="risk-warning">
+            <div class="risk-section">
+                <div class="risk-header">策略核心失效风险预警 (Invalidation Risks)</div>
+                <div class="risk-content">
+                    <ul>
+                        <li>r</li>
+                    </ul>
+                </div>
+            </div>
+        </section>
+
+        <!-- 附录：内部投研辩论日志 (Debate Log & Model Audit) -->
+        <details class="discussion-toggle discussion-log">
+            <summary>专家研讨深度记录 (Expert Deliberation Log)</summary>
+            <div class="log-msg"><div class="log-role"><span>Chief</span></div><div class="log-body"><p>V</p></div></div>
+        </details>
+
+        <footer class="report-footer">
+            <p><strong>免责声明：本报告由 ALSA 多代理矩阵自主生成，仅供参考，不构成投资建议。</strong></p>
+            <p>© 2026 ALSA 智能分析系统</p>
+        </footer>
+    </div>
+</body>
+</html>

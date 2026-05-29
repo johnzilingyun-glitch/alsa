@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, memo } from 'react';
-import { Download, Bell, History, Clock, Settings, Loader2, Search, TrendingUp, Zap, BarChart3, Microscope, Languages, Menu, X, Target } from 'lucide-react';
+import { Download, Bell, History, Clock, Settings, Loader2, Search, TrendingUp, Zap, BarChart3, Microscope, Languages, Menu, X, Target, Activity } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useTranslation } from 'react-i18next';
 import { Market, AnalysisLevel } from '../../types';
@@ -28,7 +28,7 @@ export const Header = memo(function Header({
 }: HeaderProps) {
   const { t, i18n } = useTranslation();
   const loading = useUIStore(selectLoading);
-  const { isTriggeringReport, showAdminPanel, setShowAdminPanel, setIsSettingsOpen, analysisLevel, setAnalysisLevel, serviceStatus, setShowIBKRDashboard } = useUIStore();
+  const { isTriggeringReport, showAdminPanel, setShowAdminPanel, setIsSettingsOpen, analysisLevel, setAnalysisLevel, serviceStatus, setShowIBKRDashboard, setShowMockTradingDashboard } = useUIStore();
   const { dailyReport, activeAlertStatus } = useMarketStore();
   const { symbol, setSymbol, market, setMarket } = useAnalysisStore();
   const { language, setLanguage } = useConfigStore();
@@ -248,6 +248,14 @@ export const Header = memo(function Header({
               <BarChart3 size={20} strokeWidth={1.5} />
             </button>
             <button
+              onClick={() => setShowMockTradingDashboard(true)}
+              className="btn-secondary w-12 h-12 p-0 flex items-center justify-center rounded-xl"
+              aria-label="模拟交易"
+              title="AI 模拟交易看板"
+            >
+              <Activity size={20} strokeWidth={1.5} />
+            </button>
+            <button
               onClick={() => {
                 setShowAdminPanel(!showAdminPanel);
                 if (!showAdminPanel) onFetchAdminData();
@@ -294,6 +302,9 @@ export const Header = memo(function Header({
                 </button>
                 <button onClick={() => { setShowIBKRDashboard(true); setShowMobileMenu(false); }} className="flex w-full items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-zinc-600 hover:bg-zinc-50 transition-colors">
                   <BarChart3 size={18} /> IBKR 实盘
+                </button>
+                <button onClick={() => { setShowMockTradingDashboard(true); setShowMobileMenu(false); }} className="flex w-full items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-zinc-600 hover:bg-zinc-50 transition-colors">
+                  <Activity size={18} /> 模拟交易
                 </button>
                 <button onClick={() => { setIsSettingsOpen(true); setShowMobileMenu(false); }} className="flex w-full items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-zinc-600 hover:bg-zinc-50 transition-colors">
                   <Settings size={18} /> {t('header.settings')}

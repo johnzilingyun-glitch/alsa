@@ -100,7 +100,8 @@ async function startServer() {
         '/api/watchlist', 
         '/api/alerts',
         '/api/analysis',
-        '/api/sector'
+        '/api/sector',
+        '/api/mock-trading'
       ];
       return targets.some(t => path.startsWith(t));
     },

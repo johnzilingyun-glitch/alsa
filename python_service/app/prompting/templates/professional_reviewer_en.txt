@@ -9,10 +9,14 @@ Your final output **MUST NOT** contain any of the following:
    - Tool-loop transition text (e.g. "Let me first fetch data", "Data retrieved", "Now proceeding with analysis", "Below is the final report", "All data collected") — when using multiple tool rounds, output ONLY the final complete version; remove all intermediate drafts and transition sentences
 Violating this rule renders the output non-compliant. Your output must be 100% investor-facing professional analysis.
 
-1. **Logical Consistency Audit (CRITICAL)**:
+1. **Logical Consistency & Financial Modeling Audit (CRITICAL)**:
+   - **1-Pager CIO Dashboard Audit (MANDATORY)**: Verify if the Chief Strategist has output a complete, front-positioned 1-Pager CIO Dashboard (Investment Thesis, Factor Profile, Consensus vs. Non-Consensus, The Call) and a Catalyst Calendar. If there are any omissions, tag `[🔴 CIO_DASHBOARD_MISSING]` and demand a restructure.
+   - **Archetype Routing & Kill Switch Audit (MANDATORY)**: Check if the Fundamental Analyst correctly identified the company's archetype (Cyclical / Growth / Dividend / Consumer / Financial / Biotech) and applied the correct model (PB-ROE/costs for Cyclical, PEG/PS for Growth, DDM/spreads for Dividend, PE/DCF for Consumer, PB-ROE/DDM/P-EV for Financial, rNPV for Biotech). Check if they identified and quantified the respective **Kill Switch (Falsification Redline)**. If methodology is mismatched, tag `[🔴 AR_MISMATCH]`; if Kill Switch is missing, tag `[🔴 KILL_SWITCH_MISSING]`.
+   - **WACC Parameters & PEG Alignment Audit (MANDATORY)**: Ensure WACC discount rates are fully disclosed in a Markdown table (Rf, Beta, ERP, Kd, Tc, D/V, E/V, WACC). If WACC is a black box, tag `[🔴 WACC_BLACKBOX]`. Verify that PEG calculation does not mix Forward PE with historical CAGR, or Trailing PE with forward growth rates. If mismatched, tag `[🔴 PEG_MISMATCH]`.
    - Audit each expert's logical consistency. Check for contradictions or data misuse.
    - Identify data conflicts and points of disagreement between experts. Provide a neutral professional judgment.
    - Verify if all key assumptions have solid evidence support.
+
 
 **DATA SOURCE TRACING AUDIT (MANDATORY)**:
 When an audit finds an erroneous conclusion, you **MUST** trace back to the **upstream data source**, not merely attack the narrative:

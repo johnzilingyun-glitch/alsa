@@ -157,3 +157,68 @@ class AuditLog(SQLModel, table=True):
     before_json: Optional[str] = None
     after_json: Optional[str] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
+
+# Default initial balances per market
+MARKET_DEFAULT_BALANCE = {
+    "A-Share": 1000000.0,   # 100万 CNY
+    "HK-Share": 2000000.0,  # 200万 HKD
+    "US-Share": 1000000.0,  # 100万 USD
+}
+MARKET_CURRENCY = {
+    "A-Share": "CNY",
+    "HK-Share": "HKD",
+    "US-Share": "USD",
+}
+
+class MockAccount(SQLModel, table=True):
+    account_id: str = Field(primary_key=True, default_factory=lambda: f"acc_{uuid.uuid4().hex[:8]}")
+    user_id: str = Field(default="default_user")
+    name: str
+    market: str = "A-Share"  # A-Share/HK-Share/US-Share
+    currency: str = "CNY"
+    initial_balance: float = 1000000.0
+    current_cash: float = 1000000.0
+    status: str = "active"  # active/archived
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+class MockPosition(SQLModel, table=True):
+    position_id: str = Field(primary_key=True, default_factory=lambda: f"pos_{uuid.uuid4().hex[:8]}")
+    account_id: str = Field(foreign_key="mockaccount.account_id", index=True)
+    symbol: str = Field(index=True)
+    market: str
+    shares: int = 0
+    average_cost: float = 0.0
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+class MockTrade(SQLModel, table=True):
+    trade_id: str = Field(primary_key=True, default_factory=lambda: f"trd_{uuid.uuid4().hex[:8]}")
+    account_id: str = Field(foreign_key="mockaccount.account_id", index=True)
+    symbol: str = Field(index=True)
+    market: str
+    action: str  # BUY/SELL
+    shares: int
+    execution_price: float
+    position_size_pct: Optional[float] = None  # AI-determined sizing as % of portfolio
+    realized_pnl: Optional[float] = None  # PnL realized on SELL trades
+    trigger_source: str  # AI_SIGNAL/MANUAL
+    related_alert_id: Optional[str] = None
+    timestamp: datetime = Field(default_factory=datetime.utcnow)
+
+class MockAccountSnapshot(SQLModel, table=True):
+    snapshot_id: str = Field(primary_key=True, default_factory=lambda: f"snap_{uuid.uuid4().hex[:8]}")
+    account_id: str = Field(foreign_key="mockaccount.account_id", index=True)
+    snapshot_date: str = Field(index=True)  # YYYY-MM-DD
+    total_equity: float
+    cash_balance: float
+    positions_market_value: float
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+class AnomalyLog(SQLModel, table=True):
+    log_id: str = Field(primary_key=True, default_factory=lambda: f"anom_{uuid.uuid4().hex[:8]}")
+    account_id: str = Field(foreign_key="mockaccount.account_id", index=True)
+    symbol: Optional[str] = None  # None if it's an account-level anomaly
+    event_type: str  # SPIKE/DROP
+    magnitude_pct: float
+    news_reasoning: Optional[str] = None
+    timestamp: datetime = Field(default_factory=datetime.utcnow)

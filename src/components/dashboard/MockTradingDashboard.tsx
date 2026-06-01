@@ -8,6 +8,7 @@ import {
   type MockAccount, type PortfolioSummary, type MockTrade, type Snapshot, type AnomalyEntry
 } from '../../services/api/mockTradingClient';
 import { getQuotes } from '../../services/api/stockClient';
+import { fetchAccountSummary } from '../../services/ibkrService';
 import { TradeTicketModal } from './TradeTicketModal';
 import { AccountMergeModal } from './AccountMergeModal';
 
@@ -38,18 +39,33 @@ export function MockTradingDashboard() {
   const [newName, setNewName] = useState('');
   const [newMarket, setNewMarket] = useState('Global');
   const [newInitialBalance, setNewInitialBalance] = useState<string>('');
+  const [activeUserId, setActiveUserId] = useState<string>('default_user');
+
+  useEffect(() => {
+    const detectUser = async () => {
+      try {
+        const acct = await fetchAccountSummary();
+        if (acct && acct.accountId) {
+          setActiveUserId(acct.accountId);
+        }
+      } catch (e) {
+        console.warn('Could not fetch active IBKR account, using default_user:', e);
+      }
+    };
+    detectUser();
+  }, []);
 
   const loadAccounts = useCallback(async () => {
     setLoading(true);
     try {
-      const accs = await listMockAccounts();
+      const accs = await listMockAccounts(activeUserId);
       setAccounts(accs);
       if (accs.length > 0 && !selectedAccount) {
         setSelectedAccount(accs[0]);
       }
     } catch (e) { console.error(e); }
     finally { setLoading(false); }
-  }, []);
+  }, [activeUserId, selectedAccount]);
 
   const loadAccountData = useCallback(async (acc: MockAccount) => {
     try {
@@ -112,7 +128,7 @@ export function MockTradingDashboard() {
     if (!newName.trim()) return;
     try {
       const initBal = newInitialBalance ? Number(newInitialBalance) : undefined;
-      await createMockAccount(newName.trim(), newMarket, initBal);
+      await createMockAccount(newName.trim(), newMarket, initBal, activeUserId);
       setShowCreate(false);
       setNewName('');
       setNewInitialBalance('');

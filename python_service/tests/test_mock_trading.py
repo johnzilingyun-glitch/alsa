@@ -62,6 +62,19 @@ class TestAccountCRUD:
         repo.create_account(name="Acc2")
         assert len(repo.list_accounts()) == 2
 
+    def test_user_separation(self, repo: MockTradingRepo):
+        repo.create_account(name="User1_Acc1", user_id="user_1")
+        repo.create_account(name="User1_Acc2", user_id="user_1")
+        repo.create_account(name="User2_Acc1", user_id="user_2")
+        
+        user1_accs = repo.list_accounts(user_id="user_1")
+        user2_accs = repo.list_accounts(user_id="user_2")
+        
+        assert len(user1_accs) == 2
+        assert len(user2_accs) == 1
+        assert all(a.user_id == "user_1" for a in user1_accs)
+        assert all(a.user_id == "user_2" for a in user2_accs)
+
     def test_delete_account(self, repo: MockTradingRepo):
         acc = repo.create_account(name="ToDelete")
         assert repo.delete_account(acc.account_id) is True

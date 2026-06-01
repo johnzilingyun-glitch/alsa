@@ -4,14 +4,14 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "npx concurrently -n ibkr,api,vite -c yellow,blue,green \"./scripts/start-ibkr-gateway.sh\" \"tsx server.ts\" \"vite\"",
+    "dev": "npx concurrently -n ibkr,api,vite -c yellow,blue,green \"node scripts/start-ibkr-gateway.js\" \"tsx server.ts\" \"vite\"",
     "dev:no-ibkr": "npx concurrently -n api,vite -c blue,green \"tsx server.ts\" \"vite\"",
-    "ibkr:start": "./scripts/start-ibkr-gateway.sh",
-    "ibkr:stop": "./scripts/start-ibkr-gateway.sh --stop",
-    "ibkr:docker": "./scripts/start-ibkr-gateway.sh --docker",
+    "ibkr:start": "node scripts/start-ibkr-gateway.js",
+    "ibkr:stop": "node scripts/start-ibkr-gateway.js --stop",
+    "ibkr:docker": "node scripts/start-ibkr-gateway.js --docker",
     "dev:api": "tsx server.ts",
     "dev:vite": "vite",
-    "dev:py": "node -e \"const { spawnSync } = require('child_process'); const fs = require('fs'); const py = fs.existsSync('.venv/bin/python') ? '.venv/bin/python' : fs.existsSync('.venv/Scripts/python') ? '.venv/Scripts/python' : 'python'; process.exit(spawnSync(py, ['-m', 'uvicorn', 'python_service.main:app', '--port', '8001', '--reload'], { stdio: 'inherit', shell: true }).status || 0);\"",
+    "dev:py": "node -e \"const { spawnSync } = require('child_process'); const fs = require('fs'); const path = require('path'); const py = fs.existsSync(path.join('.venv', 'bin', 'python')) ? path.join('.venv', 'bin', 'python') : fs.existsSync(path.join('.venv', 'Scripts', 'python.exe')) ? path.join('.venv', 'Scripts', 'python.exe') : 'python'; process.exit(spawnSync(py, ['-m', 'uvicorn', 'python_service.main:app', '--port', '8001', '--reload'], { stdio: 'inherit', shell: true }).status || 0);\"",
     "build": "vite build",
     "start": "cross-env NODE_ENV=production tsx server.ts",
     "preview": "vite preview",
@@ -19,7 +19,7 @@
     "lint": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:all": "npm test && node -e \"const { spawnSync } = require('child_process'); const fs = require('fs'); const py = fs.existsSync('.venv/bin/python') ? '.venv/bin/python' : fs.existsSync('.venv/Scripts/python') ? '.venv/Scripts/python' : 'python'; process.exit(spawnSync(py, ['-m', 'pytest', 'python_service/tests'], { stdio: 'inherit', shell: true }).status || 0);\""
+    "test:all": "npm test && node -e \"const { spawnSync } = require('child_process'); const fs = require('fs'); const path = require('path'); const py = fs.existsSync(path.join('.venv', 'bin', 'python')) ? path.join('.venv', 'bin', 'python') : fs.existsSync(path.join('.venv', 'Scripts', 'python.exe')) ? path.join('.venv', 'Scripts', 'python.exe') : 'python'; process.exit(spawnSync(py, ['-m', 'pytest', 'python_service/tests'], { stdio: 'inherit', shell: true }).status || 0);\""
   },
   "dependencies": {
     "@google/genai": "^1.29.0",

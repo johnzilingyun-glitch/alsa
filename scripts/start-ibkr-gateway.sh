@@ -118,8 +118,8 @@ start_local() {
 # === Main ===
 MODE="${1:-auto}"
 
-# If already running, skip
-if check_port; then
+# If already running, skip (unless stopping)
+if [[ "$MODE" != "--stop" && "$MODE" != "-s" && "$MODE" != "stop" ]] && check_port; then
   log_info "IBKR Gateway already running on port $GATEWAY_PORT"
   exit 0
 fi

@@ -2,7 +2,9 @@
 Mock Trading API — FastAPI routes for managing simulated trading accounts,
 executing trades, viewing portfolio analytics, and anomaly logs.
 """
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Header
+import logging
+logger = logging.getLogger(__name__)
 from pydantic import BaseModel
 from typing import Optional, List
 from sqlmodel import Session
@@ -58,12 +60,14 @@ def _get_service() -> MockTradingService:
 # ══════════════════════════════════════════════════════════════════
 
 @router.post("/accounts", status_code=201)
-async def create_account(payload: AccountCreate):
+async def create_account(payload: AccountCreate, x_user_id: Optional[str] = Header(None)):
     svc = _get_service()
+    user_id = x_user_id or "default_user"
     acc = svc.create_account(
         name=payload.name,
         market=payload.market,
         initial_balance=payload.initial_balance,
+        user_id=user_id,
     )
     return {"success": True, "data": {
         "account_id": acc.account_id,
@@ -76,9 +80,10 @@ async def create_account(payload: AccountCreate):
     }}
 
 @router.get("/accounts")
-async def list_accounts():
+async def list_accounts(x_user_id: Optional[str] = Header(None)):
     svc = _get_service()
-    accounts = svc.list_accounts()
+    user_id = x_user_id or "default_user"
+    accounts = svc.list_accounts(user_id=user_id)
     return {"success": True, "data": [{
         "account_id": a.account_id,
         "name": a.name,
@@ -199,18 +204,42 @@ async def check_signal(payload: SignalCheck):
 
 @router.get("/portfolio/{account_id}")
 async def get_portfolio(account_id: str):
-    """Get portfolio summary. Prices will be fetched server-side in a future iteration;
-       for now returns positions valued at average cost."""
+    """Get portfolio summary. Prices are resolved server-side."""
     svc = _get_service()
-    summary = svc.get_portfolio_summary(account_id, {})
+    positions = svc.repo.list_positions(account_id)
+    symbols = [p.symbol for p in positions]
+    prices = {}
+    if symbols:
+        try:
+            from ..services.market_data_service import market_data_service
+            quotes = await market_data_service.get_quotes(symbols)
+            for q in quotes:
+                if "price" in q and q["price"] is not None:
+                    prices[q["symbol"]] = q["price"]
+        except Exception as e:
+            logger.error(f"Failed to fetch server-side quotes for portfolio: {e}")
+            
+    summary = svc.get_portfolio_summary(account_id, prices)
     if not summary:
         raise HTTPException(404, "Account not found")
     return {"success": True, "data": summary}
 
 @router.post("/portfolio/{account_id}")
 async def get_portfolio_with_prices(account_id: str, prices: dict):
-    """Get portfolio summary with explicit current prices."""
+    """Get portfolio summary with explicit current prices and server-side fallback for missing ones."""
     svc = _get_service()
+    positions = svc.repo.list_positions(account_id)
+    missing_symbols = [p.symbol for p in positions if p.symbol not in prices]
+    if missing_symbols:
+        try:
+            from ..services.market_data_service import market_data_service
+            quotes = await market_data_service.get_quotes(missing_symbols)
+            for q in quotes:
+                if "price" in q and q["price"] is not None:
+                    prices[q["symbol"]] = q["price"]
+        except Exception as e:
+            logger.error(f"Failed to fetch server-side missing quotes: {e}")
+
     summary = svc.get_portfolio_summary(account_id, prices)
     if not summary:
         raise HTTPException(404, "Account not found")

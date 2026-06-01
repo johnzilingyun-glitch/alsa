@@ -8,10 +8,16 @@ from .search_service import search_service
 from .data_providers import data_router
 
 # Only import akshare if enabled (geo-blocked from non-China servers)
+class DummyAkShare:
+    def __getattr__(self, name):
+        raise AttributeError(f"AkShare is disabled. Cannot call '{name}'")
+
 _AKSHARE_ENABLED = os.getenv("AKSHARE_ENABLED", "false").lower() == "true"
 if _AKSHARE_ENABLED:
     import akshare as ak
-    from ..utils.network import safe_ak_call
+else:
+    ak = DummyAkShare()
+from ..utils.network import safe_ak_call
 
 class MarketDataService:
     def __init__(self):
@@ -94,6 +100,14 @@ class MarketDataService:
             elif s.isdigit() and len(s) <= 5:
                 clean_s = s.lstrip('0') or '0'
                 suffixed = f"{clean_s.zfill(4)}.HK"
+                processed_symbols.append(suffixed)
+                symbol_map[suffixed] = s
+            elif s.upper().endswith('.SH') and len(s) == 9 and s[:6].isdigit():
+                suffixed = f"{s[:6]}.SS"
+                processed_symbols.append(suffixed)
+                symbol_map[suffixed] = s
+            elif s.upper().endswith('.SZ') and len(s) == 9 and s[:6].isdigit():
+                suffixed = f"{s[:6]}.SZ"
                 processed_symbols.append(suffixed)
                 symbol_map[suffixed] = s
             else:

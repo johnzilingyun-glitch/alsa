@@ -7,8 +7,11 @@ const BASE = '/api/mock-trading';
 
 async function fetchJSON<T>(url: string, options?: RequestInit): Promise<T> {
   const res = await fetch(url, {
-    headers: { 'Content-Type': 'application/json' },
     ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...((options?.headers as any) || {}),
+    },
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }));
@@ -87,21 +90,28 @@ export interface AnomalyEntry {
 
 // ── Account API ──────────────────────────────────────────────────
 
-export async function createMockAccount(name: string, market: string, initialBalance?: number): Promise<MockAccount> {
-  const body: any = { name, market };
-  if (initialBalance !== undefined) body.initial_balance = initialBalance;
+export async function createMockAccount(name: string, market: string, initialBalance?: number, userId?: string): Promise<MockAccount> {
   const payload: any = { name, market };
   if (initialBalance !== undefined) {
     payload.initial_balance = initialBalance;
   }
+  const headers: Record<string, string> = {};
+  if (userId) {
+    headers['x-user-id'] = userId;
+  }
   return fetchJSON(`${BASE}/accounts`, {
     method: 'POST',
+    headers,
     body: JSON.stringify(payload),
   });
 }
 
-export async function listMockAccounts(): Promise<MockAccount[]> {
-  return fetchJSON(`${BASE}/accounts`);
+export async function listMockAccounts(userId?: string): Promise<MockAccount[]> {
+  const headers: Record<string, string> = {};
+  if (userId) {
+    headers['x-user-id'] = userId;
+  }
+  return fetchJSON(`${BASE}/accounts`, { headers });
 }
 
 export async function deleteMockAccount(accountId: string): Promise<boolean> {

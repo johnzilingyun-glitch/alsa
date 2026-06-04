@@ -39,10 +39,19 @@ router.get('/reports/download', async (req, res) => {
 
 router.post('/analysis/jobs', async (req, res) => {
   const { symbol, market, model, promptVersion, config } = req.body;
+  // SECURITY: Strip API keys from config — NEVER persisted to database
+  const safeConfig = config ? { ...config } : {};
+  delete safeConfig.apiKey;
+  delete safeConfig.gemini_api_key;
+  delete safeConfig.geminiApiKey;
+  delete safeConfig.deepseekApiKey;
+  delete safeConfig.deepseek_api_key;
+  delete safeConfig.openaiApiKey;
+  
   const analysisId = `ana_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
   console.log(`[AnalysisRoute] Received job request for ${symbol} (${market}) with model ${model}`);
   try {
-    // 1. Create a record in SQLite
+    // 1. Create a record in SQLite (config sans API keys)
     await repo.save({
       analysisId,
       kind: 'stock',
@@ -51,15 +60,15 @@ router.post('/analysis/jobs', async (req, res) => {
       status: 'queued',
       promptVersion: promptVersion || 'v1',
       model: model || config?.model || 'gemini-3.1-pro-preview',
-      config: config || {},
+      config: safeConfig,
       outputPayload: {}
     });
 
-    // 2. Trigger FastAPI job
+    // 2. Trigger FastAPI job (without API keys — client sends key only when requested)
     const fastApiRes = await fetch(`${PYTHON_SERVICE_URL}/api/analysis/jobs`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ symbol, market, requested_model: config?.model || model || null, config })
+      body: JSON.stringify({ symbol, market, requested_model: config?.model || model || null, config: safeConfig })
     });
 
     if (!fastApiRes.ok) {
@@ -91,6 +100,41 @@ router.post('/analysis/jobs', async (req, res) => {
       success: false, 
       error: { message: `Failed to create analysis job: ${message}` } 
     });
+  }
+});
+
+// POST /analysis/jobs/:jobId/apikey — forward API key to Python service (in-memory only)
+router.post('/analysis/jobs/:jobId/apikey', async (req, res) => {
+  const { jobId } = req.params;
+  const { provider, apiKey } = req.body;
+  try {
+    const fastApiRes = await fetch(`${PYTHON_SERVICE_URL}/api/analysis/jobs/${jobId}/apikey`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ provider, apiKey })
+    });
+    const data = await fastApiRes.json();
+    res.status(fastApiRes.ok ? 200 : 400).json(data);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    res.status(502).json({ success: false, error: { message: `Key submission failed: ${message}` } });
+  }
+});
+
+// POST /analysis/apikey — proactively cache/update API key in memory (no job_id needed)
+router.post('/analysis/apikey', async (req, res) => {
+  const { provider, apiKey } = req.body;
+  try {
+    const fastApiRes = await fetch(`${PYTHON_SERVICE_URL}/api/analysis/apikey`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ provider, apiKey })
+    });
+    const data = await fastApiRes.json();
+    res.status(fastApiRes.ok ? 200 : 400).json(data);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    res.status(502).json({ success: false, error: { message: `Key caching failed: ${message}` } });
   }
 });
 

@@ -305,7 +305,7 @@ class DiscussionService:
 
         if has_search_tools:
             # Gemini has native Google Search — use standard call (tools handled by model)
-            content = await llm_gateway.generate_content(prompt, model=model, on_chunk=_on_chunk, gemini_api_key=config.get("geminiApiKey") if config else None)
+            content = await llm_gateway.generate_content(prompt, model=model, on_chunk=_on_chunk, gemini_api_key=config.get("geminiApiKey") if config else None, deepseek_api_key=config.get("deepseekApiKey") if config else None)
         else:
             # No artificial limit on tool rounds — let the model decide when it has enough data
             effective_max_rounds = 20

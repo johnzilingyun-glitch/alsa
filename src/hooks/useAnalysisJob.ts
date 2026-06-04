@@ -83,7 +83,29 @@ export function useAnalysisJob() {
 
         const data = responseData.data;
         setStatus(data.status);
-
+        
+        // Proactively cache the API key on first job submission (so subsequent jobs don't wait)
+        if (!(window as any).__alsaKeyCached) {
+          const savedConfig = (() => {
+            try {
+              const raw = localStorage.getItem('gemini_config');
+              return raw ? JSON.parse(raw) : {};
+            } catch { return {}; }
+          })();
+          const model = savedConfig.model || '';
+          const isDeepSeek = model.toLowerCase().startsWith('deepseek');
+          const provider = isDeepSeek ? 'deepseek' : 'gemini';
+          const apiKey = isDeepSeek ? (savedConfig.deepseekApiKey || '') : (savedConfig.apiKey || '');
+          if (apiKey) {
+            fetch('/api/analysis/apikey', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ provider, apiKey })
+            }).catch(() => {});
+            (window as any).__alsaKeyCached = true;
+          }
+        }
+        
         if (data.progress) {
           const { stage, percent, round, total_rounds, message, count, error_type } = data.progress;
           
@@ -107,12 +129,35 @@ export function useAnalysisJob() {
             setInsufficientBalance(true);
           }
           
+          // need_api_key: server needs the user's API key — read from localStorage and send
+          if (stage === 'need_api_key') {
+            const savedConfig = (() => {
+              try {
+                const raw = localStorage.getItem('gemini_config');
+                return raw ? JSON.parse(raw) : {};
+              } catch { return {}; }
+            })();
+            const model = savedConfig.model || '';
+            const isDeepSeek = model.toLowerCase().startsWith('deepseek');
+            const provider = isDeepSeek ? 'deepseek' : 'gemini';
+            const apiKey = isDeepSeek ? (savedConfig.deepseekApiKey || '') : (savedConfig.apiKey || '');
+            if (apiKey) {
+              // Send key to server — stored in memory only, never persisted
+              fetch(`/api/analysis/jobs/${id}/apikey`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ provider, apiKey })
+              }).catch(e => console.error('Failed to submit API key:', e));
+            }
+          }
+          
           // Map stage to a friendly message if no explicit message
           const stageMessages: Record<string, string> = {
             'queued': '正在排队等待，初始化数据管线...',
             'starting': '正在启动分析引擎...',
             'snapshot': '正在获取市场深度行情...',
             'quant': '正在执行量化指标计算...',
+            'need_api_key': '需要 API Key，正在从本地读取...',
             'discussion': '正在召集专家进行深度研判...',
             'finalizing': '正在整理分析结论...',
             'completed': '分析完成',

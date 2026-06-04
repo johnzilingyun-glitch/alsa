@@ -1652,8 +1652,8 @@ CONTENT:
         .log-body table {{ width: 100%; border-collapse: collapse; margin: 20px 0; border: 1px solid var(--border); }}
         .log-body th {{ background: var(--bg); padding: 10px; border: 1px solid var(--border); font-weight: 700; }}
         .log-body td {{ padding: 8px 10px; border: 1px solid var(--border); }}
-        .log-body pre { white-space: pre-wrap; word-wrap: break-word; overflow-wrap: break-word; overflow-x: auto; max-width: 100%; background: #f8fafc; padding: 15px; border-radius: 6px; border: 1px solid var(--border); }
-        .log-body code { background: none; padding: 0; border: none; font-family: monospace; white-space: pre-wrap; word-wrap: break-word; }
+        .log-body pre {{ white-space: pre-wrap; word-wrap: break-word; overflow-wrap: break-word; overflow-x: auto; max-width: 100%; background: #f8fafc; padding: 15px; border-radius: 6px; border: 1px solid var(--border); }}
+        .log-body code {{ background: none; padding: 0; border: none; font-family: monospace; white-space: pre-wrap; word-wrap: break-word; }}
 
         .report-footer {{ margin-top: 60px; padding-top: 20px; border-top: 1px solid var(--border); color: #94a3b8; font-size: 12px; text-align: center; }}
         

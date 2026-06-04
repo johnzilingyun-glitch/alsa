@@ -37,100 +37,65 @@ class MarketSnapshotService:
     async def create_snapshot(self, market: str, symbol: str) -> Dict[str, Any]:
         """
         Fetches market data and saves it to the Parquet lake.
-        Parallelizes independent data fetches for speed.
+        Uses the DataRouter for robust multi-source fallback.
         """
         import time
         t0 = time.time()
         print(f"Creating snapshot for {market} stock: {symbol}")
         try:
-            from .market_data_service import market_data_service
-
-            # --- Define all independent fetch tasks ---
+            from .data_providers import data_router
 
             async def _fetch_history():
-                df = pd.DataFrame()
-                if market == "A-Share":
-                    if AKSHARE_ENABLED:
-                        try:
-                            df = await safe_ak_call(ak.stock_zh_a_hist, symbol=symbol, period="daily", adjust="qfq")
-                            if df is not None and not df.empty:
-                                col_map = {
-                                    '日期': 'trade_date', '开盘': 'open', '收盘': 'close', 
-                                    '最高': 'high', '最低': 'low', '成交量': 'volume'
-                                }
-                                df = df.rename(columns={k: v for k, v in col_map.items() if k in df.columns})
-                            else:
-                                df = pd.DataFrame()
-                        except Exception as e:
-                            print(f"AkShare history fetch failed for {symbol}: {e}. Attempting yfinance fallback...")
-                            df = pd.DataFrame()
-
-                    if df.empty and os.getenv("PYTEST_CURRENT_TEST"):
-                        try:
-                            import akshare as test_ak
-                            df = await asyncio.to_thread(test_ak.stock_zh_a_hist, symbol=symbol, period="daily", adjust="qfq")
-                            if df is not None and not df.empty:
-                                df = self._normalize_ohlc_frame(df)
-                        except Exception as e:
-                            print(f"Test AkShare history fetch failed for {symbol}: {e}")
-                            df = pd.DataFrame()
-
-                    if df.empty:
-                        import yfinance as yf
-                        yf_symbol = f"{symbol}.SS" if symbol.startswith('6') else f"{symbol}.SZ"
-                        ticker = yf.Ticker(yf_symbol)
-                        df = await asyncio.to_thread(ticker.history, period="6mo")
-                        if not df.empty:
-                            df = df.reset_index()
-                            df = self._normalize_ohlc_frame(df)
-                else:
-                    import yfinance as yf
-                    yf_symbol = symbol
-                    if market == "HK-Share":
-                        clean_symbol = symbol.replace(".HK", "").zfill(4)
-                        yf_symbol = f"{clean_symbol}.HK"
-                    ticker = yf.Ticker(yf_symbol)
-                    df = await asyncio.to_thread(ticker.history, period="6mo")
-                    if not df.empty:
-                        df = df.reset_index()
-                        df = self._normalize_ohlc_frame(df)
-
-                if not df.empty and 'trade_date' in df.columns:
+                """Use DataRouter for history (AStockDirect → Tencent → AkShare fallback)."""
+                df = await data_router.get_history(symbol, period="6mo", interval="1d")
+                if df is not None and not df.empty:
+                    df = df.rename(columns={'date': 'trade_date'})
                     trade_dates = pd.to_datetime(df['trade_date'], errors='coerce')
                     df['trade_date'] = trade_dates.dt.strftime('%Y-%m-%d')
                     df = df.dropna(subset=['trade_date'])
                 return df
 
             async def _fetch_valuation():
-                if market != "A-Share" or not AKSHARE_ENABLED:
+                """Get valuation from DataRouter's financial summary."""
+                if market != "A-Share":
                     return {}
                 try:
-                    val_df = await safe_ak_call(ak.stock_individual_info_em, symbol=symbol)
-                    if val_df is not None and not val_df.empty:
-                        return dict(zip(val_df['item'], val_df['value']))
+                    summary = await data_router.get_financial_summary(symbol)
+                    if summary and "error" not in summary:
+                        # Pull out valuation-relevant fields
+                        return {
+                            "pe": summary.get("pe"),
+                            "pb": summary.get("pb"),
+                            "market_cap": summary.get("marketCap"),
+                            "industry": summary.get("industry"),
+                            "total_shares": summary.get("totalShares"),
+                            "float_shares": summary.get("floatShares"),
+                        }
                 except Exception as e:
                     print(f"Valuation fetch failed for {symbol}: {e}")
                 return {}
 
             async def _fetch_financials():
-                return await market_data_service.get_financial_summary(symbol, market)
+                """Get financial summary from DataRouter."""
+                return await data_router.get_financial_summary(symbol)
 
             async def _fetch_quotes():
-                quotes = await market_data_service.get_quotes([symbol])
-                return quotes[0] if quotes else {}
+                """Get real-time quote from DataRouter (Tencent API)."""
+                quote = await data_router.get_quote(symbol)
+                return quote.to_dict() if quote else {}
 
-            # --- Run all fetches in parallel ---
-            history_result, valuation, financials, quote = await asyncio.gather(
-                _fetch_history(),
-                _fetch_valuation(),
-                _fetch_financials(),
-                _fetch_quotes(),
-            )
-
+            # --- Run fetches — AkShare calls sequentially to avoid connection conflicts ---
+            history_result = await _fetch_history()
+            
             df = history_result
             if df is None or df.empty:
                 print(f"Snapshot: no history data for {symbol}")
                 return {}
+            
+            # Run secondary fetches (use AkShare's own connection pool, not concurrent)
+            valuation = await _fetch_valuation()
+            financials = await _fetch_financials()
+            quote = await _fetch_quotes()
 
             rows = df.tail(120).to_dict(orient="records")
             data_cutoff = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
@@ -184,7 +149,7 @@ class MarketSnapshotService:
         if not AKSHARE_ENABLED:
             return None
         try:
-            df = await safe_ak_call(ak.stock_zh_ah_name)
+            df = await asyncio.to_thread(ak.stock_zh_ah_name)
             if df is None or df.empty:
                 return None
             # Match by name (strip "股份" suffix for fuzzy match)

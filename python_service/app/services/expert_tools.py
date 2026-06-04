@@ -1255,12 +1255,14 @@ class ToolExecutor:
 
     async def _exec_financial_data(self, symbol: str, query: str) -> str:
         """Fetch structured financial data from AkShare/yfinance based on the query.
+        Uses DataRouter first for A-shares (fastest path), falls back to direct APIs.
         Uses session-level cache to avoid redundant API calls across expert rounds.
         
         Token-defensive: field whitelists, row limits, internal char budget."""
         import akshare as ak
         import yfinance as yf
         from ..utils.network import safe_ak_call
+        from ..services.data_providers import data_router
         from ..utils.data_validation import validate_ak_data
         from .token_guard import token_guard
 
@@ -1306,6 +1308,26 @@ class ToolExecutor:
 
         try:
             if is_a_share:
+                # --- A-Share: Fast path via DataRouter (Tencent/Sina, no rate limits) ---
+                if _budget_ok():
+                    try:
+                        summary = await data_router.get_financial_summary(symbol)
+                        if summary and "error" not in summary:
+                            lines.append("## DataRouter 财务概览")
+                            key_fields = ["name", "price", "pe", "pb", "roe", "marketCap",
+                                          "revenue", "netProfit", "revenueGrowth", "netProfitGrowth",
+                                          "eps", "turnoverPct", "industry"]
+                            parts = []
+                            for f in key_fields:
+                                v = summary.get(f)
+                                if v is not None and v != "":
+                                    parts.append(f"{f}:{v}")
+                            if parts:
+                                lines.append(" | ".join(parts))
+                                lines.append("")
+                    except Exception as e:
+                        pass  # Non-fatal — fall through to detailed sections below
+
                 # --- A-Share: Quarterly financial abstract ---
                 if _budget_ok() and any(kw in query_lower for kw in ["quarter", "earnings", "revenue", "profit", "净利润", "营收", "扣非", "季度", "eps", "roe", "margin"]):
                     try:

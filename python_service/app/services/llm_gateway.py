@@ -653,6 +653,10 @@ class LLMGateway:
             # Run all tool calls concurrently
             tool_results = await asyncio.gather(*[_exec_one_tool(tc) for tc in tool_calls_data], return_exceptions=True)
             
+            # Heartbeat: notify frontend of activity after tool execution (keeps idle timer alive)
+            if on_chunk:
+                on_chunk((round_num + 1) * (len(messages) + 500))
+            
             # Append results in order as role:tool messages
             for i, result_or_exc in enumerate(tool_results):
                 if isinstance(result_or_exc, Exception):
@@ -939,6 +943,10 @@ class LLMGateway:
             
             # Execute tools
             observations = await tool_executor.execute_all(tool_calls)
+            
+            # Heartbeat: keep frontend idle timer alive after tool execution
+            if on_chunk:
+                on_chunk((round_num + 1) * (len(tool_calls) + 100))
             
             # Build continuation prompt (TokenGuard already enforces per-tool limits)
             tool_section = "\n\n--- TOOL RESULTS ---\n"

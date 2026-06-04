@@ -15,6 +15,10 @@ class AnalysisJobCreate(BaseModel):
     requested_model: Optional[str] = None
     config: Optional[Dict[str, Any]] = None
 
+class ApiKeySubmission(BaseModel):
+    provider: str = "gemini"
+    apiKey: str
+
 router = APIRouter(prefix="/analysis", tags=["analysis"])
 
 def get_job_service():
@@ -93,6 +97,22 @@ async def get_analysis_lineage(analysis_id: str):
     if not lineage:
         return error_response("ANALYSIS_NOT_FOUND", "Analysis run not found")
     return success_response(lineage)
+
+@router.post("/jobs/{job_id}/apikey")
+async def submit_api_key(job_id: str, body: ApiKeySubmission, service: AnalysisJobService = Depends(get_job_service)):
+    """Receive API key from frontend. Stored in memory only — never saved to disk.
+       Key is cached globally and reused across subsequent jobs."""
+    ok = service.submit_api_key(job_id, body.provider, body.apiKey)
+    if not ok:
+        return error_response("JOB_NOT_WAITING", "Job is not waiting for an API key")
+    return success_response({"job_id": job_id, "provider": body.provider, "status": "accepted"})
+
+@router.post("/apikey")
+async def set_api_key_global(body: ApiKeySubmission, service: AnalysisJobService = Depends(get_job_service)):
+    """Proactively set/update an API key in memory cache (e.g. user changes key in settings).
+       No job_id needed — key is cached globally for all future jobs."""
+    service.set_api_key(body.provider, body.apiKey)
+    return success_response({"provider": body.provider, "status": "cached"})
 
 @router.post("/jobs/{job_id}/cancel")
 async def cancel_job(job_id: str, service: AnalysisJobService = Depends(get_job_service)):

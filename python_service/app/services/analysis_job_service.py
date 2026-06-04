@@ -16,6 +16,9 @@ class AnalysisJobService:
         self.snapshot_service = snapshot_service
         self._running_tasks: Dict[str, asyncio.Task] = {}
         self._progress: Dict[str, Dict[str, Any]] = {}
+        # In-memory API key store — NEVER persisted to disk, shared across jobs
+        self._api_key_events: Dict[str, asyncio.Event] = {}
+        self._api_keys: Dict[str, str] = {}  # {provider: key} — global cache
 
     async def start_job(self, symbol: str, market: str, level: str = "standard", model: Optional[str] = None, config: Optional[Dict[str, Any]] = None) -> str:
         job_id = f"job_{uuid.uuid4().hex[:8]}"
@@ -31,6 +34,44 @@ class AnalysisJobService:
         task.add_done_callback(lambda t: self._running_tasks.pop(job_id, None))
         
         return job_id
+
+    def submit_api_key(self, job_id: str, provider: str, api_key: str) -> bool:
+        """Receive an API key from the frontend. Cached in memory — never persisted.
+           Once cached, subsequent jobs reuse the key without asking the frontend again."""
+        # Store in global cache (shared across all jobs)
+        self._api_keys[provider] = api_key
+        # Wake the specific job if it's waiting
+        if job_id in self._api_key_events:
+            self._api_key_events[job_id].set()
+            return True
+        return True  # Key cached even if no job waiting
+
+    def set_api_key(self, provider: str, api_key: str):
+        """Proactively register/update an API key in memory cache (user settings change)."""
+        self._api_keys[provider] = api_key
+
+    async def _wait_for_api_key(self, job_id: str, provider: str, timeout: int = 120) -> Optional[str]:
+        """Pause the job and wait for the frontend to send an API key.
+           If key is already cached from a previous job, return it immediately."""
+        # Check cache first — reuse key across jobs
+        cached = self._api_keys.get(provider)
+        if cached:
+            self.update_job_progress(job_id, "discussion", 50, message="使用缓存的 API Key")
+            return cached
+        
+        event = asyncio.Event()
+        self._api_key_events[job_id] = event
+        # Signal frontend via progress that we need a key
+        self.update_job_progress(job_id, "need_api_key", 50, message=f"需要{provider} API Key")
+        try:
+            await asyncio.wait_for(event.wait(), timeout=timeout)
+            key = self._api_keys.get(provider)
+            return key
+        except asyncio.TimeoutError:
+            print(f"Timeout waiting for API key for job {job_id}")
+            return None
+        finally:
+            self._api_key_events.pop(job_id, None)
 
     async def _run_job(self, job_id: str, symbol: str, market: str, config: Optional[Dict[str, Any]] = None):
         from .discussion_service import discussion_service
@@ -58,14 +99,21 @@ class AnalysisJobService:
             snapshot["indicators"] = indicators
             
             self.update_job_progress(job_id, "discussion", 50)
-            # 3. Run Expert Discussion
+            # 3. Determine which provider is needed from the model name
             job = self.job_repo.get_by_id(job_id)
-            level = job.analysis_level if job else "standard"
-            # Priority: job.requested_model > config.model > env default
             requested_model = job.requested_model if job else None
             if not requested_model and config:
                 requested_model = config.get("model")
+            provider = "deepseek" if (requested_model or "").lower().startswith("deepseek") else "gemini"
+            api_key = await self._wait_for_api_key(job_id, provider)
+            if not api_key:
+                raise ValueError("未收到 API Key，研判任务取消")
+            # Inject key into config for the discussion service
+            safe_config = dict(config or {})
+            safe_config[f"{provider}ApiKey"] = api_key
             
+            # 3b. Run Expert Discussion
+            level = job.analysis_level if job else "standard"
             def report_discussion_progress(round, total, msg, count=None, error_type=None):
                 self.update_job_progress(job_id, "discussion", 50 + int((round/total) * 40), round=round, total_rounds=total, message=msg, count=count, error_type=error_type)
 
@@ -81,10 +129,12 @@ class AnalysisJobService:
                 model=requested_model,
                 on_progress=report_discussion_progress,
                 job_id=job_id,
-                config=config
+                config=safe_config
             )
             
             self.update_job_progress(job_id, "finalizing", 90)
+            # Key used — discard from memory
+            self._api_keys.pop(job_id, None)
             # 4. Final Payload — enrich stockInfo with quote data for Flash UI
             quote = snapshot.get("quote", {})
             snapshot_id = snapshot.get("snapshot_id")
@@ -204,6 +254,10 @@ class AnalysisJobService:
                 import traceback
                 traceback.print_exc()
                 self.job_repo.update_status(job_id, "failed", json.dumps({"error": error_msg}))
+        
+        finally:
+            # Only clean up the event — the key stays cached globally for reuse
+            self._api_key_events.pop(job_id, None)
 
     async def _save_partial_results(self, job_id: str, symbol: str, market: str, snapshot: Dict[str, Any], indicators: Dict[str, Any], discussion_messages: List[Dict[str, Any]]):
         """Save partial results when analysis is interrupted (user abort or 402)."""

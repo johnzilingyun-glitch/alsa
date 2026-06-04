@@ -53,22 +53,29 @@ export function useAnalysisJob() {
 
   const pollJob = async (id: string) => {
     const pollInterval = 2000;
-    const maxAttempts = 300; // 10 minutes
-    let attempts = 0;
+    const IDLE_TIMEOUT_MS = 300_000; // 300s — only timeout after 300s of ZERO activity
     let lastMsg = '';
+    // Activity tracking: reset whenever progress changes
+    let lastActivityAt = Date.now();
+    let lastSeenCount = -1;
+    let lastSeenStage = '';
+    let lastSeenMessage = '';
+    let consecutiveErrors = 0;
+    const MAX_CONSECUTIVE_ERRORS = 5;
 
     const timer = setInterval(async () => {
-      attempts++;
-      if (attempts > maxAttempts) {
+      const idleDuration = Date.now() - lastActivityAt;
+      if (idleDuration > IDLE_TIMEOUT_MS) {
         clearInterval(timer);
         setStatus('failed');
-        setError('Analysis timed out');
+        setError(`扫描超时（${Math.round(idleDuration / 1000)}秒无活动）。AI 可能已停止响应。`);
         return;
       }
 
       try {
         const res = await fetch(`/api/analysis/jobs/${id}`);
         const responseData = await res.json();
+        consecutiveErrors = 0; // Reset on successful poll
         
         if (!responseData.success) {
           throw new Error(responseData.error?.message || 'Polling failed');
@@ -80,6 +87,17 @@ export function useAnalysisJob() {
         if (data.progress) {
           const { stage, percent, round, total_rounds, message, count, error_type } = data.progress;
           
+          // Detect any change in progress → AI is still working → reset idle timer
+          const stageStr = typeof stage === 'string' ? stage : String(stage ?? '');
+          const msgStr = message || '';
+          const countVal = count ?? -1;
+          if (countVal !== lastSeenCount || stageStr !== lastSeenStage || msgStr !== lastSeenMessage) {
+            lastActivityAt = Date.now();
+            lastSeenCount = countVal;
+            lastSeenStage = stageStr;
+            lastSeenMessage = msgStr;
+          }
+          
           if (count !== undefined) {
             setContentCount(count);
           }
@@ -90,7 +108,7 @@ export function useAnalysisJob() {
           }
           
           // Map stage to a friendly message if no explicit message
-          const statusMsg = message || {
+          const stageMessages: Record<string, string> = {
             'queued': '正在排队等待，初始化数据管线...',
             'starting': '正在启动分析引擎...',
             'snapshot': '正在获取市场深度行情...',
@@ -99,7 +117,8 @@ export function useAnalysisJob() {
             'finalizing': '正在整理分析结论...',
             'completed': '分析完成',
             'failed': '分析失败',
-          }[stage] || stage;
+          };
+          const statusMsg = msgStr || stageMessages[stageStr] || stageStr;
 
           if (statusMsg && statusMsg !== lastMsg) {
             setAnalysisStatus(statusMsg);
@@ -130,9 +149,14 @@ export function useAnalysisJob() {
           setStatus('cancelled');
         }
       } catch (err: any) {
-        clearInterval(timer);
-        setStatus('failed');
-        setError(err.message);
+        consecutiveErrors++;
+        // Don't fail immediately on transient network errors — only give up after repeated failures
+        if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
+          clearInterval(timer);
+          setStatus('failed');
+          setError(err.message);
+        }
+        // Otherwise keep polling — transient errors shouldn't kill a long-running analysis
       }
     }, pollInterval);
   };

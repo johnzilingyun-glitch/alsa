@@ -5,6 +5,8 @@ from pydantic import BaseModel
 from typing import Optional, Dict, Any
 from ..services.analysis_job_service import AnalysisJobService
 from ..utils.responses import success_response, error_response
+from ..db.sqlite import session_factory
+from ..services.lineage_service import build_analysis_lineage
 
 class AnalysisJobCreate(BaseModel):
     symbol: str
@@ -82,6 +84,15 @@ async def get_analysis_run(analysis_id: str, service: AnalysisJobService = Depen
         return error_response("ANALYSIS_NOT_FOUND", "Analysis run not found")
     
     return success_response(run)
+
+
+@router.get("/runs/{analysis_id}/lineage")
+async def get_analysis_lineage(analysis_id: str):
+    with session_factory() as session:
+        lineage = build_analysis_lineage(session, analysis_id)
+    if not lineage:
+        return error_response("ANALYSIS_NOT_FOUND", "Analysis run not found")
+    return success_response(lineage)
 
 @router.post("/jobs/{job_id}/cancel")
 async def cancel_job(job_id: str, service: AnalysisJobService = Depends(get_job_service)):

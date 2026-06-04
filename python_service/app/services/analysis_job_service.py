@@ -1,7 +1,9 @@
 import json
+import os
 import asyncio
 import uuid
-from datetime import datetime, date
+from datetime import date, datetime
+from ..time_utils import utc_now
 from typing import Optional, Dict, Any, List
 from ..db.repositories.job_repo import JobRepository
 from ..decision.trading_fields_validator import TradingFieldsValidator
@@ -19,6 +21,9 @@ class AnalysisJobService:
         job_id = f"job_{uuid.uuid4().hex[:8]}"
         self.job_repo.create(job_id, symbol, market, level=level, model=model)
         
+        if os.getenv("ALSA_DISABLE_BACKGROUND_JOBS") == "true" or os.getenv("PYTEST_CURRENT_TEST"):
+            return job_id
+
         # Fire and forget the background task
         task = asyncio.create_task(self._run_job(job_id, symbol, market, config=config))
         self._running_tasks[job_id] = task
@@ -83,7 +88,6 @@ class AnalysisJobService:
             # 4. Final Payload — enrich stockInfo with quote data for Flash UI
             quote = snapshot.get("quote", {})
             snapshot_id = snapshot.get("snapshot_id")
-            from datetime import datetime as _dt
             result = {
                 "symbol": symbol,
                 "market": market,
@@ -104,9 +108,11 @@ class AnalysisJobService:
                     "forwardPE": quote.get("forwardPE"),
                     "pb": quote.get("priceToBook"),
                     "dividendYield": quote.get("dividendYield"),
-                    "lastUpdated": _dt.now().strftime("%Y/%m/%d %H:%M:%S") + " CST",
+                    "lastUpdated": utc_now().strftime("%Y/%m/%d %H:%M:%S") + " CST",
                 },
                 "technicals": indicators,
+            "indicators": indicators,
+                "indicators": indicators,
                 "valuation": snapshot.get("valuation"),
                 "financials": snapshot.get("financials"),
                 "snapshot": snapshot,
@@ -170,7 +176,7 @@ class AnalysisJobService:
                         raise TypeError(f"Type {type(obj)} not serializable")
                     
                     db_job.result_payload = json.dumps(result, default=json_serial)
-                    db_job.finished_at = datetime.utcnow()
+                    db_job.finished_at = utc_now()
                     session.add(db_job)
                     session.commit()
 
@@ -210,7 +216,6 @@ class AnalysisJobService:
         
         quote = snapshot.get("quote", {})
         snapshot_id = snapshot.get("snapshot_id")
-        from datetime import datetime as _dt
         result = {
             "symbol": symbol,
             "market": market,
@@ -225,7 +230,7 @@ class AnalysisJobService:
                 "change": quote.get("change"),
                 "changePercent": quote.get("changePercent") or snapshot.get("changePercent"),
                 "currency": quote.get("currency") or snapshot.get("currency", "CNY" if market == "A-Share" else "USD"),
-                "lastUpdated": _dt.now().strftime("%Y/%m/%d %H:%M:%S") + " CST",
+                "lastUpdated": utc_now().strftime("%Y/%m/%d %H:%M:%S") + " CST",
             },
             "technicals": indicators,
             "valuation": snapshot.get("valuation"),
@@ -267,7 +272,7 @@ class AnalysisJobService:
                     raise TypeError(f"Type {type(obj)} not serializable")
                 
                 db_job.result_payload = json.dumps(result, default=json_serial)
-                db_job.finished_at = datetime.utcnow()
+                db_job.finished_at = utc_now()
                 session.add(db_job)
                 session.commit()
         

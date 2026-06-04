@@ -24,8 +24,9 @@ def setup_test_db():
     SQLModel.metadata.create_all(engine)
     
     # Run the same migration run in production init
-    from python_service.app.db.sqlite import _migrate_alert_postmortem
+    from python_service.app.db.sqlite import _migrate_alert_postmortem, _migrate_analysis_lineage
     _migrate_alert_postmortem(engine)
+    _migrate_analysis_lineage(engine)
     
     yield
     
@@ -47,3 +48,9 @@ def clean_database():
             session.execute(text(f"DELETE FROM {table.name};"))
         session.execute(text("PRAGMA foreign_keys = ON;"))
         session.commit()
+
+
+@pytest.fixture
+def session_factory():
+    from python_service.app.db.sqlite import session_factory as factory
+    return factory

@@ -58,6 +58,19 @@ export interface MockTrade {
   timestamp: string;
 }
 
+export interface PendingOrder {
+  order_id: string;
+  symbol: string;
+  market: string;
+  action: string;
+  order_type: string;
+  shares: number;
+  target_price: number;
+  stop_price: number | null;
+  status: string;
+  created_at: string;
+}
+
 export interface PortfolioSummary {
   account_id: string;
   name: string;
@@ -134,9 +147,11 @@ export async function executeTrade(
   market: string,
   action: 'BUY' | 'SELL',
   shares: number,
-  executionPrice: number,
+  targetPrice: number,
+  orderType: string = 'MARKET',
+  stopPrice?: number,
   triggerSource: string = 'MANUAL'
-): Promise<MockTrade> {
+): Promise<any> {
   return fetchJSON(`${BASE}/trades`, {
     method: 'POST',
     body: JSON.stringify({
@@ -144,10 +159,23 @@ export async function executeTrade(
       symbol,
       market,
       action,
+      order_type: orderType,
       shares,
-      execution_price: executionPrice,
+      target_price: targetPrice,
+      stop_price: stopPrice,
       trigger_source: triggerSource,
     })
+  });
+}
+
+export async function listPendingOrders(accountId: string): Promise<PendingOrder[]> {
+  return fetchJSON(`${BASE}/pending-orders/${accountId}`);
+}
+
+export async function processPendingOrders(accountId: string, currentPrices: Record<string, number>): Promise<MockTrade[]> {
+  return fetchJSON(`${BASE}/pending-orders/process`, {
+    method: 'POST',
+    body: JSON.stringify({ account_id: accountId, current_prices: currentPrices })
   });
 }
 

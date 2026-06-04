@@ -170,10 +170,16 @@ export function SectorScanner() {
     setScanProgress('正在启动市场扫描...');
 
     try {
-      const res = await fetch('/api/sector/scan', {
+      const res = await fetch('/api/sector/run', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model, date: selectedDate, force: isForce }),
+        body: JSON.stringify({ 
+          model, 
+          date: selectedDate, 
+          force: isForce,
+          gemini_api_key: config.apiKey || undefined,
+          deepseek_api_key: config.deepseekApiKey || undefined
+        }),
       });
       const data = await res.json();
       if (!data.success) throw new Error(data.error?.message || '启动扫描失败');
@@ -194,7 +200,7 @@ export function SectorScanner() {
       // Start polling
       pollRef.current = setInterval(async () => {
         try {
-          const pollRes = await fetch(`/api/sector/scan/${jobId}`);
+          const pollRes = await fetch(`/api/sector/run/${jobId}`);
           const pollData = await pollRes.json();
           if (!pollData.success) {
             // Stop polling if the job is not found or other errors
@@ -244,7 +250,14 @@ export function SectorScanner() {
       const res = await fetch('/api/sector/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sector_name: sectorName, model, date: selectedDate, force: isForce }),
+        body: JSON.stringify({ 
+          sector_name: sectorName, 
+          model, 
+          date: selectedDate, 
+          force: isForce,
+          gemini_api_key: config.apiKey || undefined,
+          deepseek_api_key: config.deepseekApiKey || undefined
+        }),
       });
       const data = await res.json();
       if (!data.success) throw new Error(data.error?.message || '启动分析失败');
@@ -297,7 +310,7 @@ export function SectorScanner() {
     
     // Attempt to cancel backend tasks
     if (phase === 'scanning' && scanJobId) {
-      fetch(`/api/sector/scan/${scanJobId}/cancel`, { method: 'POST' }).catch(() => {});
+      fetch(`/api/sector/run/${scanJobId}/cancel`, { method: 'POST' }).catch(() => {});
     } else if (phase === 'analyzing' && analyzeJobId) {
       fetch(`/api/sector/analyze/${analyzeJobId}/cancel`, { method: 'POST' }).catch(() => {});
     }

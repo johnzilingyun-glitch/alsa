@@ -1,11 +1,11 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, type Mocked } from 'vitest';
 import express from 'express';
 import request from 'supertest';
 import stockRoutes from '../stockRoutes';
 
 import axios from 'axios';
 vi.mock('axios');
-const mockedAxios = axios as vi.Mocked<typeof axios>;
+const mockedAxios = axios as Mocked<typeof axios>;
 
 vi.mock('yahoo-finance2', () => {
   const mockInstance = {

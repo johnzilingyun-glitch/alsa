@@ -24,10 +24,23 @@ class MockTradingService:
         self.repo = MockTradingRepo(session)
 
     def _get_exchange_rate(self, from_curr: str, to_curr: str) -> float:
-        """Static FX rates for mock trading."""
+        """Dynamic FX rates for mock trading."""
         if from_curr == to_curr:
             return 1.0
         
+        try:
+            import yfinance as yf
+            pair = f"{from_curr}{to_curr}=X"
+            ticker = yf.Ticker(pair)
+            price = ticker.info.get("regularMarketPrice")
+            if not price:
+                # Fallback to fast_info
+                price = ticker.fast_info.get("lastPrice")
+            if price and price > 0:
+                return float(price)
+        except Exception as e:
+            logger.warning(f"FX fetch failed for {from_curr}->{to_curr}: {e}")
+            
         rates_to_usd = {
             "USD": 1.0,
             "CNY": 0.138,  # 1 CNY ~ 0.138 USD
@@ -112,48 +125,109 @@ class MockTradingService:
         trade_currency = MARKET_CURRENCY.get(market, "CNY")
         fx_rate = self._get_exchange_rate(trade_currency, account.currency)
 
+        # Simple slippage model (0.05%)
+        slippage_rate = 0.0005
+        
         trade_value = shares * execution_price
         realized_pnl = None
 
+        # Determine if we are interacting with an existing position
+        pos = self.repo.get_position(account_id, symbol, market)
+        current_shares = pos.shares if pos else 0
+        average_cost = pos.average_cost if pos else 0.0
+
         if action == "BUY":
-            cost = max(trade_value * open_cost_rate, min_cost)
-            total_required = trade_value + cost
+            trade_unit = market_cfg.get("trade_unit", 1)
+            if market == "A-Share" and shares % trade_unit != 0:
+                logger.error(f"Trade rejected: {symbol} shares ({shares}) must be a multiple of {trade_unit}.")
+                return None
+
+            # Apply slippage
+            actual_price = execution_price * (1 + slippage_rate)
+            actual_trade_value = shares * actual_price
+            cost = max(actual_trade_value * open_cost_rate, min_cost)
+            total_required = actual_trade_value + cost
             total_required_base = total_required * fx_rate
             
-            if account.current_cash < total_required_base:
-                logger.error(f"Insufficient funds in {account_id}. Need {total_required_base} {account.currency}, have {account.current_cash}.")
+            # Check margin (using initial balance * 2 as simplified max margin for this demo)
+            max_purchasing_power = account.initial_balance * 2
+            if account.current_cash - total_required_base < -max_purchasing_power:
+                logger.error(f"Margin call limit reached in {account_id}. Need {total_required_base} {account.currency}, have {account.current_cash}.")
                 return None
 
             self.repo.update_cash(account_id, -total_required_base)
 
-            pos = self.repo.get_position(account_id, symbol, market)
-            if pos and pos.shares > 0:
-                new_shares = pos.shares + shares
-                new_cost = ((pos.shares * pos.average_cost) + total_required) / new_shares
-                self.repo.upsert_position(account_id, symbol, market, new_shares, new_cost)
+            if current_shares < 0:
+                # Buy to cover a short position
+                cover_shares = min(shares, abs(current_shares))
+                # Realized PNL on the covered short
+                realized_pnl = ((average_cost * cover_shares) - (actual_price * cover_shares) - cost) * fx_rate
+                new_shares = current_shares + shares
+                # If we fully covered and went long
+                if new_shares > 0:
+                    new_cost = actual_price
+                    self.repo.upsert_position(account_id, symbol, market, new_shares, new_cost)
+                elif new_shares == 0:
+                    self.repo.upsert_position(account_id, symbol, market, 0, 0.0)
+                else:
+                    self.repo.upsert_position(account_id, symbol, market, new_shares, average_cost)
             else:
-                self.repo.upsert_position(account_id, symbol, market, shares, total_required / shares if shares > 0 else 0)
+                # Buy to open/add long
+                new_shares = current_shares + shares
+                new_cost = ((current_shares * average_cost) + total_required) / new_shares
+                self.repo.upsert_position(account_id, symbol, market, new_shares, new_cost)
+                
+            execution_price = actual_price
 
         elif action == "SELL":
-            pos = self.repo.get_position(account_id, symbol, market)
-            if not pos or pos.shares < shares:
-                logger.error(f"Insufficient shares in {account_id} to sell {shares} of {symbol}.")
-                return None
-
-            cost = max(trade_value * close_cost_rate, min_cost)
-            total_received = trade_value - cost
+            # Apply slippage
+            actual_price = execution_price * (1 - slippage_rate)
+            actual_trade_value = shares * actual_price
+            cost = max(actual_trade_value * close_cost_rate, min_cost)
+            total_received = actual_trade_value - cost
             total_received_base = total_received * fx_rate
-            
-            # Calculate realized PnL against average cost (in trade currency, then converted to base)
-            realized_pnl = (total_received - (pos.average_cost * shares)) * fx_rate
+
+            if market == "A-Share":
+                if current_shares < shares:
+                    logger.error(f"Short selling not allowed in A-Share. {account_id} trying to sell {shares} of {symbol}.")
+                    return None
+                
+                # Check T+1 rule
+                today_bought = self.repo.get_today_bought_shares(account_id, symbol, market)
+                available_to_sell = max(0, current_shares - today_bought)
+                if shares > available_to_sell:
+                    logger.error(f"T+1 rule violation: Trying to sell {shares} but only {available_to_sell} are available (bought {today_bought} today).")
+                    return None
 
             self.repo.update_cash(account_id, total_received_base)
 
-            new_shares = pos.shares - shares
-            if new_shares == 0:
-                self.repo.upsert_position(account_id, symbol, market, 0, 0.0)
+            if current_shares > 0:
+                # Sell to close a long position
+                close_shares = min(shares, current_shares)
+                realized_pnl = ((actual_price * close_shares) - (average_cost * close_shares) - cost) * fx_rate
+                
+                new_shares = current_shares - shares
+                if new_shares < 0:
+                    # Went short
+                    new_cost = actual_price
+                    self.repo.upsert_position(account_id, symbol, market, new_shares, new_cost)
+                elif new_shares == 0:
+                    self.repo.upsert_position(account_id, symbol, market, 0, 0.0)
+                else:
+                    self.repo.upsert_position(account_id, symbol, market, new_shares, average_cost)
             else:
-                self.repo.upsert_position(account_id, symbol, market, new_shares, pos.average_cost)
+                # Sell to open/add short
+                new_shares = current_shares - shares
+                # When shorting, "average cost" is the average price we sold at
+                # Since shares is negative, we track positive cost per share
+                if current_shares == 0:
+                    new_cost = actual_price
+                else:
+                    # Weighted average of short entry prices
+                    new_cost = ((abs(current_shares) * average_cost) + actual_trade_value) / abs(new_shares)
+                self.repo.upsert_position(account_id, symbol, market, new_shares, new_cost)
+                
+            execution_price = actual_price
         else:
             logger.error(f"Unknown action {action}")
             return None
@@ -171,6 +245,68 @@ class MockTradingService:
             realized_pnl=realized_pnl,
         )
         return trade
+
+    # ── Order Management (Pending Orders) ─────────────────────────
+
+    def place_order(
+        self,
+        account_id: str,
+        symbol: str,
+        market: str,
+        action: str,
+        order_type: str,
+        shares: int,
+        target_price: float,
+        stop_price: Optional[float] = None,
+        trigger_source: str = "MANUAL"
+    ):
+        """Place an order. If MARKET, executes immediately. Otherwise creates a PendingOrder."""
+        if order_type == "MARKET":
+            return self.execute_trade(account_id, symbol, market, action, shares, target_price, trigger_source)
+        else:
+            return self.repo.create_pending_order(
+                account_id=account_id, symbol=symbol, market=market,
+                action=action, order_type=order_type, shares=shares,
+                target_price=target_price, stop_price=stop_price
+            )
+
+    def process_pending_orders(self, account_id: str, current_prices: Dict[str, float]) -> List[MockTrade]:
+        """Check pending orders against current prices and execute them."""
+        executed_trades = []
+        pending_orders = self.repo.list_pending_orders(account_id)
+        
+        for order in pending_orders:
+            current_price = current_prices.get(order.symbol)
+            if not current_price:
+                continue
+                
+            trigger = False
+            if order.action == "BUY":
+                if order.order_type == "LIMIT" and current_price <= order.target_price:
+                    trigger = True
+                elif order.order_type == "STOP" and order.stop_price and current_price >= order.stop_price:
+                    trigger = True
+            elif order.action == "SELL":
+                if order.order_type == "LIMIT" and current_price >= order.target_price:
+                    trigger = True
+                elif order.order_type == "STOP" and order.stop_price and current_price <= order.stop_price:
+                    trigger = True
+                    
+            if trigger:
+                trade = self.execute_trade(
+                    account_id=account_id,
+                    symbol=order.symbol,
+                    market=order.market,
+                    action=order.action,
+                    shares=order.shares,
+                    execution_price=current_price,
+                    trigger_source="PENDING_ORDER"
+                )
+                if trade:
+                    self.repo.update_pending_order_status(order.order_id, "executed")
+                    executed_trades.append(trade)
+                    
+        return executed_trades
 
     # ── Signal-Triggered Auto-Trade ──────────────────────────────
 
@@ -259,7 +395,7 @@ class MockTradingService:
             cur_price = price_map.get(p.symbol, p.average_cost)
             mkt_val_trade = cur_price * p.shares
             unrealized_trade = (cur_price - p.average_cost) * p.shares
-            unrealized_pct = ((cur_price / p.average_cost) - 1) * 100 if p.average_cost > 0 else 0
+            unrealized_pct = (unrealized_trade / (p.average_cost * abs(p.shares))) * 100 if p.average_cost > 0 and p.shares != 0 else 0
             
             mkt_val_base = mkt_val_trade * fx_rate
             unrealized_base = unrealized_trade * fx_rate

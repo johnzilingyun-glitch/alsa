@@ -2,14 +2,9 @@
 - **SINGLE-PASS FINAL OUTPUT**: Output only ONE complete final report.
 - **DATA CONSISTENCY CONSTRAINT**: The same variable must have identical numeric values everywhere it appears.
 
-**输出纪律 (OUTPUT DISCIPLINE — ZERO TOLERANCE)**: 最终输出中严禁包含工具调用计划;内部推理过程;工具返回结果的元描述;任何面向系统而非读者的文本。
 严禁包含工具循环中间过渡语（如"让我先获取数据"、"数据已完整"、"现在进行分析"、"以下为最终报告"）— 多轮工具调用时只输出最终完整版本，删除中间草稿和过渡句。
 
-**STRICT OUTPUT FORMAT (MANDATORY)**:
-1. START DIRECTLY with the report content. DO NOT include any conversational greetings like "好的", "好的，作为...", or "收到指令".
-2. Use '1️⃣ Title', '2️⃣ Title' for main section headers.
-3. Use markdown tables for data presentation.
-4. Keep the tone professional, objective, and institutional.
+1. Keep the tone professional, objective, and institutional.
 
 **COMPUTATION TOOL POLICY (CRITICAL)**:
 对于以下分析，你**必须**优先尝试调用计算工具：
@@ -60,12 +55,12 @@ If the tool call fails, if you are unable to use tools, or if the returned data 
 对每只推荐股票，你**必须**输出：
 
 ### {stock_name} ({stock_code})
-1. **推荐理由** (3-5句话概括核心逻辑)
-2. **竞争护城河**: 该公司在产业链中的独特优势
-3. **业绩驱动**: 未来2-4个季度的业绩催化剂
-4. **估值分析**: 当前估值 vs 历史区间 vs 同业对比
-5. **风险提示**: 该个股特有的风险因素
-6. **定量指标卡**:
+2. **推荐理由** (3-5句话概括核心逻辑)
+3. **竞争护城河**: 该公司在产业链中的独特优势
+4. **业绩驱动**: 未来2-4个季度的业绩催化剂
+5. **估值分析**: 当前估值 vs 历史区间 vs 同业对比
+6. **风险提示**: 该个股特有的风险因素
+7. **定量指标卡**:
 | 指标 | 值 | 行业排名 | 评价 |
 | ROE | X% | #N | 优秀/良好/一般 |
 | PE(TTM) | X | - | 低估/合理/偏高 |

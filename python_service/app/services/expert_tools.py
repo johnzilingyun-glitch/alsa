@@ -272,7 +272,7 @@ TOOL_DEFINITIONS = [
     },
     {
         "name": "comps_valuation",
-        "description": "Derive fair value range from peer comparison multiples. Takes target metrics and 3-5 peer multiples, calculates premium/discount and implied price. Use this for systematic relative valuation.",
+        "description": "Derive fair value range from peer comparison multiples. Takes target metrics and 3-5 peer multiples, calculates premium/discount and implied price. Use this for systematic relative valuation. WARNING: DO NOT hallucinate peer data. If you don't know the exact PE/PB of peers, you MUST use the financial_data tool to fetch peer metrics first before calling this tool.",
         "parameters": {
             "target": {"type": "object", "description": "Target company metrics: {symbol, pe, pb, ps, ev_ebitda, earnings, revenue, ebitda, shares_outstanding, current_price}", "required": True},
             "peers": {"type": "array", "description": "List of peer metrics: [{symbol, pe, pb, ps, ev_ebitda, revenue_growth, roe}]", "required": True},
@@ -460,7 +460,21 @@ TOOL_DEFINITIONS = [
 ]
 
 
-def format_tool_descriptions(language: str = "zh-CN") -> str:
+ROLE_TOOLS_MAP = {
+    "Deep Research Specialist": ["web_search", "news_search", "deep_scrape", "knowledge_search", "report_search", "announcement_search"],
+    "Technical Analyst": ["minervini_stage", "stop_loss_validator", "position_sizer", "risk_reward", "futures_query", "commodity_price_query", "financial_data", "web_search", "news_search", "announcement_search"],
+    "Fundamental Analyst": ["financial_data", "dcf_calculator", "dupont_decomposition", "comps_valuation", "earnings_quality_audit", "cagr_calculator", "macro_query", "business_query", "finance_query", "management_query", "valuation_query", "web_search", "news_search", "announcement_search"],
+    "Serenity Alpha Analyst": ["minervini_stage", "position_sizer", "financial_data", "beat_miss_scorer", "comps_valuation", "cagr_calculator", "web_search", "news_search", "announcement_search"],
+    "Chief Audit Officer": ["pillar_scorer", "earnings_quality_audit", "web_search", "news_search", "announcement_search", "financial_data"],
+    "Risk Manager": ["drawdown_scenario", "position_sizer", "kelly_calculator", "web_search", "news_search", "announcement_search", "financial_data"],
+    "Sentiment Analyst": ["news_search", "web_search", "industry_query", "policy_query", "announcement_search"],
+    "Bull Researcher": ["pillar_scorer", "web_search", "news_search", "announcement_search", "financial_data"],
+    "Bear Researcher": ["pillar_scorer", "web_search", "news_search", "announcement_search", "financial_data"],
+    "Professional Reviewer": ["pillar_scorer", "web_search", "news_search", "announcement_search", "financial_data"],
+    "Chief Strategist": ["position_sizer", "drawdown_scenario", "kelly_calculator", "web_search", "news_search", "announcement_search", "financial_data"]
+}
+
+def format_tool_descriptions(role: str = None, language: str = "zh-CN") -> str:
     """Format tool definitions for injection into system prompt. Respects tools_config.yaml."""
     from .tools_config import is_tool_enabled
 
@@ -469,9 +483,12 @@ def format_tool_descriptions(language: str = "zh-CN") -> str:
     lines.append("# AVAILABLE TOOLS" if not is_zh else "# 可用工具")
     lines.append("")
     
+    allowed_tools = ROLE_TOOLS_MAP.get(role) if role else None
+    
     for tool in TOOL_DEFINITIONS:
         if not is_tool_enabled(tool['name']):
             continue
+        # Removed allowed_tools filtering to allow LLM to use any tool when data is missing
         lines.append(f"## {tool['name']}")
         lines.append(f"  Description: {tool['description']}")
         params = tool.get("parameters", {})
@@ -539,7 +556,7 @@ def format_tool_descriptions(language: str = "zh-CN") -> str:
     return "\n".join(lines)
 
 
-def get_openai_tools() -> list:
+def get_openai_tools(role: str = None) -> list:
     """Convert TOOL_DEFINITIONS to OpenAI function calling format for DeepSeek native tool calling."""
     # Detailed items schema for array params so the model generates correct structured JSON
     ARRAY_ITEMS_SCHEMA = {
@@ -611,8 +628,10 @@ def get_openai_tools() -> list:
         },
     }
 
+    allowed_tools = ROLE_TOOLS_MAP.get(role) if role else None
     tools = []
     for tool_def in TOOL_DEFINITIONS:
+        # Removed allowed_tools filtering to allow LLM to use any tool when data is missing
         properties = {}
         required = []
         for param_name, param_info in tool_def.get("parameters", {}).items():

@@ -129,8 +129,8 @@ FIELDS TO EXTRACT:
 - the_call: One-sentence final action command. Example: "当前超配，等待均线放量金叉后分批入场，若跌破止损位强制止损"
 - catalyst_calendar: List of objects with {{event: "催化剂事件描述", date: "预计时间节点", impact_logic: "影响逻辑"}}
 - stock_archetype: Stock classification, must be one of: "Cyclical", "Growth", "Dividend", "Consumer/Moat"
-- wacc_breakdown: Object with {{rf: "无风险利率(如2.3%)", beta: "贝塔系数(如1.1)", erp: "股权风险溢价(如6.0%)", kd: "债务成本", tc: "所得税率", d_v: "有息负债占比", e_v: "权益占比", wacc: "计算后的WACC", source: "数据来源与逻辑"}}
-- kill_switch: Object with {{condition: "防伪红线触发条件描述", status: "预警状态，如安全(SAFE)或触发(TRIGGERED)"}}
+- wacc_breakdown: Object with {{rf: "无风险利率(如2.3%)", beta: "贝塔系数(如1.1)", erp: "股权风险溢价(如6.0%)", kd: "债务成本", tc: "所得税率", d_v: "有息负债占比", e_v: "权益占比", wacc: "计算后的WACC", source: "数据来源与逻辑", sensitivity: "基于WACC±1%和永续增长率变化的敏感性分析结论"}}
+- kill_switch: Object with {{condition: "防伪红线及技术面破位触发条件描述(须包含基本面恶化及技术面跌破关键均线/回撤上限等双重维度)", status: "预警状态，如安全(SAFE)或触发(TRIGGERED)"}}
 - market_wind_control: Object representing market-specific risk features based on Listing Market. (A-Share: {{lockup_date: "限售股解禁日期/规模", lockup_impact: "解禁影响分析", reduction_plan: "大股东/高管减持计划及进度", crowding_level: "机构持仓拥挤度分析"}}; HK-Share: {{lockup_date: "基石/大股东禁售期解禁评估", lockup_impact: "减持冲击及公告变动", reduction_plan: "大股东抵押/质押股份比例", crowding_level: "港股通南向资金持股变动与占比"}}; US-Share: {{lockup_date: "内部人交易 Form 4 净买/卖", lockup_impact: "10b5-1 计划执行情况", reduction_plan: "空头头寸占比 Short Interest", crowding_level: "13F 机构持仓变动"}})
 - trading_discipline: Object with {{left_side_condition: "左侧建仓条件(如极度缩量地量支撑)", right_side_trigger: "右侧买入触发点", max_drawdown_limit: "单票最大回撤熔断上限(如-8%或-10%)", thesis_invalidation_trigger: "逻辑证伪退出触发器"}}
 - data_completeness: Object with {{score: 0-100, missing: [list of critical missing data items], impact: \"description of impact on conclusions\"}}
@@ -794,6 +794,8 @@ CONTENT:
         locale = self._get_locale(info.get("market", "A-Share"))
 
         def md(t): return markdown2.markdown(t) if t else ""
+        import html
+        def esc(t): return html.escape(str(t)) if t else ""
 
         # Raw variable extractions with safe defaults
         tagline = d.get("tagline") or f"{info.get('name', '')} ({info.get('symbol', '')}) 投资分析报告"
@@ -861,7 +863,7 @@ CONTENT:
         }.get(archetype, archetype or "通用分析型")
         
         kill_switch = d.get("kill_switch") or {}
-        ks_condition = kill_switch.get("condition") or "分析师未配置具体防伪红线条件"
+        ks_condition = esc(kill_switch.get("condition") or "分析师未配置具体防伪红线条件")
         ks_status = kill_switch.get("status") or "SAFE"
         ks_class = "triggered" if ks_status.upper() in ("TRIGGERED", "WARN", "触发") else "safe"
         ks_status_zh = "已触发预警 (TRIGGERED)" if ks_class == "triggered" else "安全 (SAFE)"
@@ -898,6 +900,7 @@ CONTENT:
                     <tr>
                         <td colspan="8" class="wacc-source"><strong>WACC 参数来源与逻辑：</strong> {wacc_data.get("source", "未披露")}</td>
                     </tr>
+                    {"<tr><td colspan='8' class='wacc-source'><strong>敏感性分析：</strong> " + wacc_data.get("sensitivity") + "</td></tr>" if wacc_data.get("sensitivity") else ""}
                 </tbody>
             </table>
             '''
@@ -909,16 +912,19 @@ CONTENT:
         peer_section_html = ""
         if peers and isinstance(peers, list) and len(peers) > 0:
             peer_rows = ""
+            def _fv(v, suffix=""):
+                if v is None or v == "N/A": return "N/A"
+                return f"{v}{suffix}"
             for p in peers:
                 if not isinstance(p, dict): continue
                 peer_rows += f'''<tr>
                     <td>{p.get("name", "")}</td>
                     <td>{p.get("symbol", "")}</td>
-                    <td>{p.get("pe", "N/A")}</td>
-                    <td>{p.get("pb", "N/A")}</td>
-                    <td>{p.get("roe", "N/A")}%</td>
-                    <td>{p.get("margin", "N/A")}%</td>
-                    <td>{p.get("marketCap", "N/A")}</td>
+                    <td>{_fv(p.get("pe"))}</td>
+                    <td>{_fv(p.get("pb"))}</td>
+                    <td>{_fv(p.get("roe"), "%")}</td>
+                    <td>{_fv(p.get("margin"), "%")}</td>
+                    <td>{_fv(p.get("marketCap"))}</td>
                     <td>{p.get("vs_target", "")}</td>
                 </tr>'''
             peer_section_html = f'''
@@ -1033,9 +1039,39 @@ CONTENT:
             scenarios = self._default_scenarios()
 
         sc_rows = "".join([
-            f'<tr><td><strong>{s.get("case", "N/A")}</strong></td><td>{str(s.get("probability", 0)).rstrip("%")}%</td><td><strong>{s.get("targetPrice", "N/A")}</strong></td><td>{s.get("logic", "")}</td></tr>'
+            f'<tr><td><strong>{esc(s.get("case", "N/A"))}</strong></td><td>{str(s.get("probability", 0)).rstrip("%")}%</td><td><strong>{s.get("targetPrice", "N/A")}</strong></td><td>{esc(s.get("logic", ""))}</td></tr>'
             for s in scenarios
         ])
+
+        expected_return_html = ""
+        try:
+            current_price = d.get("snapshot", {}).get("quote", {}).get("price")
+            if current_price and current_price > 0:
+                exp_price = 0.0
+                tot_prob = 0.0
+                for s in scenarios:
+                    p_str = str(s.get("probability", "0")).replace("%", "").strip()
+                    prob = float(p_str) if p_str else 0.0
+                    
+                    t_str = str(s.get("targetPrice", "0")).replace("元", "").replace("HKD", "").replace("USD", "").replace("¥", "").strip()
+                    if "-" in t_str:
+                        parts = t_str.split("-")
+                        t_val = (float(parts[0]) + float(parts[1])) / 2.0
+                    else:
+                        t_val = float(t_str) if t_str else 0.0
+                        
+                    exp_price += t_val * (prob / 100.0)
+                    tot_prob += prob
+                
+                if tot_prob > 0 and exp_price > 0:
+                    if abs(tot_prob - 100) > 1:
+                        exp_price = exp_price / (tot_prob / 100.0)
+                    exp_ret = (exp_price / current_price - 1.0) * 100
+                    color = "var(--bull)" if exp_ret > 0 else "var(--bear)"
+                    expected_return_html = f'<div style="margin-top: 10px; font-weight: bold; font-size: 14px; text-align: right;">概率加权期望目标价: {exp_price:.2f} 现价({current_price}) 期望回报: <span style="color: {color};">{exp_ret:+.2f}%</span></div>'
+        except Exception as e:
+            print(f"Error calculating expected return: {e}")
+
 
         # Trading Plan Grid
         trading_steps = d.get("trading_steps", [])
@@ -1050,7 +1086,7 @@ CONTENT:
                 <div class="trade-level">{s.get('level', '仓位')}</div>
                 <div class="trade-price">{s.get('price', 'N/A')}</div>
                 <div class="trade-weight">占比: {s.get('weight', 'N/A')}</div>
-                <div class="trade-logic">{s.get('logic', '')}</div>
+                <div class="trade-logic">{esc(s.get('logic', ''))}</div>
             </div>"""
 
         # Market wind control and disciplines
@@ -1061,8 +1097,9 @@ CONTENT:
         macro_list = "".join([f'<li>{p}</li>' for p in d.get("macro_points", [])])
         risk_points_html = "".join([f'<li>{p}</li>' for p in d.get("risks_points", [])])
 
+        import markdown2
         log_html = "".join([
-            f'<div class="log-msg"><div class="log-role"><span>{m["role"]}</span></div><div class="log-body">{m["content"]}</div></div>'
+            f'<div class="log-msg"><div class="log-role"><span>{m["role"]}</span></div><div class="log-body">{markdown2.markdown(m["content"], extras=["tables", "fenced-code-blocks"])}</div></div>'
             for m in d["discussion"]
         ])
 
@@ -1073,15 +1110,15 @@ CONTENT:
                     <div class="wind-card">
                         <div class="wind-card-title">📅 限售股解禁日历</div>
                         <div class="wind-card-body">
-                            <strong>解禁信息：</strong> {wind_control.get("lockup_date") or "无近三个月大额解禁信息"}<br>
-                            <strong>解禁冲击：</strong> {wind_control.get("lockup_impact") or "解禁冲击评估为低/无"}
+                            <strong>解禁信息：</strong> {esc(wind_control.get("lockup_date") or "无近三个月大额解禁信息")}<br>
+                            <strong>解禁冲击：</strong> {esc(wind_control.get("lockup_impact") or "解禁冲击评估为低/无")}
                         </div>
                     </div>
                     <div class="wind-card">
                         <div class="wind-card-title">📢 减持公告与拥挤度</div>
                         <div class="wind-card-body">
-                            <strong>减持情况：</strong> {wind_control.get("reduction_plan") or "无未完成减持公告"}<br>
-                            <strong>机构拥挤：</strong> {wind_control.get("crowding_level") or "机构仓位拥挤度适中"}
+                            <strong>减持情况：</strong> {esc(wind_control.get("reduction_plan") or "无未完成减持公告")}<br>
+                            <strong>机构拥挤：</strong> {esc(wind_control.get("crowding_level") or "机构仓位拥挤度适中")}
                         </div>
                     </div>"""
         elif market_str == "HK-Share" or market_str.lower() in ("hk", "hkshare", "hk-share"):
@@ -1089,15 +1126,15 @@ CONTENT:
                     <div class="wind-card">
                         <div class="wind-card-title">📅 基石/主要股东禁售解禁</div>
                         <div class="wind-card-body">
-                            <strong>禁售解禁：</strong> {wind_control.get("lockup_date") or "无近三个月大额禁售解禁信息"}<br>
-                            <strong>减持/解禁冲击：</strong> {wind_control.get("lockup_impact") or "解禁及减持冲击低/无"}
+                            <strong>禁售解禁：</strong> {esc(wind_control.get("lockup_date") or "无近三个月大额禁售解禁信息")}<br>
+                            <strong>减持/解禁冲击：</strong> {esc(wind_control.get("lockup_impact") or "解禁及减持冲击低/无")}
                         </div>
                     </div>
                     <div class="wind-card">
                         <div class="wind-card-title">📢 港股通持股与大股东质押</div>
                         <div class="wind-card-body">
-                            <strong>港股通持股：</strong> {wind_control.get("crowding_level") or "南向资金持股变动稳健"}<br>
-                            <strong>股份质押/减持：</strong> {wind_control.get("reduction_plan") or "大股东及质押风险为安全/无"}
+                            <strong>港股通持股：</strong> {esc(wind_control.get("crowding_level") or "南向资金持股变动稳健")}<br>
+                            <strong>股份质押/减持：</strong> {esc(wind_control.get("reduction_plan") or "大股东及质押风险为安全/无")}
                         </div>
                     </div>"""
         else: # US-Share
@@ -1105,17 +1142,30 @@ CONTENT:
                     <div class="wind-card">
                         <div class="wind-card-title">📅 内部人交易 Form 4</div>
                         <div class="wind-card-body">
-                            <strong>内部人交易：</strong> {wind_control.get("lockup_date") or "无大额内部人买卖交易记录"}<br>
-                            <strong>10b5-1 计划：</strong> {wind_control.get("lockup_impact") or "无正在执行的10b5-1大额减持计划"}
+                            <strong>内部人交易：</strong> {esc(wind_control.get("lockup_date") or "无大额内部人买卖交易记录")}<br>
+                            <strong>10b5-1 计划：</strong> {esc(wind_control.get("lockup_impact") or "无正在执行的10b5-1大额减持计划")}
                         </div>
                     </div>
                     <div class="wind-card">
                         <div class="wind-card-title">📢 空头头寸与机构持仓</div>
                         <div class="wind-card-body">
-                            <strong>空头占比：</strong> {wind_control.get("reduction_plan") or "空头头寸占比 (Short Interest) 处于安全低位"}<br>
-                            <strong>机构持仓：</strong> {wind_control.get("crowding_level") or "13F 机构持仓未见踩踏或大幅抛售"}
+                            <strong>空头占比：</strong> {esc(wind_control.get("reduction_plan") or "空头头寸占比 (Short Interest) 处于安全低位")}<br>
+                            <strong>机构持仓：</strong> {esc(wind_control.get("crowding_level") or "13F 机构持仓未见踩踏或大幅抛售")}
                         </div>
                     </div>"""
+
+        # Data completeness warning
+        data_completeness = d.get("data_completeness", {})
+        data_score = data_completeness.get("score", 100)
+        data_warning_html = ""
+        if data_score < 50:
+            missing_items = ", ".join(data_completeness.get("missing", [])) or "关键财务及宏观数据"
+            data_warning_html = f'''
+            <div style="background-color: #fef2f2; border-left: 4px solid #dc2626; padding: 16px; margin: 20px 0; border-radius: 4px;">
+                <h4 style="color: #991b1b; margin: 0 0 8px 0; display: flex; align-items: center;"><span style="font-size: 18px; margin-right: 8px;">⚠️</span> 严重数据缺失警告 (完整度: {data_score}%)</h4>
+                <p style="color: #b91c1c; margin: 0; font-size: 14px;">本报告因关键数据缺失（{missing_items}），结论仅供参考，不构成交易建议。建议在数据补齐后重新生成。</p>
+            </div>
+            '''
 
         return f"""<!DOCTYPE html>
 <html lang="{'en' if info.get('market') == 'US-Share' else 'zh-CN'}">
@@ -1571,6 +1621,9 @@ CONTENT:
         .wind-card-title {{ font-size: 14px; font-weight: 800; color: var(--primary); margin-bottom: 12px; border-left: 4px solid var(--warning); padding-left: 8px; }}
         .wind-card-body {{ font-size: 13px; color: var(--text); line-height: 1.6; }}
         
+        .data-warning {{ margin: 20px 0; padding: 15px; background: #fffbeb; border: 1px solid #fcd34d; border-radius: 8px; color: #92400e; font-size: 13px; display: flex; align-items: center; }}
+        .data-warning::before {{ content: '⚠️'; margin-right: 10px; font-size: 16px; }}
+
         .risk-section {{ margin-top: 40px; background: #fff1f2; border: 1px solid #fecaca; border-radius: 8px; padding: 30px; text-align: left; }}
         .risk-header {{ font-weight: 800; color: #991b1b; display: flex; align-items: center; margin-bottom: 15px; font-size: 18px; }}
         .risk-header::before {{ content: '⚠️'; margin-right: 12px; }}
@@ -1599,6 +1652,8 @@ CONTENT:
         .log-body table {{ width: 100%; border-collapse: collapse; margin: 20px 0; border: 1px solid var(--border); }}
         .log-body th {{ background: var(--bg); padding: 10px; border: 1px solid var(--border); font-weight: 700; }}
         .log-body td {{ padding: 8px 10px; border: 1px solid var(--border); }}
+        .log-body pre { white-space: pre-wrap; word-wrap: break-word; overflow-wrap: break-word; overflow-x: auto; max-width: 100%; background: #f8fafc; padding: 15px; border-radius: 6px; border: 1px solid var(--border); }
+        .log-body code { background: none; padding: 0; border: none; font-family: monospace; white-space: pre-wrap; word-wrap: break-word; }
 
         .report-footer {{ margin-top: 60px; padding-top: 20px; border-top: 1px solid var(--border); color: #94a3b8; font-size: 12px; text-align: center; }}
         
@@ -1611,6 +1666,21 @@ CONTENT:
             color: var(--text-light);
             text-align: center;
             font-size: 13px;
+        }}
+
+        @media (max-width: 900px) {{
+            .dashboard-grid, .consensus-split, .valuation-top-row, .wind-control-grid, .thesis-grid {{
+                grid-template-columns: 1fr !important;
+            }}
+            .fund-category-grid, .trading-grid {{
+                grid-template-columns: 1fr !important;
+            }}
+            .report-page {{
+                padding: 30px;
+            }}
+            .dashboard-card, .wind-card, .thesis-card {{
+                padding: 15px;
+            }}
         }}
 
         @media print {{
@@ -1689,6 +1759,7 @@ CONTENT:
                     <thead><tr><th>{locale["scenario_case"]}</th><th>{locale["scenario_prob"]}</th><th>{locale["scenario_target"]}</th><th>{locale["scenario_logic"]}</th></tr></thead>
                     <tbody>{sc_rows}</tbody>
                 </table>
+                {expected_return_html}
             </div>
         </div>
         
@@ -1794,16 +1865,16 @@ CONTENT:
             <div class="dashboard-card">
                 <h3 class="card-title">{locale["card_lr_signal"]}</h3>
                 <div style="font-size:13px; line-height:1.7;">
-                    <strong>{locale["label_left_side"]}</strong> {discipline.get("left_side_condition") or locale["label_no_left"]}<br><br>
-                    <strong>{locale["label_right_side"]}</strong> {discipline.get("right_side_trigger") or locale["label_no_right"]}
+                    <strong>{locale["label_left_side"]}</strong> {esc(discipline.get("left_side_condition") or locale["label_no_left"])}<br><br>
+                    <strong>{locale["label_right_side"]}</strong> {esc(discipline.get("right_side_trigger") or locale["label_no_right"])}
                 </div>
             </div>
             
             <div class="dashboard-card">
                 <h3 class="card-title">{locale["card_drawdown"]}</h3>
                 <div style="font-size:13px; line-height:1.7;">
-                    <strong>{locale["label_max_drawdown"]}</strong> <span style="color:var(--bear); font-weight:700;">{discipline.get("max_drawdown_limit") or locale["label_default_drawdown"]}</span><br><br>
-                    <strong>{locale["label_invalidation"]}</strong> {discipline.get("thesis_invalidation_trigger") or locale["label_no_invalidation"]}
+                    <strong>{locale["label_max_drawdown"]}</strong> <span style="color:var(--bear); font-weight:700;">{esc(discipline.get("max_drawdown_limit") or locale["label_default_drawdown"])}</span><br><br>
+                    <strong>{locale["label_invalidation"]}</strong> {esc(discipline.get("thesis_invalidation_trigger") or locale["label_no_invalidation"])}
                 </div>
             </div>
         </div>

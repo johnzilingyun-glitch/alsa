@@ -23,6 +23,8 @@ class SectorScanRequest(BaseModel):
     model: Optional[str] = None
     date: Optional[str] = None
     force: Optional[bool] = False
+    gemini_api_key: Optional[str] = None
+    deepseek_api_key: Optional[str] = None
 
 
 class SectorAnalyzeRequest(BaseModel):
@@ -30,6 +32,8 @@ class SectorAnalyzeRequest(BaseModel):
     model: Optional[str] = None
     date: Optional[str] = None
     force: Optional[bool] = False
+    gemini_api_key: Optional[str] = None
+    deepseek_api_key: Optional[str] = None
 
 
 def _resolve_model(requested: Optional[str] = None) -> str:
@@ -73,7 +77,7 @@ def _sanitize_for_json(obj):
 
 # ---------- Scan ----------
 
-@router.post("/scan")
+@router.post("/run")
 async def start_scan(req: SectorScanRequest):
     """Start an async market sector scan."""
     from ..db.sqlite import build_session_factory, DATABASE_URL
@@ -131,7 +135,11 @@ async def start_scan(req: SectorScanRequest):
         "created_at": datetime.now().isoformat(),
     }
 
-    task = asyncio.create_task(_run_scan(job_id, model, target_date))
+    task = asyncio.create_task(_run_scan(
+        job_id, model, target_date, 
+        gemini_api_key=req.gemini_api_key, 
+        deepseek_api_key=req.deepseek_api_key
+    ))
     _scan_tasks[job_id] = task
     task.add_done_callback(lambda t: _scan_tasks.pop(job_id, None))
 
@@ -139,7 +147,7 @@ async def start_scan(req: SectorScanRequest):
     return success_response({"job_id": job_id, "status": "running"})
 
 
-@router.get("/scan/{job_id}")
+@router.get("/run/{job_id}")
 async def get_scan_status(job_id: str):
     """Poll scan job status. Returns sectors list when completed."""
     job = _scan_jobs.get(job_id)
@@ -148,7 +156,7 @@ async def get_scan_status(job_id: str):
     return success_response(job)
 
 
-@router.post("/scan/{job_id}/cancel")
+@router.post("/run/{job_id}/cancel")
 async def cancel_scan(job_id: str):
     """Cancel a running scan job."""
     task = _scan_tasks.get(job_id)
@@ -161,7 +169,7 @@ async def cancel_scan(job_id: str):
     return error_response("NOT_FOUND", "Running scan job not found or already completed")
 
 
-async def _run_scan(job_id: str, model: str, target_date: str):
+async def _run_scan(job_id: str, model: str, target_date: str, gemini_api_key: str = None, deepseek_api_key: str = None):
     """Execute the market sector scan via LLM + tools."""
     from ..services.llm_gateway import llm_gateway
     from ..prompting.runtime import prompt_runtime
@@ -187,24 +195,30 @@ Market: A-Share (中国A股)
         _scan_jobs[job_id]["progress"] = "正在搜索和分析市场数据..."
 
         use_tools = "deepseek" in model.lower()
-        scan_timeout = 300  # 5 minutes max for LLM call
 
-        try:
-            if use_tools:
-                scan_result = await asyncio.wait_for(
-                    llm_gateway.generate_with_tools(context, model=model, max_tool_rounds=20),
-                    timeout=scan_timeout
-                )
+        # Stream progress callback: update in-memory job data with char count
+        # so the frontend polling sees live progress and never times out while AI is active
+        def _on_chunk(count, message=None):
+            if message:
+                _scan_jobs[job_id]["progress"] = message
             else:
-                scan_result = await asyncio.wait_for(
-                    llm_gateway.generate_content(context, model=model),
-                    timeout=scan_timeout
-                )
-        except asyncio.TimeoutError:
-            _scan_jobs[job_id]["status"] = "failed"
-            _scan_jobs[job_id]["error"] = f"扫描超时（{scan_timeout}秒），模型: {model}"
-            print(f"[SectorScan] Timeout after {scan_timeout}s for job {job_id}, model={model}")
-            return
+                _scan_jobs[job_id]["progress"] = f"AI 正在生成分析内容... ({count:,} chars)"
+            _scan_jobs[job_id]["content_count"] = count
+
+        # No hard timeout — let the model run as long as it is producing output.
+        # The frontend uses activity-based timeout (300s of zero progress change).
+        if use_tools:
+            scan_result = await llm_gateway.generate_with_tools(
+                context, model=model, max_tool_rounds=20,
+                on_chunk=_on_chunk,
+                gemini_api_key=gemini_api_key, deepseek_api_key=deepseek_api_key
+            )
+        else:
+            scan_result = await llm_gateway.generate_content(
+                context, model=model,
+                on_chunk=_on_chunk,
+                gemini_api_key=gemini_api_key, deepseek_api_key=deepseek_api_key
+            )
 
         if not scan_result:
             _scan_jobs[job_id]["status"] = "failed"
@@ -261,20 +275,32 @@ Market: A-Share (中国A股)
 
 
 def _extract_sectors(scan_result: str) -> list:
-    """Extract sector names from the 7-column recommendation table only."""
-    sector_lines = re.findall(
-        r'(\|[^|\n]*\|[^|\n]*\|[^|\n]*\|[^|\n]*\|[^|\n]*\|[^|\n]*\|[^|\n]*\|)',
-        scan_result
-    )
+    """Extract sector names from the recommendation table or fallback lists."""
     sectors = []
     seen = set()
-    for line in sector_lines:
-        m = re.match(r'\|\s*(?:⭐?\d+)\s*\|\s*([^|]+?)\s*\|', line)
+    
+    # Primary: Parse markdown table rows where first column is a rank (number or ⭐number)
+    for line in scan_result.split('\n'):
+        line = line.strip()
+        if not line.startswith('|'):
+            continue
+            
+        m = re.match(r'^\|\s*(?:⭐?\s*\d+\.?)\s*\|\s*([^|]+?)\s*\|', line)
         if m:
             name = m.group(1).strip().replace('**', '').strip()
             if len(name) >= 2 and not name.startswith('排序') and name not in seen:
                 seen.add(name)
                 sectors.append(name)
+
+    # Fallback: Parse numbered lists if the AI failed to generate a table
+    if not sectors:
+        list_matches = re.findall(r'^\s*\d+\.\s*(?:\*\*)?([^:\*\n]+)(?:\*\*)?[:：]', scan_result, re.MULTILINE)
+        for name in list_matches:
+            name = name.strip().replace('**', '').strip()
+            if len(name) >= 2 and name not in seen:
+                seen.add(name)
+                sectors.append(name)
+                
     return sectors
 
 
@@ -320,7 +346,13 @@ async def start_sector_analysis(req: SectorAnalyzeRequest):
                     "status": "completed"
                 })
 
-    job_id = await service.start_sector_job(req.sector_name, model=model, target_date=target_date)
+    job_id = await service.start_sector_job(
+        req.sector_name, model=model, target_date=target_date,
+        config={
+            "geminiApiKey": req.gemini_api_key,
+            "deepseekApiKey": req.deepseek_api_key
+        }
+    )
 
     # Keep reference so we can poll progress
     _scan_jobs[f"analyze_{job_id}"] = {

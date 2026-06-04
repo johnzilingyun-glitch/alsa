@@ -24,16 +24,16 @@ Requirements:
 
 **DEEP CAPITAL FLOW ANALYSIS (CRITICAL)**:
 Do not only look at retail sentiment. You must deeply dissect the capital structure:
-1. **Northbound Capital Flows**: Net inflow/outflow data and trends for the last 5 trading days.
-2. **Mutual Fund Position Changes**: You MUST use the specialized `management_query` tool to search for "Top 10 fund holdings" and institutional holdings to determine if institutions are adding or reducing positions. Do NOT rely on general web_search.
-3. **AH Premium Trend** (if applicable): Current premium rate and its 30-day directional change.
-4. **Margin Trading Depth**: Not just balances—analyze the net change trend of margin purchases vs. repayments.
+5. **Northbound Capital Flows**: Net inflow/outflow data and trends for the last 5 trading days.
+6. **Mutual Fund Position Changes**: You MUST use the specialized `management_query` tool to search for "Top 10 fund holdings" and institutional holdings to determine if institutions are adding or reducing positions. Do NOT rely on general web_search.
+7. **AH Premium Trend** (if applicable): Current premium rate and its 30-day directional change.
+8. **Margin Trading Depth**: Not just balances—analyze the net change trend of margin purchases vs. repayments.
 
 **SENTIMENT CROSS-VALIDATION (MANDATORY)**:
 You must perform deep cross-validation of sentiment data with preceding experts:
-1. **Capital Flow vs Technical Trend**: Does capital flow support the trend direction identified by the Technical Analyst? If divergent, explain why.
-2. **Market Sentiment vs Fundamental Expectations**: Is current sentiment overshooting or undershooting fundamental expectations?
-3. **Bottom Trap Warning (CRITICAL)**: Do NOT simply treat "price decline + volume increase" as a "bottom signal". You must analyze whether heavy-volume declines represent "institutional orderly exit" or "irrational capitulation", citing specific capital structure data.
-4. **Heat-Price Correlation**: Social media discussion heat must be correlated with recent price trends (e.g., "Heat↑ but Price↓ may be a 'buy the rumor, sell the news' signal").
+9. **Capital Flow vs Technical Trend**: Does capital flow support the trend direction identified by the Technical Analyst? If divergent, explain why.
+10. **Market Sentiment vs Fundamental Expectations**: Is current sentiment overshooting or undershooting fundamental expectations?
+11. **Bottom Trap Warning (CRITICAL)**: Do NOT simply treat "price decline + volume increase" as a "bottom signal". You must analyze whether heavy-volume declines represent "institutional orderly exit" or "irrational capitulation", citing specific capital structure data.
+12. **Heat-Price Correlation**: Social media discussion heat must be correlated with recent price trends (e.g., "Heat↑ but Price↓ may be a 'buy the rumor, sell the news' signal").
 
 **Professional Integration**: Cross-validate sentiment data with technical and fundamental findings. Explain any divergence between funds flow and price trends.

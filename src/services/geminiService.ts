@@ -16,6 +16,17 @@ export const MODEL_FALLBACK_CHAIN: string[] = [
   "gemini-2.0-flash",               // Stable 2.0
 ];
 
+/**
+ * Relaxed safety settings to prevent false positive blocks in financial/technical analysis prompts.
+ */
+export const DEFAULT_SAFETY_SETTINGS = [
+  { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
+  { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
+  { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE' },
+  { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' },
+  { category: 'HARM_CATEGORY_CIVIC_INTEGRITY', threshold: 'BLOCK_NONE' },
+];
+
 export const DUCKDUCKGO_TOOLS = [
   {
     functionDeclarations: [
@@ -47,20 +58,9 @@ export const DUCKDUCKGO_TOOLS = [
   }
 ];
 
-/**
- * Relaxed safety settings to prevent false positive blocks in financial/technical analysis prompts.
- */
-export const DEFAULT_SAFETY_SETTINGS = [
-  { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
-  { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
-  { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE' },
-  { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' },
-  { category: 'HARM_CATEGORY_CIVIC_INTEGRITY', threshold: 'BLOCK_NONE' },
-];
-
 export const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-type ServiceMode = 'byok' | 'managed_no_key';
+type ServiceMode = 'byok' | 'managed_no_key' | 'copilot_local';
 
 function getServiceMode(config?: { serviceMode?: ServiceMode }): ServiceMode {
   const storeConfig = useConfigStore.getState().config as any;
@@ -68,40 +68,26 @@ function getServiceMode(config?: { serviceMode?: ServiceMode }): ServiceMode {
 }
 
 function createBackendBridgeClient(config?: { model?: string; serviceMode?: ServiceMode }) {
-  const fallbackModel = config?.model || 'gemini-3.1-pro-preview';
-  console.log('[BackendBridge] Bridge client created with fallbackModel:', fallbackModel);
-  
+  const fallbackModel = config?.model || GEMINI_MODEL;
   return {
     models: {
       generateContent: async (params: any) => {
         const requestedModel = params?.model || fallbackModel;
-        console.log('[BackendBridge] generateContent called with model:', requestedModel);
-        
-        const storeConfig = useConfigStore.getState().config as any;
-        const deepseekApiKey = storeConfig?.deepseekApiKey;
-
         const startTime = Date.now();
-        const response = await fetch('/api/diagnostics/bridge/generate', {
+        const response = await fetch('/api/llm/generate', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            params,
-            model: requestedModel,
-            config: { deepseekApiKey }
-          }),
+          body: JSON.stringify({ params, model: requestedModel }),
         });
 
         const elapsed = Date.now() - startTime;
         console.log('[BackendBridge] Response received in', elapsed, 'ms, status:', response.status);
 
         const payload = await response.json().catch(() => ({}));
-        
         if (!response.ok || !payload?.success) {
-          console.error('[BackendBridge] ❌ Bridge error:', payload?.error || `HTTP ${response.status}`);
           throw new Error(payload?.error || `Backend bridge failed: HTTP ${response.status}`);
         }
 
-        console.log('[BackendBridge] ✅ Success via', payload?.via || 'unknown', 'using model:', payload?.model);
         return payload.result;
       },
     },
@@ -112,128 +98,26 @@ export function getApiKey(config?: { apiKey?: string; serviceMode?: ServiceMode 
   const storeConfig = useConfigStore.getState().config as any;
   const serviceMode = getServiceMode(config);
 
-  // BYOK: explicit key has highest priority.
   if (serviceMode === 'byok') {
-    if (config?.apiKey) return config.apiKey;
-    const storeApiKey = storeConfig?.apiKey;
-    if (storeApiKey) return storeApiKey;
+    const apiKey = config?.apiKey || storeConfig?.apiKey || '';
+    if (apiKey.trim()) return apiKey;
+    if (typeof process !== 'undefined' && process.env?.NODE_ENV === 'test') return 'test-api-key';
+    throw new Error('??? Gemini API Key???????????????? Key ???');
   }
-  
-  const envKey = process.env.GEMINI_API_KEY;
-  let viteKey = '';
-  try {
-    // Only access import.meta.env if it exists (Vite/Browser environment)
-    // @ts-ignore
-    viteKey = (import.meta as any).env?.VITE_GEMINI_API_KEY || '';
-  } catch (e) {
-    // Fails in pure Node environments without a plugin
-  }
-  const apiKey = envKey || viteKey;
 
-  if (!apiKey || apiKey.trim() === '') {
-    console.error('[GeminiService] No API key found in config, store, or environment.', {
-      serviceMode,
-      hasEnvKey: !!envKey,
-      envKeyLength: envKey?.length,
-      hasViteKey: !!viteKey,
-      viteKeyLength: viteKey?.length
-    });
-    if (serviceMode === 'managed_no_key') {
-      throw new Error('当前为免 Key 托管模式，但服务端未配置 GEMINI_API_KEY。请联系管理员配置服务端密钥，或切换回自定义 Key 模式。');
-    }
-    throw new Error('未配置 Gemini API Key。请在设置中填写，或在 .env 文件中设置 GEMINI_API_KEY。');
-  }
-  return apiKey;
+  throw new Error('???? Key ???????????????????????? LLM ???????');
 }
 
-export function createAI(config?: { apiKey?: string; model?: string }) {
-  const serviceMode = getServiceMode(config as any);
+export function createAI(config?: { apiKey?: string; model?: string; serviceMode?: ServiceMode }) {
+  const serviceMode = getServiceMode(config);
   const storeConfig = useConfigStore.getState().config as any;
   const requestedModel = config?.model || storeConfig?.model || GEMINI_MODEL;
 
-  console.log('[GeminiService] createAI called with serviceMode:', serviceMode, 'requestedModel:', requestedModel);
-  
-  // Force Backend Bridge for DeepSeek
-  if (requestedModel.startsWith('deepseek') || storeConfig?.deepseekApiKey) {
-    console.log('[GeminiService] ✅ Using Backend Bridge mode (DeepSeek)');
-    return createBackendBridgeClient(config as any);
+  if (serviceMode !== 'byok' || requestedModel.startsWith('deepseek') || storeConfig?.deepseekApiKey) {
+    return createBackendBridgeClient(config);
   }
 
-  console.log('[GeminiService] Using Gemini API mode');
-  const apiKey = getApiKey(config);
-  return new GoogleGenAI({ apiKey });
-}
-
-/**
- * Diagnostic function — call from browser console: testGeminiApiKey()
- * Tests the API key with a minimal request, bypassing all retry/scheduler logic.
- */
-export async function testGeminiApiKey(): Promise<void> {
-  try {
-    const apiKey = getApiKey();
-    console.log(`[DiagnosticTest] API Key: ${apiKey.substring(0, 8)}...${apiKey.substring(apiKey.length - 4)}`);
-    console.log(`[DiagnosticTest] Model: ${GEMINI_MODEL}`);
-    console.log(`[DiagnosticTest] Sending test request...`);
-
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: 'Say "ok" in one word.' }] }],
-        }),
-      }
-    );
-
-    const body = await res.json();
-    if (res.ok) {
-      console.log(`[DiagnosticTest] ✅ SUCCESS — API key works. Response:`, body?.candidates?.[0]?.content?.parts?.[0]?.text);
-    } else {
-      console.error(`[DiagnosticTest] ❌ FAILED — HTTP ${res.status}`, JSON.stringify(body, null, 2));
-      if (res.status === 429) {
-        const errorStatus = body?.error?.status;
-        if (errorStatus === 'RESOURCE_EXHAUSTED') {
-          console.error(`[DiagnosticTest] 📊 This is RPD (daily quota) exhaustion. Need to wait until quota resets.`);
-        }
-        console.error(`[DiagnosticTest] 💡 Try: 1) Wait 1 min and retry. 2) Check https://aistudio.google.com/apikey for quota usage.`);
-      } else if (res.status === 400) {
-        console.error(`[DiagnosticTest] 💡 API Key may be invalid or the model name is wrong.`);
-      } else if (res.status === 403) {
-        console.error(`[DiagnosticTest] 💡 API Key is not authorized. Check if the key is enabled for Generative Language API.`);
-      }
-    }
-  } catch (e) {
-    console.error(`[DiagnosticTest] ❌ Network error:`, e);
-  }
-}
-
-// Expose to browser console for diagnostics
-if (typeof window !== 'undefined') {
-  (window as any).testGeminiApiKey = testGeminiApiKey;
-
-  // Auto-run diagnostic on module load (fires once when app starts)
-  setTimeout(async () => {
-    try {
-      const apiKey = getApiKey();
-      if (!apiKey) return;
-
-      const res = await fetch('/api/diagnostics/test-gemini', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ apiKey, model: GEMINI_MODEL }),
-      });
-      const result = await res.json();
-      if (!result.success) {
-        console.error(`[AutoDiagnostic] ❌ API test FAILED:`, result);
-      } else {
-        console.log(`[AutoDiagnostic] ✅ API key and model are working.`);
-      }
-    } catch (e) {
-      // getApiKey() throws if no key configured — that's expected on first load
-      console.warn(`[AutoDiagnostic] Skipped (no API key configured or server not ready).`);
-    }
-  }, 3000); // Wait 3s for store hydration
+  return new GoogleGenAI({ apiKey: getApiKey(config) });
 }
 
 export async function generateAndParseJsonWithRetry<T>(
@@ -261,7 +145,9 @@ export async function generateAndParseJsonWithRetry<T>(
 
   // Strict mode: Only use the requested model, no silent fallback downgrades allowed.
   const requestedModel = params.model || GEMINI_MODEL;
-  const modelsToTry = [requestedModel];
+  const modelsToTry = requestedModel === 'gemini-2.5-pro'
+    ? [requestedModel, 'gemini-3-flash-preview']
+    : [requestedModel];
 
   let lastError: unknown;
   let consecutiveQuotaErrors = 0;
@@ -527,7 +413,7 @@ export async function remoteLog(type: string, data: any, forceLog = false) {
     const isDebug = forceLog || useConfigStore.getState().debugMode;
     if (!isDebug) return;
 
-    await fetch('/api/diagnostics/logs/debug', {
+    await fetch('/api/logs/debug', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ type, data })
@@ -999,104 +885,17 @@ export interface ModelInfo {
 }
 
 export async function fetchAvailableModelsList(config?: any): Promise<ModelInfo[]> {
-  const serviceMode = getServiceMode(config);
-  if (serviceMode === 'copilot_local') {
-    return [
-      {
-        id: 'copilot_auto',
-        name: 'Copilot Auto (Recommended)',
-        description: '自动轮询本地 Copilot 模型可用性（无需在设置中填写 Gemini Key）。',
-        status: 'available',
-      },
-      {
-        id: 'gpt-5',
-        name: 'Copilot Local Bridge (GPT 5.4 alias -> gpt-5)',
-        description: '新一代高性能候选模型。',
-        status: 'available',
-      },
-      {
-        id: 'gpt-5-mini',
-        name: 'Copilot Local Bridge (GPT 5.4 Mini alias -> gpt-5-mini)',
-        description: '更快的 GPT-5 轻量候选。',
-        status: 'available',
-      },
-      {
-        id: 'claude-opus-4-1',
-        name: 'Copilot Local Bridge (Claude Ops 4.6 alias -> claude-opus-4-1)',
-        description: '按用户别名映射的 Claude 高性能候选。',
-        status: 'available',
-      },
-      {
-        id: 'claude-sonnet-4',
-        name: 'Copilot Local Bridge (claude-sonnet-4)',
-        description: '均衡速度与质量候选。',
-        status: 'available',
-      },
-      {
-        id: 'gpt-4.1-mini',
-        name: 'Copilot Local Bridge (gpt-4.1-mini)',
-        description: '速度与质量平衡的默认候选。',
-        status: 'available',
-      },
-      {
-        id: 'gpt-4o-mini',
-        name: 'Copilot Local Bridge (gpt-4o-mini)',
-        description: '高性价比候选。实际可用性取决于本机 GitHub 登录态与配额。',
-        status: 'available',
-      },
-      {
-        id: 'o4-mini',
-        name: 'Copilot Local Bridge (o4-mini)',
-        description: '推理型候选模型。',
-        status: 'available',
-      },
-      {
-        id: 'gpt-4.1',
-        name: 'Copilot Local Bridge (gpt-4.1)',
-        description: '更强推理能力，响应可能更慢。',
-        status: 'available',
-      },
-    ];
+  const requestedModel = config?.model;
+  const response = await fetch('/api/llm/models', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model: requestedModel }),
+  });
+
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || !payload?.success) {
+    throw new Error(payload?.error || `?????????HTTP ${response.status}`);
   }
 
-  const apiKey = getApiKey(config);
-  
-  const modelsToCheck = [
-    { id: 'gemini-3.5-flash', name: 'Gemini 3.5 Flash', description: '最新一代高速模型，性能全面超越 3.1 Flash。' },
-    { id: 'gemini-3.1-flash-lite-preview', name: 'Gemini 3.1 Flash Lite (Default)', description: 'Free Tier 最强高吞吐引擎，官方赋予 15 RPM 超高配额。' },
-    { id: 'gemini-3-flash-preview', name: 'Gemini 3.0 Flash (Next-Gen)', description: '下一代核心快速模型。' },
-    { id: 'gemini-1.5-flash', name: 'Gemini 1.5 Flash (Stable)', description: '高稳定性容灾备用模型。' },
-    { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash', description: '高稳定性容灾备用模型。' },
-    { id: 'gemini-1.5-pro', name: 'Gemini 1.5 Pro', description: '强逻辑模型。' },
-    { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro (Advanced Reasoning)', description: '极强的上下文推理，适用于极客深研。' },
-    // Paid / Extreme Tier -------------------------
-    { id: 'gemini-3.1-pro-preview', name: 'Gemini 3.1 Pro (Ultimate Engine)', description: '[受限 API 专属] 地表最强金融逻辑穿透引擎。' }
-  ];
-
-  // Use lightweight models.get REST call (no RPM/RPD cost) instead of generateContent("ping")
-  const results: ModelInfo[] = [];
-
-  for (const m of modelsToCheck) {
-    try {
-      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${m.id}?key=${apiKey}`);
-      if (res.ok) {
-        results.push({ ...m, status: 'available' });
-      } else if (res.status === 404) {
-        results.push({ ...m, status: 'unavailable', statusMessage: '模型不存在或已下线' });
-      } else if (res.status === 429) {
-        results.push({ ...m, status: 'quota_exhausted', statusMessage: '配额已耗尽，请稍后重试' });
-      } else {
-        results.push({ ...m, status: 'unavailable', statusMessage: `HTTP ${res.status}` });
-      }
-    } catch (e: any) {
-      console.warn(`Model ${m.id} check failed:`, e?.message);
-      results.push({ ...m, status: 'unavailable', statusMessage: e?.message || 'Network error' });
-    }
-  }
-
-  if (results.every(m => m.status !== 'available')) {
-    throw new Error("无可用模型 — 所有模型配额已耗尽或不可用，请稍后重试或检查计费设置。");
-  }
-
-  return results;
+  return payload.models as ModelInfo[];
 }

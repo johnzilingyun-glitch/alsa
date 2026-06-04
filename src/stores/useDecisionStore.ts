@@ -39,9 +39,14 @@ export const useDecisionStore = create<DecisionState>((set, get) => ({
   })),
 
   getPendingReviews: () => {
-    const now = new Date();
-    return get().entries.filter(e =>
-      !e.outcome && new Date(e.reviewDate) <= now,
-    );
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return get().entries.filter((entry) => {
+      const createdAt = new Date(entry.createdAt);
+      const reviewDate = new Date(entry.reviewDate);
+      createdAt.setHours(0, 0, 0, 0);
+      reviewDate.setHours(0, 0, 0, 0);
+      return !entry.outcome && createdAt <= today && reviewDate < today;
+    });
   },
 }));

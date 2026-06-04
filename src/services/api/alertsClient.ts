@@ -71,7 +71,7 @@ export const alertsClient = {
     return res.json();
   },
 
-  delete: async (id: string) => {
+  delete: async (id: string | number) => {
     const res = await fetch(`/api/alerts/${id}`, { method: 'DELETE' });
     if (!res.ok) throw new Error('Failed to delete alert');
     return res.json();

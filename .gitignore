@@ -25,3 +25,6 @@ python_service/data/
 # IBKR Gateway
 .ibkr-gateway.pid
 clientportal/
+
+keys.txt
+reports/

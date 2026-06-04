@@ -520,7 +520,7 @@ export interface GeminiConfig {
   deepseekModel?: string;
   feishuWebhookUrl?: string;
   tier?: 'free' | 'paid';
-  serviceMode?: 'byok' | 'managed_no_key';
+  serviceMode?: 'byok' | 'managed_no_key' | 'copilot_local';
   tokenGuardLevel?: 'none' | 'low' | 'medium' | 'high';
 }
 

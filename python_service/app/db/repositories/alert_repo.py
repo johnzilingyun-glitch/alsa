@@ -2,6 +2,7 @@ from typing import List, Optional, Callable
 from sqlmodel import Session, select
 from ..models import SearchAlert
 from datetime import datetime
+from ...time_utils import utc_now
 
 class AlertRepository:
     def __init__(self, session_factory: Callable[[], Session]):
@@ -23,7 +24,7 @@ class AlertRepository:
                 existing.target_price = target_price
                 existing.stop_loss = stop_loss
                 existing.currency = currency
-                existing.created_at = datetime.utcnow()
+                existing.created_at = utc_now()
                 session.add(existing)
                 session.commit()
                 session.refresh(existing)
@@ -72,7 +73,7 @@ class AlertRepository:
             if not alert:
                 return None
             alert.exit_price = exit_price
-            alert.exit_date = datetime.utcnow()
+            alert.exit_date = utc_now()
             alert.outcome_category = outcome_category
             if alert.entry_price and alert.entry_price > 0:
                 alert.realized_return_pct = round((exit_price - alert.entry_price) / alert.entry_price * 100, 2)

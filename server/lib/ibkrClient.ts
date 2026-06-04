@@ -9,9 +9,14 @@ import https from 'https';
 
 const IBKR_BASE_URL = process.env.IBKR_GATEWAY_URL || 'https://localhost:5000';
 const IBKR_ACCOUNT_ID = process.env.IBKR_ACCOUNT_ID || '';
+const ibkrGatewayUrl = new URL(IBKR_BASE_URL);
+const isLocalIbkrGateway = ['localhost', '127.0.0.1', '::1'].includes(ibkrGatewayUrl.hostname);
+if (!isLocalIbkrGateway && process.env.IBKR_ALLOW_REMOTE_GATEWAY !== 'true') {
+  throw new Error('Refusing non-local IBKR gateway. Set IBKR_ALLOW_REMOTE_GATEWAY=true only for explicitly trusted networks.');
+}
 
-// IBKR Client Portal uses self-signed cert
-const agent = new https.Agent({ rejectUnauthorized: false });
+// IBKR Client Portal uses a self-signed cert on localhost; remote gateways must use valid TLS by default.
+const agent = new https.Agent({ rejectUnauthorized: !isLocalIbkrGateway });
 
 interface FetchOptions {
   method?: string;
@@ -19,7 +24,7 @@ interface FetchOptions {
 }
 
 async function ibkrFetch(path: string, options: FetchOptions = {}) {
-  const url = `${IBKR_BASE_URL}${path}`;
+  const url = `${ibkrGatewayUrl.origin}${path}`;
   const res = await fetch(url, {
     method: options.method || 'GET',
     headers: { 'Content-Type': 'application/json' },

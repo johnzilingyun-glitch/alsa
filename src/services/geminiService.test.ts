@@ -20,6 +20,15 @@ vi.mock('../stores/useConfigStore', () => ({
 }));
 
 // Mock GoogleGenAI
+vi.mock('./llmProvider', async () => {
+  const actual = await vi.importActual('./llmProvider');
+  return {
+    ...actual as any,
+    getAvailableFallbackProviders: vi.fn(() => []),
+    tryFallbackProviders: vi.fn(),
+  };
+});
+
 vi.mock('@google/genai', () => {
   return {
     GoogleGenAI: vi.fn().mockImplementation(function() {
@@ -113,43 +122,44 @@ describe('geminiService', () => {
   });
 
   describe('fetchAvailableModelsList', () => {
-    it('should return models with status based on REST API responses', async () => {
-      // Mock global fetch for the models.get REST calls
+    it('should return models from the backend model registry', async () => {
       const originalFetch = globalThis.fetch;
-      globalThis.fetch = vi.fn().mockImplementation(async (url: string) => {
-        if (url.includes('gemini-3-flash-preview')) {
-          return { ok: true, status: 200 };
-        }
-        if (url.includes('gemini-3.1-pro-preview')) {
-          return { ok: false, status: 429 };
-        }
-        return { ok: false, status: 404 };
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          success: true,
+          models: [
+            { id: 'gemini-3.5-flash', name: 'Gemini 3.5 Flash', description: 'Server-managed Gemini model', status: 'available' },
+            { id: 'deepseek-v4-flash', name: 'DeepSeek V4 Flash', description: 'Server-managed fallback model', status: 'available' },
+          ],
+        }),
       }) as any;
 
       try {
-        const availableModels = await fetchAvailableModelsList({ apiKey: 'test_key' });
-        
-        expect(availableModels.length).toBeGreaterThan(0);
-        const available = availableModels.filter(m => m.status === 'available');
-        expect(available.length).toBe(1);
-        expect(available[0].id).toBe('gemini-3-flash-preview');
-        
-        const exhausted = availableModels.filter(m => m.status === 'quota_exhausted');
-        expect(exhausted.length).toBe(1);
-        expect(exhausted[0].id).toBe('gemini-3.1-pro-preview');
+        const availableModels = await fetchAvailableModelsList({ model: 'gemini-3.5-flash' });
+
+        expect(globalThis.fetch).toHaveBeenCalledWith('/api/llm/models', expect.objectContaining({
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+        }));
+        expect(availableModels).toHaveLength(2);
+        expect(availableModels.every(m => m.status === 'available')).toBe(true);
       } finally {
         globalThis.fetch = originalFetch;
       }
     });
 
-    it('should throw an error if no models are available', async () => {
+    it('should throw an error if the backend model registry is unavailable', async () => {
       const originalFetch = globalThis.fetch;
-      globalThis.fetch = vi.fn().mockImplementation(async () => {
-        return { ok: false, status: 404 };
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 502,
+        json: async () => ({ success: false, error: 'model registry unavailable' }),
       }) as any;
 
       try {
-        await expect(fetchAvailableModelsList({ apiKey: 'test_key' })).rejects.toThrow('无可用模型');
+        await expect(fetchAvailableModelsList({ model: 'gemini-3.5-flash' })).rejects.toThrow('model registry unavailable');
       } finally {
         globalThis.fetch = originalFetch;
       }

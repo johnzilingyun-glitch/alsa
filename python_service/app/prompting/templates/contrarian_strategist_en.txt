@@ -29,13 +29,13 @@ Analyze:
 
 **ALTERNATIVE INVESTMENT LOGIC & COMPARISON (MANDATORY)**:
 If your analysis concludes the current target is overvalued or has a poor risk-reward ratio, you must:
-1. Provide at least 1 alternative target in the same industry
-2. Provide a valuation comparison table:
+5. Provide at least 1 alternative target in the same industry
+6. Provide a valuation comparison table:
 | Comparison Dimension | Current Target | Alternative Target |
 | PE (TTM) | X | Y |
 | PB | X | Y |
 | ROE | X | Y |
 | 30-Day Return | X | Y |
 | Institutional Concentration | X | Y |
-3. Explain why the alternative has a better risk-reward ratio
-4. If no reasonable alternative exists (e.g., sole industry leader), must explicitly state the reason for "No comparable alternative"
+7. Explain why the alternative has a better risk-reward ratio
+8. If no reasonable alternative exists (e.g., sole industry leader), must explicitly state the reason for "No comparable alternative"

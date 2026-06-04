@@ -1,4 +1,4 @@
-import { defineConfig, loadEnv } from 'vite';
+import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 import path from 'path';
@@ -7,8 +7,7 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-export default defineConfig(({ mode }) => {
-  const env = loadEnv(mode, process.cwd(), '');
+export default defineConfig(() => {
   return {
     plugins: [react(), tailwindcss()],
     optimizeDeps: {
@@ -26,7 +25,21 @@ export default defineConfig(({ mode }) => {
     },
     build: {
       target: 'esnext',
-      minify: 'esbuild',
+      minify: 'esbuild' as const,
+      rollupOptions: {
+        output: {
+          manualChunks(id) {
+            if (!id.includes('node_modules')) return undefined;
+            if (id.includes('react-markdown') || id.includes('remark-') || id.includes('rehype-')) return 'vendor-markdown';
+            if (id.includes('motion') || id.includes('framer-motion')) return 'vendor-motion';
+            if (id.includes('lucide-react')) return 'vendor-icons';
+            if (id.includes('recharts') || id.includes('d3-')) return 'vendor-charts';
+            if (id.includes('@google/genai')) return 'vendor-genai';
+            if (id.includes('react') || id.includes('scheduler')) return undefined;
+            return 'vendor-misc';
+          },
+        },
+      },
     },
     server: {
       host: true,
@@ -47,10 +60,6 @@ export default defineConfig(({ mode }) => {
       watch: {
         ignored: ['**/.venv/**', '**/.venv_qlib/**', '**/node_modules/**', '**/data/**', '**/python_service/**', '**/server/**', '**/server.ts', '**/scratch/**', '**/logs/**', '**/docs/**', '**/sector_reports/**', '**/reports/**', '**/*.log', '**/*.db', '**/*.db-journal'],
       },
-    },
-    define: {
-      'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY || ''),
-      'process.env.DEEPSEEK_API_KEY': JSON.stringify(env.DEEPSEEK_API_KEY || ''),
     },
   };
 });

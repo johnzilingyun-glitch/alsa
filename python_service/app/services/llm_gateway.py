@@ -62,6 +62,7 @@ class LLMGateway:
         self._default_client = None
         self._last_gemini_key = None
         self._last_deepseek_key = None
+        self.deepseek_api_key = self.get_deepseek_api_key()
 
         # Rate limiter for the default relay (中转站) to prevent 503 errors
         # min_interval: minimum seconds between consecutive requests
@@ -91,8 +92,11 @@ class LLMGateway:
             return api_key
         if self._deepseek_api_key_override:
             return self._deepseek_api_key_override
-        load_dotenv(os.path.join(root_dir, ".env"), override=True)
-        load_dotenv(os.path.join(root_dir, ".env.runtime"), override=True)
+        current = os.getenv("DEEPSEEK_API_KEY")
+        if current:
+            return current
+        load_dotenv(os.path.join(root_dir, ".env"), override=False)
+        load_dotenv(os.path.join(root_dir, ".env.runtime"), override=False)
         return os.getenv("DEEPSEEK_API_KEY")
 
     def gemini_client(self, api_key=None):
@@ -113,9 +117,11 @@ class LLMGateway:
         target_key = self.get_deepseek_api_key(api_key)
         if self._deepseek_client is None or (target_key and target_key != self._last_deepseek_key):
             if target_key:
+                import httpx
                 self._deepseek_client = OpenAI(
                     api_key=target_key,
-                    base_url=self.deepseek_base_url
+                    base_url=self.deepseek_base_url,
+                    timeout=httpx.Timeout(300.0, connect=30.0),
                 )
                 self._last_deepseek_key = target_key
             else:
@@ -125,9 +131,11 @@ class LLMGateway:
     def default_client(self):
         if self._default_client is None:
             if self.default_api_key:
+                import httpx
                 self._default_client = OpenAI(
                     api_key=self.default_api_key,
-                    base_url=self.default_base_url
+                    base_url=self.default_base_url,
+                    timeout=httpx.Timeout(300.0, connect=30.0),
                 )
             else:
                 raise ValueError("DEFAULT_LLM_API_KEY is missing.")
@@ -275,19 +283,34 @@ class LLMGateway:
                 if "gemini" in model.lower():
                     config["tools"] = [{"google_search": {}}]
 
-                response = await asyncio.to_thread(
-                    client.models.generate_content,
-                    model=model,
-                    contents=prompt,
-                    config=config
-                )
+                # Use streaming to provide progress updates via on_chunk
+                def _stream_generate():
+                    content_parts = []
+                    char_count = 0
+                    response = client.models.generate_content_stream(
+                        model=model,
+                        contents=prompt,
+                        config=config
+                    )
+                    for chunk in response:
+                        try:
+                            text = chunk.text if hasattr(chunk, 'text') and chunk.text else ""
+                        except (ValueError, AttributeError):
+                            # Some chunks are grounding metadata without text
+                            text = ""
+                        if text:
+                            content_parts.append(text)
+                            char_count += len(text)
+                            if on_chunk:
+                                on_chunk(char_count)
+                    return "".join(content_parts)
+
+                result = await asyncio.to_thread(_stream_generate)
                 
-                if response and hasattr(response, 'text'):
-                    return response.text
-                elif response and isinstance(response, str):
-                    return response
+                if result:
+                    return result
                 else:
-                    raise ValueError(f"Unexpected response type from Gemini: {type(response)}")
+                    raise ValueError(f"Gemini streaming returned empty response")
             except Exception as e:
                 error_msg = str(e)
                 print(f"Gemini Error ({model}) on attempt {attempt + 1}/{max_retries}: {error_msg}")
@@ -296,6 +319,8 @@ class LLMGateway:
                 if "429" in error_msg or "quota" in error_msg.lower() or "503" in error_msg:
                     if attempt < max_retries - 1:
                         print(f"Rate limit hit. Waiting {retry_delay}s before retry {attempt + 2}/{max_retries} (no model downgrade)...")
+                        if on_chunk:
+                            on_chunk(0, f"API 触发限流，等待 {retry_delay} 秒重试... (第 {attempt + 1} 次)")
                         # Interruptible sleep
                         for _ in range(int(retry_delay)):
                             await asyncio.sleep(1)
@@ -359,6 +384,8 @@ class LLMGateway:
                 if "429" in error_msg or "quota" in error_msg.lower() or "503" in error_msg or "524" in error_msg or "500" in error_msg or "502" in error_msg or "empty response" in error_msg.lower() or "connection" in error_msg.lower() or "timeout" in error_msg.lower():
                     if attempt < max_retries - 1:
                         print(f"Rate limit hit. Waiting {retry_delay}s before retry {attempt + 2}/{max_retries} (no model downgrade)...")
+                        if on_chunk:
+                            on_chunk(0, f"API 触发限流/网络错误，等待 {retry_delay} 秒重试... (第 {attempt + 1} 次)")
                         # Interruptible sleep
                         for _ in range(int(retry_delay)):
                             await asyncio.sleep(1)
@@ -374,7 +401,7 @@ class LLMGateway:
                 
         raise Exception(f"Failed to generate content with {final_model} after {max_retries} attempts due to rate limits.")
 
-    async def generate_with_native_tools(self, prompt: str, model: str, temperature: float = 0.3, max_tool_rounds: int = 20, on_chunk: Optional[callable] = None, deepseek_api_key: Optional[str] = None) -> str:
+    async def generate_with_native_tools(self, prompt: str, model: str, role: str = None, temperature: float = 0.3, max_tool_rounds: int = 20, on_chunk: Optional[callable] = None, deepseek_api_key: Optional[str] = None) -> str:
         """
         Generate content using DeepSeek's native OpenAI-compatible function calling API.
         
@@ -389,7 +416,7 @@ class LLMGateway:
         }
         final_model = model_map.get(model, model)
         
-        tools = get_openai_tools()
+        tools = get_openai_tools(role=role)
         messages = [
             {"role": "system", "content": "You are a professional financial analyst expert."},
             {"role": "user", "content": prompt}
@@ -505,8 +532,35 @@ class LLMGateway:
                 reasoning_content = "".join(reasoning_parts) if reasoning_parts else None
                 return "".join(content_parts), tool_calls_acc, reasoning_content
             
+            # Wrap with async timeout to prevent infinite hangs from API server
+            _round_timeout = 360  # 6 minutes max per round
             try:
-                content, tool_calls_data, reasoning_content = await asyncio.to_thread(_stream_with_tools)
+                content, tool_calls_data, reasoning_content = await asyncio.wait_for(
+                    asyncio.to_thread(_stream_with_tools),
+                    timeout=_round_timeout
+                )
+            except asyncio.TimeoutError:
+                print(f"  [ToolLoop] ⚠️ Round {round_num} TIMED OUT after {_round_timeout}s!")
+                if on_chunk:
+                    on_chunk(0, message=f"第 {round_num+1} 轮 API 请求超时({_round_timeout}s)，正在重试...")
+                if use_tools:
+                    print(f"  [ToolLoop] Tool round {round_num} timed out, continuing...")
+                    continue
+                # Final round timed out — try with truncated context
+                print(f"  [ToolLoop] Final round timed out. Retrying with truncated context...")
+                for i, msg in enumerate(messages):
+                    if msg.get("role") == "tool" and len(msg.get("content", "")) > 1000:
+                        messages[i]["content"] = msg["content"][:1000] + "\n[truncated]"
+                try:
+                    content, tool_calls_data, reasoning_content = await asyncio.wait_for(
+                        asyncio.to_thread(_stream_with_tools),
+                        timeout=_round_timeout
+                    )
+                    if content:
+                        final_content = content
+                except Exception as e2:
+                    print(f"  [ToolLoop] Retry also failed: {e2}")
+                break
             except Exception as e:
                 error_msg = str(e)
                 print(f"DeepSeek Native Tool Error (round {round_num}): {error_msg}")
@@ -520,7 +574,10 @@ class LLMGateway:
                     if msg.get("role") == "tool" and len(msg.get("content", "")) > 1000:
                         messages[i]["content"] = msg["content"][:1000] + "\n[truncated]"
                 try:
-                    content, tool_calls_data, reasoning_content = await asyncio.to_thread(_stream_with_tools)
+                    content, tool_calls_data, reasoning_content = await asyncio.wait_for(
+                        asyncio.to_thread(_stream_with_tools),
+                        timeout=_round_timeout
+                    )
                     if content:
                         final_content = content
                 except Exception as e2:
@@ -819,7 +876,7 @@ class LLMGateway:
             result = re.sub(r'\n{3,}', '\n\n', result).strip()
         return result
 
-    async def generate_with_tools(self, prompt: str, model: str = "gemini-3.1-pro-preview", temperature: float = 0.3, max_tool_rounds: int = 20, on_chunk: Optional[callable] = None, gemini_api_key: Optional[str] = None, deepseek_api_key: Optional[str] = None) -> str:
+    async def generate_with_tools(self, prompt: str, model: str = "gemini-3.1-pro-preview", role: str = None, temperature: float = 0.3, max_tool_rounds: int = 20, on_chunk: Optional[callable] = None, gemini_api_key: Optional[str] = None, deepseek_api_key: Optional[str] = None) -> str:
         """
         Generate content with tool-calling loop.
         
@@ -828,7 +885,7 @@ class LLMGateway:
         """
         # For DeepSeek, use native OpenAI-compatible function calling
         if "deepseek" in model.lower():
-            return await self.generate_with_native_tools(prompt, model, temperature, max_tool_rounds, on_chunk=on_chunk, deepseek_api_key=deepseek_api_key)
+            return await self.generate_with_native_tools(prompt, model, role=role, temperature=temperature, max_tool_rounds=max_tool_rounds, on_chunk=on_chunk, deepseek_api_key=deepseek_api_key)
         
         from .expert_tools import parse_tool_calls, has_tool_calls, tool_executor
         

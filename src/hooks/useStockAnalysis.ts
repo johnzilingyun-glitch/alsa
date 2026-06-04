@@ -198,23 +198,25 @@ export function useStockAnalysis() {
     }
   }, [setHistoryItems, setOptimizationLogs]);
 
-  const handleSearch = useCallback(async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!symbol || !symbol.trim()) return;
+  const handleSearch = useCallback(async (e?: React.FormEvent, targetSymbol?: string, targetMarket?: string) => {
+    if (e) e.preventDefault();
+    const searchSymbol = targetSymbol || symbol;
+    const searchMarket = targetMarket || market;
+    if (!searchSymbol || !searchSymbol.trim()) return;
 
     // If currently analyzing, submit to background queue
     if (isAnalyzing) {
-      startBackgroundJob(symbol, market);
+      startBackgroundJob(searchSymbol, searchMarket);
       return;
     }
 
     // Check for existing analysis history
     try {
-      const histRes = await fetch(`/api/analysis/history/${encodeURIComponent(symbol)}`);
+      const histRes = await fetch(`/api/analysis/history/${encodeURIComponent(searchSymbol)}`);
       if (histRes.ok) {
         const histData = await histRes.json();
         if (histData.success && histData.data?.length > 0) {
-          setPendingSearchSymbol(symbol);
+          setPendingSearchSymbol(searchSymbol);
           setHistoryDialogItems(histData.data);
           setHistoryDialogOpen(true);
           return; // Wait for user choice
@@ -223,20 +225,22 @@ export function useStockAnalysis() {
     } catch { /* ignore, proceed with new analysis */ }
 
     // No history — start fresh analysis
-    doStartAnalysis();
+    doStartAnalysis(searchSymbol, searchMarket);
   }, [symbol, market, analysisLevel, geminiConfig, startAnalysis, setLoading, resetAnalysis, resetDiscussion, resetScenario, resetErrors, setAnalysisTarget, isAnalyzing, startBackgroundJob]);
 
-  const doStartAnalysis = useCallback(() => {
+  const doStartAnalysis = useCallback((explicitSymbol?: string, explicitMarket?: string) => {
+    const s = explicitSymbol || symbol;
+    const m = explicitMarket || market;
     setHistoryDialogOpen(false);
     setLoading(true);
     resetAnalysis();
     resetDiscussion();
     resetScenario();
     resetErrors();
-    setAnalysisTarget({ symbol, market });
+    setAnalysisTarget({ symbol: s, market: m });
     // Record search immediately so it appears in recent searches even if analysis fails
-    addRecentSearch({ symbol, name: symbol, market: market as Market });
-    startAnalysis(symbol, market, analysisLevel, geminiConfig?.model || null, geminiConfig);
+    addRecentSearch({ symbol: s, name: s, market: m as Market });
+    startAnalysis(s, m, analysisLevel, geminiConfig?.model || null, geminiConfig);
   }, [symbol, market, analysisLevel, geminiConfig, startAnalysis, setLoading, resetAnalysis, resetDiscussion, resetScenario, resetErrors, setAnalysisTarget, addRecentSearch]);
 
   const loadHistoryResult = useCallback(async (analysisId: string) => {

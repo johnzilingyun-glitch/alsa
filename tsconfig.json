@@ -17,6 +17,7 @@
     "jsx": "react-jsx",
     "allowImportingTsExtensions": false,
     "noEmit": true,
-    "strict": true
+    "strict": true,
+    "types": ["vitest/globals"]
   }
 }

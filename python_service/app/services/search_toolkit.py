@@ -139,14 +139,31 @@ A_SHARE_EXTRA_CATEGORIES = {
         "label_zh": "融资融券数据",
         "label_en": "Margin Trading Data",
     },
+    "lockup_release": {
+        "query": "{name} {symbol} 限售股解禁 解禁计划",
+        "max_results": 3,
+        "label_zh": "限售股解禁",
+        "label_en": "Lockup Release",
+    },
+    "shareholder_reduction": {
+        "query": "{name} {symbol} 股东减持 减持计划",
+        "max_results": 3,
+        "label_zh": "股东减持公告",
+        "label_en": "Shareholder Reduction",
+    },
 }
 
 # A-share roles get extra categories
 A_SHARE_ROLE_EXTRAS = {
     "Sentiment Analyst": ["northbound_flow", "dragon_tiger", "margin_trading"],
-    "Deep Research Specialist": ["northbound_flow"],
+    "Deep Research Specialist": ["northbound_flow", "lockup_release", "shareholder_reduction"],
     "Bull Researcher": ["northbound_flow"],
-    "Bear Researcher": ["dragon_tiger"],
+    "Bear Researcher": ["dragon_tiger", "lockup_release", "shareholder_reduction"],
+    "Risk Manager": ["lockup_release", "shareholder_reduction"],
+    "Aggressive Risk Analyst": ["lockup_release", "shareholder_reduction"],
+    "Conservative Risk Analyst": ["lockup_release", "shareholder_reduction"],
+    "Neutral Risk Analyst": ["lockup_release", "shareholder_reduction"],
+    "Chief Strategist": ["lockup_release", "shareholder_reduction"],
 }
 
 
@@ -174,6 +191,8 @@ class SearchToolkit:
         """Detect market type from symbol format."""
         if symbol.endswith(".HK"):
             return "hk"
+        if symbol.endswith(".SH") or symbol.endswith(".SZ"):
+            return "a_share"
         if symbol.isdigit() and len(symbol) == 6:
             return "a_share"
         return "us"

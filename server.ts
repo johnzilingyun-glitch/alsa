@@ -11,7 +11,9 @@ import stockRoutes from './server/stockRoutes.js';
 import debugRoutes from './server/debugRoutes.js';
 import analysisRoutes from './server/routes/analysisRoutes.js';
 import ibkrRoutes from './server/routes/ibkrRoutes.js';
+import llmRoutes from './server/routes/llmRoutes.js';
 import { monitor } from './server/dataSourceHealth.js';
+import { buildSocketCorsOptions, getServerHost, getServerPort, isDiagnosticsEnabled, shouldRequireApiToken, validateApiToken } from './server/securityConfig.js';
 
 dotenv.config();
 dotenv.config({ path: '.env.runtime' });
@@ -21,7 +23,8 @@ const __dirname = path.dirname(__filename);
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  const PORT = getServerPort();
+  const HOST = getServerHost();
 
   app.use(express.json({ limit: '2mb' }));
   app.use(express.urlencoded({ limit: '2mb', extended: true }));
@@ -51,6 +54,16 @@ async function startServer() {
     res.json({ ok: true, msg: 'Absolute earliest route' });
   });
 
+  if (shouldRequireApiToken()) {
+    app.use('/api', (req, res, next) => {
+      if (req.path === '/health' || req.path === '/ping-early') return next();
+      if (!validateApiToken(req.header('authorization'))) {
+        return res.status(401).json({ success: false, error: 'Unauthorized' });
+      }
+      next();
+    });
+  }
+
   // API routes FIRST
   app.get('/api/health', (req, res) => {
     console.log('Health check called');
@@ -70,8 +83,12 @@ async function startServer() {
   // Route modules
   console.log('Mounting API routes...');
   
-  app.use('/api/diagnostics', debugRoutes);
-  console.log('Registered: /api/diagnostics/logs/debug');
+  if (isDiagnosticsEnabled()) {
+    app.use('/api/diagnostics', debugRoutes);
+    console.log('Registered: /api/diagnostics/logs/debug');
+  } else {
+    console.log('Diagnostics routes disabled. Set ENABLE_DIAGNOSTICS=true to enable them.');
+  }
 
   app.get('/api/ping-debug', (req, res) => {
     res.json({ ok: true, msg: 'Direct route check works' });
@@ -85,6 +102,13 @@ async function startServer() {
   app.use('/api', analysisRoutes);
   app.use('/api', ibkrRoutes);
   app.use('/api', stockRoutes);
+  app.use('/api', llmRoutes);
+  app.use('/api/v1', historyRoutes);
+  app.use('/api/v1', feishuRoutes);
+  app.use('/api/v1', analysisRoutes);
+  app.use('/api/v1', ibkrRoutes);
+  app.use('/api/v1', stockRoutes);
+  app.use('/api/v1', llmRoutes);
 
   // Proxy to FastAPI (Port 8001) for paths not handled by Node
   // We use a non-stripping proxy to ensure /api prefix is preserved for FastAPI
@@ -102,7 +126,18 @@ async function startServer() {
         '/api/analysis',
         '/api/sector',
         '/api/mock-trading',
-        '/api/backtest'
+        '/api/backtest',
+        '/api/v1/brain',
+        '/api/v1/evolution',
+        '/api/v1/market',
+        '/api/v1/journal',
+        '/api/v1/watchlist',
+        '/api/v1/alerts',
+        '/api/v1/analysis',
+        '/api/v1/sector',
+        '/api/v1/mock-trading',
+        '/api/v1/trade-intents',
+        '/api/v1/backtest'
       ];
       return targets.some(t => path.startsWith(t));
     },
@@ -141,13 +176,13 @@ async function startServer() {
   }
 
   // Start HTTP listener
-  const server = app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Server running on http://localhost:${PORT}`);
+  const server = app.listen(PORT, HOST, () => {
+    console.log(`Server running on http://${HOST}:${PORT}`);
     console.log(`GEMINI_API_KEY configured: ${!!process.env.GEMINI_API_KEY}`);
     addLogEntry('server', 'startup', 'active', 'Server started and background tasks initialized');
   });
 
-  const io = new Server(server, { cors: { origin: '*' } });
+  const io = new Server(server, { cors: buildSocketCorsOptions() });
   app.set('io', io);
 
   io.on('connection', (socket) => {

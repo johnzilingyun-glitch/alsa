@@ -25,13 +25,16 @@ export function Toast() {
   };
 
   return (
-    <AnimatePresence>
+    <AnimatePresence mode="wait">
       {isOpen && (
-        <div className="fixed bottom-12 left-1/2 z-[300] -translate-x-1/2 pointer-events-none">
-          <motion.div
-            initial={{ opacity: 0, y: 40, scale: 0.9 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.9, transition: { duration: 0.2 } }}
+        <motion.div
+          key={toast.id}
+          initial={{ opacity: 0, y: 40, scale: 0.9 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          exit={{ opacity: 0, scale: 0.9, transition: { duration: 0.2 } }}
+          className="fixed bottom-12 left-1/2 z-[300] -translate-x-1/2 pointer-events-none"
+        >
+          <div
             className={cn(
               "flex items-center gap-3 rounded-2xl border bg-white px-6 py-4 shadow-2xl backdrop-blur-xl pointer-events-auto",
               type === 'success' ? "border-emerald-100" : type === 'error' ? "border-rose-100" : "border-indigo-100"
@@ -46,8 +49,8 @@ export function Toast() {
             <span className="text-sm font-bold text-zinc-950 tracking-tight whitespace-nowrap">
               {message}
             </span>
-          </motion.div>
-        </div>
+          </div>
+        </motion.div>
       )}
     </AnimatePresence>
   );

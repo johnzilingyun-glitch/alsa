@@ -12,6 +12,8 @@ from .sector import router as sector_router
 from .institutional import router as institutional_router
 from .mock_trading import router as mock_trading_router
 from .reflections import router as reflections_router
+from .trade_intents import router as trade_intents_router
+from .stock import router as stock_router
 
 api_router = APIRouter()
 api_router.include_router(analysis_router)
@@ -27,3 +29,5 @@ api_router.include_router(sector_router)
 api_router.include_router(institutional_router)
 api_router.include_router(mock_trading_router)
 api_router.include_router(reflections_router)
+api_router.include_router(trade_intents_router)
+api_router.include_router(stock_router)

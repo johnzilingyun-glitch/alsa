@@ -21,7 +21,7 @@ The project consists of three core components:
 - Integrates the event-driven intelligent signal center for real-time order execution.
 - **Path:** `python_service/`
 - **Environment:** Managed by `uv` (`.venv`).
-- **Run Command:** `cd python_service && .venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000`
+- **Run Command:** `cd python_service && .venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000`
 
 ### 3. High-Fidelity Simulation Engine (Qlib - Python 3.9)
 - A standalone execution engine (`SimulatorExecutor`) used to align mathematical rigor with Qlib rules (e.g., A-share 100-lot downward rounding, high-precision commission, and slippage deduction).

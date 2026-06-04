@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { ArrowLeft, RefreshCw, TrendingUp, DollarSign, BarChart3, Wallet, X, Search, CandlestickChart, Link2 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, LineChart, Line } from 'recharts';
+import { init, dispose } from 'klinecharts';
 import { useTranslation } from 'react-i18next';
 import { useUIStore } from '../../stores/useUIStore';
 import { 
@@ -262,8 +263,150 @@ export function IBKRDashboard() {
   );
 }
 
-// ===== TradingView Chart Tab =====
+// ===== Parent Chart Tab with Engine Toggle =====
 function ChartTab({ symbol, onSymbolChange }: { symbol: string; onSymbolChange: (s: string) => void }) {
+  const [engine, setEngine] = useState<'local' | 'tradingview'>('local');
+
+  return (
+    <div className="flex flex-col h-full">
+      <div className="mb-4 flex items-center justify-between">
+        <div className="flex bg-zinc-100 p-1 rounded-xl">
+          <button
+            onClick={() => setEngine('local')}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+              engine === 'local' ? 'bg-white text-zinc-900 shadow-sm' : 'text-zinc-500 hover:text-zinc-700'
+            }`}
+          >
+            本地引擎 (国内推荐)
+          </button>
+          <button
+            onClick={() => setEngine('tradingview')}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+              engine === 'tradingview' ? 'bg-white text-zinc-900 shadow-sm' : 'text-zinc-500 hover:text-zinc-700'
+            }`}
+          >
+            TradingView (海外节点)
+          </button>
+        </div>
+      </div>
+      <div className="flex-1">
+        {engine === 'local' ? (
+          <LocalChartTab symbol={symbol} onSymbolChange={onSymbolChange} />
+        ) : (
+          <TradingViewChartTab symbol={symbol} onSymbolChange={onSymbolChange} />
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ===== Local KLineChart Tab (Replaces TradingView) =====
+function LocalChartTab({ symbol, onSymbolChange }: { symbol: string; onSymbolChange: (s: string) => void }) {
+  const { t } = useTranslation();
+  const containerRef = useRef<HTMLDivElement>(null);
+  const chartRef = useRef<any>(null);
+  const [inputValue, setInputValue] = useState(symbol);
+  const [loading, setLoading] = useState(false);
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (inputValue.trim()) onSymbolChange(inputValue.trim().toUpperCase());
+  };
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+    
+    // Initialize klinecharts
+    const chart = init(containerRef.current);
+    chartRef.current = chart;
+
+    chart?.setStyles({
+      grid: { show: true, horizontal: { style: 'dashed', color: '#f0f0f0' }, vertical: { show: false } },
+      candle: {
+        bar: {
+          upColor: '#ef4444', // Red for up in China
+          downColor: '#10b981', // Green for down in China
+          noChangeColor: '#888888',
+          upBorderColor: '#ef4444',
+          downBorderColor: '#10b981',
+          noChangeBorderColor: '#888888',
+          upWickColor: '#ef4444',
+          downWickColor: '#10b981',
+          noChangeWickColor: '#888888'
+        }
+      }
+    });
+
+    try {
+      chart?.createIndicator('MA', { isStack: false, pane: { id: 'candle_pane' } });
+      chart?.createIndicator('VOL', { isStack: false });
+    } catch(e) {
+      console.warn("Failed to create indicators", e);
+    }
+
+    return () => {
+      dispose(containerRef.current!);
+    };
+  }, []);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      if (!symbol || !chartRef.current) return;
+      setLoading(true);
+      try {
+        const res = await fetch(`/api/market/history/${symbol}?period=1y&interval=1d`);
+        if (!res.ok) throw new Error("Failed to fetch");
+        const result = await res.json();
+        
+        if (result.success && result.data && Array.isArray(result.data)) {
+          const chartData = result.data.map((item: any) => ({
+            timestamp: new Date(item.date).getTime(),
+            open: Number(item.open),
+            high: Number(item.high),
+            low: Number(item.low),
+            close: Number(item.close),
+            volume: Number(item.volume || 0),
+            turnover: Number(item.amount || 0)
+          }));
+          
+          chartRef.current.applyNewData(chartData);
+        }
+      } catch (err) {
+        console.error("Failed to load chart data", err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    fetchData();
+  }, [symbol]);
+
+  return (
+    <div className="flex flex-col h-full">
+      <form onSubmit={handleSubmit} className="mb-6 flex items-center gap-3">
+        <div className="relative flex-1 max-w-md">
+          <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-400" />
+          <input type="text" value={inputValue} onChange={(e) => setInputValue(e.target.value)} placeholder={t('ibkr.chart_placeholder')} className="w-full h-12 pl-11 pr-4 rounded-xl border border-zinc-200 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-indigo-600/10 focus:border-indigo-600/40" />
+        </div>
+        <button type="submit" disabled={loading} className="h-12 px-6 bg-indigo-600 text-white font-medium text-sm rounded-xl hover:bg-indigo-700 transition-colors disabled:opacity-50">
+          {loading ? <RefreshCw className="animate-spin" size={16} /> : t('ibkr.chart_view')}
+        </button>
+      </form>
+      <div className="border border-zinc-200 rounded-2xl overflow-hidden relative flex-1" style={{ height: 'calc(100vh - 340px)', minHeight: '450px' }}>
+        <div ref={containerRef} className="h-full w-full bg-white" />
+        {loading && (
+          <div className="absolute inset-0 bg-white/50 backdrop-blur-sm flex items-center justify-center">
+            <RefreshCw size={32} className="animate-spin text-indigo-600" />
+          </div>
+        )}
+      </div>
+      <p className="mt-3 text-xs text-zinc-400 text-center">K线图表由 KLineChart 提供技术支持，本地化直连零延迟渲染</p>
+    </div>
+  );
+}
+
+// ===== TradingView Chart Tab =====
+function TradingViewChartTab({ symbol, onSymbolChange }: { symbol: string; onSymbolChange: (s: string) => void }) {
   const { t } = useTranslation();
   const containerRef = useRef<HTMLDivElement>(null);
   const [inputValue, setInputValue] = useState(symbol);
@@ -306,7 +449,7 @@ function ChartTab({ symbol, onSymbolChange }: { symbol: string; onSymbolChange: 
   }, [symbol]);
 
   return (
-    <div>
+    <div className="flex flex-col h-full">
       <form onSubmit={handleSubmit} className="mb-6 flex items-center gap-3">
         <div className="relative flex-1 max-w-md">
           <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-400" />
@@ -314,7 +457,7 @@ function ChartTab({ symbol, onSymbolChange }: { symbol: string; onSymbolChange: 
         </div>
         <button type="submit" className="h-12 px-6 bg-indigo-600 text-white font-medium text-sm rounded-xl hover:bg-indigo-700 transition-colors">{t('ibkr.chart_view')}</button>
       </form>
-      <div className="border border-zinc-200 rounded-2xl overflow-hidden" style={{ height: 'calc(100vh - 280px)', minHeight: '500px' }}>
+      <div className="border border-zinc-200 rounded-2xl overflow-hidden" style={{ height: 'calc(100vh - 340px)', minHeight: '450px' }}>
         <div ref={containerRef} className="tradingview-widget-container h-full w-full" />
       </div>
       <p className="mt-3 text-xs text-zinc-400 text-center">{t('ibkr.chart_powered_by')}</p>

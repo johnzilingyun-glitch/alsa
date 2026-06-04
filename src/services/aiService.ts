@@ -1,29 +1,97 @@
-import { StockAnalysis, Market, MarketOverview, AgentMessage, Scenario, AgentDiscussion, StockInfo } from "../types";
-import { analyzeStock as _analyzeStock, sendChatMessage as _sendChatMessage, getStockReport as _getStockReport, getDiscussionReport as _getDiscussionReport, getChatReport as _getChatReport } from "./analysisService";
-import { getMarketOverview as _getMarketOverview, getDailyReport as _getDailyReport, getMarketSnapshot as _getMarketSnapshot } from "./marketService";
-import { startAgentDiscussion as _startAgentDiscussion, startMultiRoundDiscussion as _startMultiRoundDiscussion, answerDiscussionQuestion as _answerDiscussionQuestion, generateNewConclusion as _generateNewConclusion, routeUserQuestion as _routeUserQuestion } from "./discussionService";
-import { saveAnalysisToHistory as _saveAnalysisToHistory, getHistoryContext as _getHistoryContext, deleteHistoryItem as _deleteHistoryItem } from "./adminService";
-
-// Re-export core functions from new services
-export const analyzeStock = _analyzeStock;
-export const sendChatMessage = _sendChatMessage;
-export const getStockReport = _getStockReport;
-export const getDiscussionReport = _getDiscussionReport;
-export const getChatReport = _getChatReport;
-export const getMarketOverview = _getMarketOverview;
-export const getMarketSnapshot = _getMarketSnapshot;
-export const getDailyReport = _getDailyReport;
-export const startAgentDiscussion = _startAgentDiscussion;
-export const startMultiRoundDiscussion = _startMultiRoundDiscussion;
-export const answerDiscussionQuestion = _answerDiscussionQuestion;
-export const generateNewConclusion = _generateNewConclusion;
-export const routeUserQuestion = _routeUserQuestion;
-export const saveAnalysisToHistory = _saveAnalysisToHistory;
-export const getHistoryContext = _getHistoryContext;
-export const deleteHistoryItem = _deleteHistoryItem;
-
-// Export helper functions for backward compatibility if needed
+import type { StockInfo, MarketOverview } from "../types";
 export { getApiKey, withRetry, parseJsonResponse, extractJsonBlock } from "./geminiService";
+
+type AnalysisModule = typeof import('./analysisService');
+type MarketModule = typeof import('./marketService');
+type DiscussionModule = typeof import('./discussionService');
+type AdminModule = typeof import('./adminService');
+
+const loadAnalysisService = (): Promise<AnalysisModule> => import('./analysisService');
+const loadMarketService = (): Promise<MarketModule> => import('./marketService');
+const loadDiscussionService = (): Promise<DiscussionModule> => import('./discussionService');
+const loadAdminService = (): Promise<AdminModule> => import('./adminService');
+
+type AsyncReturn<T> = T extends (...args: any[]) => Promise<infer R> ? Promise<R> : never;
+
+export async function analyzeStock(...args: Parameters<AnalysisModule['analyzeStock']>): AsyncReturn<AnalysisModule['analyzeStock']> {
+  const service = await loadAnalysisService();
+  return service.analyzeStock(...args) as AsyncReturn<AnalysisModule['analyzeStock']>;
+}
+
+export async function sendChatMessage(...args: Parameters<AnalysisModule['sendChatMessage']>): AsyncReturn<AnalysisModule['sendChatMessage']> {
+  const service = await loadAnalysisService();
+  return service.sendChatMessage(...args) as AsyncReturn<AnalysisModule['sendChatMessage']>;
+}
+
+export async function getStockReport(...args: Parameters<AnalysisModule['getStockReport']>): AsyncReturn<AnalysisModule['getStockReport']> {
+  const service = await loadAnalysisService();
+  return service.getStockReport(...args) as AsyncReturn<AnalysisModule['getStockReport']>;
+}
+
+export async function getDiscussionReport(...args: Parameters<AnalysisModule['getDiscussionReport']>): AsyncReturn<AnalysisModule['getDiscussionReport']> {
+  const service = await loadAnalysisService();
+  return service.getDiscussionReport(...args) as AsyncReturn<AnalysisModule['getDiscussionReport']>;
+}
+
+export async function getChatReport(...args: Parameters<AnalysisModule['getChatReport']>): AsyncReturn<AnalysisModule['getChatReport']> {
+  const service = await loadAnalysisService();
+  return service.getChatReport(...args) as AsyncReturn<AnalysisModule['getChatReport']>;
+}
+
+export async function getMarketOverview(...args: Parameters<MarketModule['getMarketOverview']>): AsyncReturn<MarketModule['getMarketOverview']> {
+  const service = await loadMarketService();
+  return service.getMarketOverview(...args) as AsyncReturn<MarketModule['getMarketOverview']>;
+}
+
+export async function getMarketSnapshot(...args: Parameters<MarketModule['getMarketSnapshot']>): AsyncReturn<MarketModule['getMarketSnapshot']> {
+  const service = await loadMarketService();
+  return service.getMarketSnapshot(...args) as AsyncReturn<MarketModule['getMarketSnapshot']>;
+}
+
+export async function getDailyReport(...args: Parameters<MarketModule['getDailyReport']>): AsyncReturn<MarketModule['getDailyReport']> {
+  const service = await loadMarketService();
+  return service.getDailyReport(...args) as AsyncReturn<MarketModule['getDailyReport']>;
+}
+
+export async function startAgentDiscussion(...args: Parameters<DiscussionModule['startAgentDiscussion']>): AsyncReturn<DiscussionModule['startAgentDiscussion']> {
+  const service = await loadDiscussionService();
+  return service.startAgentDiscussion(...args) as AsyncReturn<DiscussionModule['startAgentDiscussion']>;
+}
+
+export async function startMultiRoundDiscussion(...args: Parameters<DiscussionModule['startMultiRoundDiscussion']>): AsyncReturn<DiscussionModule['startMultiRoundDiscussion']> {
+  const service = await loadDiscussionService();
+  return service.startMultiRoundDiscussion(...args) as AsyncReturn<DiscussionModule['startMultiRoundDiscussion']>;
+}
+
+export async function answerDiscussionQuestion(...args: Parameters<DiscussionModule['answerDiscussionQuestion']>): AsyncReturn<DiscussionModule['answerDiscussionQuestion']> {
+  const service = await loadDiscussionService();
+  return service.answerDiscussionQuestion(...args) as AsyncReturn<DiscussionModule['answerDiscussionQuestion']>;
+}
+
+export async function generateNewConclusion(...args: Parameters<DiscussionModule['generateNewConclusion']>): AsyncReturn<DiscussionModule['generateNewConclusion']> {
+  const service = await loadDiscussionService();
+  return service.generateNewConclusion(...args) as AsyncReturn<DiscussionModule['generateNewConclusion']>;
+}
+
+export async function routeUserQuestion(...args: Parameters<DiscussionModule['routeUserQuestion']>): AsyncReturn<DiscussionModule['routeUserQuestion']> {
+  const service = await loadDiscussionService();
+  return service.routeUserQuestion(...args) as AsyncReturn<DiscussionModule['routeUserQuestion']>;
+}
+
+export async function saveAnalysisToHistory(...args: Parameters<AdminModule['saveAnalysisToHistory']>): AsyncReturn<AdminModule['saveAnalysisToHistory']> {
+  const service = await loadAdminService();
+  return service.saveAnalysisToHistory(...args) as AsyncReturn<AdminModule['saveAnalysisToHistory']>;
+}
+
+export async function getHistoryContext(...args: Parameters<AdminModule['getHistoryContext']>): AsyncReturn<AdminModule['getHistoryContext']> {
+  const service = await loadAdminService();
+  return service.getHistoryContext(...args) as AsyncReturn<AdminModule['getHistoryContext']>;
+}
+
+export async function deleteHistoryItem(...args: Parameters<AdminModule['deleteHistoryItem']>): AsyncReturn<AdminModule['deleteHistoryItem']> {
+  const service = await loadAdminService();
+  return service.deleteHistoryItem(...args) as AsyncReturn<AdminModule['deleteHistoryItem']>;
+}
 
 export function validateStockInfo(info: StockInfo): void {
   if (!info.symbol || !info.name) {

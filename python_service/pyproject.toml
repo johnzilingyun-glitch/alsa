@@ -25,7 +25,11 @@ dependencies = [
     "jinja2",
     "pyyaml",
     "markdown2",
-    "openbb"
+    "openbb",
+    "ddgs>=9.0.0",
+    "google-genai>=2.7.0",
+    "langgraph>=1.2.4",
+    "mem0ai>=2.0.4",
 ]
 
 [tool.setuptools]

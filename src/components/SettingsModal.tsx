@@ -1,4 +1,4 @@
-import React, { useEffect, useCallback } from 'react';
+import React, { useEffect } from 'react';
 import { X, Settings, ShieldCheck, Cpu, AlertTriangle, Globe, Info, RefreshCw, Loader2, CheckCircle2, Sparkles, Eye, EyeOff, Trash2, Github, ExternalLink, LogOut } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useConfigStore } from '../stores/useConfigStore';
@@ -32,19 +32,6 @@ export function SettingsModal() {
 
 
   const displayModels = [...(availableModels.length > 0 ? availableModels : AVAILABLE_MODELS), ...DEEPSEEK_MODELS];
-
-  // Sync API keys to .env on the server
-  const syncEnvKeys = useCallback((cfg: typeof config) => {
-    const updates: Record<string, string> = {
-      DEEPSEEK_API_KEY: cfg.deepseekApiKey || '',
-      GEMINI_API_KEY: cfg.apiKey || '',
-    };
-    fetch('/api/diagnostics/env/update', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ updates }),
-    }).catch(() => {});
-  }, []);
 
   const handleFetchModels = async () => {
     setIsFetchingModels(true);
@@ -160,14 +147,13 @@ export function SettingsModal() {
                         id="api-key-input"
                         value={config.apiKey || ''}
                         onChange={(e) => setConfig({ ...config, apiKey: e.target.value })}
-                        onBlur={() => syncEnvKeys(config)}
                         disabled={serviceMode === 'managed_no_key'}
                         className="input-premium pr-24 font-mono w-full disabled:opacity-60 disabled:cursor-not-allowed"
                       />
                       <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-2">
                         {config.apiKey && (
                           <button
-                            onClick={() => { setConfig({ ...config, apiKey: '' }); syncEnvKeys({ ...config, apiKey: '' }); }}
+                            onClick={() => setConfig({ ...config, apiKey: '' })}
                             className="p-1.5 text-zinc-300 hover:text-rose-500 transition-colors"
                             title="清空"
                           >
@@ -275,13 +261,12 @@ export function SettingsModal() {
                         id="deepseek-api-key-input"
                         value={config.deepseekApiKey || ''}
                         onChange={(e) => setConfig({ ...config, deepseekApiKey: e.target.value })}
-                        onBlur={() => syncEnvKeys(config)}
                         className="input-premium pr-24 font-mono w-full bg-white"
                       />
                       <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-2">
                         {config.deepseekApiKey && (
                           <button
-                            onClick={() => { setConfig({ ...config, deepseekApiKey: '' }); syncEnvKeys({ ...config, deepseekApiKey: '' }); }}
+                            onClick={() => setConfig({ ...config, deepseekApiKey: '' })}
                             className="p-1.5 text-zinc-300 hover:text-rose-500 transition-colors"
                           >
                             <Trash2 size={16} />

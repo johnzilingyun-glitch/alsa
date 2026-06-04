@@ -104,7 +104,7 @@ skills:
     enabled: true
     description: "Batch pre-search enrichment for expert roles"
   searxng_backend:
-    enabled: true
+    enabled: false
     description: "Use SearXNG as primary search backend"
   ddg_fallback:
     enabled: true

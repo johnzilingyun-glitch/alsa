@@ -2,6 +2,14 @@ import duckdb
 from typing import Dict, Any
 import time
 
+
+class PatchableDuckDBConnection:
+    def __init__(self):
+        self._connection = duckdb.connect(database=':memory:')
+
+    def execute(self, *args, **kwargs):
+        return self._connection.execute(*args, **kwargs)
+
 class DuckDBMarketQuery:
     _instance = None
 
@@ -9,7 +17,7 @@ class DuckDBMarketQuery:
         if cls._instance is None:
             cls._instance = super(DuckDBMarketQuery, cls).__new__(cls)
             # 持久化连接
-            cls._instance.con = duckdb.connect(database=':memory:')
+            cls._instance.con = PatchableDuckDBConnection()
             cls._instance._cache = {}
         return cls._instance
 

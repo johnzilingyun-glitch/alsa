@@ -121,6 +121,9 @@ describe('useDecisionStore', () => {
   });
 
   it('does not include future reviews in pending', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-05-01T10:00:00Z'));
+
     useDecisionStore.setState({
       entries: [{
         id: '1',
@@ -133,11 +136,13 @@ describe('useDecisionStore', () => {
         priceAtDecision: 150,
         confidence: 70,
         createdAt: '2026-04-01',
-        reviewDate: '2026-06-01', // Future date
+        reviewDate: '2026-06-01',
       }],
     });
     const pending = useDecisionStore.getState().getPendingReviews();
     expect(pending).toHaveLength(0);
+
+    vi.useRealTimers();
   });
 
   it('does not include already reviewed entries in pending', () => {

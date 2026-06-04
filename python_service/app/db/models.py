@@ -1,6 +1,7 @@
 from typing import Optional, List
 from sqlmodel import SQLModel, Field, Relationship
 from datetime import datetime
+from ..time_utils import utc_now
 import uuid
 
 class User(SQLModel, table=True):
@@ -8,13 +9,13 @@ class User(SQLModel, table=True):
     display_name: str
     role: str = "viewer"  # admin/researcher/viewer
     status: str = "active"
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=utc_now)
 
 class Watchlist(SQLModel, table=True):
     watchlist_id: str = Field(primary_key=True, default_factory=lambda: f"wl_{uuid.uuid4().hex[:8]}")
     user_id: str = Field(foreign_key="user.user_id")
     name: str
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=utc_now)
 
 class WatchlistItem(SQLModel, table=True):
     item_id: str = Field(primary_key=True, default_factory=lambda: f"item_{uuid.uuid4().hex[:8]}")
@@ -24,7 +25,7 @@ class WatchlistItem(SQLModel, table=True):
     name: Optional[str] = None
     tags: Optional[str] = None  # JSON string
     notes: Optional[str] = None
-    added_at: datetime = Field(default_factory=datetime.utcnow)
+    added_at: datetime = Field(default_factory=utc_now)
 
 class AnalysisJob(SQLModel, table=True):
     job_id: str = Field(primary_key=True)
@@ -40,10 +41,22 @@ class AnalysisJob(SQLModel, table=True):
     analysis_id: Optional[str] = None
     error_code: Optional[str] = None
     error_message: Optional[str] = None
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=utc_now)
     started_at: Optional[datetime] = None
     finished_at: Optional[datetime] = None
     result_payload: Optional[str] = None  # Legacy JSON string support
+
+class DataSnapshot(SQLModel, table=True):
+    snapshot_id: str = Field(primary_key=True, default_factory=lambda: f"snap_{uuid.uuid4().hex[:8]}")
+    symbol: str = Field(index=True)
+    market: str = Field(index=True)
+    as_of: str
+    source: str
+    quality: str = "verified"
+    confidence: float = 1.0
+    payload_json: str = "{}"
+    created_at: datetime = Field(default_factory=utc_now)
+
 
 class AnalysisRun(SQLModel, table=True):
     analysis_id: str = Field(primary_key=True, default_factory=lambda: f"ana_{uuid.uuid4().hex[:8]}")
@@ -56,7 +69,14 @@ class AnalysisRun(SQLModel, table=True):
     score: float
     risk_level: str  # low/medium/high
     status: str = "completed"  # completed/archived/superseded
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    prompt_version: str = "v1"
+    model_provider: str = "unknown"
+    model_name: str = "unknown"
+    model_version: Optional[str] = None
+    schema_version: str = "analysis.v1"
+    approval_state: str = "draft"
+    human_reviewer: Optional[str] = None
+    created_at: datetime = Field(default_factory=utc_now)
 
 class AnalysisArtifact(SQLModel, table=True):
     artifact_id: str = Field(primary_key=True, default_factory=lambda: f"art_{uuid.uuid4().hex[:8]}")
@@ -64,7 +84,7 @@ class AnalysisArtifact(SQLModel, table=True):
     artifact_type: str  # input_snapshot/output_json/report_html/discussion_log
     storage_path: str
     content_hash: Optional[str] = None
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=utc_now)
 
 class JournalEntry(SQLModel, table=True):
     journal_id: str = Field(primary_key=True, default_factory=lambda: f"jou_{uuid.uuid4().hex[:8]}")
@@ -78,7 +98,7 @@ class JournalEntry(SQLModel, table=True):
     reasoning: Optional[str] = None
     review_due_at: Optional[datetime] = None
     outcome_label: str = "unknown"  # win/lose/unknown
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=utc_now)
 
 class SearchAlert(SQLModel, table=True):
     alert_id: str = Field(primary_key=True, default_factory=lambda: f"alt_{uuid.uuid4().hex[:8]}")
@@ -92,7 +112,7 @@ class SearchAlert(SQLModel, table=True):
     currency: str = "CNY"
     status: str = "active"  # active/triggered/closed
     triggered_at: Optional[datetime] = None
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=utc_now)
     # Signal Postmortem fields
     exit_price: Optional[float] = None
     exit_date: Optional[datetime] = None
@@ -120,7 +140,7 @@ class ReflectionMemory(SQLModel, table=True):
     lessons: str  # JSON list string
     agent_reflections: str  # JSON list string
     market_context: str
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=utc_now)
 
 class Catalyst(SQLModel, table=True):
     """Track upcoming catalysts (earnings, product launches, regulatory events) for signals."""
@@ -134,7 +154,7 @@ class Catalyst(SQLModel, table=True):
     impact_magnitude: Optional[str] = None  # high/medium/low
     status: str = "pending"  # pending/occurred/cancelled
     actual_result: Optional[str] = None  # What actually happened
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=utc_now)
 
 class PromptVersion(SQLModel, table=True):
     prompt_version_id: str = Field(primary_key=True, default_factory=lambda: f"pv_{uuid.uuid4().hex[:8]}")
@@ -144,7 +164,7 @@ class PromptVersion(SQLModel, table=True):
     template_path: str
     schema_name: str
     status: str = "active"  # active/canary/deprecated
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=utc_now)
 
 class PromptRun(SQLModel, table=True):
     prompt_run_id: str = Field(primary_key=True, default_factory=lambda: f"pr_{uuid.uuid4().hex[:8]}")
@@ -160,7 +180,7 @@ class PromptRun(SQLModel, table=True):
     tool_calls: int = 0
     source_coverage_score: float = 0.0
     drift_score: float = 0.0
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=utc_now)
 
 class AuditLog(SQLModel, table=True):
     audit_id: str = Field(primary_key=True, default_factory=lambda: f"aud_{uuid.uuid4().hex[:8]}")
@@ -170,7 +190,7 @@ class AuditLog(SQLModel, table=True):
     resource_id: str
     before_json: Optional[str] = None
     after_json: Optional[str] = None
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=utc_now)
 
 # Default initial balances per market
 MARKET_DEFAULT_BALANCE = {
@@ -194,8 +214,10 @@ class MockAccount(SQLModel, table=True):
     currency: str = "CNY"
     initial_balance: float = 1000000.0
     current_cash: float = 1000000.0
+    purchasing_power: float = 1000000.0  # Added for margin support
+    maintenance_margin: float = 0.0      # Added for margin support
     status: str = "active"  # active/archived
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=utc_now)
 
 class MockPosition(SQLModel, table=True):
     position_id: str = Field(primary_key=True, default_factory=lambda: f"pos_{uuid.uuid4().hex[:8]}")
@@ -204,8 +226,8 @@ class MockPosition(SQLModel, table=True):
     market: str
     shares: int = 0
     average_cost: float = 0.0
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
 
 class MockTrade(SQLModel, table=True):
     trade_id: str = Field(primary_key=True, default_factory=lambda: f"trd_{uuid.uuid4().hex[:8]}")
@@ -219,7 +241,7 @@ class MockTrade(SQLModel, table=True):
     realized_pnl: Optional[float] = None  # PnL realized on SELL trades
     trigger_source: str  # AI_SIGNAL/MANUAL
     related_alert_id: Optional[str] = None
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=utc_now)
 
 class MockAccountSnapshot(SQLModel, table=True):
     snapshot_id: str = Field(primary_key=True, default_factory=lambda: f"snap_{uuid.uuid4().hex[:8]}")
@@ -228,7 +250,24 @@ class MockAccountSnapshot(SQLModel, table=True):
     total_equity: float
     cash_balance: float
     positions_market_value: float
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=utc_now)
+
+class TradeIntent(SQLModel, table=True):
+    intent_id: str = Field(primary_key=True, default_factory=lambda: f"tin_{uuid.uuid4().hex[:8]}")
+    user_id: str = Field(default="default_user")
+    symbol: str = Field(index=True)
+    market: str = Field(index=True)
+    side: str
+    quantity: float
+    notional: float
+    source_analysis_run_id: Optional[str] = None
+    thesis: str
+    approval_state: str = "draft"
+    risk_result_json: str = "{}"
+    approved_by: Optional[str] = None
+    submitted_at: Optional[datetime] = None
+    created_at: datetime = Field(default_factory=utc_now)
+
 
 class AnomalyLog(SQLModel, table=True):
     log_id: str = Field(primary_key=True, default_factory=lambda: f"anom_{uuid.uuid4().hex[:8]}")
@@ -237,4 +276,17 @@ class AnomalyLog(SQLModel, table=True):
     event_type: str  # SPIKE/DROP
     magnitude_pct: float
     news_reasoning: Optional[str] = None
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=utc_now)
+
+class PendingOrder(SQLModel, table=True):
+    order_id: str = Field(primary_key=True, default_factory=lambda: f"ord_{uuid.uuid4().hex[:8]}")
+    account_id: str = Field(foreign_key="mockaccount.account_id", index=True)
+    symbol: str = Field(index=True)
+    market: str
+    action: str  # BUY/SELL
+    order_type: str  # LIMIT/STOP/STOP_LIMIT
+    shares: int
+    target_price: float
+    stop_price: Optional[float] = None
+    status: str = "pending"  # pending/executed/cancelled
+    created_at: datetime = Field(default_factory=utc_now)

@@ -2,9 +2,10 @@ from typing import List, Optional
 from sqlmodel import Session, select
 from ..models import (
     MockAccount, MockPosition, MockTrade, MockAccountSnapshot, AnomalyLog,
-    MARKET_DEFAULT_BALANCE, MARKET_CURRENCY,
+    PendingOrder, MARKET_DEFAULT_BALANCE, MARKET_CURRENCY,
 )
 from datetime import datetime
+from ...time_utils import utc_now
 
 
 class MockTradingRepo:
@@ -150,11 +151,49 @@ class MockTradingRepo:
         else:
             position.shares = shares
             position.average_cost = average_cost
-            position.updated_at = datetime.utcnow()
+            position.updated_at = utc_now()
         self.session.add(position)
         self.session.commit()
         self.session.refresh(position)
         return position
+
+    # ── Pending Orders CRUD ───────────────────────────────────────
+
+    def create_pending_order(self, account_id: str, symbol: str, market: str, action: str, order_type: str, shares: int, target_price: float, stop_price: Optional[float] = None) -> PendingOrder:
+        order = PendingOrder(
+            account_id=account_id,
+            symbol=symbol,
+            market=market,
+            action=action,
+            order_type=order_type,
+            shares=shares,
+            target_price=target_price,
+            stop_price=stop_price,
+            status="pending"
+        )
+        self.session.add(order)
+        self.session.commit()
+        self.session.refresh(order)
+        return order
+
+    def get_pending_order(self, order_id: str) -> Optional[PendingOrder]:
+        return self.session.get(PendingOrder, order_id)
+
+    def list_pending_orders(self, account_id: str, symbol: Optional[str] = None, status: str = "pending") -> List[PendingOrder]:
+        stmt = select(PendingOrder).where(PendingOrder.account_id == account_id, PendingOrder.status == status)
+        if symbol:
+            stmt = stmt.where(PendingOrder.symbol == symbol)
+        stmt = stmt.order_by(PendingOrder.created_at.desc())  # type: ignore[union-attr]
+        return list(self.session.exec(stmt).all())
+
+    def update_pending_order_status(self, order_id: str, status: str) -> bool:
+        order = self.get_pending_order(order_id)
+        if order:
+            order.status = status
+            self.session.add(order)
+            self.session.commit()
+            return True
+        return False
 
     # ── Trade Ledger ──────────────────────────────────────────────
 

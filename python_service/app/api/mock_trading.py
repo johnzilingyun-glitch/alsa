@@ -26,8 +26,10 @@ class TradeExecute(BaseModel):
     symbol: str
     market: str
     action: str  # BUY / SELL
+    order_type: str = "MARKET"
     shares: int
-    execution_price: float
+    target_price: float
+    stop_price: Optional[float] = None
     trigger_source: str = "MANUAL"  # MANUAL / AI_SIGNAL
     position_size_pct: Optional[float] = None
 
@@ -130,27 +132,69 @@ async def merge_accounts(payload: MergeAccounts):
 @router.post("/trades")
 async def execute_trade(payload: TradeExecute):
     svc = _get_service()
-    trade = svc.execute_trade(
+    result = svc.place_order(
         account_id=payload.account_id,
         symbol=payload.symbol,
         market=payload.market,
         action=payload.action,
+        order_type=payload.order_type,
         shares=payload.shares,
-        execution_price=payload.execution_price,
+        target_price=payload.target_price,
+        stop_price=payload.stop_price,
         trigger_source=payload.trigger_source,
-        position_size_pct=payload.position_size_pct,
     )
-    if not trade:
-        raise HTTPException(400, "Trade execution failed (insufficient funds/shares or inactive account)")
-    return {"success": True, "data": {
-        "trade_id": trade.trade_id,
-        "action": trade.action,
-        "symbol": trade.symbol,
-        "shares": trade.shares,
-        "execution_price": trade.execution_price,
-        "realized_pnl": trade.realized_pnl,
-        "timestamp": str(trade.timestamp),
-    }}
+    if not result:
+        raise HTTPException(400, "Order placement failed")
+    
+    # Check if result is a PendingOrder or a MockTrade
+    if hasattr(result, "order_id"):
+        return {"success": True, "data": {
+            "order_id": result.order_id,
+            "status": "pending",
+            "message": "Order queued"
+        }}
+    else:
+        return {"success": True, "data": {
+            "trade_id": result.trade_id,
+            "action": result.action,
+            "symbol": result.symbol,
+            "shares": result.shares,
+            "execution_price": result.execution_price,
+            "realized_pnl": result.realized_pnl,
+            "timestamp": str(result.timestamp),
+        }}
+
+@router.get("/pending-orders/{account_id}")
+async def list_pending_orders(account_id: str):
+    svc = _get_service()
+    orders = svc.repo.list_pending_orders(account_id)
+    return {"success": True, "data": [{
+        "order_id": o.order_id,
+        "symbol": o.symbol,
+        "market": o.market,
+        "action": o.action,
+        "order_type": o.order_type,
+        "shares": o.shares,
+        "target_price": o.target_price,
+        "stop_price": o.stop_price,
+        "status": o.status,
+        "created_at": str(o.created_at)
+    } for o in orders]}
+
+class ProcessOrders(BaseModel):
+    account_id: str
+    current_prices: dict
+
+@router.post("/pending-orders/process")
+async def process_pending_orders(payload: ProcessOrders):
+    svc = _get_service()
+    trades = svc.process_pending_orders(payload.account_id, payload.current_prices)
+    return {"success": True, "data": [{
+        "trade_id": t.trade_id,
+        "symbol": t.symbol,
+        "action": t.action,
+        "execution_price": t.execution_price,
+    } for t in trades]}
 
 @router.get("/trades/{account_id}")
 async def list_trades(account_id: str, symbol: Optional[str] = None):

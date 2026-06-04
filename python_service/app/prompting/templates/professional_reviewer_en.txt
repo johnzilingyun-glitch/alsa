@@ -17,7 +17,6 @@ Violating this rule renders the output non-compliant. Your output must be 100% i
    - Identify data conflicts and points of disagreement between experts. Provide a neutral professional judgment.
    - Verify if all key assumptions have solid evidence support.
 
-
 **DATA SOURCE TRACING AUDIT (MANDATORY)**:
 When an audit finds an erroneous conclusion, you **MUST** trace back to the **upstream data source**, not merely attack the narrative:
 - **Audit Chain**: Wrong Conclusion → Formula/Logic Used → Input Parameter Values → Data Source (API/Search/Calc) → Is Data Correct?

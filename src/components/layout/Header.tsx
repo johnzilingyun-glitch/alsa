@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, memo } from 'react';
+import React, { useState, useEffect, useRef, memo, lazy, Suspense } from 'react';
 import { Download, Bell, History, Clock, Settings, Loader2, Search, TrendingUp, Zap, BarChart3, Microscope, Languages, Menu, X, Target, Activity, BrainCircuit, Wrench, BarChart2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useTranslation } from 'react-i18next';
@@ -9,7 +9,8 @@ import { useAnalysisStore } from '../../stores/useAnalysisStore';
 import { useConfigStore } from '../../stores/useConfigStore';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
-import { BrainEvolutionModal } from '../dashboard/BrainEvolutionModal';
+
+const BrainEvolutionModal = lazy(() => import('../dashboard/BrainEvolutionModal').then(m => ({ default: m.BrainEvolutionModal })));
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -294,10 +295,7 @@ export const Header = memo(function Header({
               {showToolbox && (
                 <div className="absolute top-14 right-0 z-50 bg-white rounded-2xl shadow-2xl border border-zinc-200 p-3 min-w-[200px] space-y-1 animate-in fade-in slide-in-from-top-2">
                   <button onClick={() => { setShowAdminPanel(!showAdminPanel); if (!showAdminPanel) onFetchAdminData(); setShowToolbox(false); }} className="flex w-full items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-zinc-600 hover:bg-zinc-50 transition-colors">
-                    <Activity size={18} /> Console
-                  </button>
-                  <button onClick={() => { setShowAdminPanel(!showAdminPanel); if (!showAdminPanel) onFetchAdminData(); setShowToolbox(false); }} className="flex w-full items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-zinc-600 hover:bg-zinc-50 transition-colors">
-                    <Clock size={18} /> {t('header.sysLogs')}
+                    <Activity size={18} /> {t('header.sysLogs')}
                   </button>
                   <button onClick={() => { setShowBrainEvolution(true); setShowToolbox(false); }} className="flex w-full items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-purple-600 hover:bg-purple-50 transition-colors">
                     <BrainCircuit size={18} /> 🧠 进化 AI
@@ -329,7 +327,7 @@ export const Header = memo(function Header({
                   <History size={18} /> {t('header.history')}
                 </button>
                 <button onClick={() => { setShowAdminPanel(!showAdminPanel); if (!showAdminPanel) onFetchAdminData(); setShowMobileMenu(false); }} className="flex w-full items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-zinc-600 hover:bg-zinc-50 transition-colors">
-                  <Clock size={18} /> {t('header.sysLogs')}
+                  <Activity size={18} /> {t('header.sysLogs')}
                 </button>
                 <button onClick={() => { setShowIBKRDashboard(true); setShowMobileMenu(false); }} className="flex w-full items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-zinc-600 hover:bg-zinc-50 transition-colors">
                   <BarChart3 size={18} /> IBKR 实盘
@@ -343,9 +341,7 @@ export const Header = memo(function Header({
                 <button onClick={() => { setIsSettingsOpen(true); setShowMobileMenu(false); }} className="flex w-full items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-zinc-600 hover:bg-zinc-50 transition-colors">
                   <Settings size={18} /> {t('header.settings')}
                 </button>
-                <button onClick={() => { setShowAdminPanel(!showAdminPanel); if (!showAdminPanel) onFetchAdminData(); setShowMobileMenu(false); }} className="flex w-full items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-zinc-600 hover:bg-zinc-50 transition-colors">
-                  <Activity size={18} /> Console
-                </button>
+
                 <button onClick={() => { setShowBrainEvolution(true); setShowMobileMenu(false); }} className="flex w-full items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-purple-600 hover:bg-purple-50 transition-colors">
                   <BrainCircuit size={18} /> 🧠 进化 AI
                 </button>
@@ -483,10 +479,14 @@ export const Header = memo(function Header({
       </form>
       </div>
     </header>
-    <BrainEvolutionModal 
-      isOpen={showBrainEvolution} 
-      onClose={() => setShowBrainEvolution(false)} 
-    />
+    {showBrainEvolution && (
+      <Suspense fallback={null}>
+        <BrainEvolutionModal
+          isOpen={showBrainEvolution}
+          onClose={() => setShowBrainEvolution(false)}
+        />
+      </Suspense>
+    )}
     </>
   );
 });

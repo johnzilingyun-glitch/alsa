@@ -29,10 +29,10 @@ export function generateQuantitativeBaseline(analysis: Partial<StockAnalysis>): 
     pe, pb, roe, debtToEquity: debt, netProfitGrowth: growth, grossMargin: margin
   });
 
-  const intrinsicValue = calculateIntrinsicValueEstimate(price, roe, growth);
+  const intrinsicValueEstimate = calculateIntrinsicValueEstimate(price, roe, growth);
 
   // 2. Calculate Scenarios & Expected Value
-  const { scenarios, expectedValueOutcome } = projectScenarios(price, intrinsicValue, indicators?.resistanceShort, indicators?.supportShort);
+  const { scenarios, expectedValueOutcome } = projectScenarios(price, intrinsicValueEstimate.value, indicators?.resistanceShort, indicators?.supportShort);
 
   // 3. Generate Trading Plan
   const tradingPlan = generateBaselineTradingPlan(price, scenarios, indicators);

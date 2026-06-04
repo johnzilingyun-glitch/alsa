@@ -19,6 +19,7 @@ engine = create_engine(f"sqlite:///{DATABASE_URL}", connect_args={"check_same_th
 def init_db():
     SQLModel.metadata.create_all(engine)
     _migrate_alert_postmortem(engine)
+    _migrate_analysis_lineage(engine)
 
 def get_session():
     with Session(engine) as session:
@@ -58,5 +59,28 @@ def _migrate_alert_postmortem(eng):
     for col_name, col_type in new_cols:
         if col_name not in existing:
             cursor.execute(f"ALTER TABLE searchalert ADD COLUMN {col_name} {col_type}")
+    conn.commit()
+    conn.close()
+
+
+def _migrate_analysis_lineage(eng):
+    import sqlite3
+    db_path = str(eng.url).replace("sqlite:///", "")
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    cursor.execute("PRAGMA table_info(analysisrun)")
+    existing = {row[1] for row in cursor.fetchall()}
+    new_cols = [
+        ("prompt_version", "VARCHAR DEFAULT 'v1'"),
+        ("model_provider", "VARCHAR DEFAULT 'unknown'"),
+        ("model_name", "VARCHAR DEFAULT 'unknown'"),
+        ("model_version", "VARCHAR"),
+        ("schema_version", "VARCHAR DEFAULT 'analysis.v1'"),
+        ("approval_state", "VARCHAR DEFAULT 'draft'"),
+        ("human_reviewer", "VARCHAR"),
+    ]
+    for col_name, col_type in new_cols:
+        if col_name not in existing:
+            cursor.execute(f"ALTER TABLE analysisrun ADD COLUMN {col_name} {col_type}")
     conn.commit()
     conn.close()

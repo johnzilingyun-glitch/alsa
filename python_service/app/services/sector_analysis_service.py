@@ -58,7 +58,7 @@ class SectorAnalysisService:
             except Exception as e:
                 print(f"[SectorAnalysis] Sector stock pre-enrichment failed (non-fatal): {e}")
 
-            self.update_progress(job_id, "discussion", 30)
+            self.update_progress(job_id, "discussion", 30, message="正在搜索和整理板块市场数据...")
 
             # 2. Run sector expert discussion
             job = self.job_repo.get_by_id(job_id)
@@ -67,9 +67,15 @@ class SectorAnalysisService:
                 requested_model = job.requested_model
 
             def report_progress(round_num, total, msg, count=None, error_type=None):
-                self.update_progress(job_id, "discussion", 30 + int((round_num / total) * 55),
-                                     round=round_num, total_rounds=total, message=msg,
-                                     count=count, error_type=error_type)
+                # round_num=0 means pre-search phase, show 30-35%
+                if round_num == 0:
+                    self.update_progress(job_id, "discussion", 32,
+                                         round=0, total_rounds=total, message=msg,
+                                         count=count, error_type=error_type)
+                else:
+                    self.update_progress(job_id, "discussion", 35 + int((round_num / total) * 50),
+                                         round=round_num, total_rounds=total, message=msg,
+                                         count=count, error_type=error_type)
 
             discussion_messages = await discussion_service.run_discussion(
                 sector_name,           # symbol → sector_name

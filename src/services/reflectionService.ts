@@ -194,8 +194,10 @@ export async function retrieveMemories(
     if (entry.symbol === symbol) score += 10;
 
     // Keyword overlap with lessons and market context
+    const lessons = Array.isArray(entry.lessons) ? entry.lessons : [];
+    const agentReflections = Array.isArray(entry.agentReflections) ? entry.agentReflections : [];
     const docTokens = tokenize(
-      `${entry.symbol} ${entry.lessons.join(' ')} ${entry.marketContext} ${entry.agentReflections.map((r: any) => r.insight).join(' ')}`
+      `${entry.symbol} ${lessons.join(' ')} ${entry.marketContext || ''} ${agentReflections.map((r: any) => r?.insight || '').join(' ')}`
     );
 
     for (const token of docTokens) {
@@ -203,7 +205,8 @@ export async function retrieveMemories(
     }
 
     // Recency bonus (newer entries rank higher)
-    const ageMs = Date.now() - new Date(entry.date).getTime();
+    const entryDate = (entry as any).date || (entry as any).timestamp || new Date().toISOString();
+    const ageMs = Date.now() - new Date(entryDate).getTime();
     const ageDays = ageMs / (1000 * 60 * 60 * 24);
     if (ageDays < 7) score += 3;
     else if (ageDays < 30) score += 1;
@@ -224,14 +227,18 @@ export function formatMemoryForPrompt(matches: MemoryMatch[]): string {
 
   const lines = matches.map((m, i) => {
     const e = m.entry;
-    const outcome = e.outcome.status === 'Target Hit' ? '✅ Target Hit' :
-      e.outcome.status === 'Stop Loss Hit' ? '❌ Stop-Loss Hit' :
-      `⏳ In Progress (${e.outcome.returnSincePrev})`;
+    const outcomeData = e.outcome || { status: 'In Progress', returnSincePrev: 'N/A' };
+    const lessons = Array.isArray(e.lessons) ? e.lessons : [];
+    const agentReflections = Array.isArray(e.agentReflections) ? e.agentReflections : [];
+    const entryDate = (e as any).date || (e as any).timestamp || 'N/A';
+    const outcome = outcomeData.status === 'Target Hit' ? 'Target Hit' :
+      outcomeData.status === 'Stop Loss Hit' ? 'Stop-Loss Hit' :
+      `In Progress (${outcomeData.returnSincePrev || 'N/A'})`;
 
-    return `**Memory ${i + 1}** [${e.symbol} on ${e.date}]:
-- Recommendation: ${e.recommendation} → ${outcome}
-- Lessons: ${e.lessons.join('; ')}
-- Key Insight: ${e.agentReflections[0]?.insight || 'N/A'}`;
+    return `**Memory ${i + 1}** [${e.symbol} on ${entryDate}]:
+- Recommendation: ${e.recommendation || 'N/A'} -> ${outcome}
+- Lessons: ${lessons.join('; ') || 'N/A'}
+- Key Insight: ${agentReflections[0]?.insight || 'N/A'}`;
   });
 
   return `

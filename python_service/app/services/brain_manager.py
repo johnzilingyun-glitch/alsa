@@ -1,7 +1,6 @@
 import os
 import json
 from jinja2 import Template
-from mem0 import Memory
 from dotenv import load_dotenv
 from google import genai
 from typing import Optional, List, Dict, Any
@@ -50,6 +49,11 @@ class BrainManager:
             return self._memory
         if self._memory_init_failed:
             return None
+        if os.getenv("PYTEST_CURRENT_TEST") or os.getenv("DISABLE_VECTOR_MEMORY", "").lower() == "true":
+            self._memory_init_failed = True
+            return None
+
+        from mem0 import Memory
 
         default_provider = os.getenv("DEFAULT_LLM_PROVIDER", "gemini").lower()
         is_gemini = default_provider == "gemini" and self.api_key

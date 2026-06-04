@@ -115,7 +115,7 @@ router.get('/analysis/jobs/:analysisId/:jobId', async (req, res) => {
 
     if (fastApiJob.status === 'completed' && record.status !== 'completed') {
       // 2. Fetch Brain Context (Facts and Evolved Instructions)
-      let brainFacts = [];
+      let brainFacts: string[] = [];
       let evolvedInstructions = '';
       try {
         const brainRes = await axiosClient.get(`${PYTHON_SERVICE_URL}/api/brain/context?user_id=default&query=${record.symbol}`);

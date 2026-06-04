@@ -1,10 +1,10 @@
 from fastapi import APIRouter, HTTPException, BackgroundTasks
 from pydantic import BaseModel
 from typing import Optional, Dict, Any
-import subprocess
 import os
 import json
 import logging
+from ..services.backtest_engine_service import BacktestEngine
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -15,15 +15,14 @@ class BacktestRequest(BaseModel):
     model: str
     market: str = "CN"
 
-# Path to the qlib project
+# Path to the qlib project for saving results
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 QLIB_DIR = os.path.join(PROJECT_ROOT, "PaperTrading_System")
+if not os.path.exists(QLIB_DIR):
+    os.makedirs(os.path.join(QLIB_DIR, "execution_layer"), exist_ok=True)
 RESULTS_FILE = os.path.join(QLIB_DIR, "execution_layer", "results.json")
 
-def run_qlib_subprocess(req: BacktestRequest):
-    python_exec = os.path.join(QLIB_DIR, ".venv_qlib", "bin", "python")
-    script = os.path.join(QLIB_DIR, "execution_layer", "run_backtest_core.py")
-    
+def run_native_backtest(req: BacktestRequest):
     # Clean previous result
     if os.path.exists(RESULTS_FILE):
         try:
@@ -32,28 +31,27 @@ def run_qlib_subprocess(req: BacktestRequest):
             pass
             
     try:
-        logger.info(f"Starting Qlib backtest subprocess for {req.model} from {req.start_date} to {req.end_date}")
-        result = subprocess.run(
-            [python_exec, script, "--start", req.start_date, "--end", req.end_date, "--model", req.model],
-            cwd=PROJECT_ROOT,
-            capture_output=True,
-            text=True,
-            check=True
-        )
+        logger.info(f"Starting Native backtest for {req.model} from {req.start_date} to {req.end_date}")
+        engine = BacktestEngine(init_cash=100000.0)
+        results = engine.run(req.start_date, req.end_date, req.model, req.market)
+        
+        with open(RESULTS_FILE, "w", encoding="utf-8") as f:
+            json.dump(results, f, indent=2)
+            
         logger.info("Backtest completed successfully.")
-        logger.debug(result.stdout)
-    except subprocess.CalledProcessError as e:
-        logger.error(f"Backtest failed: {e.stderr}")
+    except Exception as e:
+        logger.error(f"Backtest failed: {e}")
+        # write error to results.json so frontend knows
+        error_result = {"status": "error", "message": str(e)}
+        with open(RESULTS_FILE, "w", encoding="utf-8") as f:
+            json.dump(error_result, f, indent=2)
 
 @router.post("/run")
 async def trigger_backtest(req: BacktestRequest, background_tasks: BackgroundTasks):
     """
     Trigger backtest in a background task so we don't block the API.
     """
-    if not os.path.exists(os.path.join(QLIB_DIR, ".venv_qlib")):
-        raise HTTPException(status_code=500, detail="Qlib virtual environment not found.")
-        
-    background_tasks.add_task(run_qlib_subprocess, req)
+    background_tasks.add_task(run_native_backtest, req)
     return {"status": "started", "message": "Backtest running in background"}
 
 @router.get("/results")
@@ -67,6 +65,11 @@ async def get_backtest_results():
     try:
         with open(RESULTS_FILE, "r", encoding="utf-8") as f:
             data = json.load(f)
+            
+        if data.get("status") == "error":
+            return {"status": "error", "message": data.get("message")}
+            
         return {"status": "completed", "data": data}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+

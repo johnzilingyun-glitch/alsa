@@ -1,4 +1,5 @@
 import os
+import json
 import asyncio
 from typing import List, Dict, Any, Optional
 from datetime import datetime
@@ -23,8 +24,8 @@ DEEP_TOPOLOGY = [
     {"round": 5, "experts": ["Bull Researcher", "Bear Researcher"], "parallel": True},
     # Round 6: 逻辑纠偏（审查多空辩论中的确认偏差和叙事过拟合）
     {"round": 6, "experts": ["Professional Reviewer"], "parallel": False},
-    # Round 7: 流派大师升华（Soros反身性 + Value安全边际）
-    {"round": 7, "experts": ["Soros-style Financial Philosopher", "Value Investing Sage"], "parallel": True},
+    # Round 7: 流派大师升华（Soros反身性 + Value安全边际 + Serenity Alpha小盘弹性）
+    {"round": 7, "experts": ["Soros-style Financial Philosopher", "Value Investing Sage", "Serenity Alpha Analyst"], "parallel": True},
     # Round 8: 逆向思维寻找共识之外的特立独行机会
     {"round": 8, "experts": ["Contrarian Strategist"], "parallel": False},
     # Round 9: 风险量化（VaR/仓位/止损/相关性/尾部风险）
@@ -35,7 +36,7 @@ DEEP_TOPOLOGY = [
 
 STANDARD_TOPOLOGY = [
     {"round": 1, "experts": ["Deep Research Specialist"], "parallel": False},
-    {"round": 2, "experts": ["Technical Analyst", "Fundamental Analyst"], "parallel": True},
+    {"round": 2, "experts": ["Technical Analyst", "Fundamental Analyst", "Serenity Alpha Analyst"], "parallel": True},
     {"round": 3, "experts": ["Chief Audit Officer"], "parallel": False},
     {"round": 4, "experts": ["Risk Manager"], "parallel": False},
     {"round": 5, "experts": ["Professional Reviewer"], "parallel": False},
@@ -52,7 +53,7 @@ QUICK_TOPOLOGY = [
 # --- Sector Analysis Topology ---
 SECTOR_TOPOLOGY = [
     {"round": 1, "experts": ["Sector Macro Strategist"], "parallel": False},
-    {"round": 2, "experts": ["Sector Stock Screener"], "parallel": False},
+    {"round": 2, "experts": ["Sector Stock Screener", "Serenity Alpha Analyst"], "parallel": True},
     {"round": 3, "experts": ["Sector Risk Auditor"], "parallel": False},
     {"round": 4, "experts": ["Sector Chief Strategist"], "parallel": False},
 ]
@@ -88,10 +89,9 @@ class DiscussionService:
 
     async def run_discussion(self, symbol: str, name: str, snapshot: Dict[str, Any], level: str = "standard", language: str = "zh-CN", model: str = None, on_progress: Optional[callable] = None, job_id: str = "temp_job_id", config: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
         """
-        Runs the full expert discussion flow.
+        Runs the full expert discussion flow using LangGraph.
         """
         topology = self.build_topology(level)
-        messages = []
         market = snapshot.get("market", "us")
         self._cumulative_count = 0  # Track total chars across all experts
         
@@ -100,48 +100,95 @@ class DiscussionService:
         tool_executor.clear_cache()
         
         # Pre-search enrichment: batch search ONCE before all experts
+        # Report progress during search phase (stays between 30-35%)
         search_results = {}
         try:
-            search_results = await search_toolkit.batch_search(symbol, name, snapshot)
+            if on_progress:
+                on_progress(0, total_rounds, "正在搜索市场数据...")
+            from .search_toolkit import search_toolkit
+            # Timeout batch_search at 30s to prevent blocking forever on failing searches
+            search_results = await asyncio.wait_for(
+                search_toolkit.batch_search(symbol, name, snapshot),
+                timeout=30.0
+            )
+        except asyncio.TimeoutError:
+            print(f"[DiscussionService] Pre-search enrichment TIMED OUT (30s) — continuing without search data")
         except Exception as e:
             print(f"[DiscussionService] Pre-search enrichment failed (non-fatal): {e}")
-        
-        total_rounds = len(topology)
-        for i, round_info in enumerate(topology):
-            round_num = i + 1
-            experts_str = ', '.join(round_info['experts'])
-            print(f"Round {round_num}: {experts_str}")
             
-            if on_progress:
-                on_progress(round_num, total_rounds, f"Round {round_num}: {experts_str}")
-
-            try:
-                if round_info["parallel"]:
-                    tasks = [self._call_expert(expert, symbol, name, snapshot, messages, language, model=model, search_results=search_results, market=market, job_id=job_id, on_progress=on_progress, round_num=round_num, total_rounds=total_rounds, config=config) for expert in round_info["experts"]]
-                    results = await asyncio.gather(*tasks, return_exceptions=True)
-                    for r in results:
-                        if isinstance(r, Exception):
-                            err_str = str(r)
-                            if "stopped by user" in err_str:
-                                print(f"[DiscussionService] User stop detected during parallel round {round_num}, returning partial results")
-                                return messages  # Return what we have so far
-                            # Other errors — add an empty expert entry
-                            messages.append({"role": "Error", "content": "", "timestamp": datetime.now().isoformat()})
-                        else:
-                            messages.append(r)
-                else:
-                    for expert in round_info["experts"]:
-                        result = await self._call_expert(expert, symbol, name, snapshot, messages, language, model=model, search_results=search_results, market=market, job_id=job_id, on_progress=on_progress, round_num=round_num, total_rounds=total_rounds, config=config)
-                        messages.append(result)
-            except Exception as e:
-                if "stopped by user" in str(e):
-                    print(f"[DiscussionService] User stop detected at round {round_num}, returning partial results ({len(messages)} messages)")
-                    return messages  # Return partial results
-                raise
+        total_rounds = len(topology)
         
-        return messages
+        from typing import TypedDict, Annotated, Union
+        import operator
+        from langgraph.graph import StateGraph, START, END
+        
+        class AgentState(TypedDict):
+            messages: Annotated[list, operator.add]
+            history_states: Annotated[dict, operator.ior]
 
-    async def _call_expert(self, role: str, symbol: str, name: str, snapshot: Dict[str, Any], history: List[Dict[str, Any]], language: str, job_id: str = "temp_job_id", prompt_version_id: str = "v1", model: str = None, search_results: Dict[str, Any] = None, market: str = "us", on_progress: Optional[callable] = None, round_num: int = 1, total_rounds: int = 1, config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        builder = StateGraph(AgentState)
+        
+        def make_node(expert_role, r_num):
+            async def node_func(state: AgentState):
+                if on_progress:
+                    on_progress(r_num, total_rounds, f"Round {r_num}: {expert_role}")
+                
+                # Pass structured state to _call_expert instead of raw history
+                result = await self._call_expert(
+                    role=expert_role, symbol=symbol, name=name, snapshot=snapshot,
+                    history=state.get("history_states", {}),
+                    language=language, model=model, search_results=search_results,
+                    market=market, job_id=job_id, on_progress=on_progress,
+                    round_num=r_num, total_rounds=total_rounds, config=config
+                )
+                
+                msg = result
+                new_state = {}
+                is_final = expert_role in ("Chief Strategist", "Sector Chief Strategist")
+                if not is_final:
+                    try:
+                        import json, re
+                        content = msg["content"]
+                        json_match = re.search(r'\{.*\}', content, re.DOTALL)
+                        if json_match:
+                            parsed = json.loads(json_match.group(0))
+                            new_state = {expert_role: parsed}
+                        else:
+                            new_state = {expert_role: content}
+                    except Exception as e:
+                        new_state = {expert_role: msg["content"]}
+                
+                return {"messages": [msg], "history_states": new_state}
+            return node_func
+
+        for r_num, round_info in enumerate(topology, 1):
+            for expert in round_info["experts"]:
+                builder.add_node(expert, make_node(expert, r_num))
+                
+        for expert in topology[0]["experts"]:
+            builder.add_edge(START, expert)
+            
+        for i in range(len(topology) - 1):
+            curr_experts = topology[i]["experts"]
+            next_experts = topology[i+1]["experts"]
+            for curr_ex in curr_experts:
+                for next_ex in next_experts:
+                    builder.add_edge(curr_ex, next_ex)
+                    
+        for expert in topology[-1]["experts"]:
+            builder.add_edge(expert, END)
+            
+        graph = builder.compile()
+        initial_state = {"messages": [], "history_states": {}}
+        
+        try:
+            result_state = await graph.ainvoke(initial_state)
+            return result_state["messages"]
+        except Exception as e:
+            print(f"[DiscussionService] Error in LangGraph execution: {e}")
+            raise
+
+    async def _call_expert(self, role: str, symbol: str, name: str, snapshot: Dict[str, Any], history: Dict[str, Any], language: str, job_id: str = "temp_job_id", prompt_version_id: str = "v1", model: str = None, search_results: Dict[str, Any] = None, market: str = "us", on_progress: Optional[callable] = None, round_num: int = 1, total_rounds: int = 1, config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """
         Assembles prompt and calls the LLM for a single expert role.
         """
@@ -169,8 +216,8 @@ class DiscussionService:
         name_lower = f"{symbol} {name}".lower()
         if any(keyword in name_lower for keyword in ["lithium", "锂", "battery", "电池", "ev", "电动车"]):
              commodity_data = await macro_service.get_commodity_prices(["Lithium Carbonate"])
-        elif any(keyword in name_lower for keyword in ["copper", "铜", "mining", "矿"]):
-             commodity_data = await macro_service.get_commodity_prices(["Copper"])
+        elif any(keyword in name_lower for keyword in ["copper", "铜", "gold", "金", "mining", "矿"]):
+             commodity_data = await macro_service.get_commodity_prices(["Copper", "Gold"])
         elif any(keyword in name_lower for keyword in ["铝", "aluminum", "alumin", "bauxite", "铝土"]):
              commodity_data = await macro_service.get_commodity_prices(["Aluminum", "Alumina"])
         elif any(keyword in name_lower for keyword in ["能源", "energy", "煤", "coal", "烯烃", "olefin", "化工", "chemical", "石化", "petro", "宝丰"]):
@@ -264,7 +311,7 @@ class DiscussionService:
             effective_max_rounds = 20
             # Other models — use tool-calling loop (web_search, news_search, knowledge_search)
             try:
-                content = await llm_gateway.generate_with_tools(prompt, model=model, max_tool_rounds=effective_max_rounds, on_chunk=_on_chunk, gemini_api_key=config.get("geminiApiKey") if config else None, deepseek_api_key=config.get("deepseekApiKey") if config else None)
+                content = await llm_gateway.generate_with_tools(prompt, model=model, role=role, max_tool_rounds=effective_max_rounds, on_chunk=_on_chunk, gemini_api_key=config.get("geminiApiKey") if config else None, deepseek_api_key=config.get("deepseekApiKey") if config else None)
             except Exception as e:
                 error_msg = str(e)
                 if "402" in error_msg or "Insufficient Balance" in error_msg:
@@ -292,7 +339,7 @@ class DiscussionService:
             "timestamp": datetime.now().isoformat()
         }
 
-    def _assemble_prompt(self, role: str, symbol: str, name: str, snapshot: Dict[str, Any], history: List[Dict[str, Any]], template: str, brain_ctx: Dict[str, Any], language: str, macro_data: Dict[str, Any] = None, commodity_data: Dict[str, Any] = None, peer_data: Dict[str, Any] = None, has_search_tools: bool = False, search_enrichment: Dict[str, Any] = None, use_native_tools: bool = False, macro_indicators: Dict[str, Any] = None, sentiment_data: Dict[str, Any] = None, market: str = "us", macro_regime_text: str = "") -> str:
+    def _assemble_prompt(self, role: str, symbol: str, name: str, snapshot: Dict[str, Any], history: Dict[str, Any], template: str, brain_ctx: Dict[str, Any], language: str, macro_data: Dict[str, Any] = None, commodity_data: Dict[str, Any] = None, peer_data: Dict[str, Any] = None, has_search_tools: bool = False, search_enrichment: Dict[str, Any] = None, use_native_tools: bool = False, macro_indicators: Dict[str, Any] = None, sentiment_data: Dict[str, Any] = None, market: str = "us", macro_regime_text: str = "") -> str:
         is_zh = language == "zh-CN"
         
         sections = []
@@ -326,6 +373,32 @@ class DiscussionService:
             "3. **Data-Driven**: Every conclusion must map to specific values or evidence. No hand-waving.\n"
             "4. **Contrarian Insight**: Identify logical contradictions or overlooked variables in the discussion."
         )
+        
+        sections.append("\n--- [MANDATORY] OUTPUT FORMAT & DISCIPLINE ---")
+        is_final_round = role in ("Chief Strategist", "Sector Chief Strategist")
+
+        if not is_final_round:
+            sections.append(
+                "1. **中间态结构化输出 (Intermediate State)**: 作为非最终报告编撰者，你必须输出标准的 JSON 格式。\n"
+                "   请输出形如 `{\"core_thesis\": \"...\", \"key_metrics_extracted\": [\"...\"], \"risks\": [\"...\"], \"rating\": \"...\"}` 的 JSON 对象。\n"
+                "   严禁在 JSON 之外输出任何多余内容，确保其他分析师可以完美解析该 JSON。\n"
+                "2. **单次输出**: 在所有必要的工具调用结束后，只输出一次 JSON。\n"
+                if is_zh else
+                "1. **Structured Intermediate State**: As a non-final analyst, you MUST output a standard JSON object.\n"
+                "   Output format: `{\"core_thesis\": \"...\", \"key_metrics_extracted\": [\"...\"], \"risks\": [\"...\"], \"rating\": \"...\"}`.\n"
+                "   Do NOT output anything outside the JSON.\n"
+                "2. **Single Pass**: Output only the JSON after all necessary tools are used.\n"
+            )
+        else:
+            sections.append(
+                "1. **最终输出要求**: 你的输出必须100%是面向投资者的专业分析内容。严禁包含工具调用计划（如'让我调用XX'）、内部推理过程、工具返回结果的元描述、或任何面向系统而非读者的过渡语。\n"
+                "2. **活泼的排版**: 强制使用标准 Markdown 语法排版。为了让报告看起来更生动，主标题推荐使用 Emoji 序号标号（如 1️⃣, 2️⃣ 等），增加活泼感。\n"
+                "3. **单次输出**: 在所有必要的工具调用结束后，只输出一次最终完整报告，删除任何中间草稿。\n"
+                if is_zh else
+                "1. **Final Output Rule**: Your output MUST be 100% professional analysis for investors. NO tool plans ('I will now call...'), internal reasoning, meta-descriptions of tool results, or transitional phrases.\n"
+                "2. **Lively Formatting**: Mandatory use of standard Markdown. To make the report more engaging, it is recommended to use Emoji numbers (e.g., 1️⃣, 2️⃣) for main section headers.\n"
+                "3. **Single Pass**: Output only the final comprehensive report after all necessary tools are used. Delete intermediate drafts.\n"
+            )
         
         sections.append("\n--- [API] MACRO & COMMODITY DATA ---")
         sections.append("以下数据来自权威数据源 (CFETS/期货交易所/Sina Finance/yfinance)，为辅助参考数据。")
@@ -670,17 +743,17 @@ class DiscussionService:
         sections.append(
             "以上 [API DATA / MARKET SNAPSHOT] 数据来自实时 API，为本次分析的**核心事实基准**。\n"
             "1. 所有推理和结论必须锚定这些数值，严禁使用训练数据中记忆的过时数据。\n"
-            "2. 如果某项数据显示为 N/A，查看搜索工具状态：有搜索权限则尝试搜索补充；无权限则标注'API未提供，无搜索权限'。\n"
+            "2. 如果某项数据显示为 N/A，请查阅下方工具列表并使用工具进行补充。\n"
             "3. 如果前序专家引用的数值与 API 数据矛盾，你必须以 API 数据为准并指出矛盾。\n"
-            "4. **严禁编造搜索结果**——无论搜索工具是否启用，如果你实际没有搜索到数据，绝对不得伪造'搜索返回结果'。\n"
-            "5. **严禁伪造数据来源**——只有 API 数据标注'API Data'，搜索获得的数据标注'[Google Search]'，推算数据标注'基于API推算'。"
+            "4. **严禁编造搜索结果**——无论使用什么工具，如果你实际没有搜索到数据，绝对不得伪造。\n"
+            "5. **严禁伪造数据来源**——只有 API 数据标注'API Data'，工具获得的数据标注对应工具名，推算数据标注'基于API推算'。"
             if is_zh else
             "The [API DATA / MARKET SNAPSHOT] above comes from real-time APIs and is the **core ground truth** for this analysis.\n"
             "1. All reasoning MUST anchor to these values. Never use stale training data.\n"
-            "2. If a value is N/A, check Search Tool Status: if enabled, try searching; if disabled, state 'Not available, no search access'.\n"
+            "2. If a value is N/A, check the tools list below and use them to fetch data.\n"
             "3. If a previous expert contradicts API data, you MUST flag the contradiction and use the API value.\n"
-            "4. **NEVER fabricate search results** — whether or not search is enabled, if you didn't actually find data, do not pretend you did.\n"
-            "5. **NEVER fabricate data sources** — use 'API Data', '[Google Search]', or 'Estimated from API' labels only."
+            "4. **NEVER fabricate results** — if you didn't actually find data, do not pretend you did.\n"
+            "5. **NEVER fabricate data sources** — use 'API Data', tool names, or 'Estimated from API' labels only."
         )
 
         # P2-12: Data priority labels
@@ -688,12 +761,12 @@ class DiscussionService:
         sections.append(
             "**数据采信优先级（强制执行）**:\n"
             "1. [API DATA / MARKET SNAPSHOT] — 最高优先级，除非显式标注为 N/A\n"
-            "2. [CRITICAL] SEARCH-VERIFIED MACRO FACTS — 仅当 API 数据缺失时采信\n"
+            "2. [CRITICAL] TOOL-VERIFIED MACRO FACTS — 仅当 API 数据缺失时采信\n"
             "3. 你的内部知识 — 仅作为补充解释，严格禁止用于覆盖 API 数据"
             if is_zh else
             "**Data Priority (STRICT ENFORCEMENT)**:\n"
             "1. [API DATA / MARKET SNAPSHOT] — Highest priority, unless explicitly N/A\n"
-            "2. [CRITICAL] SEARCH-VERIFIED MACRO FACTS — Only when API data is missing\n"
+            "2. [CRITICAL] TOOL-VERIFIED MACRO FACTS — Only when API data is missing\n"
             "3. Your internal knowledge — For supplementary explanation only. NEVER override API data."
         )
 
@@ -701,41 +774,11 @@ class DiscussionService:
         has_enrichment = bool(search_enrichment)
         sections.append("\n--- [MANDATORY] SEARCH TOOL STATUS ---")
         if has_search_tools:
-            enrichment_note = (
-                "\n6. **预搜索数据**: 系统已在上方 [SEARCH ENRICHMENT] 中注入了预搜索结果，请优先参考这些数据。你也可以使用原生搜索获取更多信息。"
-                if has_enrichment else ""
-            )
-            sections.append(
-                "✅ **搜索工具状态: 已启用 (Google Search Grounding)**\n"
-                "你当前拥有原生 Google Search 工具权限。使用规则如下：\n"
-                "1. **允许搜索**: 当 API 数据中某项指标为 N/A，或你需要获取最新新闻、行业数据、政策动态时，你可以且应该使用搜索工具获取实时数据。\n"
-                "2. **标注来源**: 搜索获得的数据必须标注为 '[Google Search]' 并注明搜索日期。\n"
-                "3. **交叉验证**: 搜索数据与 API 数据冲突时，以 API 数据为准，但可将搜索数据作为参考展示。\n"
-                "4. **禁止伪造**: 即使有搜索权限，如果搜索没有返回结果或返回了无关内容，你必须诚实标注'搜索未找到相关数据'，严禁编造搜索结果。\n"
-                "5. **适用场景**: 优先搜索——最新财报数据、行业竞争格局变化、政策/法规更新、近期重大新闻、分析师共识预期。"
-                f"{enrichment_note}"
-                if is_zh else
-                "✅ **Search Tool Status: ENABLED (Google Search Grounding)**\n"
-                "You currently have native Google Search tool access. Rules:\n"
-                "1. **Search allowed**: When API data shows N/A, or you need latest news/industry/policy data, you SHOULD use search.\n"
-                "2. **Cite sources**: Mark search-derived data as '[Google Search]' with date.\n"
-                "3. **Cross-validate**: API data always takes priority over search results in case of conflict.\n"
-                "4. **No fabrication**: If search returns nothing relevant, state 'search returned no results' — never fabricate.\n"
-                "5. **Use cases**: Latest earnings, competitive landscape, policy updates, breaking news, analyst consensus."
-                f"\n6. **Pre-search data**: The system has injected pre-search results in [SEARCH ENRICHMENT] above. Refer to these first, and use native search for additional info."
-                if has_enrichment else ""
-            )
-        else:
             if use_native_tools:
                 native_tool_msg = (
-                    "\u2705 **\u641c\u7d22\u5de5\u5177\u72b6\u6001: \u539f\u751f\u51fd\u6570\u8c03\u7528\u5df2\u542f\u7528 (Native Function Calling)**\n"
-                    "\u4f60\u62e5\u6709\u4ee5\u4e0b\u5de5\u5177\u51fd\u6570\uff0c\u7cfb\u7edf\u4f1a\u81ea\u52a8\u5904\u7406\u8c03\u7528\u683c\u5f0f\uff1a\n"
-                    "- **web_search(query)**: \u641c\u7d22\u4e92\u8054\u7f51\u83b7\u53d6\u8d22\u52a1\u6570\u636e\u3001\u5206\u6790\u5e08\u62a5\u544a\n"
-                    "- **news_search(query)**: \u641c\u7d22\u6700\u65b0\u65b0\u95fb\u3001\u516c\u544a\n"
-                    "- **knowledge_search(query)**: \u641c\u7d22\u672c\u5730\u77e5\u8bc6\u5e93\u83b7\u53d6\u5386\u53f2\u5206\u6790\n"
-                    "- **deep_scrape(url, query)**: \u6df1\u5ea6\u6293\u53d6URL\u7684\u5b8c\u6574\u5185\u5bb9\n"
-                    "- **financial_data(symbol, query)**: \u67e5\u8be2\u7ed3\u6784\u5316\u8d22\u52a1\u6570\u636e(\u5b63\u5ea6\u8d22\u62a5/\u8d44\u4ea7\u8d1f\u503a\u8868/\u73b0\u91d1\u6d41/\u5206\u7ea2\u7b49)\uff0c\u6bd4web_search\u66f4\u7cbe\u51c6\u53ef\u9760\n\n"
-                    "\u4f7f\u7528\u89c4\u5219\uff1aAPI \u6570\u636e\u4e3a N/A \u65f6\u4e3b\u52a8\u8c03\u7528\u5de5\u5177\u3002\u7981\u6b62\u4f2a\u9020\u5de5\u5177\u7ed3\u679c\u3002\u4f18\u5148 knowledge_search\u3002"
+                    "✅ **搜索工具状态: 原生函数调用已启用 (Native Function Calling)**\n"
+                    "你拥有系统原生提供的搜索工具（请参考 Function List）。\n"
+                    "使用规则：当 API 数据为 N/A 或你需要验证关键信息时，必须主动调用对应的工具。禁止伪造工具结果。"
                 )
                 if has_enrichment:
                     native_tool_msg += "\n\u4e0a\u65b9 [SEARCH ENRICHMENT] \u5df2\u6ce8\u5165\u9884\u641c\u7d22\u6570\u636e\uff0c\u4f18\u5148\u53c2\u8003\u3002"
@@ -743,72 +786,44 @@ class DiscussionService:
             elif has_enrichment:
                 sections.append(
                     "✅ **搜索工具状态: 工具调用已启用 + 系统预搜索已注入**\n"
-                    "你当前拥有以下工具权限，可通过 <tool_call> 格式主动调用：\n"
-                    "- **web_search**: 搜索互联网获取财务数据、分析师报告、公司信息\n"
-                    "- **news_search**: 搜索最新新闻、公告、监管动态\n"
-                    "- **knowledge_search**: 搜索本地知识库获取历史分析和积累洞察\n"
-                    "- **deep_scrape**: 深度抓取指定URL的完整内容（用于提取搜索结果中的详细文章/财报）\n"
-                    "- **financial_data**: 查询结构化财务数据(季度财报/资产负债表/现金流/分红等)，比web_search更精准可靠\n\n"
                     "使用规则：\n"
-                    "1. **主动使用工具**: 当 API 数据为 N/A 或你需要验证信息时，必须使用工具而非猜测。\n"
+                    "1. **主动使用工具**: 当 API 数据为 N/A 或你需要验证信息时，必须使用工具。\n"
                     "2. **预搜索数据**: 上方 [SEARCH ENRICHMENT] 已注入预搜索结果，优先参考。如需更多信息可发起工具调用。\n"
-                    "3. **标注来源**: 工具获得的数据标注为 '[Tool: web_search]' 或 '[Tool: financial_data]'。\n"
-                    "4. **禁止伪造**: 如果工具返回无结果，标注 'UNKNOWN — tool returned no results'，绝不编造。\n"
-                    "5. **数据优先级**: financial_data > knowledge_search > web_search（结构化数据优于搜索结果）。"
+                    "3. **禁止伪造**: 如果工具返回无结果，标注 'UNKNOWN'，绝不编造。"
                     if is_zh else
                     "✅ **Search Tool Status: Tool Calling ENABLED + Pre-Search INJECTED**\n"
-                    "You have access to the following tools via <tool_call> format:\n"
-                    "- **web_search**: Search internet for financial data, analyst reports, filings\n"
-                    "- **news_search**: Search for latest news, announcements, regulatory updates\n"
-                    "- **knowledge_search**: Search local knowledge base for historical analysis\n"
-                    "- **deep_scrape**: Deep-crawl a URL for full page content (use on URLs from web_search/news_search)\n\n"
                     "Rules:\n"
-                    "1. **Proactively use tools**: When API data is N/A or you need to verify info, use tools instead of guessing.\n"
-                    "2. **Pre-search data**: [SEARCH ENRICHMENT] above has pre-fetched results. Refer to those first, use tool calls for more.\n"
-                    "3. **Cite sources**: Mark tool-derived data as '[Tool: web_search]' or '[Tool: news_search]'.\n"
-                    "4. **No fabrication**: If tool returns no results, state 'UNKNOWN — tool returned no results'. Never fabricate.\n"
-                    "5. **Local first**: Prefer knowledge_search before web_search/news_search."
+                    "1. **Proactively use tools**: When API data is N/A or you need to verify info, use tools listed below.\n"
+                    "2. **Pre-search data**: [SEARCH ENRICHMENT] above has pre-fetched results. Refer to those first.\n"
+                    "3. **No fabrication**: If tool returns no results, state 'UNKNOWN'. Never fabricate."
                 )
             else:
                 sections.append(
                     "✅ **搜索工具状态: 工具调用已启用**\n"
-                    "你当前拥有以下工具权限，可通过 <tool_call> 格式主动调用：\n"
-                    "- **web_search**: 搜索互联网获取财务数据、分析师报告、公司信息\n"
-                    "- **news_search**: 搜索最新新闻、公告、监管动态\n"
-                    "- **knowledge_search**: 搜索本地知识库获取历史分析和积累洞察\n"
-                    "- **deep_scrape**: 深度抓取指定URL的完整内容（用于提取搜索结果中的详细文章/财报）\n"
-                    "- **financial_data**: 查询结构化财务数据(季度财报/资产负债表/现金流/分红等)，比web_search更精准可靠\n\n"
                     "使用规则：\n"
                     "1. **主动使用工具**: 当 API 数据为 N/A 或需要实时数据验证时，你必须使用工具获取数据，严禁猜测。\n"
-                    "2. **标注来源**: 工具获得的数据标注为 '[Tool: financial_data]' 或 '[Tool: web_search]'。\n"
-                    "3. **禁止伪造**: 如果工具返回无结果，标注 'UNKNOWN — tool returned no results'，绝不编造。\n"
-                    "4. **数据优先级**: financial_data > knowledge_search > web_search（结构化数据优于搜索结果）。\n"
-                    "5. **交叉验证**: 工具数据与 API 数据冲突时，以 API 数据为准。"
+                    "2. **禁止伪造**: 如果工具返回无结果，标注 'UNKNOWN'，绝不编造。\n"
+                    "3. **交叉验证**: 工具数据与 API 数据冲突时，以 API 数据为准。"
                     if is_zh else
                     "✅ **Search Tool Status: Tool Calling ENABLED**\n"
-                    "You have access to the following tools via <tool_call> format:\n"
-                    "- **web_search**: Search internet for financial data, analyst reports, filings\n"
-                    "- **news_search**: Search for latest news, announcements, regulatory updates\n"
-                    "- **knowledge_search**: Search local knowledge base for historical analysis\n"
-                    "- **deep_scrape**: Deep-crawl a URL for full page content (use on URLs from web_search/news_search)\n\n"
                     "Rules:\n"
-                    "1. **Proactively use tools**: When API data is N/A or real-time validation needed, you MUST use tools. Never guess.\n"
-                    "2. **Cite sources**: Mark tool-derived data as '[Tool: web_search]' or '[Tool: news_search]'.\n"
-                    "3. **No fabrication**: If tool returns no results, state 'UNKNOWN — tool returned no results'. Never fabricate.\n"
-                    "4. **Local first**: Prefer knowledge_search before web_search/news_search.\n"
-                    "5. **Cross-validate**: When tool data conflicts with API data, API takes priority."
+                    "1. **Proactively use tools**: When API data is N/A or real-time validation needed, you MUST use tools.\n"
+                    "2. **No fabrication**: If tool returns no results, state 'UNKNOWN'. Never fabricate.\n"
+                    "3. **Cross-validate**: When tool data conflicts with API data, API takes priority."
                 )
             
             if not use_native_tools:
                 # Inject text-based tool call format instructions (not needed for native API function calling)
-                sections.append("\n" + format_tool_descriptions(language))
+                sections.append("\n" + format_tool_descriptions(role=role, language=language))
 
         if history:
-            sections.append("\n--- PREVIOUS DISCUSSION ---")
-            for msg in history:
-                # Truncate to last 3000 chars per message (tail contains conclusions & key data)
-                truncated = msg['content'][-3000:] if len(msg['content']) > 3000 else msg['content']
-                sections.append(f"[{msg['role']}]: {truncated}")
+            sections.append("\\n--- PREVIOUS DISCUSSION (STRUCTURED JSON) ---")
+            for agent_role, state_data in history.items():
+                if isinstance(state_data, dict):
+                    sections.append(f"[{agent_role}]: {json.dumps(state_data, ensure_ascii=False)}")
+                else:
+                    truncated = str(state_data)[-8000:] if len(str(state_data)) > 8000 else str(state_data)
+                    sections.append(f"[{agent_role}]: {truncated}")
 
         sections.append(f"\nFinal Instruction: Respond in {'Simplified Chinese' if is_zh else 'English'}.")
         

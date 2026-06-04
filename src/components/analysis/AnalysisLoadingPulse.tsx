@@ -1,9 +1,10 @@
 import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useTranslation } from 'react-i18next';
-import { Loader2, Database, Brain, Search, Sparkles, Activity, Maximize2, Minimize2, CheckCircle2, XCircle, Clock, Target, Zap, AlertTriangle } from 'lucide-react';
+import { Loader2, Database, Brain, Search, Sparkles, Activity, Maximize2, Minimize2, CheckCircle2, XCircle, Clock, Target, Zap, AlertTriangle, Radio } from 'lucide-react';
 import { useUIStore } from '../../stores/useUIStore';
 import { useDiscussionStore } from '../../stores/useDiscussionStore';
+import { useConfigStore } from '../../stores/useConfigStore';
 import { cn } from './utils';
 
 const STEPS = [
@@ -39,6 +40,24 @@ export function AnalysisLoadingPulse() {
   const analysisTarget = useUIStore(s => s.analysisTarget);
   const analysisStartedAt = useUIStore(s => s.analysisStartedAt);
   const analysisError = useUIStore(s => s.analysisError);
+  const modelName = useConfigStore(s => s.config?.model) || 'default';
+  
+  // Track content count changes for "AI is streaming" indicator
+  const prevCountRef = useRef(0);
+  const [isStreaming, setIsStreaming] = useState(false);
+  const streamTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
+  
+  useEffect(() => {
+    if (contentCount > prevCountRef.current) {
+      prevCountRef.current = contentCount;
+      setIsStreaming(true);
+      // Clear previous timeout
+      if (streamTimeoutRef.current) clearTimeout(streamTimeoutRef.current);
+      // Mark as not streaming after 5s of no count change
+      streamTimeoutRef.current = setTimeout(() => setIsStreaming(false), 5000);
+    }
+    return () => { if (streamTimeoutRef.current) clearTimeout(streamTimeoutRef.current); };
+  }, [contentCount]);
   
   const currentRound = useDiscussionStore(s => s.currentRound);
   const totalRounds = useDiscussionStore(s => s.totalRounds);
@@ -159,12 +178,8 @@ export function AnalysisLoadingPulse() {
                 </h3>
                 <p className="text-xs text-zinc-500 mt-0.5 flex items-center gap-2 flex-wrap">
                   <span>{currentRound > 0 ? `Stage ${currentRound} of ${totalRounds}` : 'ALSA Intelligence Engine'}</span>
-                  {contentCount > 0 && (
-                    <>
-                      <span className="w-1 h-1 rounded-full bg-zinc-300" />
-                      <span className="text-indigo-600 font-medium">{contentCount.toLocaleString()} chars</span>
-                    </>
-                  )}
+                  <span className="w-1 h-1 rounded-full bg-zinc-300" />
+                  <span className="text-[10px] text-zinc-400 font-mono">{modelName}</span>
                 </p>
               </div>
             </div>
@@ -183,10 +198,28 @@ export function AnalysisLoadingPulse() {
                 <Clock size={12} className="text-amber-400" />
                 <span className="font-mono">{elapsed}</span>
               </div>
-              <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-emerald-50 border border-emerald-100/60 text-[10px] font-medium text-emerald-600">
-                <Zap size={11} className="text-emerald-400" />
-                预计 2~5 分钟
-              </div>
+              {contentCount > 0 ? (
+                <motion.div 
+                  key={contentCount}
+                  initial={{ scale: 1.15, opacity: 0.7 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                  className={cn(
+                    "flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] font-bold font-mono border",
+                    isStreaming 
+                      ? "bg-emerald-50 border-emerald-200/60 text-emerald-700" 
+                      : "bg-zinc-50 border-zinc-200/60 text-zinc-500"
+                  )}
+                >
+                  {isStreaming && <Radio size={11} className="text-emerald-500 animate-pulse" />}
+                  <span>{contentCount.toLocaleString()}</span>
+                  <span className="text-[9px] font-normal opacity-60">chars</span>
+                </motion.div>
+              ) : (
+                <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-emerald-50 border border-emerald-100/60 text-[10px] font-medium text-emerald-600">
+                  <Zap size={11} className="text-emerald-400" />
+                  AI 工作中不会超时
+                </div>
+              )}
             </div>
 
             {/* Stage Description */}

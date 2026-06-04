@@ -19,7 +19,8 @@
     "lint": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:all": "npm test && node -e \"const { spawnSync } = require('child_process'); const fs = require('fs'); const path = require('path'); const py = fs.existsSync(path.join('.venv', 'bin', 'python')) ? path.join('.venv', 'bin', 'python') : fs.existsSync(path.join('.venv', 'Scripts', 'python.exe')) ? path.join('.venv', 'Scripts', 'python.exe') : 'python'; process.exit(spawnSync(py, ['-m', 'pytest', 'python_service/tests'], { stdio: 'inherit', shell: true }).status || 0);\""
+    "test:all": "npm test && node -e \"const { spawnSync } = require('child_process'); const fs = require('fs'); const path = require('path'); const py = fs.existsSync(path.join('.venv', 'bin', 'python')) ? path.join('.venv', 'bin', 'python') : fs.existsSync(path.join('.venv', 'Scripts', 'python.exe')) ? path.join('.venv', 'Scripts', 'python.exe') : 'python'; process.exit(spawnSync(py, ['-m', 'pytest', 'python_service/tests'], { stdio: 'inherit', shell: true }).status || 0);\"",
+    "audit:repo": "node scripts/audit-repo-hygiene.js"
   },
   "dependencies": {
     "@google/genai": "^1.29.0",
@@ -36,6 +37,7 @@
     "http-proxy-middleware": "^3.0.5",
     "i18next": "^26.0.3",
     "i18next-browser-languagedetector": "^8.2.1",
+    "klinecharts": "^10.0.0-beta2",
     "lucide-react": "^0.546.0",
     "motion": "^12.23.24",
     "react": "^19.0.0",

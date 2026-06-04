@@ -26,6 +26,7 @@ class MacroService:
     COMMODITY_CODE_MAP = {
         "Lithium Carbonate": "LC",
         "Copper":             "CU",
+        "Gold":               "AU",
         "Aluminum":           "AL",
         "Alumina":            "AO",
         "Silicon":            "SI",
@@ -37,6 +38,7 @@ class MacroService:
     COMMODITY_UNITS = {
         "Lithium Carbonate": "元/吨",
         "Copper":             "元/吨",
+        "Gold":               "元/克",
         "Aluminum":           "元/吨",
         "Alumina":            "元/吨",
         "Silicon":            "元/吨",
@@ -51,6 +53,7 @@ class MacroService:
     SINA_FUTURES_CODE_MAP = {
         "Lithium Carbonate": "LC0",
         "Copper":             "CU0",
+        "Gold":               "AU0",
         "Aluminum":           "AL0",
         "Alumina":            "AO0",
         "Silicon":            "SI0",

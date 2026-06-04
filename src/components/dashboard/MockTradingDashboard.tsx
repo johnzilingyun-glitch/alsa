@@ -2,17 +2,16 @@ import { useState, useEffect, useCallback } from 'react';
 import { ArrowLeft, RefreshCw, TrendingUp, DollarSign, BarChart3, Wallet, Plus, Trash2, Activity, AlertTriangle, Clock, Combine } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import { useUIStore } from '../../stores/useUIStore';
-import {
-  listMockAccounts, createMockAccount, deleteMockAccount,
-  getPortfolio, getPortfolioWithPrices, listTrades, listSnapshots, listAnomalies,
-  type MockAccount, type PortfolioSummary, type MockTrade, type Snapshot, type AnomalyEntry
+import { listMockAccounts, createMockAccount, deleteMockAccount,
+  getPortfolio, getPortfolioWithPrices, listTrades, listSnapshots, listAnomalies, listPendingOrders,
+  type MockAccount, type PortfolioSummary, type MockTrade, type Snapshot, type AnomalyEntry, type PendingOrder
 } from '../../services/api/mockTradingClient';
 import { getQuotes } from '../../services/api/stockClient';
 import { fetchAccountSummary } from '../../services/ibkrService';
 import { TradeTicketModal } from './TradeTicketModal';
 import { AccountMergeModal } from './AccountMergeModal';
 
-type TabId = 'portfolio' | 'trades' | 'anomalies';
+type TabId = 'portfolio' | 'trades' | 'pending' | 'anomalies';
 
 const MARKET_OPTIONS = [
   { value: 'A-Share', label: 'A股 · CNY', currency: 'CNY', default: 1000000 },
@@ -31,6 +30,7 @@ export function MockTradingDashboard() {
   const [trades, setTrades] = useState<MockTrade[]>([]);
   const [snapshots, setSnapshots] = useState<Snapshot[]>([]);
   const [anomalies, setAnomalies] = useState<AnomalyEntry[]>([]);
+  const [pendingOrders, setPendingOrders] = useState<PendingOrder[]>([]);
   const [activeTab, setActiveTab] = useState<TabId>('portfolio');
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
@@ -82,15 +82,17 @@ export function MockTradingDashboard() {
         pf = await getPortfolioWithPrices(acc.account_id, priceMap).catch(() => pf);
       }
 
-      const [tr, sn, an] = await Promise.all([
+      const [tr, sn, an, po] = await Promise.all([
         listTrades(acc.account_id).catch(() => []),
         listSnapshots(acc.account_id).catch(() => []),
         listAnomalies(acc.account_id).catch(() => []),
+        listPendingOrders(acc.account_id).catch(() => []),
       ]);
       setPortfolio(pf);
       setTrades(tr);
       setSnapshots(sn);
       setAnomalies(an);
+      setPendingOrders(po);
     } catch (e) { console.error(e); }
   }, []);
 
@@ -103,6 +105,8 @@ export function MockTradingDashboard() {
   // 3-minute polling for live prices
   useEffect(() => {
     let interval: NodeJS.Timeout;
+    let consecutiveFailures = 0;
+
     if (selectedAccount && portfolio && portfolio.positions.length > 0) {
       interval = setInterval(async () => {
         try {
@@ -114,8 +118,15 @@ export function MockTradingDashboard() {
           });
           const updatedPf = await getPortfolioWithPrices(selectedAccount.account_id, priceMap);
           setPortfolio(updatedPf);
+          consecutiveFailures = 0; // Reset on success
         } catch (e) {
-          console.error("Failed to update live prices:", e);
+          consecutiveFailures++;
+          console.error(`Failed to update live prices (attempt ${consecutiveFailures}):`, e);
+          if (consecutiveFailures >= 3) {
+            console.error("Too many consecutive failures, stopping live price updates.");
+            clearInterval(interval);
+            useUIStore.getState().showToast('实时报价同步中断，请检查网络或刷新页面', 'error');
+          }
         }
       }, 3 * 60 * 1000);
     }
@@ -149,6 +160,7 @@ export function MockTradingDashboard() {
 
   const tabs: { id: TabId; label: string; icon: React.ReactNode }[] = [
     { id: 'portfolio', label: '持仓组合', icon: <Wallet size={16} /> },
+    { id: 'pending', label: '当前挂单', icon: <Clock size={16} /> },
     { id: 'trades', label: '交易记录', icon: <BarChart3 size={16} /> },
     { id: 'anomalies', label: '异常日志', icon: <AlertTriangle size={16} /> },
   ];
@@ -221,9 +233,8 @@ export function MockTradingDashboard() {
         {/* Summary Cards */}
         {selectedAccount && portfolio && (
           <>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
               <SummaryCard icon={<Wallet size={20} />} label="总资产" value={fmt(portfolio.total_equity, currency)} color="indigo" />
-              <SummaryCard icon={<DollarSign size={20} />} label="可用资金" value={fmt(portfolio.current_cash, currency)} color="zinc" />
               <SummaryCard
                 icon={<TrendingUp size={20} />}
                 label="累计盈亏"
@@ -231,7 +242,41 @@ export function MockTradingDashboard() {
                 subtitle={`${portfolio.total_pnl_pct >= 0 ? '+' : ''}${portfolio.total_pnl_pct.toFixed(2)}%`}
                 color={portfolio.total_pnl >= 0 ? 'emerald' : 'rose'}
               />
-              <SummaryCard icon={<BarChart3 size={20} />} label="持仓数" value={`${portfolio.positions.length} 只`} color="zinc" />
+              <SummaryCard icon={<DollarSign size={20} />} label="可用资金" value={fmt(portfolio.current_cash, currency)} color="zinc" />
+              {/* Max Drawdown */}
+              <SummaryCard 
+                icon={<Activity size={20} />} 
+                label="最大回撤" 
+                value={`${(() => {
+                  let maxPeak = 0;
+                  let maxDrawdown = 0;
+                  snapshots.forEach(s => {
+                    if (s.total_equity > maxPeak) maxPeak = s.total_equity;
+                    const drawdown = maxPeak > 0 ? (maxPeak - s.total_equity) / maxPeak : 0;
+                    if (drawdown > maxDrawdown) maxDrawdown = drawdown;
+                  });
+                  return (maxDrawdown * 100).toFixed(2) + '%';
+                })()}`} 
+                color="zinc" 
+              />
+              {/* Sharpe Ratio */}
+              <SummaryCard 
+                icon={<Activity size={20} />} 
+                label="夏普比率" 
+                value={`${(() => {
+                  if (snapshots.length < 2) return '--';
+                  const returns = [];
+                  for (let i = 1; i < snapshots.length; i++) {
+                    const ret = (snapshots[i].total_equity - snapshots[i-1].total_equity) / snapshots[i-1].total_equity;
+                    returns.push(ret);
+                  }
+                  const mean = returns.reduce((a, b) => a + b, 0) / returns.length;
+                  const variance = returns.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / returns.length;
+                  const stdDev = Math.sqrt(variance);
+                  return stdDev > 0 ? ((mean / stdDev) * Math.sqrt(252)).toFixed(2) : '0.00';
+                })()}`} 
+                color="zinc" 
+              />
             </div>
 
             {/* Tabs & Manual Trade */}
@@ -248,6 +293,9 @@ export function MockTradingDashboard() {
                     {tab.icon}{tab.label}
                     {tab.id === 'anomalies' && anomalies.length > 0 && (
                       <span className="ml-1 w-5 h-5 flex items-center justify-center text-[10px] font-bold bg-rose-500 text-white rounded-full">{anomalies.length}</span>
+                    )}
+                    {tab.id === 'pending' && pendingOrders.filter(o => o.status === 'pending').length > 0 && (
+                      <span className="ml-1 w-5 h-5 flex items-center justify-center text-[10px] font-bold bg-indigo-500 text-white rounded-full">{pendingOrders.filter(o => o.status === 'pending').length}</span>
                     )}
                   </button>
                 ))}
@@ -346,6 +394,61 @@ export function MockTradingDashboard() {
                     )}
                   </div>
                 </div>
+              </div>
+            )}
+
+            {/* Pending Orders Tab */}
+            {activeTab === 'pending' && (
+              <div className="p-6 bg-white border border-zinc-200 rounded-2xl">
+                <h3 className="text-lg font-bold text-zinc-900 mb-4">当前挂单 (Pending Orders)</h3>
+                {pendingOrders.length === 0 ? (
+                  <div className="text-center py-16 text-zinc-400">
+                    <Clock size={48} className="mx-auto opacity-10 mb-4" />
+                    <p className="text-sm">暂无挂单记录</p>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-zinc-100 text-zinc-500">
+                          <th className="text-left py-3 px-2 font-medium">时间</th>
+                          <th className="text-left py-3 px-2 font-medium">股票</th>
+                          <th className="text-center py-3 px-2 font-medium">方向</th>
+                          <th className="text-center py-3 px-2 font-medium">类型</th>
+                          <th className="text-right py-3 px-2 font-medium">数量</th>
+                          <th className="text-right py-3 px-2 font-medium">目标价格</th>
+                          <th className="text-center py-3 px-2 font-medium">状态</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {pendingOrders.map(o => (
+                          <tr key={o.order_id} className="border-b border-zinc-50 hover:bg-zinc-50 transition-colors">
+                            <td className="py-3 px-2 text-zinc-500 text-xs">{new Date(o.created_at).toLocaleString('zh-CN')}</td>
+                            <td className="py-3 px-2 font-semibold text-zinc-900">{o.symbol}</td>
+                            <td className="text-center py-3 px-2">
+                              <span className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-bold ${o.action === 'BUY' ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'}`}>
+                                {o.action === 'BUY' ? '买入' : '卖出'}
+                              </span>
+                            </td>
+                            <td className="text-center py-3 px-2">
+                              <span className="text-xs font-bold text-zinc-600">{o.order_type}</span>
+                            </td>
+                            <td className="text-right py-3 px-2 text-zinc-700">{o.shares}</td>
+                            <td className="text-right py-3 px-2 font-medium text-zinc-900">{o.target_price.toFixed(2)}</td>
+                            <td className="text-center py-3 px-2">
+                              <span className={`text-[10px] font-bold uppercase tracking-wider ${
+                                o.status === 'pending' ? 'text-indigo-600' : 
+                                o.status === 'executed' ? 'text-emerald-600' : 'text-zinc-400'
+                              }`}>
+                                {o.status}
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </div>
             )}
 

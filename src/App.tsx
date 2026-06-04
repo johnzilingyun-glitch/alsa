@@ -39,10 +39,7 @@ const BacktestPanel = lazy(() => import('./components/dashboard/BacktestPanel').
 export default function App() {
   console.log('App is rendering');
   const { t, i18n } = useTranslation();
-  const { language, config } = useConfigStore();
-  const model = config?.model;
-  const apiKey = config?.apiKey;
-  const deepseekApiKey = (config as any)?.deepseekApiKey;
+  const language = useConfigStore(s => s.language);
 
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [isSignalsOpen, setIsSignalsOpen] = useState(false);
@@ -91,43 +88,44 @@ export default function App() {
 
   // URL state sync: auto-search from ?symbol=&market= on first load
   const { initialUrlParams } = useUrlState();
-  const [urlSearchPending, setUrlSearchPending] = useState(!!initialUrlParams.symbol);
   const hasAutoSearched = useRef(false);
 
-  // Step 1: Set symbol/market from URL params into the store
   useEffect(() => {
     if (hasAutoSearched.current || !initialUrlParams.symbol) return;
-    setSymbol(initialUrlParams.symbol);
-    setMarket(initialUrlParams.market || 'US-Share');
-  }, [initialUrlParams, setSymbol, setMarket]);
-
-  // Step 2: Once store is updated with URL params, trigger search
-  useEffect(() => {
-    if (!urlSearchPending || hasAutoSearched.current) return;
-    if (initialUrlParams.symbol) {
-      hasAutoSearched.current = true;
-      setUrlSearchPending(false);
-      handleSearch({ preventDefault: () => {} } as React.FormEvent);
-    }
-  }, [urlSearchPending, initialUrlParams.symbol, handleSearch]);
+    
+    const targetSymbol = initialUrlParams.symbol;
+    const targetMarket = initialUrlParams.market || 'US-Share';
+    
+    setSymbol(targetSymbol);
+    setMarket(targetMarket);
+    
+    hasAutoSearched.current = true;
+    handleSearch(undefined, targetSymbol, targetMarket);
+  }, [initialUrlParams, setSymbol, setMarket, handleSearch]);
 
   // Watch for model or API key changes, but only trigger AI enrichment when settings modal is CLOSED.
   // This prevents multiple re-renders and rate limit calls while typing.
   const isSettingsOpen = useUIStore(s => s.isSettingsOpen);
   const prevSettingsOpen = useRef(isSettingsOpen);
-  const initialConfigRef = useRef({ model, apiKey, deepseekApiKey });
+  const initialConfigRef = useRef({ model: '', apiKey: '', deepseekApiKey: '' });
 
   useEffect(() => {
+    const currentConfig = useConfigStore.getState().config;
+    
     if (isSettingsOpen && !prevSettingsOpen.current) {
       // Record initial values when modal opens
-      initialConfigRef.current = { model, apiKey, deepseekApiKey };
+      initialConfigRef.current = { 
+        model: currentConfig?.model || '', 
+        apiKey: currentConfig?.apiKey || '', 
+        deepseekApiKey: (currentConfig as any)?.deepseekApiKey || '' 
+      };
     } else if (!isSettingsOpen && prevSettingsOpen.current) {
       // Checked when modal closes
       const oldCfg = initialConfigRef.current;
       const changed = 
-        oldCfg.model !== model || 
-        oldCfg.apiKey !== apiKey || 
-        oldCfg.deepseekApiKey !== deepseekApiKey;
+        oldCfg.model !== currentConfig?.model || 
+        oldCfg.apiKey !== currentConfig?.apiKey || 
+        oldCfg.deepseekApiKey !== (currentConfig as any)?.deepseekApiKey;
 
       if (changed && !analysis) {
         console.log('[App] Settings saved with model/key changes, triggering AI enrichment');
@@ -135,7 +133,7 @@ export default function App() {
       }
     }
     prevSettingsOpen.current = isSettingsOpen;
-  }, [isSettingsOpen, model, apiKey, deepseekApiKey, analysis, fetchMarketOverview]);
+  }, [isSettingsOpen, analysis, fetchMarketOverview]);
 
   // Restoration: Initialize watchlist & alerts (deferred — not needed for first paint)
   useEffect(() => {
@@ -306,7 +304,7 @@ export default function App() {
 
         {showAdminPanel && <ErrorBoundary fallback="Admin panel encountered an error"><Suspense fallback={null}><AdminPanel /></Suspense></ErrorBoundary>}
 
-        {showIBKRDashboard && <Suspense fallback={null}><IBKRDashboard isOpen={showIBKRDashboard} onClose={() => useUIStore.getState().setShowIBKRDashboard(false)} /></Suspense>}
+        {showIBKRDashboard && <Suspense fallback={null}><IBKRDashboard /></Suspense>}
         {showMockTradingDashboard && <Suspense fallback={null}><MockTradingDashboard /></Suspense>}
         {showBacktestPanel && <Suspense fallback={null}><BacktestPanel isOpen={showBacktestPanel} onClose={() => useUIStore.getState().setShowBacktestPanel(false)} /></Suspense>}
         
@@ -319,9 +317,9 @@ export default function App() {
         <div className="flex flex-col items-center justify-between gap-6 section-label md:flex-row">
           <p>© 2026 {t('common.app_name')}</p>
           <div className="flex gap-8">
-            <a href="#" className="text-zinc-400 transition-colors duration-200 hover:text-zinc-500">{t('common.footer.data_sources')}</a>
-            <a href="#" className="text-zinc-400 transition-colors duration-200 hover:text-zinc-500">{t('common.footer.terms')}</a>
-            <a href="#" className="text-zinc-400 transition-colors duration-200 hover:text-zinc-500">{t('common.footer.privacy')}</a>
+            <button onClick={(e) => { e.preventDefault(); useUIStore.getState().showToast('功能开发中，敬请期待', 'info'); }} className="text-zinc-400 transition-colors duration-200 hover:text-zinc-500">{t('common.footer.data_sources')}</button>
+            <button onClick={(e) => { e.preventDefault(); useUIStore.getState().showToast('功能开发中，敬请期待', 'info'); }} className="text-zinc-400 transition-colors duration-200 hover:text-zinc-500">{t('common.footer.terms')}</button>
+            <button onClick={(e) => { e.preventDefault(); useUIStore.getState().showToast('功能开发中，敬请期待', 'info'); }} className="text-zinc-400 transition-colors duration-200 hover:text-zinc-500">{t('common.footer.privacy')}</button>
           </div>
         </div>
       </footer>

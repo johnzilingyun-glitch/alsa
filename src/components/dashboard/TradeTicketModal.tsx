@@ -13,7 +13,9 @@ export function TradeTicketModal({ account, onClose, onSuccess }: TradeTicketMod
   const [symbol, setSymbol] = useState('');
   const [market, setMarket] = useState(account.market === 'Global' ? 'A-Share' : account.market);
   const [action, setAction] = useState<'BUY' | 'SELL'>('BUY');
+  const [orderType, setOrderType] = useState<'MARKET' | 'LIMIT'>('MARKET');
   const [shares, setShares] = useState('');
+  const [targetPriceInput, setTargetPriceInput] = useState('');
   const [price, setPrice] = useState<number | null>(null);
   const [loadingPrice, setLoadingPrice] = useState(false);
   const [executing, setExecuting] = useState(false);
@@ -114,11 +116,22 @@ export function TradeTicketModal({ account, onClose, onSuccess }: TradeTicketMod
   }, [symbol]);
 
   const handleTrade = async () => {
-    if (!symbol || !shares || !price || Number(shares) <= 0) return;
+    const finalPrice = orderType === 'MARKET' ? price : Number(targetPriceInput);
+    if (!symbol || !shares || !finalPrice || Number(shares) <= 0) return;
     setExecuting(true);
     setError(null);
     try {
-      await executeTrade(account.account_id, symbol.toUpperCase(), market, action, Number(shares), price, 'MANUAL');
+      await executeTrade(
+        account.account_id,
+        symbol.toUpperCase(),
+        market,
+        action,
+        Number(shares),
+        finalPrice,
+        orderType,
+        undefined, // stopPrice
+        'MANUAL'
+      );
       onSuccess();
       onClose();
     } catch (e: any) {
@@ -128,7 +141,9 @@ export function TradeTicketModal({ account, onClose, onSuccess }: TradeTicketMod
     }
   };
 
-  const estimatedValue = price && shares ? price * Number(shares) : 0;
+  const estimatedValue = (orderType === 'MARKET' ? price : Number(targetPriceInput)) && shares 
+    ? (orderType === 'MARKET' ? price! : Number(targetPriceInput)) * Number(shares) 
+    : 0;
 
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
@@ -225,6 +240,25 @@ export function TradeTicketModal({ account, onClose, onSuccess }: TradeTicketMod
             </div>
           </div>
 
+          <div className="flex gap-2 p-1 bg-zinc-100 rounded-xl">
+            <button
+              onClick={() => setOrderType('MARKET')}
+              className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                orderType === 'MARKET' ? 'bg-white text-zinc-900 shadow-sm' : 'text-zinc-500 hover:text-zinc-700'
+              }`}
+            >
+              市价单 (Market)
+            </button>
+            <button
+              onClick={() => setOrderType('LIMIT')}
+              className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                orderType === 'LIMIT' ? 'bg-white text-zinc-900 shadow-sm' : 'text-zinc-500 hover:text-zinc-700'
+              }`}
+            >
+              限价单 (Limit)
+            </button>
+          </div>
+
           <div className="p-4 rounded-xl bg-zinc-50 border border-zinc-100 flex items-center justify-between">
             <span className="text-xs font-bold text-zinc-500">实时价格</span>
             {loadingPrice ? (
@@ -235,6 +269,19 @@ export function TradeTicketModal({ account, onClose, onSuccess }: TradeTicketMod
               <span className="text-sm text-zinc-400">--</span>
             )}
           </div>
+          
+          {orderType === 'LIMIT' && (
+            <div>
+              <label className="text-[10px] font-bold text-zinc-500 uppercase block mb-1">目标价格 (Limit Price)</label>
+              <input
+                type="number"
+                value={targetPriceInput}
+                onChange={e => setTargetPriceInput(e.target.value)}
+                placeholder="0.00"
+                className="w-full px-4 py-3 rounded-xl border border-zinc-200 text-sm focus:outline-none focus:border-indigo-400"
+              />
+            </div>
+          )}
 
           <div>
             <label className="text-[10px] font-bold text-zinc-500 uppercase block mb-1">交易数量 (股)</label>
@@ -257,13 +304,13 @@ export function TradeTicketModal({ account, onClose, onSuccess }: TradeTicketMod
 
           <button
             onClick={handleTrade}
-            disabled={!price || !shares || executing || Number(shares) <= 0}
+            disabled={(!price && orderType === 'MARKET') || (!targetPriceInput && orderType === 'LIMIT') || !shares || executing || Number(shares) <= 0}
             className={`w-full py-3.5 rounded-xl text-white text-sm font-bold flex items-center justify-center gap-2 transition-all disabled:opacity-50 ${
               action === 'BUY' ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-rose-600 hover:bg-rose-700'
             }`}
           >
             {executing ? <Loader2 size={16} className="animate-spin" /> : null}
-            确认{action === 'BUY' ? '买入' : '卖出'}
+            确认{orderType === 'MARKET' ? '' : '挂单'}{action === 'BUY' ? '买入' : '卖出'}
           </button>
         </div>
       </div>

@@ -26,13 +26,15 @@ class JobRepository:
         with self.session_factory() as session:
             return session.get(AnalysisJob, job_id)
 
-    def update_status(self, job_id: str, status: str, result_payload: Optional[str] = None):
+    def update_status(self, job_id: str, status: str, result_payload: Optional[str] = None, error_message: Optional[str] = None):
         with self.session_factory() as session:
             job = session.get(AnalysisJob, job_id)
             if job:
                 job.status = status
                 if result_payload:
                     job.result_payload = result_payload
+                if error_message:
+                    job.error_message = error_message
                 session.add(job)
                 session.commit()
 

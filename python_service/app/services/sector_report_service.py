@@ -24,7 +24,8 @@ class SectorReportService:
             content = msg.get("content", "")
             if not content or len(content.strip()) < 150:
                 continue
-            html_content = self._markdown_to_html(content)
+            formatted_content = self._format_expert_content(content)
+            html_content = self._markdown_to_html(formatted_content)
             expert_sections.append({"role": role, "html": html_content})
 
         # Extract structured data from Chief Strategist (last expert)
@@ -42,6 +43,86 @@ class SectorReportService:
             f.write(html)
 
         return abs_path
+
+    def _format_expert_content(self, content: str) -> str:
+        """Format raw content into markdown. If it's a JSON string, convert it to a readable markdown structure."""
+        import json
+        import re
+        
+        # Strip fenced code block markers (```json ... ```)
+        stripped = re.sub(r'^```(?:json)?\s*\n?', '', content.strip(), flags=re.MULTILINE)
+        stripped = re.sub(r'\n?```\s*$', '', stripped.strip(), flags=re.MULTILINE)
+        
+        json_match = re.search(r'\{.*\}', stripped, re.DOTALL)
+        if json_match:
+            try:
+                data = json.loads(json_match.group(0))
+                md_lines = []
+                
+                KEY_LABELS = {
+                    "core_thesis": "核心论点 (Core Thesis)",
+                    "key_metrics_extracted": "关键指标 (Key Metrics)",
+                    "key_metrics": "关键指标 (Key Metrics)",
+                    "risks": "风险提示 (Risks)",
+                    "rating": "评级 (Rating)",
+                    "catalysts": "催化剂 (Catalysts)",
+                    "recommendations": "推荐 (Recommendations)",
+                    "conclusion": "结论 (Conclusion)",
+                    "summary": "摘要 (Summary)",
+                    "valuation": "估值 (Valuation)",
+                    "industry_outlook": "行业展望 (Industry Outlook)",
+                    "supply_demand": "供需分析 (Supply & Demand)",
+                    "competitive_landscape": "竞争格局 (Competitive Landscape)",
+                }
+                
+                for k, v in data.items():
+                    label = KEY_LABELS.get(k, k.replace("_", " ").title())
+                    
+                    if k == "rating":
+                        md_lines.append(f"### {label}: **{v}**\n")
+                        continue
+                    
+                    md_lines.append(f"### {label}")
+                    md_lines.append("")
+                    self._format_value(v, md_lines, indent=0)
+                    md_lines.append("")
+                
+                return "\n".join(md_lines)
+            except (json.JSONDecodeError, ValueError):
+                pass
+        return content
+
+    def _format_value(self, v, md_lines: list, indent: int = 0):
+        """Recursively format a JSON value into markdown lines."""
+        prefix = "  " * indent
+        if isinstance(v, str):
+            md_lines.append(f"{prefix}{v}")
+        elif isinstance(v, list):
+            for item in v:
+                if isinstance(item, dict):
+                    parts = []
+                    for sub_k, sub_v in item.items():
+                        parts.append(f"**{sub_k}**: {sub_v}")
+                    md_lines.append(f"{prefix}- {' | '.join(parts)}")
+                elif isinstance(item, list):
+                    md_lines.append(f"{prefix}- {', '.join(str(x) for x in item)}")
+                else:
+                    md_lines.append(f"{prefix}- {item}")
+        elif isinstance(v, dict):
+            for sub_k, sub_v in v.items():
+                if isinstance(sub_v, (str, int, float)):
+                    md_lines.append(f"{prefix}- **{sub_k}**: {sub_v}")
+                elif isinstance(sub_v, list):
+                    md_lines.append(f"{prefix}- **{sub_k}**:")
+                    for item in sub_v:
+                        md_lines.append(f"{prefix}  - {item}")
+                elif isinstance(sub_v, dict):
+                    md_lines.append(f"{prefix}- **{sub_k}**:")
+                    self._format_value(sub_v, md_lines, indent + 1)
+                else:
+                    md_lines.append(f"{prefix}- **{sub_k}**: {sub_v}")
+        else:
+            md_lines.append(f"{prefix}{v}")
 
     def _markdown_to_html(self, content: str) -> str:
         """Convert markdown to HTML."""
@@ -89,8 +170,10 @@ class SectorReportService:
                 in_table = False
                 table_lines = []
                 for line in lines:
-                    if "情景" in line and "|" in line and ("概率" in line or "牛市" in line):
-                        in_table = True
+                    # Match scenario table header: 情景/场景/Scenario + probability/牛市
+                    if not in_table and "|" in line:
+                        if ("情景" in line or "场景" in line or "Scenario" in line) and ("概率" in line or "牛市" in line or "Probability" in line):
+                            in_table = True
                     if in_table:
                         if line.strip().startswith("|"):
                             table_lines.append(line)
@@ -103,6 +186,7 @@ class SectorReportService:
     ROLE_NAMES = {
         "Sector Macro Strategist": ("板块宏观战略分析", "macro"),
         "Sector Stock Screener": ("板块个股筛选", "screener"),
+        "Serenity Alpha Analyst": ("Serenity Alpha 量化分析", "screener"),
         "Sector Risk Auditor": ("板块风险审计", "risk"),
         "Sector Chief Strategist": ("板块首席策略", "chief"),
     }
@@ -261,11 +345,15 @@ class SectorReportService:
         /* Highlight section */
         .highlight-section {{ background: #f0f7ff; border-radius: 8px; padding: 30px; border: 1px solid #dbeafe; }}
         .highlight-section .section-title {{ border-bottom-color: #bfdbfe; }}
-        .recommendation-table table {{ background: white; border-radius: 4px; }}
-        .recommendation-table th {{ background: var(--accent); color: white; }}
+        .recommendation-table table {{ width: 100%; border-collapse: collapse; background: white; border-radius: 4px; font-size: 13px; }}
+        .recommendation-table th {{ background: var(--accent); color: white; padding: 10px 12px; border: 1px solid var(--accent); white-space: nowrap; text-align: left; }}
+        .recommendation-table td {{ padding: 8px 12px; border: 1px solid var(--border); vertical-align: top; }}
 
         /* Scenario table */
-        .scenario-table table {{ background: #fdfdfd; }}
+        .scenario-table table {{ width: 100%; border-collapse: collapse; margin: 15px 0; font-size: 13px; background: #fdfdfd; }}
+        .scenario-table th {{ background: #f8fafc; font-weight: 700; text-align: left; padding: 10px 12px; border: 1px solid var(--border); color: var(--primary); white-space: nowrap; }}
+        .scenario-table td {{ padding: 8px 12px; border: 1px solid var(--border); vertical-align: top; }}
+        .scenario-table tr:hover {{ background: #fafbfd; }}
 
         /* Price verification section */
         .price-verification-section {{ background: #fef3c7; border: 2px solid #f59e0b; border-radius: 8px; padding: 30px; }}

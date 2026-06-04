@@ -376,8 +376,24 @@ class DiscussionService:
         
         sections.append("\n--- [MANDATORY] OUTPUT FORMAT & DISCIPLINE ---")
         is_final_round = role in ("Chief Strategist", "Sector Chief Strategist")
+        is_sector_intermediate = role in ("Sector Macro Strategist", "Sector Stock Screener", "Serenity Alpha Analyst", "Sector Risk Auditor")
 
-        if not is_final_round:
+        if is_sector_intermediate:
+            # Sector intermediate experts output full markdown — their content is rendered directly in the HTML report
+            sections.append(
+                "1. **专业Markdown输出**: 你的输出将直接展示在投资报告中。请使用标准 Markdown 排版（标题、表格、列表、加粗等），输出面向投资者的专业分析内容。\n"
+                "   - 主标题推荐使用 Emoji 序号标号（如 1️⃣, 2️⃣ 等）增加活泼感。\n"
+                "   - 善用 Markdown 表格展示关键数据对比。\n"
+                "   - 严禁输出 JSON 格式。严禁输出工具调用计划或内部推理过程。\n"
+                "2. **单次输出**: 在所有必要的工具调用结束后，只输出一次完整分析内容。\n"
+                if is_zh else
+                "1. **Professional Markdown Output**: Your output will be rendered directly in the investment report. Use standard Markdown formatting (headers, tables, lists, bold, etc.) for professional investor-facing analysis.\n"
+                "   - Use Emoji numbers (1️⃣, 2️⃣) for main section headers.\n"
+                "   - Use Markdown tables for key data comparisons.\n"
+                "   - Do NOT output JSON. Do NOT output tool plans or internal reasoning.\n"
+                "2. **Single Pass**: Output only the final analysis after all necessary tools are used.\n"
+            )
+        elif not is_final_round:
             sections.append(
                 "1. **中间态结构化输出 (Intermediate State)**: 作为非最终报告编撰者，你必须输出标准的 JSON 格式。\n"
                 "   请输出形如 `{\"core_thesis\": \"...\", \"key_metrics_extracted\": [\"...\"], \"risks\": [\"...\"], \"rating\": \"...\"}` 的 JSON 对象。\n"

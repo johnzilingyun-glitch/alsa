@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ExternalLink, Target, CheckCircle2 } from 'lucide-react';
+import { ExternalLink, Target, CheckCircle2, Bell, BellRing } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useTranslation } from 'react-i18next';
@@ -7,6 +7,7 @@ import { cn } from './utils';
 import type { StockAnalysis, Market } from '../../types';
 import { alertsClient } from '../../services/api/alertsClient';
 import { useUIStore } from '../../stores/useUIStore';
+import { useConfigStore } from '../../stores/useConfigStore';
 
 interface SidebarSummaryProps {
   analysis: StockAnalysis;
@@ -16,7 +17,12 @@ export function SidebarSummary({ analysis }: SidebarSummaryProps) {
   const { t } = useTranslation();
   const [isAdding, setIsAdding] = useState(false);
   const [added, setAdded] = useState(false);
+  const [createdAlertId, setCreatedAlertId] = useState<string | null>(null);
+  const [showMonitorConfirm, setShowMonitorConfirm] = useState(false);
+  const [monitoringEnabled, setMonitoringEnabled] = useState(false);
+  const [isEnablingMonitor, setIsEnablingMonitor] = useState(false);
   const showToast = useUIStore(s => s.showToast);
+  const feishuWebhookUrl = useConfigStore(s => s.feishuWebhookUrl);
   const isNotRecommended = analysis.tradingPlan?.entryPrice?.includes('不推荐') || 
                           analysis.tradingPlan?.entryPrice?.includes('Not Recommended');
 
@@ -34,7 +40,7 @@ export function SidebarSummary({ analysis }: SidebarSummaryProps) {
       const stop = parseNum(stopLoss);
       
       if (entry > 0 && target > 0 && stop > 0) {
-        await alertsClient.create({
+        const result = await alertsClient.create({
           symbol: analysis.stockInfo.symbol,
           name: analysis.stockInfo.name,
           market: analysis.stockInfo.market as Market,
@@ -44,7 +50,9 @@ export function SidebarSummary({ analysis }: SidebarSummaryProps) {
           currency: analysis.stockInfo.currency || 'CNY',
         });
         setAdded(true);
-        showToast('成功添加至智能交易信号中心', 'success');
+        setCreatedAlertId(result.alert_id);
+        setShowMonitorConfirm(true);
+        showToast('已添加至信号中心，请确认是否启动实时监控', 'success');
       } else {
         showToast('交易计划中未能提取有效的数值，无法添加', 'error');
       }
@@ -52,6 +60,29 @@ export function SidebarSummary({ analysis }: SidebarSummaryProps) {
       showToast('添加失败: ' + e.message, 'error');
     } finally {
       setIsAdding(false);
+    }
+  };
+
+  const handleEnableMonitoring = async () => {
+    if (!createdAlertId) return;
+    setIsEnablingMonitor(true);
+    try {
+      // Extract thesis and invalidation criteria from the analysis
+      const thesis = analysis.summary || '';
+      const invalidation = analysis.tradingPlan?.strategyRisks || '';
+
+      await alertsClient.enableMonitoring(createdAlertId, {
+        feishu_webhook_url: feishuWebhookUrl || undefined,
+        thesis: thesis.slice(0, 500),
+        invalidation_criteria: invalidation.slice(0, 500),
+      });
+      setMonitoringEnabled(true);
+      setShowMonitorConfirm(false);
+      showToast('✅ 信号监控已启动！价格触发时将通过飞书实时通知', 'success');
+    } catch (e: any) {
+      showToast('启动监控失败: ' + e.message, 'error');
+    } finally {
+      setIsEnablingMonitor(false);
     }
   };
 
@@ -86,11 +117,12 @@ export function SidebarSummary({ analysis }: SidebarSummaryProps) {
                 disabled={isAdding || added}
                 className={cn(
                   "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all",
-                  added ? "bg-emerald-100 text-emerald-700" : "bg-indigo-100 text-indigo-700 hover:bg-indigo-200 disabled:opacity-50"
+                  monitoringEnabled ? "bg-emerald-100 text-emerald-700" :
+                  added ? "bg-amber-100 text-amber-700" : "bg-indigo-100 text-indigo-700 hover:bg-indigo-200 disabled:opacity-50"
                 )}
               >
-                {added ? <CheckCircle2 size={14} /> : <Target size={14} />}
-                {added ? '已加信号监控' : '添加信号监控'}
+                {monitoringEnabled ? <BellRing size={14} /> : added ? <CheckCircle2 size={14} /> : <Target size={14} />}
+                {monitoringEnabled ? '监控中' : added ? '已加信号中心' : '添加信号监控'}
               </button>
             )}
           </div>
@@ -128,6 +160,50 @@ export function SidebarSummary({ analysis }: SidebarSummaryProps) {
               <p className="text-xs text-rose-200/80 leading-relaxed italic prose prose-sm max-w-none prose-p:my-0 prose-strong:text-rose-300 [&_*]:text-rose-200/80">
                 <ReactMarkdown remarkPlugins={[remarkGfm]}>{analysis.tradingPlan.strategyRisks || ''}</ReactMarkdown>
               </p>
+            </div>
+          )}
+
+          {/* Signal Monitoring Confirmation Panel */}
+          {showMonitorConfirm && (
+            <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 animate-in slide-in-from-top-2">
+              <div className="flex items-start gap-3">
+                <BellRing size={20} className="text-amber-600 mt-0.5 flex-shrink-0" />
+                <div className="flex-1">
+                  <p className="text-sm font-semibold text-amber-800 mb-1">启动实时信号监控？</p>
+                  <p className="text-xs text-amber-600 mb-3">
+                    后台将持续监控该股票价格，当触及入场价/目标价/止损价时，自动通过飞书发送提醒。
+                  </p>
+                  {!feishuWebhookUrl && (
+                    <p className="text-xs text-rose-500 mb-2">
+                      ⚠ 未配置飞书 Webhook URL，请在系统设置中配置后再启用监控。
+                    </p>
+                  )}
+                  <div className="flex gap-2">
+                    <button
+                      onClick={handleEnableMonitoring}
+                      disabled={isEnablingMonitor || !feishuWebhookUrl}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-50 transition-all"
+                    >
+                      <Bell size={12} />
+                      {isEnablingMonitor ? '启动中...' : '确认启动监控'}
+                    </button>
+                    <button
+                      onClick={() => setShowMonitorConfirm(false)}
+                      className="px-3 py-1.5 rounded-lg text-xs font-medium text-zinc-500 hover:bg-zinc-100 transition-all"
+                    >
+                      稍后再说
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Monitoring enabled badge */}
+          {monitoringEnabled && (
+            <div className="flex items-center gap-2 p-3 rounded-xl bg-emerald-50 border border-emerald-200">
+              <BellRing size={14} className="text-emerald-600" />
+              <span className="text-xs font-medium text-emerald-700">信号监控运行中 — 触发时将通过飞书通知</span>
             </div>
           )}
         </div>

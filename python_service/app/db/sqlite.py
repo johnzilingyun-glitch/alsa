@@ -19,6 +19,7 @@ engine = create_engine(f"sqlite:///{DATABASE_URL}", connect_args={"check_same_th
 def init_db():
     SQLModel.metadata.create_all(engine)
     _migrate_alert_postmortem(engine)
+    _migrate_alert_monitoring(engine)
     _migrate_analysis_lineage(engine)
 
 def get_session():
@@ -82,5 +83,30 @@ def _migrate_analysis_lineage(eng):
     for col_name, col_type in new_cols:
         if col_name not in existing:
             cursor.execute(f"ALTER TABLE analysisrun ADD COLUMN {col_name} {col_type}")
+    conn.commit()
+    conn.close()
+
+
+def _migrate_alert_monitoring(eng):
+    """Add signal monitoring columns to searchalert table if they don't exist."""
+    import sqlite3
+    db_path = str(eng.url).replace("sqlite:///", "")
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    cursor.execute("PRAGMA table_info(searchalert)")
+    existing = {row[1] for row in cursor.fetchall()}
+    new_cols = [
+        ("monitoring_enabled", "BOOLEAN DEFAULT 0"),
+        ("feishu_webhook_url", "VARCHAR"),
+        ("last_checked_at", "TIMESTAMP"),
+        ("last_price", "REAL"),
+        ("trigger_type", "VARCHAR"),
+        ("notify_count", "INTEGER DEFAULT 0"),
+        ("step_in_plan", "VARCHAR"),
+        ("exit_rules", "VARCHAR"),
+    ]
+    for col_name, col_type in new_cols:
+        if col_name not in existing:
+            cursor.execute(f"ALTER TABLE searchalert ADD COLUMN {col_name} {col_type}")
     conn.commit()
     conn.close()

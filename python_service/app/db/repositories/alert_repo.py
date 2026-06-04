@@ -112,3 +112,81 @@ class AlertRepository:
             session.commit()
             session.refresh(alert)
             return alert
+
+    def list_monitored(self) -> List[SearchAlert]:
+        """List all alerts with monitoring enabled and status active."""
+        with self.session_factory() as session:
+            statement = select(SearchAlert).where(
+                SearchAlert.monitoring_enabled == True,
+                SearchAlert.status == "active"
+            )
+            return session.exec(statement).all()
+
+    def enable_monitoring(self, alert_id: str, feishu_webhook_url: str = None,
+                          step_in_plan: str = None, exit_rules: str = None,
+                          thesis: str = None, invalidation_criteria: str = None) -> Optional[SearchAlert]:
+        """Enable signal monitoring for an alert."""
+        with self.session_factory() as session:
+            alert = session.get(SearchAlert, alert_id)
+            if not alert:
+                return None
+            alert.monitoring_enabled = True
+            if feishu_webhook_url:
+                alert.feishu_webhook_url = feishu_webhook_url
+            if step_in_plan:
+                alert.step_in_plan = step_in_plan
+            if exit_rules:
+                alert.exit_rules = exit_rules
+            if thesis:
+                alert.thesis = thesis
+            if invalidation_criteria:
+                alert.invalidation_criteria = invalidation_criteria
+            alert.thesis_stage = "WATCHING"
+            session.add(alert)
+            session.commit()
+            session.refresh(alert)
+            return alert
+
+    def disable_monitoring(self, alert_id: str) -> Optional[SearchAlert]:
+        """Disable signal monitoring for an alert."""
+        with self.session_factory() as session:
+            alert = session.get(SearchAlert, alert_id)
+            if not alert:
+                return None
+            alert.monitoring_enabled = False
+            session.add(alert)
+            session.commit()
+            session.refresh(alert)
+            return alert
+
+    def update_check_state(self, alert_id: str, last_price: float):
+        """Update the last check time and price for an alert."""
+        with self.session_factory() as session:
+            alert = session.get(SearchAlert, alert_id)
+            if alert:
+                alert.last_checked_at = utc_now()
+                alert.last_price = last_price
+                session.add(alert)
+                session.commit()
+
+    def mark_triggered(self, alert_id: str, trigger_type: str, price: float):
+        """Mark an alert as triggered."""
+        with self.session_factory() as session:
+            alert = session.get(SearchAlert, alert_id)
+            if alert:
+                alert.status = "triggered"
+                alert.trigger_type = trigger_type
+                alert.triggered_at = utc_now()
+                alert.last_price = price
+                alert.monitoring_enabled = False  # Stop monitoring after trigger
+                session.add(alert)
+                session.commit()
+
+    def increment_notify_count(self, alert_id: str):
+        """Increment the notification counter."""
+        with self.session_factory() as session:
+            alert = session.get(SearchAlert, alert_id)
+            if alert:
+                alert.notify_count = (alert.notify_count or 0) + 1
+                session.add(alert)
+                session.commit()

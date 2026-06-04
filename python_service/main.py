@@ -16,6 +16,7 @@ from .app.services.analysis_job_service import AnalysisJobService
 from .app.db.repositories.job_repo import JobRepository
 from .app.services.market_snapshot_service import MarketSnapshotService
 from .app.lake.parquet_store import ParquetMarketStore
+from .app.services.signal_monitor_service import SignalMonitorService
 
 # Institutional modules
 from .app.risk.kill_switch import KillSwitch
@@ -40,13 +41,25 @@ async def lifespan(app: FastAPI):
                 print(f"Precompute loop error: {e}")
                 await asyncio.sleep(60)
 
+    # Signal monitoring loop — checks prices every 60s during market hours
+    async def signal_monitor_loop():
+        await asyncio.sleep(10)  # Wait for startup
+        await signal_monitor.monitor_loop(interval_seconds=60)
+
     task = asyncio.create_task(precompute_loop())
+    monitor_task = asyncio.create_task(signal_monitor_loop())
     try:
         yield
     finally:
+        signal_monitor.stop()
         task.cancel()
+        monitor_task.cancel()
         try:
             await task
+        except asyncio.CancelledError:
+            pass
+        try:
+            await monitor_task
         except asyncio.CancelledError:
             pass
 
@@ -81,6 +94,7 @@ parquet_store = ParquetMarketStore()
 job_repo = JobRepository(session_factory)
 watchlist_repo = WatchlistRepository(session_factory)
 alert_repo = AlertRepository(session_factory)
+signal_monitor = SignalMonitorService(alert_repo)
 journal_repo = JournalRepository(session_factory)
 market_snapshot_service = MarketSnapshotService(parquet_store)
 analysis_job_service = AnalysisJobService(job_repo, market_snapshot_service)

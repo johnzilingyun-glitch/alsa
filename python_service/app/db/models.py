@@ -113,6 +113,16 @@ class SearchAlert(SQLModel, table=True):
     status: str = "active"  # active/triggered/closed
     triggered_at: Optional[datetime] = None
     created_at: datetime = Field(default_factory=utc_now)
+    # Signal monitoring fields
+    monitoring_enabled: bool = Field(default=False)
+    feishu_webhook_url: Optional[str] = None
+    last_checked_at: Optional[datetime] = None
+    last_price: Optional[float] = None
+    trigger_type: Optional[str] = None  # entry/target/stop_loss/invalidation
+    notify_count: int = Field(default=0)
+    # Step-in plan (分步建仓)
+    step_in_plan: Optional[str] = None  # JSON string of building plan levels
+    exit_rules: Optional[str] = None  # JSON string of exit conditions
     # Signal Postmortem fields
     exit_price: Optional[float] = None
     exit_date: Optional[datetime] = None

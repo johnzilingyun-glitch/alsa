@@ -12,6 +12,15 @@ export interface SearchAlert {
   currency?: string;
   status?: string;
   created_at?: string;
+  // Monitoring fields
+  monitoring_enabled?: boolean;
+  feishu_webhook_url?: string;
+  last_checked_at?: string;
+  last_price?: number;
+  trigger_type?: string;
+  notify_count?: number;
+  step_in_plan?: string;
+  exit_rules?: string;
   // Postmortem fields
   exit_price?: number;
   exit_date?: string;
@@ -126,6 +135,37 @@ export const alertsClient = {
     if (update.actual_result) params.set('actual_result', update.actual_result);
     const res = await fetch(`/api/alerts/catalysts/${catalystId}?${params}`, { method: 'PATCH' });
     if (!res.ok) throw new Error('Failed to update catalyst');
+    return res.json();
+  },
+
+  // --- Signal Monitoring ---
+  enableMonitoring: async (alertId: string, payload: {
+    feishu_webhook_url?: string;
+    step_in_plan?: string;
+    exit_rules?: string;
+    thesis?: string;
+    invalidation_criteria?: string;
+  }) => {
+    const res = await fetch(`/api/alerts/${alertId}/enable-monitoring`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) throw new Error('Failed to enable monitoring');
+    return res.json();
+  },
+
+  disableMonitoring: async (alertId: string) => {
+    const res = await fetch(`/api/alerts/${alertId}/disable-monitoring`, {
+      method: 'POST',
+    });
+    if (!res.ok) throw new Error('Failed to disable monitoring');
+    return res.json();
+  },
+
+  getMonitoringStatus: async () => {
+    const res = await fetch('/api/alerts/monitoring/status');
+    if (!res.ok) throw new Error('Failed to fetch monitoring status');
     return res.json();
   }
 };

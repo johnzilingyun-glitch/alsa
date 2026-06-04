@@ -162,3 +162,48 @@ async def update_catalyst(catalyst_id: str, status: Optional[str] = None, actual
         session.commit()
         session.refresh(cat)
         return cat
+
+
+# --- Signal Monitoring ---
+
+class MonitoringEnable(BaseModel):
+    feishu_webhook_url: Optional[str] = None
+    step_in_plan: Optional[str] = None  # JSON string of building plan levels
+    exit_rules: Optional[str] = None  # JSON string of exit conditions
+    thesis: Optional[str] = None
+    invalidation_criteria: Optional[str] = None
+
+
+@router.post("/{alert_id}/enable-monitoring")
+async def enable_monitoring(alert_id: str, payload: MonitoringEnable, repo: AlertRepository = Depends(get_repo)):
+    """Enable signal monitoring for an alert. Backend will continuously check price and notify via Feishu."""
+    result = repo.enable_monitoring(
+        alert_id=alert_id,
+        feishu_webhook_url=payload.feishu_webhook_url,
+        step_in_plan=payload.step_in_plan,
+        exit_rules=payload.exit_rules,
+        thesis=payload.thesis,
+        invalidation_criteria=payload.invalidation_criteria,
+    )
+    if not result:
+        raise HTTPException(404, "Alert not found")
+    return {"success": True, "alert": result, "message": "信号监控已启动，将持续监控价格并在触发时通过飞书通知"}
+
+
+@router.post("/{alert_id}/disable-monitoring")
+async def disable_monitoring(alert_id: str, repo: AlertRepository = Depends(get_repo)):
+    """Disable signal monitoring for an alert."""
+    result = repo.disable_monitoring(alert_id)
+    if not result:
+        raise HTTPException(404, "Alert not found")
+    return {"success": True, "alert": result, "message": "信号监控已停止"}
+
+
+@router.get("/monitoring/status")
+async def monitoring_status(repo: AlertRepository = Depends(get_repo)):
+    """Get all actively monitored alerts."""
+    items = repo.list_monitored()
+    return {
+        "total_monitored": len(items),
+        "items": items
+    }

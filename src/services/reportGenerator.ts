@@ -9,6 +9,7 @@ import { StockAnalysis, AgentMessage, Scenario, CoreVariable } from "../types";
 export class ReportGeneratorService {
   /**
    * Generates a complete standalone HTML string for a stock analysis.
+   * Defensive against null/missing fields from historical data.
    */
   public static generateProfessionalHtmlReport(analysis: StockAnalysis, language: 'en' | 'zh-CN' = 'zh-CN'): string {
     const isChinese = language === 'zh-CN';
@@ -16,9 +17,78 @@ export class ReportGeneratorService {
 
     const { stockInfo, fundamentals, summary, scenarios, discussion, finalConclusion, tradingPlan, coreVariables } = analysis;
 
-    // Extract Tagline and Thesis from finalConclusion if possible
-    let tagline = analysis.stockInfo.name + " " + t("个股深度研报", "Equity Research Report");
-    let thesis = finalConclusion || summary;
+    // ── Calculate change percent ──
+    // changePercent may be null; fallback: calculate from change (absolute) and price
+    let changePercent: number | string | null = stockInfo.changePercent;
+    if (changePercent == null && stockInfo.change != null && stockInfo.price != null) {
+      const prevClose = stockInfo.price - stockInfo.change;
+      if (prevClose !== 0) {
+        changePercent = ((stockInfo.change / prevClose) * 100).toFixed(2);
+      }
+    }
+    const isUp = changePercent != null && Number(changePercent) > 0;
+    const isDown = changePercent != null && Number(changePercent) < 0;
+    const changeDisplay = changePercent != null
+      ? `${isUp ? '+' : ''}${Number(changePercent).toFixed(2)}%`
+      : t('暂无数据', 'N/A');
+
+    // ── Format lastUpdated ──
+    let lastUpdatedDisplay = t('暂无', 'N/A');
+    if (stockInfo.lastUpdated) {
+      try {
+        // Handle "2026/06/04 12:19:22 CST" format
+        const cleanDate = stockInfo.lastUpdated.replace(' CST', '').replace(' CST', '');
+        const d = new Date(cleanDate);
+        if (!isNaN(d.getTime())) {
+          lastUpdatedDisplay = d.toLocaleString(language, { hour12: false });
+        } else {
+          lastUpdatedDisplay = stockInfo.lastUpdated;
+        }
+      } catch {
+        lastUpdatedDisplay = stockInfo.lastUpdated;
+      }
+    }
+
+    // ── Section helpers ──
+    const headerRight = stockInfo.price != null
+      ? `
+                <div class="header-price">
+                    ${stockInfo.price}
+                    <span class="${isUp ? 'change-up' : isDown ? 'change-down' : 'change-flat'}">
+                        (${changeDisplay})
+                    </span>
+                </div>
+                <div>${t('报告生成', 'Report Date')}: ${new Date().toLocaleDateString(language)}</div>
+                <div style="font-size:11px; color:var(--text-muted); margin-top:2px;">${t('数据更新', 'Data')}: ${lastUpdatedDisplay}</div>`
+      : `<div>${t('报告生成', 'Report Date')}: ${new Date().toLocaleDateString(language)}</div>`;
+
+    // Build fundamental items from both analysis.fundamentals and stockInfo top-level fields
+    const fundamentalItems: { label: string; val: string | null | undefined }[] = [
+      { label: 'PE (TTM)', val: fundamentals?.pe ?? stockInfo.pe ?? undefined },
+      { label: 'PB', val: fundamentals?.pb ?? stockInfo.pb ?? undefined },
+      { label: 'ROE', val: fundamentals?.roe ?? undefined },
+      { label: 'EPS', val: fundamentals?.eps ?? undefined },
+      { label: t('营收增长', 'Revenue Growth'), val: fundamentals?.revenueGrowth ?? undefined },
+      { label: t('净利增长', 'Net Profit Growth'), val: fundamentals?.netProfitGrowth ?? undefined },
+      { label: t('毛利率', 'Gross Margin'), val: fundamentals?.grossMargin ?? undefined },
+      { label: t('资产负债率', 'Debt/Equity'), val: fundamentals?.debtToEquity ?? undefined },
+      { label: t('股息率', 'Dividend Yield'), val: fundamentals?.dividendYield ?? stockInfo.dividendYield ?? undefined },
+    ].filter(item => item.val != null && item.val !== '');
+
+    const hasFundamentals = fundamentalItems.length > 0;
+
+    const hasMarketData = stockInfo.previousClose != null || stockInfo.dailyHigh != null || stockInfo.dailyLow != null;
+    const hasKeyOpps = Array.isArray(analysis.keyOpportunities) && analysis.keyOpportunities.length > 0;
+    const hasKeyRisks = Array.isArray(analysis.keyRisks) && analysis.keyRisks.length > 0;
+    const hasScenarios = Array.isArray(scenarios) && scenarios.length > 0;
+    const hasDiscussion = Array.isArray(discussion) && discussion.length > 0;
+    const hasTradingPlan = tradingPlan != null && (tradingPlan.entryPrice || tradingPlan.targetPrice || tradingPlan.stopLoss);
+    const hasMoat = analysis.moatAnalysis != null || analysis.moatRating != null;
+    const hasCoreVars = Array.isArray(coreVariables) && coreVariables.length > 0;
+    const hasFA = analysis.fundamentalAnalysis && analysis.fundamentalAnalysis.length > 0;
+    const hasTA = analysis.technicalAnalysis && analysis.technicalAnalysis.length > 0;
+    const hasScore = analysis.score != null;
+    const hasRec = analysis.recommendation != null;
 
     const html = `
 <!DOCTYPE html>
@@ -41,11 +111,12 @@ export class ReportGeneratorService {
             --white: #ffffff;
             --warning: #ed8936;
             --success: #48bb78;
+            --neutral: #718096;
         }
 
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body { 
-            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
             line-height: 1.6;
             color: var(--text-main);
             background-color: #f0f2f5;
@@ -96,6 +167,7 @@ export class ReportGeneratorService {
 
         .change-up { color: var(--bull); }
         .change-down { color: var(--bear); }
+        .change-flat { color: var(--neutral); }
 
         .tagline-box {
             background: var(--bg-light);
@@ -233,10 +305,7 @@ export class ReportGeneratorService {
             padding-left: 15px;
         }
 
-        ul {
-            padding-left: 20px;
-            font-size: 14px;
-        }
+        ul { padding-left: 20px; font-size: 14px; }
 
         footer {
             margin-top: 50px;
@@ -272,48 +341,49 @@ export class ReportGeneratorService {
         <header>
             <div class="header-main">
                 <h1>${stockInfo.name}</h1>
-                <span class="symbol">${stockInfo.symbol} | ${stockInfo.market} | ${stockInfo.currency}</span>
+                <span class="symbol">${stockInfo.symbol} | ${stockInfo.market || ''}${stockInfo.currency ? ' | ' + stockInfo.currency : ''}</span>
             </div>
             <div class="header-meta">
-                <div class="header-price">
-                    ${stockInfo.price} 
-                    <span class="${stockInfo.changePercent > 0 ? 'change-up' : 'change-down'}">
-                        (${stockInfo.changePercent > 0 ? '+' : ''}${stockInfo.changePercent}%)
-                    </span>
-                </div>
-                <div>${t("报告生成", "Report Date")}: ${new Date().toLocaleDateString(language)}</div>
+                ${headerRight}
             </div>
         </header>
 
+        ${(summary || finalConclusion) ? `
         <section class="tagline-box">
-             <h2>${tagline}</h2>
-             <div class="analysis-text">${thesis}</div>
-        </section>
+             <h2>${stockInfo.name} ${t("个股深度研报", "Equity Research Report")}</h2>
+             <div class="analysis-text">${(finalConclusion || summary || '').replace(/\n/g, '<br>')}</div>
+        </section>` : ''}
 
         <section class="section-grid">
             <div class="main-report">
+                ${hasKeyOpps || hasKeyRisks ? `
                 <h3>${t("投资机会与核心风险", "Opportunities & Risks")}</h3>
                 <div class="opp-risk-container">
+                    ${hasKeyOpps ? `
                     <div class="opp-box">
                         <h4 style="color:var(--success); margin-bottom:10px;">${t("核心机会", "Key Opportunities")}</h4>
                         <ul>
-                            ${analysis.keyOpportunities?.map(opp => `<li>${opp}</li>`).join('') || `<li>${t("未识别显著机会", "No significant opportunities identified")}</li>`}
+                            ${analysis.keyOpportunities!.map(opp => `<li>${opp}</li>`).join('')}
                         </ul>
-                    </div>
+                    </div>` : ''}
+                    ${hasKeyRisks ? `
                     <div class="risk-box">
                         <h4 style="color:var(--warning); margin-bottom:10px;">${t("关键风险", "Key Risks")}</h4>
                         <ul>
-                            ${analysis.keyRisks?.map(risk => `<li>${risk}</li>`).join('') || `<li>${t("未识别显著风险", "No significant risks identified")}</li>`}
+                            ${analysis.keyRisks!.map(risk => `<li>${risk}</li>`).join('')}
                         </ul>
-                    </div>
-                </div>
+                    </div>` : ''}
+                </div>` : ''}
 
+                ${hasFA ? `
                 <h3>${t("基本面深度分析", "Fundamental Deep-Dive")}</h3>
-                <div class="analysis-text">${analysis.fundamentalAnalysis || t("未提供详细基本面分析", "No detailed fundamental analysis provided")}</div>
+                <div class="analysis-text">${analysis.fundamentalAnalysis!.replace(/\n/g, '<br>')}</div>` : ''}
 
+                ${hasTA ? `
                 <h3>${t("技术面形态与趋势分析", "Technical Analysis & Trends")}</h3>
-                <div class="analysis-text">${analysis.technicalAnalysis || t("未提供详细技术面分析", "No detailed technical analysis provided")}</div>
+                <div class="analysis-text">${analysis.technicalAnalysis!.replace(/\n/g, '<br>')}</div>` : ''}
 
+                ${hasFundamentals ? `
                 <h3>${t("核心财务数据", "Key Financial Indicators")}</h3>
                 <table>
                     <thead>
@@ -324,112 +394,125 @@ export class ReportGeneratorService {
                         </tr>
                     </thead>
                     <tbody>
-                        ${[
-                            { label: 'PE (TTM)', val: fundamentals?.pe },
-                            { label: 'PB', val: fundamentals?.pb },
-                            { label: 'ROE', val: fundamentals?.roe },
-                            { label: 'EPS', val: fundamentals?.eps },
-                            { label: t('营收增长', 'Revenue Growth'), val: fundamentals?.revenueGrowth },
-                            { label: t('净利增长', 'Net Profit Growth'), val: fundamentals?.netProfitGrowth },
-                            { label: t('毛利率', 'Gross Margin'), val: fundamentals?.grossMargin },
-                            { label: t('资产负债率', 'Debt/Equity'), val: fundamentals?.debtToEquity },
-                            { label: t('股息率', 'Dividend Yield'), val: fundamentals?.dividendYield },
-                        ].filter(item => item.val).map(item => `
+                        ${fundamentalItems.map(item => `
                             <tr>
                                 <td style="font-weight:600">${item.label}</td>
                                 <td>${item.val}</td>
-                                <td>${item.label === 'PE (TTM)' ? (fundamentals?.valuationPercentile ? `${t('历史分位', 'Percentile')}: ${fundamentals.valuationPercentile}` : '-') : '-'}</td>
+                                <td>${item.label === 'PE (TTM)' && fundamentals?.valuationPercentile ? `${t('历史分位', 'Percentile')}: ${fundamentals.valuationPercentile}` : '-'}</td>
                             </tr>
                         `).join('')}
                     </tbody>
-                </table>
+                </table>` : ''}
 
+                ${hasScenarios ? `
                 <h3>${t("场景模拟与收益概率", "Scenario & ROI Probability")}</h3>
                 <div class="scenario-container">
-                    ${scenarios?.map((s: Scenario) => `
-                        <div class="scenario-card ${s.case === 'Bull' ? 'bull' : s.case === 'Base' ? 'base' : 'stress'}">
-                            <div class="scenario-prob">${s.case} (${s.probability}%)</div>
-                            <div class="scenario-price">${s.targetPrice}</div>
-                            <div style="font-size:11px; color:var(--text-muted); line-height:1.3;">${s.logic}</div>
-                        </div>
-                    `).join('') || `<p>${t("未生成场景模拟", "No scenario simulation generated")}</p>`}
-                </div>
+                    ${scenarios!.map((s: Scenario) => {
+                      const cls = s.case?.toLowerCase() === 'bull' ? 'bull' : s.case?.toLowerCase() === 'base' || s.case?.toLowerCase() === 'bear' ? 'base' : 'stress';
+                      return `
+                        <div class="scenario-card ${cls}">
+                            <div class="scenario-prob">${s.case}${s.probability != null ? ' (' + s.probability + '%)' : ''}</div>
+                            <div class="scenario-price">${s.targetPrice || '—'}</div>
+                            ${s.logic ? `<div style="font-size:11px; color:var(--text-muted); line-height:1.3;">${s.logic}</div>` : ''}
+                        </div>`;
+                    }).join('')}
+                </div>` : ''}
             </div>
 
             <div class="side-panel">
+                ${hasScore || hasRec ? `
                 <h3>${t("机构级评分", "Institutional Ratings")}</h3>
                 <div class="metrics-card">
+                    ${hasScore ? `
                     <div style="margin-bottom:12px; display:flex; justify-content:space-between; align-items:center;">
                         <span style="font-size:14px; color:var(--text-muted);">${t("综合评分", "Overall")}</span>
                         <span style="font-size:24px; font-weight:800; color:var(--accent);">${analysis.score}</span>
-                    </div>
+                    </div>` : ''}
+                    ${analysis.fundamentals?.pe || stockInfo.pe ? `
                     <div style="margin-bottom:10px; display:flex; justify-content:space-between;">
                         <span>PE (TTM)</span>
-                        <span>${fundamentals?.pe || 'N/A'}</span>
-                    </div>
+                        <span>${fundamentals?.pe || stockInfo.pe || 'N/A'}</span>
+                    </div>` : ''}
+                    ${analysis.fundamentals?.roe ? `
                     <div style="margin-bottom:10px; display:flex; justify-content:space-between;">
                         <span>ROE</span>
-                        <span>${fundamentals?.roe || 'N/A'}</span>
-                    </div>
+                        <span>${fundamentals!.roe}</span>
+                    </div>` : ''}
+                    ${hasMoat ? `
                     <div style="margin-bottom:10px; display:flex; justify-content:space-between;">
                         <span>${t("护城河", "Economic Moat")}</span>
                         <span class="badge" style="background:${analysis.moatAnalysis?.strength === 'Wide' ? '#c6f6d5' : '#bee3f8'}">${analysis.moatRating || analysis.moatAnalysis?.strength || 'Narrow'}</span>
-                    </div>
-                    ${analysis.moatAnalysis ? `<p style="font-size:11px; color:var(--text-muted); margin-top:5px; border-top:1px solid #eee; padding-top:5px;">${analysis.moatAnalysis.logic}</p>` : ''}
-                </div>
+                    </div>` : ''}
+                    ${analysis.moatAnalysis?.logic ? `<p style="font-size:11px; color:var(--text-muted); margin-top:5px; border-top:1px solid #eee; padding-top:5px;">${analysis.moatAnalysis.logic}</p>` : ''}
+                </div>` : ''}
 
+                ${hasMarketData ? `
                 <h3>${t("行情数据详情", "Market Quote Details")}</h3>
                 <div class="metrics-card">
+                    ${stockInfo.previousClose != null ? `
                     <div style="margin-bottom:8px; display:flex; justify-content:space-between;">
                         <span>${t("昨收", "Prev Close")}</span>
-                        <span>${stockInfo.previousClose || 'N/A'}</span>
-                    </div>
+                        <span>${stockInfo.previousClose}</span>
+                    </div>` : ''}
+                    ${stockInfo.dailyHigh != null ? `
                     <div style="margin-bottom:8px; display:flex; justify-content:space-between;">
                         <span>${t("当日最高", "Daily High")}</span>
-                        <span class="change-up">${stockInfo.dailyHigh || 'N/A'}</span>
-                    </div>
+                        <span class="change-up">${stockInfo.dailyHigh}</span>
+                    </div>` : ''}
+                    ${stockInfo.dailyLow != null ? `
                     <div style="margin-bottom:8px; display:flex; justify-content:space-between;">
                         <span>${t("当日最低", "Daily Low")}</span>
-                        <span class="change-down">${stockInfo.dailyLow || 'N/A'}</span>
-                    </div>
+                        <span class="change-down">${stockInfo.dailyLow}</span>
+                    </div>` : ''}
                     <div style="margin-bottom:2px; display:flex; justify-content:space-between; font-size:11px; color:var(--text-muted);">
                         <span>${t("数据更新", "Last Updated")}</span>
-                        <span>${new Date(stockInfo.lastUpdated).toLocaleTimeString()}</span>
+                        <span>${lastUpdatedDisplay}</span>
                     </div>
-                </div>
+                </div>` : ''}
 
+                ${hasCoreVars ? `
                 <h3 style="margin-top:25px">${t("核心变量监测", "Key Variable Monitoring")}</h3>
                 <div class="metrics-card">
-                    ${coreVariables?.map((v: CoreVariable) => `
+                    ${coreVariables!.map((v: CoreVariable) => `
                         <div style="margin-bottom:10px; border-bottom:1px solid #f0f0f0; padding-bottom:5px;">
                             <div style="font-size:12px; color:var(--text-muted)">${v.name}</div>
-                            <div style="font-size:14px; font-weight:700;">${v.value} ${v.unit} <span style="font-size:11px; color:var(--accent)">(${v.delta})</span></div>
+                            <div style="font-size:14px; font-weight:700;">${v.value} ${v.unit || ''} ${v.delta ? `<span style="font-size:11px; color:var(--accent)">(${v.delta})</span>` : ''}</div>
                         </div>
-                    `).join('') || `<p style="font-size:12px;">${t("无监测变量", "No variables monitored")}</p>`}
-                </div>
+                    `).join('')}
+                </div>` : ''}
 
+                ${hasTradingPlan ? `
                 <h3 style="margin-top:25px">${t("交易执行指南", "Trading Execution")}</h3>
                 <div class="metrics-card">
-                    <p style="margin-bottom:10px;"><strong>${t("评级", "Rating")}:</strong> <span style="color:var(--accent); font-weight:800;">${analysis.recommendation}</span></p>
+                    ${hasRec ? `<p style="margin-bottom:10px;"><strong>${t("评级", "Rating")}:</strong> <span style="color:var(--accent); font-weight:800;">${analysis.recommendation}</span></p>` : ''}
                     <div style="background:var(--bg-light); padding:12px; border-radius:4px; font-size:13px;">
-                        <p style="margin-bottom:5px;"><strong>${t("参考入场", "Entry")}:</strong> ${tradingPlan?.entryPrice || 'N/A'}</p>
-                        <p style="margin-bottom:5px;"><strong>${t("参考止盈", "Target")}:</strong> ${tradingPlan?.targetPrice || 'N/A'}</p>
-                        <p style="margin-bottom:2px;"><strong>${t("参考止损", "Stop Loss")}:</strong> ${tradingPlan?.stopLoss || 'N/A'}</p>
+                        ${tradingPlan!.entryPrice ? `<p style="margin-bottom:5px;"><strong>${t("参考入场", "Entry")}:</strong> ${tradingPlan!.entryPrice}</p>` : ''}
+                        ${tradingPlan!.targetPrice ? `<p style="margin-bottom:5px;"><strong>${t("参考止盈", "Target")}:</strong> ${tradingPlan!.targetPrice}</p>` : ''}
+                        ${tradingPlan!.stopLoss ? `<p style="margin-bottom:2px;"><strong>${t("参考止损", "Stop Loss")}:</strong> ${tradingPlan!.stopLoss}</p>` : ''}
                     </div>
-                    <p style="font-size:12px; color:var(--text-muted); margin-top:10px; line-height:1.4;">${tradingPlan?.strategy || ''}</p>
-                </div>
+                    ${tradingPlan!.strategy ? `<p style="font-size:12px; color:var(--text-muted); margin-top:10px; line-height:1.4;">${tradingPlan!.strategy}</p>` : ''}
+                </div>` : ''}
+                
+                ${hasRec && !hasTradingPlan ? `
+                <h3 style="margin-top:25px">${t("投资评级", "Rating")}</h3>
+                <div class="metrics-card">
+                    <p style="margin-bottom:10px;"><strong>${t("评级", "Rating")}:</strong> <span style="color:var(--accent); font-weight:800;">${analysis.recommendation}</span></p>
+                </div>` : ''}
             </div>
         </section>
 
+        ${hasDiscussion ? `
         <h3>${t("研讨会核心结论与逻辑辩论", "Expert Deliberation & Logic Debate")}</h3>
         <div class="discussion-log">
-            ${discussion?.map((m: AgentMessage) => `
+            ${discussion!.map((m: AgentMessage) => {
+              const content = (m.content || '').replace(/\\n/g, '<br>');
+              return `
                 <div class="message">
-                    <span class="message-role">${m.role}</span>
-                    <div class="message-content">${m.content.replace(/\n/g, '<br>')}</div>
-                </div>
-            `).join('') || `<p>${t("研讨记录提取失败", "Failed to extract discussion logs")}</p>`}
-        </div>
+                    <span class="message-role">${m.role || t('专家', 'Analyst')}</span>
+                    <div class="message-content">${content}</div>
+                </div>`;
+            }).join('')}
+        </div>` : ''}
 
         <footer>
             <p>Generated by ALSA Professional - Institutional Equity Research Pipeline</p>
@@ -454,6 +537,9 @@ export class ReportGeneratorService {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+    // Don't revoke immediately — let the browser start the download first.
+    // The Blob URL is auto-released when the page is unloaded, so a small
+    // cleanup timeout is sufficient and avoids race conditions.
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
   }
 }

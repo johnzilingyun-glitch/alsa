@@ -183,56 +183,80 @@ export function useReporting(fetchAdminData: () => Promise<void>) {
   const handleExportFullReport = useCallback(async () => {
     if (!analysis) return;
 
+    setIsGeneratingReport(true);
     const lastJobId = useAnalysisStore.getState().lastJobId;
     const filename = `EquityResearch_${analysis.stockInfo?.symbol}_${new Date().toISOString().split('T')[0]}.html`;
 
-    // Try Python backend report (richer, with LLM post-processing)
-    if (lastJobId) {
-      try {
-        const config = useConfigStore.getState().config;
-        const res = await fetch(`/api/analysis/jobs/${lastJobId}/report`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            deepseekApiKey: config.deepseekApiKey || undefined,
-          }),
-        });
-        if (res.ok) {
-          const htmlReport = await res.text();
-          ReportGeneratorService.downloadReport(htmlReport, filename);
-          void fetch('/api/logs/add', {
+    try {
+      // Try Python backend report (richer, with LLM post-processing)
+      if (lastJobId) {
+        try {
+          const config = useConfigStore.getState().config;
+          const res = await fetch(`/api/analysis/jobs/${lastJobId}/report`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              field: 'export_html_report',
-              oldValue: 'markdown',
-              newValue: 'pro_html_backend',
-              description: `成功导出专业 HTML 研报 (后端渲染): ${analysis.stockInfo?.name}`
-            })
+              deepseekApiKey: config.deepseekApiKey || undefined,
+            }),
           });
-          return;
+          if (res.ok) {
+            const htmlReport = await res.text();
+            ReportGeneratorService.downloadReport(htmlReport, filename);
+            // Save local backup
+            saveReportToDisk(filename, htmlReport);
+            void fetch('/api/logs/add', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                field: 'export_html_report',
+                oldValue: 'markdown',
+                newValue: 'pro_html_backend',
+                description: `成功导出专业 HTML 研报 (后端渲染): ${analysis.stockInfo?.name}`
+              })
+            });
+            return;
+          }
+        } catch (e) {
+          console.warn('Backend report generation failed, falling back to frontend:', e);
         }
-      } catch (e) {
-        console.warn('Backend report generation failed, falling back to frontend:', e);
       }
+
+      // Fallback to frontend template
+      const language = useConfigStore.getState().language === 'en' ? 'en' : 'zh-CN';
+      const htmlReport = ReportGeneratorService.generateProfessionalHtmlReport(analysis, language);
+      ReportGeneratorService.downloadReport(htmlReport, filename);
+      // Save local backup
+      saveReportToDisk(filename, htmlReport);
+
+      void fetch('/api/logs/add', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          field: 'export_html_report',
+          oldValue: 'markdown',
+          newValue: 'pro_html',
+          description: `成功导出专业 HTML 研报: ${analysis.stockInfo?.name}`
+        })
+      });
+    } catch (e) {
+      console.error('Export HTML failed:', e);
+      setReportStatus('error');
+    } finally {
+      setIsGeneratingReport(false);
     }
+  }, [analysis, setIsGeneratingReport, setReportStatus]);
 
-    // Fallback to frontend template
-    const language = useConfigStore.getState().language === 'en' ? 'en' : 'zh-CN';
-    const htmlReport = ReportGeneratorService.generateProfessionalHtmlReport(analysis, language);
-    ReportGeneratorService.downloadReport(htmlReport, filename);
-
-    void fetch('/api/logs/add', {
+  /** Save report HTML to local server disk (reports/ directory) */
+  const saveReportToDisk = useCallback((filename: string, content: string) => {
+    void fetch('/api/reports/save', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        field: 'export_html_report',
-        oldValue: 'markdown',
-        newValue: 'pro_html',
-        description: `成功导出专业 HTML 研报: ${analysis.stockInfo?.name}`
-      })
-    });
-  }, [analysis]);
+      body: JSON.stringify({ filename, content }),
+    }).then(r => r.json()).then(d => {
+      if (d.success) console.log(`[Report] Local backup: ${d.path}`);
+      else console.warn('[Report] Local backup failed:', d.error);
+    }).catch(e => console.warn('[Report] Local backup error:', e));
+  }, []);
 
   const handleExportPdf = useCallback(async () => {
     if (!analysis) return;

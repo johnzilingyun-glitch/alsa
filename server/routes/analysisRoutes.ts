@@ -21,7 +21,7 @@ const PYTHON_SERVICE_URL = process.env.PYTHON_SERVICE_URL || 'http://127.0.0.1:8
 // GET /reports/download?file=xxx_report.html  下载/alsa/reports下的HTML/PDF
 router.get('/reports/download', async (req, res) => {
   const file = req.query.file as string;
-  if (!file || !/^[\w\-.]+\.(html|pdf)$/i.test(file)) {
+  if (!file || !/^[\w.-]+\\.(html|pdf)$/i.test(file)) {
     return res.status(400).json({ error: 'Invalid file name.' });
   }
   const reportsDir = path.resolve(__dirname, '../../reports');
@@ -35,6 +35,32 @@ router.get('/reports/download', async (req, res) => {
   res.download(filePath, file, err => {
     if (err) res.status(500).json({ error: 'Download failed.' });
   });
+});
+
+// ── Save Report to Local Disk ────────────────────────────────────
+// POST /reports/save  保存研报HTML到本地reports目录做备份
+router.post('/reports/save', async (req, res) => {
+  const { filename, content } = req.body;
+  if (!filename || !content) {
+    return res.status(400).json({ error: 'Missing filename or content.' });
+  }
+  const safeName = filename.replace(/[^\w. -]/g, '_');
+  const reportsDir = path.resolve(__dirname, '../../reports');
+  if (!fs.existsSync(reportsDir)) {
+    fs.mkdirSync(reportsDir, { recursive: true });
+  }
+  const filePath = path.join(reportsDir, safeName);
+  if (!filePath.startsWith(reportsDir)) {
+    return res.status(403).json({ error: 'Access denied.' });
+  }
+  try {
+    fs.writeFileSync(filePath, content, 'utf-8');
+    console.log(`[Report] Saved to ${filePath}`);
+    res.json({ success: true, path: filePath });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    res.status(500).json({ success: false, error: message });
+  }
 });
 
 router.post('/analysis/jobs', async (req, res) => {

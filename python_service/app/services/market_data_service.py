@@ -53,8 +53,41 @@ class MarketDataService:
             except Exception as e:
                 print(f"A-Share resolution error: {e}")
 
+            # Fallback: Sina suggest API when AkShare is unavailable
+            if not results:
+                try:
+                    import urllib.request
+                    from urllib.parse import quote
+                    encoded_key = quote(query)
+                    url = f"https://suggest3.sinajs.cn/suggest/type=11&key={encoded_key}"
+                    req = urllib.request.Request(url, headers={
+                        "Referer": "https://finance.sina.com.cn",
+                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                    })
+                    resp = urllib.request.urlopen(req, timeout=10)
+                    text = resp.read().decode("gbk")
+                    # Parse: var suggestvalue="name,11,code,shcode,name2,,name3,99,1,,,;..."
+                    import re
+                    m = re.search(r'"([^"]*)"', text)
+                    if m:
+                        for item in m.group(1).split(";"):
+                            parts = item.split(",")
+                            if len(parts) >= 4 and parts[1] == "11":  # type=11 = stock
+                                code = parts[2]
+                                name = parts[0]
+                                if len(code) == 6 and code.startswith(("6", "0", "3", "8", "4")):
+                                    # Only return exact name matches for clean auto-selection
+                                    if name == query:
+                                        results.append({
+                                            "symbol": code,
+                                            "name": name,
+                                            "market": "A-Share"
+                                        })
+                except Exception as e:
+                    print(f"A-Share resolution via Sina suggest failed: {e}")
+
         # 3. Search HK-Shares if market is None or HK-Share
-        if market is None or market == "HK-Share":
+        if not results and (market is None or market == "HK-Share"):
             try:
                 # Use stock_hk_spot_em for a quick list of HK stocks
                 df = await safe_ak_call(ak.stock_hk_spot_em)
@@ -69,8 +102,8 @@ class MarketDataService:
             except Exception as e:
                 print(f"HK-Share resolution error: {e}")
 
-        # 4. Search US-Shares (Yahoo Finance search)
-        if market is None or market == "US-Share":
+        # 4. Search US-Shares (Yahoo Finance search) — only if no A/HK results
+        if not results and (market is None or market == "US-Share"):
             try:
                 # We can use a search service or yfinance if it supports it
                 # For now, let's use a simple heuristic or a search API if available
@@ -78,7 +111,7 @@ class MarketDataService:
                 search_results = await search_service.search(f"{query} stock symbol yahoo finance", max_results=5)
                 # This is a bit slow, but US stocks are harder to list locally
                 # Let's just return the query as US-Share if nothing else found and it looks like a symbol
-                if query.isalpha() and len(query) <= 5:
+                if query.isascii() and query.isalpha() and len(query) <= 5:
                     results.append({"symbol": query.upper(), "name": query.upper(), "market": "US-Share"})
             except Exception as e:
                 print(f"US-Share resolution error: {e}")

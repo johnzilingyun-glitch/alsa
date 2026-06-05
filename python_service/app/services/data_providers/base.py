@@ -41,7 +41,17 @@ class QuoteData:
     source: str = ""
 
     def to_dict(self) -> Dict[str, Any]:
-        return {k: v for k, v in self.__dict__.items() if v is not None}
+        """Convert to dict with camelCase keys expected by downstream consumers."""
+        raw = {k: v for k, v in self.__dict__.items() if v is not None}
+        # Map snake_case field names to camelCase used by report/snapshot services
+        key_map = {
+            "change_pct": "changePercent",
+            "last_close": "previousClose",
+            "market_cap": "marketCap",
+            "pe_ttm": "trailingPE",
+            "turnover_pct": "turnoverRate",
+        }
+        return {key_map.get(k, k): v for k, v in raw.items()}
 
 
 # Standard OHLCV column names for historical data

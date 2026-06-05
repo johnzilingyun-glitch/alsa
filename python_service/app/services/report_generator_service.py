@@ -511,12 +511,22 @@ Now extract from the following discussion:
 
         # Strip DeepSeek DSML tokens (native tool call markup that may leak)
         if 'DSML' in stripped:
-            import re
             stripped = re.sub(r'<[｜|]*DSML[｜|]*[^>]*>', '', stripped)
             stripped = re.sub(r'</[｜|]*DSML[｜|]*[^>]*>', '', stripped)
             stripped = re.sub(r'\n{3,}', '\n\n', stripped).strip()
             if not stripped:
                 return "<p><em>(Tool-calling round — no text content)</em></p>"
+
+        # Detect raw tool-call data fragments (mostly numbers/N/A without prose)
+        lines = stripped.split('\n')
+        non_empty_lines = [l.strip() for l in lines if l.strip()]
+        if non_empty_lines:
+            data_lines = sum(1 for l in non_empty_lines if re.match(
+                r'^[\d.,\-+%]+$|^N/?A$|^[\d]+\.\d+$|^\d{6}$', l
+            ))
+            # If >60% of lines are pure data fragments and total is short, skip this entry
+            if len(non_empty_lines) <= 20 and data_lines / len(non_empty_lines) > 0.6:
+                return "<p><em>(数据查询轮次 — 无分析文本)</em></p>"
 
         # Detect JSON-containing content — use LLM to convert to 1️⃣2️⃣ styled markdown
         has_json = stripped.startswith("{") or stripped.startswith("```json")
@@ -524,38 +534,26 @@ Now extract from the following discussion:
         # Also detect trailing JSON block (markdown text followed by JSON at the end)
         trailing_json_md = ""
         if not has_json:
-            # Find JSON block containing key analyst fields
             json_clean = None
             json_start_pos = -1
-            
-            # Try to find ```json ... ``` fenced block
-            for key in ["tagline", "investmentThesis", "tradingPlan"]:
-                pattern = rf'\n```json\s*\n'
-                for fence_match in re.finditer(pattern, stripped):
-                    fence_start = fence_match.end()
-                    candidate = self._extract_balanced_json(stripped[fence_start:])
-                    if candidate and key in candidate:
-                        json_clean = candidate
-                        json_start_pos = fence_match.start()
-                        break
-                if json_clean:
+
+            # 1) Any ```json ... ``` fenced block (schema-agnostic)
+            for fence_match in re.finditer(r'```json\s*\n', stripped):
+                fence_start = fence_match.end()
+                candidate = self._extract_balanced_json(stripped[fence_start:])
+                if candidate and candidate.count('"') >= 2:
+                    json_clean = candidate
+                    json_start_pos = fence_match.start()
                     break
-            
-            # If no fenced block, try bare JSON object
+
+            # 2) No fenced block — find first bare {...} object with at least one key
             if not json_clean:
-                for key in ["tagline", "investmentThesis", "tradingPlan"]:
-                    # Find positions of key in content
-                    idx = stripped.find(f'"{key}"')
-                    if idx < 0:
-                        continue
-                    # Walk backwards to find opening {
-                    brace_pos = stripped.rfind('{', 0, idx)
-                    if brace_pos > 0:
-                        candidate = self._extract_balanced_json(stripped[brace_pos:])
-                        if candidate:
-                            json_clean = candidate
-                            json_start_pos = brace_pos
-                            break
+                for brace_pos in (m.start() for m in re.finditer(r'\{', stripped)):
+                    candidate = self._extract_balanced_json(stripped[brace_pos:])
+                    if candidate and '":' in candidate and len(candidate) > 40:
+                        json_clean = candidate
+                        json_start_pos = brace_pos
+                        break
             
             if json_clean:
                 text_part = stripped[:json_start_pos].strip()
@@ -794,18 +792,37 @@ CONTENT:
             lines.append("")
 
         # Fallback: any unhandled keys
+        # Readable labels for common expert-JSON keys (avoids raw snake_case in report)
+        key_labels = {
+            "core_thesis": "🎯 核心论点", "key_metrics_extracted": "📊 关键指标",
+            "risks": "⚠️ 风险提示", "rating": "🏅 评级",
+            "recommendation": "💡 操作建议", "minervini_stage": "📈 趋势阶段",
+            "summary": "📝 摘要", "conclusion": "✅ 结论",
+            "analysis": "🔍 分析", "verdict": "⚖️ 裁决",
+            "key_findings": "🔑 核心发现", "catalysts": "🚀 催化剂",
+            "valuation": "💰 估值", "thesis": "📋 论点",
+            "score": "📊 评分", "confidence": "🎚️ 置信度",
+        }
+
+        def _humanize(k: str) -> str:
+            if k in key_labels:
+                return key_labels[k]
+            # Replace separators; escape underscores to avoid markdown italics
+            return re.sub(r'[_]+', ' ', k).strip().title()
+
         handled = set(labels.keys()) | {"expectedPrice", "tradingPlan", "kellyPosition", "timeHorizon", "buildPlan", "exitMechanism", "criticalRisks", "falsificationRedlines", "keyRevisionsToPriorAnalyses"}
         for key, val in data.items():
             if key not in handled:
+                label = _humanize(key)
                 if isinstance(val, str):
-                    lines.append(f"### {key}\n\n{val}\n")
+                    lines.append(f"### {label}\n\n{val}\n")
                 elif isinstance(val, dict):
-                    lines.append(f"### {key}\n")
+                    lines.append(f"### {label}\n")
                     for dk, dv in val.items():
-                        lines.append(f"- **{dk}**: {dv}")
+                        lines.append(f"- **{_humanize(dk)}**: {dv}")
                     lines.append("")
                 elif isinstance(val, list):
-                    lines.append(f"### {key}\n")
+                    lines.append(f"### {label}\n")
                     for item in val:
                         if isinstance(item, dict):
                             lines.append(f"- {' | '.join(str(v) for v in item.values())}")

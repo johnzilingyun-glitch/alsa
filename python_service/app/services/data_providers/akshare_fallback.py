@@ -101,7 +101,7 @@ class AkShareFallbackProvider(DataProvider):
                         change_pct=float(r.get("涨跌幅", 0) or 0),
                         volume=float(r.get("成交量", 0) or 0),
                         amount=float(r.get("成交额", 0) or 0),
-                        market_cap=float(r.get("总市值", 0) or 0) / 1e8 if r.get("总市值") else None,
+                        market_cap=float(r.get("总市值", 0) or 0) if r.get("总市值") else None,
                         pe_ttm=float(r.get("市盈率-动态", 0) or 0) or None,
                         pb=float(r.get("市净率", 0) or 0) or None,
                         turnover_pct=float(r.get("换手率", 0) or 0) or None,

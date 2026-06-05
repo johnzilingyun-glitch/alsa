@@ -33,18 +33,23 @@ class ReportGeneratorService:
             provider = os.getenv("DEFAULT_LLM_PROVIDER", "deepseek").lower()
             model = os.getenv("DEEPSEEK_MODEL", "deepseek-v4-pro") if provider == "deepseek" else os.getenv("GEMINI_MODEL", "gemini-3.1-pro-preview")
         
-        full_discussion = "\n".join([f"[{m['role']}]: {m['content']}" for m in discussion_msgs])
+        # Clean discussion content: strip LLM thinking prefixes before downstream use
+        cleaned_msgs = [{"role": m["role"], "content": self._strip_thinking_prefix(m["content"])} for m in discussion_msgs]
+        full_discussion = "\n".join([f"[{m['role']}]: {m['content']}" for m in cleaned_msgs])
         
         # UI Data Expert Pass - REFINED CONTENT (RESTORING RAW LOGS)
         ui_data = await self._run_ui_data_expert(symbol, market, snapshot, full_discussion, model=model, deepseek_api_key=deepseek_api_key)
         
-        # If UI data expert failed (empty dict), build fallback from discussion
+        # If UI data expert failed (empty dict) OR critical fields are empty, build fallback
         if not ui_data:
-            ui_data = self._build_fallback_ui_data(symbol, discussion_msgs, snapshot)
+            ui_data = self._build_fallback_ui_data(symbol, cleaned_msgs, snapshot)
+        else:
+            # Validate critical fields — backfill from discussion if LLM returned empty/thinking text
+            self._validate_and_backfill_ui_data(ui_data, cleaned_msgs, snapshot)
         
         # Backfill empty upside/downside from discussion text
         if not ui_data.get("upside") or not ui_data.get("downside"):
-            extracted = self._extract_thesis_from_discussion(discussion_msgs)
+            extracted = self._extract_thesis_from_discussion(cleaned_msgs)
             if not ui_data.get("upside") and extracted.get("upside"):
                 ui_data["upside"] = extracted["upside"]
             if not ui_data.get("downside") and extracted.get("downside"):
@@ -57,14 +62,14 @@ class ReportGeneratorService:
         # Parallelize normalization for performance — fallback to markdown if LLM fails
         try:
             normalized_contents = await asyncio.gather(*[
-                self._normalize_log_style(m["content"], model=model, deepseek_api_key=deepseek_api_key) for m in discussion_msgs
+                self._normalize_log_style(m["content"], model=model, deepseek_api_key=deepseek_api_key) for m in cleaned_msgs
             ])
             # Check if all normalizations returned empty/error
             if all(not c or c.strip() == "" for c in normalized_contents):
                 raise ValueError("All normalizations returned empty")
         except Exception:
             # Fallback: convert raw markdown to HTML without LLM
-            normalized_contents = [self._markdown_to_html_fallback(m["content"]) for m in discussion_msgs]
+            normalized_contents = [self._markdown_to_html_fallback(m["content"]) for m in cleaned_msgs]
         
         data = {
             "info": {
@@ -107,7 +112,7 @@ class ReportGeneratorService:
             "recommendation": ui_data.get("recommendation", "WATCH"),
             "discussion": [
                 {"role": m["role"], "content": content}
-                for m, content in zip(discussion_msgs, normalized_contents)
+                for m, content in zip(cleaned_msgs, normalized_contents)
             ]
         }
         
@@ -117,93 +122,150 @@ class ReportGeneratorService:
         return os.path.abspath(output_path)
 
     async def _run_ui_data_expert(self, symbol: str, market: str, snapshot: dict, discussion: str, model: str = None, deepseek_api_key: str = None) -> dict:
-        prompt = f"""You are the ALSA UI Data Expert. Your task is to extract and organize the core insights from the expert discussion for {symbol}.
-        
-FIELDS TO EXTRACT:
-- verdict: ONE sentence (max 20 words) conclusion for busy fund managers. Example: "高ROE周期股，技术破位中，等待22-24元安全边际共振"
-- action_stance: Clarify the relationship between recommendation and trading plan. Example: "当前持仓HOLD，新仓等待L1入场条件触发后试探性建仓"
-- tagline: Compelling tagline/hook of the report. Example: "藏格矿业：钾锂双轮驱动，周期筑底期现金牛价值凸显"
-- investment_thesis: A-share core narrative in one sentence. Example: "行业出清带来的供需错配与国产替代加速"
-- factor_profile: Object with {{size: "大盘/小盘/中盘", style: "成长/价值/周期/红利", volatility: "高Beta/低波动/中等", expected_return: "收益特征说明"}}
-- consensus_vs_non_consensus: Object with {{market_consensus: "市场已price-in的共识", our_alpha: "我们看到的Alpha预期差"}}
-- the_call: One-sentence final action command. Example: "当前超配，等待均线放量金叉后分批入场，若跌破止损位强制止损"
-- catalyst_calendar: List of objects with {{event: "催化剂事件描述", date: "预计时间节点", impact_logic: "影响逻辑"}}
-- stock_archetype: Stock classification, must be one of: "Cyclical", "Growth", "Dividend", "Consumer/Moat"
-- wacc_breakdown: Object with {{rf: "无风险利率(如2.3%)", beta: "贝塔系数(如1.1)", erp: "股权风险溢价(如6.0%)", kd: "债务成本", tc: "所得税率", d_v: "有息负债占比", e_v: "权益占比", wacc: "计算后的WACC", source: "数据来源与逻辑", sensitivity: "基于WACC±1%和永续增长率变化的敏感性分析结论"}}
-- kill_switch: Object with {{condition: "防伪红线及技术面破位触发条件描述(须包含基本面恶化及技术面跌破关键均线/回撤上限等双重维度)", status: "预警状态，如安全(SAFE)或触发(TRIGGERED)"}}
-- market_wind_control: Object representing market-specific risk features based on Listing Market. (A-Share: {{lockup_date: "限售股解禁日期/规模", lockup_impact: "解禁影响分析", reduction_plan: "大股东/高管减持计划及进度", crowding_level: "机构持仓拥挤度分析"}}; HK-Share: {{lockup_date: "基石/大股东禁售期解禁评估", lockup_impact: "减持冲击及公告变动", reduction_plan: "大股东抵押/质押股份比例", crowding_level: "港股通南向资金持股变动与占比"}}; US-Share: {{lockup_date: "内部人交易 Form 4 净买/卖", lockup_impact: "10b5-1 计划执行情况", reduction_plan: "空头头寸占比 Short Interest", crowding_level: "13F 机构持仓变动"}})
-- trading_discipline: Object with {{left_side_condition: "左侧建仓条件(如极度缩量地量支撑)", right_side_trigger: "右侧买入触发点", max_drawdown_limit: "单票最大回撤熔断上限(如-8%或-10%)", thesis_invalidation_trigger: "逻辑证伪退出触发器"}}
-- data_completeness: Object with {{score: 0-100, missing: [list of critical missing data items], impact: \"description of impact on conclusions\"}}
-- peer_comparison: List of objects with {{name, symbol, pe, pb, roe, margin, marketCap, vs_target}} for 3-5 comparable peers
-- summary: Short executive summary (2-3 sentences)
-- moat_summary: Summary of competitive advantages
-- moat_points: List of specific moat factors
-- macro_summary: Summary of macro environment
-- macro_points: List of macro indicators
-- trading_plan: Overall strategy summary
-- net_profit: Latest annual or quarterly net profit (e.g., "11.24亿HKD")
-- net_profit_deduct: Non-recurring net profit
-- revenue_qoq: Revenue Quarter-on-Quarter growth percentage
-- net_profit_yoy: Net Profit Year-on-Year growth percentage
-- net_profit_qoq: Net Profit Quarter-on-Quarter growth percentage
-- net_profit_deduct_yoy: Adjusted Net Profit YoY growth
-- net_profit_deduct_qoq: Adjusted Net Profit QoQ growth
-- capex: Capital Expenditure (CAPEX)
-- pe_percentile: Current PE ratio percentile in history
-- asset_turnover: Asset turnover ratio
-- inventory_turnover: Inventory turnover ratio
-- recommendation: BUY, HOLD, or SELL
-- score: 0-100 score
-- trading_steps: List of objects with level, price, weight, logic
-- risks_points: List of risk factors
-- upside: List of bull drivers
-- downside: List of bear risks
-- scenarios: List of objects with case, probability (INTEGER 0-100, NO % sign), targetPrice, logic
+        prompt = f"""# ROLE
+You are the ALSA Report Structuring Engine — a specialized system that transforms raw multi-expert stock analysis discussions into structured JSON for UI rendering.
 
-CRITICAL INSTRUCTIONS:
-1. PRIORITIZE extracting financial data (profit, capex, growth) from the FINANCIAL SEARCH CONTEXT if provided.
-2. Output in VALID JSON format ONLY.
-3. If a value is missing, use null.
-4. DO NOT provide "N/A" as a value. Use strings like "11.24亿HKD" or "+5.2%".
-5. For "probability" in scenarios: output a plain INTEGER (e.g. 20, 50, 30). Do NOT append "%" symbol.
+# INPUT
+- Stock: {symbol} ({market})
+- Below you will receive the full expert discussion transcript.
 
-JSON STRUCTURE:
+# TASK
+Extract ALL substantive analytical conclusions from the discussion and map them into the JSON schema below. You are a **data extraction pipeline**, not an analyst — do NOT generate new analysis, only reorganize what the experts already said.
+
+# CRITICAL RULES (MUST FOLLOW)
+
+## Rule 1: Filter Noise
+The discussion may contain LLM artifacts like:
+- "Now I have comprehensive data. Let me compile..."
+- "Based on my analysis, here are my key findings:"
+- "OK, let me write the full JSON output now."
+- "Actually, let me reconsider..."
+- Raw calculations, intermediate reasoning, self-talk
+
+**SKIP ALL OF THESE.** Extract only the final analytical conclusions, not the thinking process.
+
+## Rule 2: Zero Tolerance for Empty Critical Fields
+These 5 fields MUST NEVER be null/empty if the discussion contains ANY relevant analysis:
+1. **verdict** — If experts gave ANY conclusion, synthesize it into ≤20 words
+2. **action_stance** — If ANY trading recommendation exists, extract it
+3. **investment_thesis** — If ANY core logic/narrative is stated, capture it
+4. **tagline** — Synthesize the stock name + key thesis into a hook
+5. **recommendation** — Must be BUY, HOLD, or SELL (derive from discussion tone if not explicit)
+
+If you cannot find these in the text, SYNTHESIZE from the overall discussion sentiment. Never return null for these 5 fields.
+
+## Rule 3: Output Format
+- Output ONLY a single valid JSON object. No markdown, no explanation, no commentary.
+- Use Chinese for all text values (matching the discussion language).
+- Numbers: use plain integers/floats, NOT strings (except when unit-attached like "48.18亿元").
+- If a non-critical field's data is truly absent from the discussion, use null.
+
+## Rule 4: Quality Bar
+Each extracted field should meet this bar:
+- **verdict**: Reads like a Bloomberg terminal flash (concise, decisive, actionable)
+- **tagline**: Reads like a sell-side report title (compelling, specific)
+- **scenarios**: Must have realistic probability splits summing to 100%, with specific price targets if discussed
+- **data_completeness**: Honestly assess what data the experts had vs. what was missing
+
+# JSON SCHEMA
+
+```json
 {{
-  "verdict": "一句话结论(max 20 words)",
-  "action_stance": "明确当前持仓建议与新仓操作指引的关系",
-  "tagline": "...",
-  "investment_thesis": "...",
-  "factor_profile": {{"size": "...", "style": "...", "volatility": "...", "expected_return": "..."}},
-  "consensus_vs_non_consensus": {{"market_consensus": "...", "our_alpha": "..."}},
-  "the_call": "...",
+  "verdict": "≤20字一句话定调，如：低估值铝业龙头，大股东减持压制短期，等Q2验证",
+  "action_stance": "持仓建议+操作指引，如：当前持仓HOLD，新仓等待13元支撑确认后试探建仓",
+  "tagline": "报告标题钩子，如：天山铝业：全产业链成本优势vs大股东套现，周期股的攻守博弈",
+  "investment_thesis": "一句话核心逻辑，如：铝价高位+产能天花板刚性约束，但大股东减持构成估值天花板",
+  "recommendation": "BUY|HOLD|SELL",
+  "score": 75,
+  "factor_profile": {{
+    "size": "大盘|中盘|小盘",
+    "style": "成长|价值|周期|红利",
+    "volatility": "高Beta|低波动|中等",
+    "expected_return": "收益预期特征描述"
+  }},
+  "consensus_vs_non_consensus": {{
+    "market_consensus": "市场已price-in的共识观点",
+    "our_alpha": "我们看到的预期差/非共识观点"
+  }},
+  "the_call": "一句话最终操作指令",
+  "stock_archetype": "Cyclical|Growth|Dividend|Consumer/Moat|Financial|Biotech",
   "catalyst_calendar": [
-    {{"event": "...", "date": "...", "impact_logic": "..."}}
+    {{"event": "事件描述", "date": "时间节点", "impact_logic": "影响逻辑"}}
   ],
-  "stock_archetype": "Cyclical",
-  "wacc_breakdown": {{"rf": "...", "beta": "...", "erp": "...", "kd": "...", "tc": "...", "d_v": "...", "e_v": "...", "wacc": "...", "source": "..."}},
-  "kill_switch": {{"condition": "...", "status": "..."}},
-  "market_wind_control": {{"lockup_date": "...", "lockup_impact": "...", "reduction_plan": "...", "crowding_level": "..."}},
-  "trading_discipline": {{"left_side_condition": "...", "right_side_trigger": "...", "max_drawdown_limit": "...", "thesis_invalidation_trigger": "..."}},
-  "data_completeness": {{"score": 85, "missing": ["PP现货价", "焦炭价"], "impact": "影响利润敏感性分析精度"}},
-  "peer_comparison": [{{"name": "万华化学", "symbol": "002415", "pe": 15.2, "pb": 3.1, "roe": 18.5, "margin": 22.3, "marketCap": "3200亿", "vs_target": "估值溢价合理"}}],
-  "summary": "...",
-  "moat_summary": "...",
-  "moat_points": ["...", "..."],
-  "macro_summary": "...",
-  "macro_points": ["...", "..."],
-  "trading_plan": "...",
+  "wacc_breakdown": {{
+    "rf": "无风险利率", "beta": "贝塔系数", "erp": "股权风险溢价",
+    "kd": "债务成本", "tc": "所得税率", "d_v": "负债占比", "e_v": "权益占比",
+    "wacc": "加权平均资本成本", "source": "数据来源", "sensitivity": "敏感性分析"
+  }},
+  "kill_switch": {{
+    "condition": "防伪红线条件(基本面+技术面双维度)",
+    "status": "SAFE|TRIGGERED"
+  }},
+  "market_wind_control": {{
+    "lockup_date": "限售股解禁信息",
+    "lockup_impact": "解禁冲击评估",
+    "reduction_plan": "减持计划/进度",
+    "crowding_level": "机构持仓拥挤度"
+  }},
+  "trading_discipline": {{
+    "left_side_condition": "左侧建仓条件",
+    "right_side_trigger": "右侧买入触发点",
+    "max_drawdown_limit": "最大回撤熔断线(如-8%)",
+    "thesis_invalidation_trigger": "逻辑证伪退出条件"
+  }},
+  "data_completeness": {{
+    "score": 0-100,
+    "missing": ["缺失数据项1", "缺失数据项2"],
+    "impact": "缺失数据对结论的影响"
+  }},
+  "peer_comparison": [
+    {{"name": "公司名", "symbol": "代码", "pe": 15.2, "pb": 3.1, "roe": 18.5, "margin": 22.3, "marketCap": "3200亿", "vs_target": "对比结论"}}
+  ],
+  "summary": "2-3句执行摘要",
+  "moat_summary": "护城河总结",
+  "moat_points": ["护城河要素1", "护城河要素2"],
+  "macro_summary": "宏观环境总结",
+  "macro_points": ["宏观要素1", "宏观要素2"],
+  "trading_plan": "交易策略总述",
   "trading_steps": [
-    {{"level": "第一层", "price": "...", "weight": "...", "logic": "..."}}
+    {{"level": "第一层", "price": "价格", "weight": "仓位", "logic": "逻辑"}}
   ],
-  "net_profit": "...",
-  "revenue_qoq": "...",
-  "net_profit_yoy": "...",
-  "score": 85,
-  "recommendation": "BUY"
+  "risks_points": ["风险1", "风险2"],
+  "upside": ["看涨驱动1", "看涨驱动2"],
+  "downside": ["看跌风险1", "看跌风险2"],
+  "scenarios": [
+    {{"case": "Bull", "probability": 30, "targetPrice": "目标价", "logic": "驱动逻辑"}},
+    {{"case": "Base", "probability": 50, "targetPrice": "目标价", "logic": "驱动逻辑"}},
+    {{"case": "Bear", "probability": 20, "targetPrice": "目标价", "logic": "驱动逻辑"}}
+  ],
+  "net_profit": "最近净利润(如48.18亿元)",
+  "net_profit_deduct": "扣非净利润",
+  "revenue_qoq": "营收环比增长",
+  "net_profit_yoy": "净利润同比增长",
+  "net_profit_qoq": "净利润环比增长",
+  "net_profit_deduct_yoy": "扣非净利润同比",
+  "net_profit_deduct_qoq": "扣非净利润环比",
+  "capex": "资本开支",
+  "pe_percentile": "PE历史百分位",
+  "asset_turnover": "总资产周转率",
+  "inventory_turnover": "存货周转率"
 }}
+```
 
-OUTPUT ONLY THE JSON OBJECT.
+# BAD OUTPUT EXAMPLES (DO NOT DO THIS)
+❌ `"verdict": ""` — Empty critical field
+❌ `"verdict": "Now I have comprehensive data"` — LLM thinking text leaked
+❌ `"investment_thesis": "Based on my analysis..."` — Process text, not conclusion
+❌ `"tagline": "002532 投资分析报告"` — Generic, no insight
+❌ `"scenarios": [{{"probability": "30%"}}]` — String with %, must be integer 30
+❌ `"net_profit": "N/A"` — Use null, not "N/A"
 
+# GOOD OUTPUT EXAMPLES
+✅ `"verdict": "铝价高位叠加产能天花板，但大股东48亿套现压制估值扩张"` 
+✅ `"tagline": "天山铝业：全产业链一体化铝业龙头的周期博弈"` 
+✅ `"investment_thesis": "电解铝产能4500万吨刚性约束下的供需错配逻辑"` 
+
+Now extract from the following discussion:
 """
         # Append search context if available to help fill missing fundamental data
         search_ctx = snapshot.get("financials", {}).get("searchContext", "")
@@ -238,6 +300,112 @@ OUTPUT ONLY THE JSON OBJECT.
         except Exception as e:
             print(f"UI Data Expert Pass Failed: {e}")
             return {}
+
+    # --- Thinking prefix patterns common in DeepSeek/LLM outputs ---
+    _THINKING_PREFIXES = [
+        r"^Now I (?:have|need|will|should|can|am going)[^\n]*\n+",
+        r"^(?:OK|Okay|Alright|Right)[,.]?\s*(?:let me|I'll|I will|I need|now)[^\n]*\n+",
+        r"^Let me (?:think|consider|analyze|review|proceed|compile|write|start|check|reconsider|also consider)[^\n]*\n+",
+        r"^Based on (?:my|the|this) (?:analysis|review|data|findings|research)[^\n]*\n+",
+        r"^I (?:have|need to|should|will|can|am going to) (?:now|also|first|proceed|comprehensive)[^\n]*\n+",
+        r"^Actually,? let me[^\n]*\n+",
+        r"^(?:Here are|The following|Below)[^\n]*(?:findings|results|analysis|key)[^\n]*:\s*\n+",
+    ]
+
+    def _strip_thinking_prefix(self, content: str) -> str:
+        """Remove LLM thinking/reasoning prefixes from discussion content.
+        These are visible model outputs that read like internal monologue rather than analysis."""
+        if not content:
+            return content
+        stripped = content.strip()
+
+        # Iteratively strip thinking prefixes (model may chain multiple thinking sentences)
+        max_passes = 10
+        for _ in range(max_passes):
+            changed = False
+            for pattern in self._THINKING_PREFIXES:
+                new = re.sub(pattern, '', stripped, count=1, flags=re.IGNORECASE | re.MULTILINE)
+                if new != stripped:
+                    stripped = new.lstrip()
+                    changed = True
+                    break
+            if not changed:
+                break
+
+        # If stripping removed everything or too much (>90% removed), return original
+        if not stripped or (len(stripped) < 50 and len(stripped) < len(content.strip()) * 0.1):
+            return content.strip()
+        return stripped
+
+    def _validate_and_backfill_ui_data(self, ui_data: dict, discussion_msgs: list, snapshot: dict):
+        """Validate critical UI fields; backfill from discussion if LLM returned empty or thinking text."""
+        # Check for thinking text that leaked into structured fields
+        thinking_indicators = ["Now I have", "Let me ", "Based on my analysis", "OK, let me", "I will ", "I'll "]
+
+        def _is_thinking_text(val: str) -> bool:
+            if not val or not isinstance(val, str):
+                return False
+            return any(val.strip().startswith(prefix) for prefix in thinking_indicators)
+
+        # Fix investment_thesis if it contains thinking text
+        if _is_thinking_text(ui_data.get("investment_thesis", "")):
+            ui_data["investment_thesis"] = self._extract_first_substantive_sentence(discussion_msgs)
+
+        # Fix tagline if it's empty or default-like
+        tagline = ui_data.get("tagline", "")
+        if not tagline or _is_thinking_text(tagline):
+            ui_data["tagline"] = ""  # Will use fallback in _render_html
+
+        # Ensure verdict exists — try to extract from discussion
+        if not ui_data.get("verdict"):
+            verdict = self._extract_verdict_from_discussion(discussion_msgs)
+            if verdict:
+                ui_data["verdict"] = verdict
+
+        # Ensure action_stance exists
+        if not ui_data.get("action_stance"):
+            rec = ui_data.get("recommendation", "WATCH")
+            ui_data["action_stance"] = f"当前建议 {rec}，详见专家研讨记录中的交易计划"
+
+        # Ensure data_completeness is populated
+        dc = ui_data.get("data_completeness")
+        if not dc or not isinstance(dc, dict) or dc.get("score") is None:
+            # Estimate from N/A count in fundamentals-related fields
+            na_fields = [k for k in ["net_profit", "capex", "revenue_qoq", "net_profit_yoy",
+                                      "pe_percentile", "asset_turnover"] if not ui_data.get(k)]
+            score = max(30, 100 - len(na_fields) * 10)
+            ui_data["data_completeness"] = {"score": score, "missing": na_fields[:5],
+                                             "impact": "部分指标缺失可能影响估值精度" if na_fields else ""}
+
+    def _extract_first_substantive_sentence(self, discussion_msgs: list) -> str:
+        """Extract the first substantive analytical sentence from discussion."""
+        for m in discussion_msgs:
+            content = m.get("content", "").strip()
+            # Skip very short or thinking-prefixed content
+            if len(content) < 100:
+                continue
+            # Try to find a sentence that looks like analysis (contains stock/financial terms)
+            lines = content.split('\n')
+            for line in lines:
+                line = line.strip().lstrip('- *#>')
+                if len(line) > 30 and any(kw in line for kw in ["核心", "投资", "估值", "盈利", "增长", "周期",
+                                                                  "thesis", "core", "valuation", "profit"]):
+                    return line[:200]
+        return "分析整理中..."
+
+    def _extract_verdict_from_discussion(self, discussion_msgs: list) -> str:
+        """Try to extract a verdict-like sentence from the discussion content."""
+        # Look for patterns that indicate a verdict/conclusion
+        verdict_patterns = [
+            r'(?:结论|核心观点|投资建议|最终判定|Overall|Verdict|Conclusion)[：:\s]*([^\n]{10,60})',
+            r'(?:综合评估|总体判断|综上)[：:\s]*([^\n]{10,60})',
+        ]
+        all_text = "\n".join([m.get("content", "") for m in discussion_msgs])
+        for pattern in verdict_patterns:
+            match = re.search(pattern, all_text, re.IGNORECASE)
+            if match:
+                return match.group(1).strip()[:60]
+        return ""
 
     def _build_fallback_ui_data(self, symbol: str, discussion_msgs: list, snapshot: dict) -> dict:
         """Build report data directly from discussion messages when LLM is unavailable."""
@@ -436,14 +604,16 @@ CONTENT:
 
         # Templates already enforce clean format — use fast local cleanup.
         has_chatter = any(content.strip().startswith(prefix) for prefix in
-            ["好的", "好的，", "Here is", "As a", "As an", "收到", "OK", "Okay,"])
+            ["好的", "好的，", "Here is", "As a", "As an", "收到", "OK", "Okay,",
+             "Now I have", "Now I need", "Now I will", "Let me ", "Based on my",
+             "Actually, let me", "I have comprehensive", "I'll "])
 
         if not has_chatter:
             result = markdown2.markdown(stripped, extras=["tables", "fenced-code-blocks"])
             return result + trailing_json_md if trailing_json_md else result
 
         prompt = """Reformat the following analyst report. STRICT RULES:
-1. REMOVE ALL conversational openings (e.g. "好的", "好的，作为...", "Here is the report...", "As an analyst...").
+1. REMOVE ALL conversational openings and thinking prefixes (e.g. "好的", "Now I have comprehensive data", "Let me compile", "Based on my analysis, here are", "OK, let me write").
 2. DO NOT remove, summarize, or change any other text. KEEP ALL tables, bullets, and details EXACTLY AS IS.
 3. Return ONLY the cleaned markdown content — no code blocks.
 """

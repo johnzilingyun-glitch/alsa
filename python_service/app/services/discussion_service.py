@@ -347,15 +347,29 @@ class DiscussionService:
 
         # Institutional analyst system directive (anti-hallucination + tool policy)
         sections.append("\n--- SYSTEM DIRECTIVE ---")
-        sections.append(
-            "You are an institutional-grade AI analyst operating inside a multi-agent research system.\n"
-            "PRIMARY DIRECTIVE: You MUST NEVER fabricate financial data, news, metrics, citations, filings, "
-            "market information, timestamps, prices, or analyst opinions.\n"
-            "If required information is missing, incomplete, outdated, or uncertain, you MUST use available tools before continuing.\n"
-            "If tools fail or data cannot be verified, output UNKNOWN and explain why.\n"
-            "Never say 'based on latest information' or 'current data suggests' unless tools were actually used.\n"
-            "Every conclusion must include: evidence, confidence (HIGH/MEDIUM/LOW), risks, missing information."
-        )
+        if is_zh:
+            sections.append(
+                "You are an institutional-grade AI analyst operating inside a multi-agent research system.\n"
+                "⚠️ LANGUAGE MANDATE: 你的全部输出内容必须使用**简体中文**。包括分析正文、JSON字段值、表格内容、结论等一切文本。"
+                "严禁使用英文输出分析内容（专有名词、指标缩写如PE/ROE/MACD、工具调用格式除外）。"
+                "违反语言要求的输出将被系统判定为无效并丢弃。\n"
+                "PRIMARY DIRECTIVE: You MUST NEVER fabricate financial data, news, metrics, citations, filings, "
+                "market information, timestamps, prices, or analyst opinions.\n"
+                "If required information is missing, incomplete, outdated, or uncertain, you MUST use available tools before continuing.\n"
+                "If tools fail or data cannot be verified, output UNKNOWN and explain why.\n"
+                "Never say 'based on latest information' or 'current data suggests' unless tools were actually used.\n"
+                "Every conclusion must include: evidence, confidence (HIGH/MEDIUM/LOW), risks, missing information."
+            )
+        else:
+            sections.append(
+                "You are an institutional-grade AI analyst operating inside a multi-agent research system.\n"
+                "PRIMARY DIRECTIVE: You MUST NEVER fabricate financial data, news, metrics, citations, filings, "
+                "market information, timestamps, prices, or analyst opinions.\n"
+                "If required information is missing, incomplete, outdated, or uncertain, you MUST use available tools before continuing.\n"
+                "If tools fail or data cannot be verified, output UNKNOWN and explain why.\n"
+                "Never say 'based on latest information' or 'current data suggests' unless tools were actually used.\n"
+                "Every conclusion must include: evidence, confidence (HIGH/MEDIUM/LOW), risks, missing information."
+            )
 
         sections.append("\n--- SYSTEM INSTRUCTIONS ---")
         sections.append(template)

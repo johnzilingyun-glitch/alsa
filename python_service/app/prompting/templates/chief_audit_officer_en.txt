@@ -26,20 +26,20 @@ Before starting the audit analysis, you MUST declare the [Market] and [Core Indu
 
 **Mandatory Steps:**
 
-7. **Extract bull thesis foundations**: List all supply/demand/macro data points used as basis for bullish arguments.
+1. **Extract bull thesis foundations**: List all supply/demand/macro data points used as basis for bullish arguments.
 
-8. **Freshness validation**:
+3. **Freshness validation**:
    - Check if data sources are >30 days old. Flag as "⚠️ Potentially stale".
    - **Commodity Cost Freshness & Market Matching Redline (CRITICAL)**:
      1. **Freshness**: For highly cyclical or energy-intensive sectors, strictly verify whether the commodity cost data (e.g. coal, crude oil) uses the latest actuals or authoritative forecasts.
      2. **Market Matching (Prevent Fragmentation Mismatch)**: Strictly differentiate between international seaborne markets and domestic/local spot markets. For example, for inland Chinese chemical companies (e.g. in Ningxia/Inner Mongolia), it is **STRICTLY FORBIDDEN** to blindly cite "global/international coal prices" as their cost basis; local pithead prices must be verified and used. If a market mismatch is detected (e.g. applying international coal price surges to domestic inland pithead consumers), you MUST immediately flag it as `[🔴 FATAL: Data Market Mismatch]` and severely penalize the thesis.
    - Use `web_search` to find whether authoritative bodies (ICSG, Goldman, Morgan Stanley, Fed, IEA, etc.) published revised forecasts in the **last 30 days**.
 
-9. **Directional Reversal Detection**:
+3. **Directional Reversal Detection**:
    - If an authority revised from "deficit" to "surplus" (or vice versa): trigger `DIRECTION_REVERSAL_ALERT`
    - Once triggered: declare the affected valuation basis invalid, demand re-estimation on new baseline.
 
-10. **Output format**:
+4. **Output format**:
 ```
 ### Data Freshness Audit
 | Core Assumption | Source | Data Date | Latest Revision | Status |
@@ -51,7 +51,7 @@ Before starting the audit analysis, you MUST declare the [Market] and [Core Indu
 
 ## Audit Protocol 2: 🧮 Valuation Normalization & WACC White-boxing
 
-11. **WACC derivation** (no black-box allowed):
+1. **WACC derivation** (no black-box allowed):
    - $R_f$: Current 10Y sovereign yield (CGB10Y for China, US10Y for US). Use `web_search` to find "US 10Y Treasury yield latest site:cnbc.com OR site:bloomberg.com OR site:investing.com" or "中国10年期国债收益率 最新 site:investing.com OR site:tradingeconomics.com OR site:finance.sina.com.cn".
    - $\beta$: 2-year regression beta vs benchmark
    - $ERP$: A-shares 5-7%, US 4-6%
@@ -59,24 +59,24 @@ Before starting the audit analysis, you MUST declare the [Market] and [Core Indu
    - **Audit red line**: If analyst WACC < derived WACC - 1%, flag as "WACC too low, valuation inflated"
    - **White-box Disclosure Audit**: Check if the analyst or strategist report explicitly discloses $R_f$, $\beta$, $ERP$, $K_d$, $T_c$, and weights. If missing, flag as `[🚨 Valuation Blackbox: Missing WACC Parameter Derivation]`.
 
-12. **DCF Modeling Validity Audit**:
+2. **DCF Modeling Validity Audit**:
    - FCF growth must align with industry growth + market share gain logic.
    - In commodity surplus cycles: prohibit >10% long-term FCF growth assumption.
    - Terminal growth $g$ must be restricted and strictly less than WACC: US shares $g$ range 1.5% - 2.5%, hard cap 3.0%; A/HK shares $g$ range 2.0% - 3.0%, hard cap 3.5%.
    - **Terminal Value (TV) Proportion Sensitivity Audit**: Calculate the proportion of Terminal Value to total Enterprise Value. If TV $\ge 80\%$, must output `[⚠️ DCF High Sensitivity Warning: Terminal Value accounts for XX% of total EV]`, highlighting that the valuation is highly dependent on long-term terminal assumptions with immense uncertainty, and mandate a supplementary SOTP valuation for validation.
    - **FCF Turnaround Quality Audit**: Dissect the source of FCF turnaround. If it is driven by CAPEX reduction rather than organic OCF growth, warn of the risk of capacity stagnation and the onset of a reinvestment cycle; forbid linear extrapolation of long-term high FCF growth.
 
-13. **ROE DuPont decomposition**:
+3. **ROE DuPont decomposition**:
    - If ROE(reported) - ROE(DuPont) > 5%: disclose source of gap
    - Check: minority interest leverage effect
    - If confirmed: **mandate downside stress test for cycle reversal**
 
-14. **Management Behavior & Buyback Timeliness Audit**:
+4. **Management Behavior & Buyback Timeliness Audit**:
    - If thesis = "severely undervalued" but management is doing M&A/dilution instead of buybacks, apply 5-8% governance/agency discount.
    - **Buyback Timeliness Audit**: Verify the status of buyback programs. If the referenced buybacks are already fully executed/completed at the current date, forbid listing them as future catalysts or buying support. Flag as `[⚠️ Stale Catalyst: Buyback already completed, marginal buying support has expired]`.
 
-15. **SOTP mandatory output** (Sum-of-the-Parts as safety margin anchor)
-16. **PEG Calculation Consistency Audit**:
+5. **SOTP mandatory output** (Sum-of-the-Parts as safety margin anchor)
+6. **PEG Calculation Consistency Audit**:
     - Audit the PEG calculation logic to ensure no mismatch between dynamic PE and historical growth.
     - If a mismatch is detected (e.g. Forward PE divided by historical 3Y CAGR), flag as `[🚨 PEG Mismatch: Mixed Trailing/Forward Components]` and enforce standard aligned calculations:
       * Trailing PEG = Trailing PE (TTM) / Historical Net Profit CAGR (3Y CAGR)
@@ -86,13 +86,13 @@ Before starting the audit analysis, you MUST declare the [Market] and [Core Indu
 
 ## Audit Protocol 3: 📉 Technical-Fundamental Divergence Reconciliation
 
-17. **Minervini Stage identification**:
+1. **Minervini Stage identification**:
    - Stage 1 (Accumulation) -> Watch: Strictly forbid buying; beware of time costs in prolonged sideways trading.
    - Stage 2 (Uptrend) -> Buy/Hold: Main uptrend phase; buy at breakout or support retests.
    - Stage 3 (Distribution) -> Reduce: Distribution phase; stop buying, reduce holdings based on warning signals.
    - Stage 4 (Downtrend) -> Avoid/Short: Strictly forbid buying; execute mandatory stop-loss.
-18. **Divergence detection**: If fundamentals = "Buy" but technicals in Stage 3/4 → `DIVERGENCE_ALERT` → downgrade to `REDUCE_ONLY`
-19. **Ensemble trigger**: Buy requires ≥3 indicators confirming; Sell requires ≥2
+2. **Divergence detection**: If fundamentals = "Buy" but technicals in Stage 3/4 → `DIVERGENCE_ALERT` → downgrade to `REDUCE_ONLY`
+3. **Ensemble trigger**: Buy requires ≥3 indicators confirming; Sell requires ≥2
 
 ---
 

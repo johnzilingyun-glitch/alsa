@@ -1,0 +1,1836 @@
+diff --git a/python_service/app/services/report_generator_service.py b/python_service/app/services/report_generator_service.py
+index c63f505..c3bac4f 100644
+--- a/python_service/app/services/report_generator_service.py
++++ b/python_service/app/services/report_generator_service.py
+@@ -1,6 +1,7 @@
+ import os
+ import json
+ import re
++import ast
+ import asyncio
+ import markdown2
+ from datetime import datetime
+@@ -21,7 +22,7 @@ class ReportGeneratorService:
+         loop = asyncio.get_event_loop()
+         return loop.run_until_complete(self.generate_html_report_async(result, output_path))
+ 
+-    async def generate_html_report_async(self, result: dict, output_path: str, model: str = None, deepseek_api_key: str = None) -> str:
++    async def generate_html_report_async(self, result: dict, output_path: str, model: str = None, deepseek_api_key: str = None, gemini_api_key: str = None) -> str:
+         stock_info = result.get("stockInfo", {})
+         symbol = result.get("symbol") or stock_info.get("symbol", "UNKNOWN")
+         market = result.get("market") or stock_info.get("market", "US-Share")
+@@ -33,18 +34,23 @@ class ReportGeneratorService:
+             provider = os.getenv("DEFAULT_LLM_PROVIDER", "deepseek").lower()
+             model = os.getenv("DEEPSEEK_MODEL", "deepseek-v4-pro") if provider == "deepseek" else os.getenv("GEMINI_MODEL", "gemini-3.1-pro-preview")
+         
+-        full_discussion = "\n".join([f"[{m['role']}]: {m['content']}" for m in discussion_msgs])
++        # Clean discussion content: strip LLM thinking prefixes before downstream use
++        cleaned_msgs = [{"role": m["role"], "content": self._strip_thinking_prefix(m["content"])} for m in discussion_msgs]
++        full_discussion = "\n".join([f"[{m['role']}]: {m['content']}" for m in cleaned_msgs])
+         
+         # UI Data Expert Pass - REFINED CONTENT (RESTORING RAW LOGS)
+-        ui_data = await self._run_ui_data_expert(symbol, market, snapshot, full_discussion, model=model, deepseek_api_key=deepseek_api_key)
++        ui_data = await self._run_ui_data_expert(symbol, market, snapshot, full_discussion, model=model, deepseek_api_key=deepseek_api_key, gemini_api_key=gemini_api_key)
+         
+-        # If UI data expert failed (empty dict), build fallback from discussion
++        # If UI data expert failed (empty dict) OR critical fields are empty, build fallback
+         if not ui_data:
+-            ui_data = self._build_fallback_ui_data(symbol, discussion_msgs, snapshot)
++            ui_data = self._build_fallback_ui_data(symbol, cleaned_msgs, snapshot)
++        else:
++            # Validate critical fields — backfill from discussion if LLM returned empty/thinking text
++            self._validate_and_backfill_ui_data(ui_data, cleaned_msgs, snapshot)
+         
+         # Backfill empty upside/downside from discussion text
+         if not ui_data.get("upside") or not ui_data.get("downside"):
+-            extracted = self._extract_thesis_from_discussion(discussion_msgs)
++            extracted = self._extract_thesis_from_discussion(cleaned_msgs)
+             if not ui_data.get("upside") and extracted.get("upside"):
+                 ui_data["upside"] = extracted["upside"]
+             if not ui_data.get("downside") and extracted.get("downside"):
+@@ -57,14 +63,14 @@ class ReportGeneratorService:
+         # Parallelize normalization for performance — fallback to markdown if LLM fails
+         try:
+             normalized_contents = await asyncio.gather(*[
+-                self._normalize_log_style(m["content"], model=model, deepseek_api_key=deepseek_api_key) for m in discussion_msgs
++                self._normalize_log_style(m["content"], model=model, deepseek_api_key=deepseek_api_key, gemini_api_key=gemini_api_key) for m in cleaned_msgs
+             ])
+             # Check if all normalizations returned empty/error
+             if all(not c or c.strip() == "" for c in normalized_contents):
+                 raise ValueError("All normalizations returned empty")
+         except Exception:
+             # Fallback: convert raw markdown to HTML without LLM
+-            normalized_contents = [self._markdown_to_html_fallback(m["content"]) for m in discussion_msgs]
++            normalized_contents = [self._markdown_to_html_fallback(m["content"]) for m in cleaned_msgs]
+         
+         data = {
+             "info": {
+@@ -107,7 +113,7 @@ class ReportGeneratorService:
+             "recommendation": ui_data.get("recommendation", "WATCH"),
+             "discussion": [
+                 {"role": m["role"], "content": content}
+-                for m, content in zip(discussion_msgs, normalized_contents)
++                for m, content in zip(cleaned_msgs, normalized_contents)
+             ]
+         }
+         
+@@ -116,94 +122,151 @@ class ReportGeneratorService:
+             f.write(html)
+         return os.path.abspath(output_path)
+ 
+-    async def _run_ui_data_expert(self, symbol: str, market: str, snapshot: dict, discussion: str, model: str = None, deepseek_api_key: str = None) -> dict:
+-        prompt = f"""You are the ALSA UI Data Expert. Your task is to extract and organize the core insights from the expert discussion for {symbol}.
+-        
+-FIELDS TO EXTRACT:
+-- verdict: ONE sentence (max 20 words) conclusion for busy fund managers. Example: "高ROE周期股，技术破位中，等待22-24元安全边际共振"
+-- action_stance: Clarify the relationship between recommendation and trading plan. Example: "当前持仓HOLD，新仓等待L1入场条件触发后试探性建仓"
+-- tagline: Compelling tagline/hook of the report. Example: "藏格矿业：钾锂双轮驱动，周期筑底期现金牛价值凸显"
+-- investment_thesis: A-share core narrative in one sentence. Example: "行业出清带来的供需错配与国产替代加速"
+-- factor_profile: Object with {{size: "大盘/小盘/中盘", style: "成长/价值/周期/红利", volatility: "高Beta/低波动/中等", expected_return: "收益特征说明"}}
+-- consensus_vs_non_consensus: Object with {{market_consensus: "市场已price-in的共识", our_alpha: "我们看到的Alpha预期差"}}
+-- the_call: One-sentence final action command. Example: "当前超配，等待均线放量金叉后分批入场，若跌破止损位强制止损"
+-- catalyst_calendar: List of objects with {{event: "催化剂事件描述", date: "预计时间节点", impact_logic: "影响逻辑"}}
+-- stock_archetype: Stock classification, must be one of: "Cyclical", "Growth", "Dividend", "Consumer/Moat"
+-- wacc_breakdown: Object with {{rf: "无风险利率(如2.3%)", beta: "贝塔系数(如1.1)", erp: "股权风险溢价(如6.0%)", kd: "债务成本", tc: "所得税率", d_v: "有息负债占比", e_v: "权益占比", wacc: "计算后的WACC", source: "数据来源与逻辑"}}
+-- kill_switch: Object with {{condition: "防伪红线触发条件描述", status: "预警状态，如安全(SAFE)或触发(TRIGGERED)"}}
+-- market_wind_control: Object representing market-specific risk features based on Listing Market. (A-Share: {{lockup_date: "限售股解禁日期/规模", lockup_impact: "解禁影响分析", reduction_plan: "大股东/高管减持计划及进度", crowding_level: "机构持仓拥挤度分析"}}; HK-Share: {{lockup_date: "基石/大股东禁售期解禁评估", lockup_impact: "减持冲击及公告变动", reduction_plan: "大股东抵押/质押股份比例", crowding_level: "港股通南向资金持股变动与占比"}}; US-Share: {{lockup_date: "内部人交易 Form 4 净买/卖", lockup_impact: "10b5-1 计划执行情况", reduction_plan: "空头头寸占比 Short Interest", crowding_level: "13F 机构持仓变动"}})
+-- trading_discipline: Object with {{left_side_condition: "左侧建仓条件(如极度缩量地量支撑)", right_side_trigger: "右侧买入触发点", max_drawdown_limit: "单票最大回撤熔断上限(如-8%或-10%)", thesis_invalidation_trigger: "逻辑证伪退出触发器"}}
+-- data_completeness: Object with {{score: 0-100, missing: [list of critical missing data items], impact: \"description of impact on conclusions\"}}
+-- peer_comparison: List of objects with {{name, symbol, pe, pb, roe, margin, marketCap, vs_target}} for 3-5 comparable peers
+-- summary: Short executive summary (2-3 sentences)
+-- moat_summary: Summary of competitive advantages
+-- moat_points: List of specific moat factors
+-- macro_summary: Summary of macro environment
+-- macro_points: List of macro indicators
+-- trading_plan: Overall strategy summary
+-- net_profit: Latest annual or quarterly net profit (e.g., "11.24亿HKD")
+-- net_profit_deduct: Non-recurring net profit
+-- revenue_qoq: Revenue Quarter-on-Quarter growth percentage
+-- net_profit_yoy: Net Profit Year-on-Year growth percentage
+-- net_profit_qoq: Net Profit Quarter-on-Quarter growth percentage
+-- net_profit_deduct_yoy: Adjusted Net Profit YoY growth
+-- net_profit_deduct_qoq: Adjusted Net Profit QoQ growth
+-- capex: Capital Expenditure (CAPEX)
+-- pe_percentile: Current PE ratio percentile in history
+-- asset_turnover: Asset turnover ratio
+-- inventory_turnover: Inventory turnover ratio
+-- recommendation: BUY, HOLD, or SELL
+-- score: 0-100 score
+-- trading_steps: List of objects with level, price, weight, logic
+-- risks_points: List of risk factors
+-- upside: List of bull drivers
+-- downside: List of bear risks
+-- scenarios: List of objects with case, probability (INTEGER 0-100, NO % sign), targetPrice, logic
+-
+-CRITICAL INSTRUCTIONS:
+-1. PRIORITIZE extracting financial data (profit, capex, growth) from the FINANCIAL SEARCH CONTEXT if provided.
+-2. Output in VALID JSON format ONLY.
+-3. If a value is missing, use null.
+-4. DO NOT provide "N/A" as a value. Use strings like "11.24亿HKD" or "+5.2%".
+-5. For "probability" in scenarios: output a plain INTEGER (e.g. 20, 50, 30). Do NOT append "%" symbol.
+-
+-JSON STRUCTURE:
++    async def _run_ui_data_expert(self, symbol: str, market: str, snapshot: dict, discussion: str, model: str = None, deepseek_api_key: str = None, gemini_api_key: str = None) -> dict:
++        prompt = f"""# ROLE
++You are the ALSA Report Structuring Engine — a specialized system that transforms raw multi-expert stock analysis discussions into structured JSON for UI rendering.
++
++# INPUT
++- Stock: {symbol} ({market})
++- Below you will receive the full expert discussion transcript.
++
++# TASK
++Extract ALL substantive analytical conclusions from the discussion and map them into the JSON schema below. You are a **data extraction pipeline**, not an analyst — do NOT generate new analysis, only reorganize what the experts already said.
++
++# CRITICAL RULES (MUST FOLLOW)
++
++## Rule 1: Filter Noise
++The discussion may contain LLM artifacts like:
++- "Now I have comprehensive data. Let me compile..."
++- "Based on my analysis, here are my key findings:"
++- "OK, let me write the full JSON output now."
++- "Actually, let me reconsider..."
++- Raw calculations, intermediate reasoning, self-talk
++
++**SKIP ALL OF THESE.** Extract only the final analytical conclusions, not the thinking process.
++
++## Rule 2: Zero Tolerance for Empty Critical Fields
++These 5 fields MUST NEVER be null/empty if the discussion contains ANY relevant analysis:
++1. **verdict** — If experts gave ANY conclusion, synthesize it into ≤20 words
++2. **action_stance** — If ANY trading recommendation exists, extract it
++3. **investment_thesis** — If ANY core logic/narrative is stated, capture it
++4. **tagline** — Synthesize the stock name + key thesis into a hook
++5. **recommendation** — Must be BUY, HOLD, or SELL (derive from discussion tone if not explicit)
++
++If you cannot find these in the text, SYNTHESIZE from the overall discussion sentiment. Never return null for these 5 fields.
++
++## Rule 3: Output Format
++- Output ONLY a single valid JSON object. No markdown, no explanation, no commentary.
++- Use Chinese for all text values (matching the discussion language).
++- Numbers: use plain integers/floats, NOT strings (except when unit-attached like "48.18亿元").
++- If a non-critical field's data is truly absent from the discussion, use null.
++
++## Rule 4: Quality Bar
++Each extracted field should meet this bar:
++- **verdict**: Reads like a Bloomberg terminal flash (concise, decisive, actionable)
++- **tagline**: Reads like a sell-side report title (compelling, specific)
++- **scenarios**: Must have realistic probability splits summing to 100%, with specific price targets if discussed
++- **data_completeness**: Honestly assess what data the experts had vs. what was missing
++
++# JSON SCHEMA
++
++```json
+ {{
+-  "verdict": "一句话结论(max 20 words)",
+-  "action_stance": "明确当前持仓建议与新仓操作指引的关系",
+-  "tagline": "...",
+-  "investment_thesis": "...",
+-  "factor_profile": {{"size": "...", "style": "...", "volatility": "...", "expected_return": "..."}},
+-  "consensus_vs_non_consensus": {{"market_consensus": "...", "our_alpha": "..."}},
+-  "the_call": "...",
++  "verdict": "≤20字一句话定调，如：低估值铝业龙头，大股东减持压制短期，等Q2验证",
++  "action_stance": "持仓建议+操作指引，如：当前持仓HOLD，新仓等待13元支撑确认后试探建仓",
++  "tagline": "报告标题钩子，如：天山铝业：全产业链成本优势vs大股东套现，周期股的攻守博弈",
++  "investment_thesis": "一句话核心逻辑，如：铝价高位+产能天花板刚性约束，但大股东减持构成估值天花板",
++  "recommendation": "BUY|HOLD|SELL",
++  "score": 75,
++  "factor_profile": {{
++    "size": "大盘|中盘|小盘",
++    "style": "成长|价值|周期|红利",
++    "volatility": "高Beta|低波动|中等",
++    "expected_return": "收益预期特征描述"
++  }},
++  "consensus_vs_non_consensus": {{
++    "market_consensus": "市场已price-in的共识观点",
++    "our_alpha": "我们看到的预期差/非共识观点"
++  }},
++  "the_call": "一句话最终操作指令",
++  "stock_archetype": "Cyclical|Growth|Dividend|Consumer/Moat|Financial|Biotech",
+   "catalyst_calendar": [
+-    {{"event": "...", "date": "...", "impact_logic": "..."}}
++    {{"event": "事件描述", "date": "时间节点", "impact_logic": "影响逻辑"}}
+   ],
+-  "stock_archetype": "Cyclical",
+-  "wacc_breakdown": {{"rf": "...", "beta": "...", "erp": "...", "kd": "...", "tc": "...", "d_v": "...", "e_v": "...", "wacc": "...", "source": "..."}},
+-  "kill_switch": {{"condition": "...", "status": "..."}},
+-  "market_wind_control": {{"lockup_date": "...", "lockup_impact": "...", "reduction_plan": "...", "crowding_level": "..."}},
+-  "trading_discipline": {{"left_side_condition": "...", "right_side_trigger": "...", "max_drawdown_limit": "...", "thesis_invalidation_trigger": "..."}},
+-  "data_completeness": {{"score": 85, "missing": ["PP现货价", "焦炭价"], "impact": "影响利润敏感性分析精度"}},
+-  "peer_comparison": [{{"name": "万华化学", "symbol": "002415", "pe": 15.2, "pb": 3.1, "roe": 18.5, "margin": 22.3, "marketCap": "3200亿", "vs_target": "估值溢价合理"}}],
+-  "summary": "...",
+-  "moat_summary": "...",
+-  "moat_points": ["...", "..."],
+-  "macro_summary": "...",
+-  "macro_points": ["...", "..."],
+-  "trading_plan": "...",
++  "wacc_breakdown": {{
++    "rf": "无风险利率", "beta": "贝塔系数", "erp": "股权风险溢价",
++    "kd": "债务成本", "tc": "所得税率", "d_v": "负债占比", "e_v": "权益占比",
++    "wacc": "加权平均资本成本", "source": "数据来源", "sensitivity": "敏感性分析"
++  }},
++  "kill_switch": {{
++    "condition": "防伪红线条件(基本面+技术面双维度)",
++    "status": "SAFE|TRIGGERED"
++  }},
++  "market_wind_control": {{
++    "lockup_date": "限售股解禁信息",
++    "lockup_impact": "解禁冲击评估",
++    "reduction_plan": "减持计划/进度",
++    "crowding_level": "机构持仓拥挤度"
++  }},
++  "trading_discipline": {{
++    "left_side_condition": "左侧建仓条件",
++    "right_side_trigger": "右侧买入触发点",
++    "max_drawdown_limit": "最大回撤熔断线(如-8%)",
++    "thesis_invalidation_trigger": "逻辑证伪退出条件"
++  }},
++  "data_completeness": {{
++    "score": 0-100,
++    "missing": ["缺失数据项1", "缺失数据项2"],
++    "impact": "缺失数据对结论的影响"
++  }},
++  "peer_comparison": [
++    {{"name": "公司名", "symbol": "代码", "pe": 15.2, "pb": 3.1, "roe": 18.5, "margin": 22.3, "marketCap": "3200亿", "vs_target": "对比结论"}}
++  ],
++  "summary": "2-3句执行摘要",
++  "moat_summary": "护城河总结",
++  "moat_points": ["护城河要素1", "护城河要素2"],
++  "macro_summary": "宏观环境总结",
++  "macro_points": ["宏观要素1", "宏观要素2"],
++  "trading_plan": "交易策略总述",
+   "trading_steps": [
+-    {{"level": "第一层", "price": "...", "weight": "...", "logic": "..."}}
++    {{"level": "第一层", "price": "价格", "weight": "仓位", "logic": "逻辑"}}
++  ],
++  "risks_points": ["风险1", "风险2"],
++  "upside": ["看涨驱动1", "看涨驱动2"],
++  "downside": ["看跌风险1", "看跌风险2"],
++  "scenarios": [
++    {{"case": "Bull", "probability": 30, "targetPrice": "目标价", "logic": "驱动逻辑"}},
++    {{"case": "Base", "probability": 50, "targetPrice": "目标价", "logic": "驱动逻辑"}},
++    {{"case": "Bear", "probability": 20, "targetPrice": "目标价", "logic": "驱动逻辑"}}
+   ],
+-  "net_profit": "...",
+-  "revenue_qoq": "...",
+-  "net_profit_yoy": "...",
+-  "score": 85,
+-  "recommendation": "BUY"
++  "net_profit": "最近净利润(如48.18亿元)",
++  "net_profit_deduct": "扣非净利润",
++  "revenue_qoq": "营收环比增长",
++  "net_profit_yoy": "净利润同比增长",
++  "net_profit_qoq": "净利润环比增长",
++  "net_profit_deduct_yoy": "扣非净利润同比",
++  "net_profit_deduct_qoq": "扣非净利润环比",
++  "capex": "资本开支",
++  "pe_percentile": "PE历史百分位",
++  "asset_turnover": "总资产周转率",
++  "inventory_turnover": "存货周转率"
+ }}
+-
+-OUTPUT ONLY THE JSON OBJECT.
+-
++```
++
++# BAD OUTPUT EXAMPLES (DO NOT DO THIS)
++❌ `"verdict": ""` — Empty critical field
++❌ `"verdict": "Now I have comprehensive data"` — LLM thinking text leaked
++❌ `"investment_thesis": "Based on my analysis..."` — Process text, not conclusion
++❌ `"tagline": "002532 投资分析报告"` — Generic, no insight
++❌ `"scenarios": [{{"probability": "30%"}}]` — String with %, must be integer 30
++❌ `"net_profit": "N/A"` — Use null, not "N/A"
++
++# GOOD OUTPUT EXAMPLES
++✅ `"verdict": "铝价高位叠加产能天花板，但大股东48亿套现压制估值扩张"` 
++✅ `"tagline": "天山铝业：全产业链一体化铝业龙头的周期博弈"` 
++✅ `"investment_thesis": "电解铝产能4500万吨刚性约束下的供需错配逻辑"` 
++
++Now extract from the following discussion:
+ """
+         # Append search context if available to help fill missing fundamental data
+         search_ctx = snapshot.get("financials", {}).get("searchContext", "")
+@@ -215,7 +278,7 @@ OUTPUT ONLY THE JSON OBJECT.
+             if not model:
+                 provider = os.getenv("DEFAULT_LLM_PROVIDER", "deepseek").lower()
+                 model = os.getenv("DEEPSEEK_MODEL", "deepseek-v4-pro") if provider == "deepseek" else os.getenv("GEMINI_MODEL", "gemini-3.1-pro-preview")
+-            res = await llm_gateway.generate_content(prompt + f"\n\nEXPERT DISCUSSION:\n{discussion}", model=model, deepseek_api_key=deepseek_api_key)
++            res = await llm_gateway.generate_content(prompt + f"\n\nEXPERT DISCUSSION:\n{discussion}", model=model, deepseek_api_key=deepseek_api_key, gemini_api_key=gemini_api_key)
+             # Clean markdown code blocks and extract JSON
+             cleaned = re.sub(r'```(?:json)?\s*\n?', '', res)
+             cleaned = re.sub(r'\n?```\s*$', '', cleaned)
+@@ -239,84 +302,466 @@ OUTPUT ONLY THE JSON OBJECT.
+             print(f"UI Data Expert Pass Failed: {e}")
+             return {}
+ 
++    # --- Thinking prefix patterns common in DeepSeek/LLM outputs ---
++    _THINKING_PREFIXES = [
++        # English patterns (sentence-bound or line-bound)
++        r"^Now I (?:have|need|will|should|can|am going)[^.\n]*(?:\.|\n+)",
++        r"^(?:OK|Okay|Alright|Right)[,.]?\s*(?:let me|I'll|I will|I need|now)[^.\n]*(?:\.|\n+)",
++        r"^Let me (?:think|consider|analyze|review|proceed|compile|write|start|check|reconsider|also consider)[^.\n]*(?:\.|\n+)",
++        r"^Based on (?:my|the|this) (?:analysis|review|data|findings|research)[^.\n]*(?:\.|\n+)",
++        r"^I (?:have|need to|should|will|can|am going to) (?:now|also|first|proceed|comprehensive)[^.\n]*(?:\.|\n+)",
++        r"^Actually,? let me[^.\n]*(?:\.|\n+)",
++        r"^(?:Here are|The following|Below)[^.\n]*(?:findings|results|analysis|key)[^.\n]*(?::|\n+)",
++        
++        # Chinese patterns (sentence-bound or line-bound)
++        r"^(?:现在我已|我已|现在我)[^。\n]*(?:掌握|获取|获取到|搜集到|已掌握)[^。\n]*数据[^。\n]*(?:。|\n+)",
++        r"^(?:好的|好的，|收到|收到，|首先)[^。\n]*(?:我将|让我|开始|进行|分析)[^。\n]*(?:。|\n+)",
++        r"^(?:让我|让我先|先让我|现在让我)[^。\n]*(?:分析|思考|陈述|总结|写出|开始|进行)[^。\n]*(?:。|\n+)",
++        r"^(?:根据|基于)[^。\n]*(?:分析|讨论|研究|数据|讨论结果)[^。\n]*(?:。|\n+)",
++        r"^(?:以下是|下面是|根据我的|结合上述|基于上述|综上所述)[^。\n]*(?:分析|报告|结论|裁决|意见|报告内容)[^。\n]*(?:。|：|:\n+|\n+)",
++        r"^(?:数据收集|数据获取|数据采集|工具调用|分析准备|所有核心计算|所有核心计算工具|计算工具)[^。\n]*(?:完成|结束|就绪|调用完成)[^。\n]*(?:。|\n+)",
++        r"^(?:现在让我|让我|我将|接下来我)[^。\n]*(?:分析|思考|撰写|陈述|总结|写出|输出|整理)[^。\n]*(?:。|\n+)",
++    ]
++
++    def _strip_thinking_prefix(self, content: Any) -> Any:
++        """Remove LLM thinking/reasoning prefixes from discussion content.
++        These are visible model outputs that read like internal monologue rather than analysis."""
++        if not content:
++            return content
++        if not isinstance(content, str):
++            if isinstance(content, list):
++                content = "\n".join([str(x) for x in content])
++            else:
++                return content
++        stripped = content.strip()
++
++        # Iteratively strip thinking prefixes (model may chain multiple thinking sentences)
++        max_passes = 10
++        for _ in range(max_passes):
++            changed = False
++            for pattern in self._THINKING_PREFIXES:
++                new = re.sub(pattern, '', stripped, count=1, flags=re.IGNORECASE | re.MULTILINE)
++                if new != stripped:
++                    stripped = new.lstrip()
++                    changed = True
++                    break
++            if not changed:
++                break
++
++        # If stripping removed everything or too much (>90% removed), return original
++        if not stripped or (len(stripped) < 50 and len(stripped) < len(content.strip()) * 0.1):
++            return content.strip()
++        return stripped
++
++    def _validate_and_backfill_ui_data(self, ui_data: dict, discussion_msgs: list, snapshot: dict):
++        """Validate critical UI fields; backfill from discussion if LLM returned empty or thinking text."""
++        # Clean thinking prefixes from structured fields
++        for field in ["investment_thesis", "tagline", "verdict", "action_stance", "the_call"]:
++            if ui_data.get(field):
++                ui_data[field] = self._strip_thinking_prefix(ui_data[field])
++
++        # Check for thinking text that leaked into structured fields
++        thinking_indicators = [
++            "Now I have", "Let me ", "Based on my analysis", "OK, let me", "I will ", "I'll ",
++            "现在我已", "让我", "根据分析", "好的，", "好的 ", "收到，", "收到 "
++        ]
++
++        def _is_thinking_text(val: str) -> bool:
++            if not val or not isinstance(val, str):
++                return False
++            return any(val.strip().startswith(prefix) for prefix in thinking_indicators)
++
++        # Fix investment_thesis if it contains thinking text
++        if not ui_data.get("investment_thesis") or _is_thinking_text(ui_data.get("investment_thesis", "")):
++            ui_data["investment_thesis"] = self._extract_first_substantive_sentence(discussion_msgs)
++
++        # Fix tagline if it's empty or default-like
++        tagline = ui_data.get("tagline", "")
++        if not tagline or _is_thinking_text(tagline):
++            symbol = snapshot.get("quote", {}).get("symbol", "股票")
++            first_sent = ui_data.get("investment_thesis", "").split("。")[0].split("！")[0].split("?")[0].strip()
++            if len(first_sent) > 10:
++                ui_data["tagline"] = f"{symbol}: {first_sent}"
++            else:
++                ui_data["tagline"] = f"{symbol} 投资分析报告"
++
++        # Ensure verdict exists — try to extract from discussion
++        if not ui_data.get("verdict"):
++            verdict = self._extract_verdict_from_discussion(discussion_msgs)
++            if verdict:
++                ui_data["verdict"] = verdict
++
++        # Ensure action_stance exists
++        if not ui_data.get("action_stance"):
++            rec = ui_data.get("recommendation", "WATCH")
++            ui_data["action_stance"] = f"当前建议 {rec}，详见专家研讨记录中的交易计划"
++
++        # Backfill lists if they are empty
++        if not ui_data.get("upside"):
++            ui_data["upside"] = self._extract_items_by_keywords_dual("upside", ["看涨", "利好", "上行", "催化剂", "Catalyst", "Upside", "机遇", "优势", "核心竞争力", "核心论点"], discussion_msgs)
++        if not ui_data.get("downside"):
++            ui_data["downside"] = self._extract_items_by_keywords_dual("downside", ["看跌", "利空", "下行", "风险", "Risk", "Downside", "压制", "威胁", "一致性偏差", "被忽视", "盲区", "Consensus Bias"], discussion_msgs)
++        if not ui_data.get("moat_points"):
++            ui_data["moat_points"] = self._extract_items_by_keywords_dual("moat", ["护城河", "Moat", "壁垒", "竞争优势"], discussion_msgs)
++        if not ui_data.get("macro_points"):
++            ui_data["macro_points"] = self._extract_items_by_keywords_dual("macro", ["宏观", "技术面", "资金面", "Technical", "Macro"], discussion_msgs)
++        if not ui_data.get("risks_points"):
++            ui_data["risks_points"] = self._extract_items_by_keywords_dual("risks", ["证伪", "失效", "止损", "Invalidation", "风险预警"], discussion_msgs)
++
++        # Ensure data_completeness is populated
++        dc = ui_data.get("data_completeness")
++        if not dc or not isinstance(dc, dict) or dc.get("score") is None:
++            # Estimate from N/A count in fundamentals-related fields
++            na_fields = [k for k in ["net_profit", "capex", "revenue_qoq", "net_profit_yoy",
++                                      "pe_percentile", "asset_turnover"] if not ui_data.get(k)]
++            score = max(30, 100 - len(na_fields) * 10)
++            ui_data["data_completeness"] = {"score": score, "missing": na_fields[:5],
++                                             "impact": "部分指标缺失可能影响估值精度" if na_fields else ""}
++
++    def _extract_first_substantive_sentence(self, discussion_msgs: list) -> str:
++        """Extract the first substantive analytical sentence from discussion."""
++        for m in discussion_msgs:
++            content = m.get("content", "").strip()
++            # Skip very short or thinking-prefixed content
++            if len(content) < 100:
++                continue
++            # Try to find a sentence that looks like analysis (contains stock/financial terms)
++            content_normalized = content.replace('\\n', '\n')
++            lines = content_normalized.split('\n')
++            for line in lines:
++                line = line.strip().lstrip('- *#>')
++                if len(line) > 30 and any(kw in line for kw in ["核心", "投资", "估值", "盈利", "增长", "周期",
++                                                                  "thesis", "core", "valuation", "profit"]):
++                    return line[:200]
++        return "分析整理中..."
++
++    def _extract_verdict_from_discussion(self, discussion_msgs: list) -> str:
++        """Try to extract a verdict-like sentence from the discussion content."""
++        # Look for patterns that indicate a verdict/conclusion
++        verdict_patterns = [
++            r'(?:结论|核心观点|投资建议|最终判定|Overall|Verdict|Conclusion)[：:\s]*([^\n]{10,60})',
++            r'(?:综合评估|总体判断|综上)[：:\s]*([^\n]{10,60})',
++        ]
++        all_text = "\n".join([m.get("content", "").replace('\\n', '\n') for m in discussion_msgs])
++        for pattern in verdict_patterns:
++            match = re.search(pattern, all_text, re.IGNORECASE)
++            if match:
++                return match.group(1).strip()[:60]
++        return ""
++
++    def _extract_strings_from_dict(self, d_val: dict, category: str) -> List[str]:
++        strs = []
++        for dk, dv in d_val.items():
++            if category in ("moat", "upside"):
++                if any(x in dk.lower() for x in ["disadvantage", "risk", "shortcoming", "weakness", "threat", "bear"]):
++                    continue
++            if isinstance(dv, str) and len(dv) > 5:
++                strs.append(dv)
++            elif isinstance(dv, dict):
++                strs.extend(self._extract_strings_from_dict(dv, category))
++            elif isinstance(dv, list):
++                for item in dv:
++                    if isinstance(item, str) and len(item) > 5:
++                        strs.append(item)
++        return strs
++
++    def _extract_items_by_keywords_dual(self, category: str, keywords: List[str], discussion_msgs: List[Dict[str, Any]], limit: int = 5) -> List[str]:
++        # Category key mappings for JSON extraction
++        category_keys = {
++            "upside": ["upside", "opportunities", "bull_thesis", "catalysts", "key_opps", "upside_points", "core_thesis"],
++            "downside": ["downside", "risks", "critical_risks", "risks_summary", "key_risks", "downside_points"],
++            "moat": ["moat_points", "competitive_advantages", "moat", "competitive_positioning", "moat_summary"],
++            "macro": ["macro_points", "macro", "technical_analysis", "macro_supply_demand", "macro_summary"],
++            "risks": ["risks_points", "thesis_invalidation_trigger", "stop_loss_rules", "exit_mechanism", "risks", "risks_summary"]
++        }
++
++        # 1. Try JSON extraction first
++        items = []
++        for m in discussion_msgs:
++            content = m.get("content", "").strip()
++            match = re.search(r'\{[\s\S]*\}', content)
++            if match:
++                try:
++                    obj = json.loads(match.group(0))
++                    target_keys = category_keys.get(category, [])
++                    for tk in target_keys:
++                        for k in obj.keys():
++                            if k.lower() == tk.lower() or tk.lower() in k.lower() or k.lower() in tk.lower():
++                                val = obj[k]
++                                if isinstance(val, list):
++                                    for item in val:
++                                        if isinstance(item, str) and len(item) > 5:
++                                            if item not in items:
++                                                items.append(item)
++                                elif isinstance(val, dict):
++                                    for item in self._extract_strings_from_dict(val, category):
++                                        if item not in items:
++                                            items.append(item)
++                                elif isinstance(val, str) and len(val) > 10:
++                                    sentences = re.split(r'[。\n]+', val)
++                                    for s in sentences:
++                                        s_clean = s.strip()
++                                        if len(s_clean) > 8:
++                                            if s_clean not in items:
++                                                items.append(s_clean)
++                except Exception:
++                    pass
++        
++        if len(items) >= 2:
++            return items[:limit]
++
++        # 2. Fallback to boundary-aware text scanner on normalized text
++        for m in discussion_msgs:
++            content = m.get("content", "")
++            if not content:
++                continue
++            content_normalized = content.replace('\\n', '\n')
++            lines = content_normalized.split('\n')
++            in_section = False
++            for line in lines:
++                line_stripped = line.strip()
++                
++                # Check for header or bold label
++                is_header = line_stripped.startswith('#')
++                is_bold = line_stripped.startswith('**')
++                is_bold_label = is_bold and any(kw.lower() in line_stripped.lower() for kw in keywords)
++                
++                if is_header:
++                    if any(kw.lower() in line_stripped.lower() for kw in keywords):
++                        in_section = True
++                    else:
++                        in_section = False
++                    continue
++                elif is_bold:
++                    if is_bold_label:
++                        in_section = True
++                    else:
++                        in_section = False
++                    continue
++                
++                if in_section:
++                    # Ignore table lines and dividers
++                    if '|' in line_stripped or line_stripped.startswith('---') or line_stripped.startswith('==='):
++                        continue
++                    if not line_stripped:
++                        continue
++                        
++                    m_bullet = re.match(r'^\s*[-*•▪◆\d.)]+\s*(.+)$', line_stripped)
++                    if m_bullet:
++                        clean = m_bullet.group(1).strip().strip('*').strip()
++                        if len(clean) > 8 and not clean.startswith('#') and not clean.startswith('---'):
++                            if clean not in items:
++                                items.append(clean)
++                                if len(items) >= limit:
++                                    break
++                    elif line_stripped and not line_stripped.startswith('#') and len(line_stripped) > 15:
++                        if line_stripped not in items:
++                            items.append(line_stripped)
++                            if len(items) >= limit:
++                                break
++            if len(items) >= limit:
++                break
++        return items[:limit]
++
++    def _extract_trading_steps_from_discussion(self, discussion_msgs: list) -> list:
++        steps = []
++        for m in discussion_msgs:
++            content = m.get("content", "")
++            if not content:
++                continue
++            content_normalized = content.replace('\\n', '\n')
++            lines = content_normalized.split('\n')
++            in_section = False
++            for line in lines:
++                line_stripped = line.strip()
++                is_header = line_stripped.startswith('#')
++                is_bold = line_stripped.startswith('**')
++                is_plan_header = (is_header or is_bold) and any(kw in line_stripped for kw in ["建仓", "交易计划", "操作步骤", "Trading Plan", "Execution", "交易策略"])
++                
++                if is_header or is_bold:
++                    if is_plan_header:
++                        in_section = True
++                    else:
++                        in_section = False
++                    continue
++                
++                if in_section:
++                    if line_stripped.startswith('|') and line_stripped.endswith('|'):
++                        parts = [p.strip() for p in line_stripped.split('|')[1:-1]]
++                        if not parts or any('---' in p for p in parts) or any(p in ["建仓层级", "建仓", "层级", "触发价位", "价格", "触发价格", "仓位", "仓位百分比", "权重", "占比", "累计仓位", "累计", "触发逻辑", "逻辑"] for p in parts):
++                            continue
++                        if len(parts) >= 3:
++                            steps.append({
++                                "level": parts[0].strip().strip('*'),
++                                "price": parts[1].strip(),
++                                "weight": parts[2].strip() if len(parts) > 2 else "自定",
++                                "logic": parts[-1].strip() if len(parts) > 3 else (parts[2].strip() if len(parts) > 2 else "")
++                            })
++                            if len(steps) >= 4:
++                                break
++            if steps:
++                break
++        return steps
++
+     def _build_fallback_ui_data(self, symbol: str, discussion_msgs: list, snapshot: dict) -> dict:
+         """Build report data directly from discussion messages when LLM is unavailable."""
+-        all_text = "\n".join([m.get("content", "") for m in discussion_msgs])
+-        # Take first 500 chars of the first substantive message as summary
+-        summary_text = ""
++        # Try to parse the JSON blocks from discussion messages to extract structured data
++        parsed_json_objs = []
+         for m in discussion_msgs:
+             content = m.get("content", "").strip()
+-            if len(content) > 100:
+-                # Remove tool call markup
+-                clean = re.sub(r'<[｜|]*DSML[｜|]*[^>]*>.*?</[｜|]*DSML[｜|]*[^>]*>', '', content, flags=re.DOTALL)
+-                clean = re.sub(r'```json.*?```', '', clean, flags=re.DOTALL)
+-                clean = clean.strip()
+-                if clean:
+-                    summary_text = clean[:500] + ("..." if len(clean) > 500 else "")
+-                    break
+-        
++            match = re.search(r'\{[\s\S]*\}', content)
++            if match:
++                try:
++                    obj = json.loads(match.group(0))
++                    parsed_json_objs.append(obj)
++                except Exception:
++                    pass
++
++        # Extract summary (prefer core_thesis)
++        summary_text = ""
++        for obj in parsed_json_objs:
++            if "core_thesis" in obj and obj["core_thesis"]:
++                summary_text = obj["core_thesis"]
++                break
++            elif "audit_officer_report" in obj and isinstance(obj["audit_officer_report"], dict):
++                summary_text = obj["audit_officer_report"].get("audit_findings_summary")
++                if summary_text: break
++            elif "reviewer_report" in obj and isinstance(obj["reviewer_report"], dict):
++                summary_text = obj["reviewer_report"].get("overall_assessment")
++                if summary_text: break
++
++        if not summary_text:
++            # Fallback to text-based extraction
++            for m in discussion_msgs:
++                content = m.get("content", "").strip()
++                if len(content) > 100:
++                    clean = re.sub(r'<[｜|]*DSML[｜|]*[^>]*>.*?</[｜|]*DSML[｜|]*[^>]*>', '', content, flags=re.DOTALL)
++                    clean = re.sub(r'```json.*?```', '', clean, flags=re.DOTALL)
++                    clean = clean.strip()
++                    if clean:
++                        summary_text = clean[:500] + ("..." if len(clean) > 500 else "")
++                        break
+         if not summary_text:
+             summary_text = f"{symbol} 分析报告 — 基于多轮专家研讨生成"
+ 
++        # Clean thinking prefix
++        summary_text = self._strip_thinking_prefix(summary_text)
++
++        # Extract recommendation
++        rating_val = None
++        for obj in parsed_json_objs:
++            if "rating" in obj and obj["rating"]:
++                rating_val = obj["rating"]
++                break
++            elif "reviewer_report" in obj and isinstance(obj["reviewer_report"], dict) and obj["reviewer_report"].get("rating"):
++                rating_val = obj["reviewer_report"]["rating"]
++                break
++        
++        rec = "WATCH"
++        if rating_val:
++            r_upper = str(rating_val).upper()
++            if any(k in r_upper for k in ("BUY", "STRONG BUY", "买入", "增持", "OVERWEIGHT", "长多")):
++                rec = "BUY"
++            elif any(k in r_upper for k in ("SELL", "STRONG SELL", "REDUCE", "AVOID", "卖出", "减持", "UNDERPERFORM", "看空", "避险")):
++                rec = "SELL"
++            elif any(k in r_upper for k in ("HOLD", "WATCH", "NEUTRAL", "中性", "观望")):
++                rec = "HOLD"
++
++        # Construct tagline
++        tagline = ""
++        for obj in parsed_json_objs:
++            if "reviewer_report" in obj and isinstance(obj["reviewer_report"], dict):
++                tagline = obj["reviewer_report"].get("report_title")
++                if tagline: break
++            elif "audit_officer_report" in obj and isinstance(obj["audit_officer_report"], dict):
++                tagline = obj["audit_officer_report"].get("report_title")
++                if tagline: break
++        
++        if tagline:
++            tagline = self._strip_thinking_prefix(tagline)
++        else:
++            first_sent = summary_text.split("。")[0].split("！")[0].split("?")[0].strip()
++            if len(first_sent) > 10:
++                tagline = f"{symbol}: {first_sent}"
++            else:
++                tagline = f"{symbol} 投资分析报告"
++
++        # Extract verdict
++        verdict = ""
++        for obj in parsed_json_objs:
++            if "rating_rationale" in obj and obj["rating_rationale"]:
++                verdict = obj["rating_rationale"].split("。")[0][:40]
++                if verdict: break
++        if verdict:
++            verdict = self._strip_thinking_prefix(verdict)
++        else:
++            verdict = summary_text.split("。")[0][:40]
++
++        # Extract action_stance
++        action_stance = ""
++        for obj in parsed_json_objs:
++            if "reviewer_report" in obj and isinstance(obj["reviewer_report"], dict):
++                action_stance = obj["reviewer_report"].get("final_action_directive")
++                if action_stance: break
++            elif "final_mandate_to_chief_strategist" in obj and obj["final_mandate_to_chief_strategist"]:
++                action_stance = obj["final_mandate_to_chief_strategist"]
++                if action_stance: break
++        if action_stance:
++            action_stance = self._strip_thinking_prefix(action_stance)
++        else:
++            action_stance = f"根据研讨分析结论，当前建议对该标的采取 {rec} 评级指导意见"
++
++        # Extract lists using the new dual method
++        upside = self._extract_items_by_keywords_dual("upside", ["看涨", "利好", "上行", "催化剂", "Catalyst", "Upside", "机遇", "优势", "核心竞争力", "核心论点"], discussion_msgs)
++        downside = self._extract_items_by_keywords_dual("downside", ["看跌", "利空", "下行", "风险", "Risk", "Downside", "压制", "威胁", "一致性偏差", "被忽视", "盲区", "Consensus Bias"], discussion_msgs)
++        moat_points = self._extract_items_by_keywords_dual("moat", ["护城河", "Moat", "壁垒", "竞争优势"], discussion_msgs)
++        macro_points = self._extract_items_by_keywords_dual("macro", ["宏观", "技术面", "资金面", "Technical", "Macro"], discussion_msgs)
++        risks_points = self._extract_items_by_keywords_dual("risks", ["证伪", "失效", "止损", "Invalidation", "风险预警"], discussion_msgs)
++
++        # Build trading steps
++        trading_steps = self._extract_trading_steps_from_discussion(discussion_msgs)
++        if not trading_steps:
++            trading_lines = self._extract_items_by_keywords_dual("risks", ["交易计划", "操作步骤", "Trading Plan", "Execution", "交易策略"], discussion_msgs)
++            trading_steps = []
++            for i, line in enumerate(trading_lines[:4]):
++                trading_steps.append({
++                    "level": f"步骤 {i+1}",
++                    "price": "价格见研讨",
++                    "weight": "自定",
++                    "logic": line[:150]
++                })
++
+         return {
+             "summary": summary_text,
+-            "moat_summary": "详见下方专家研讨记录",
+-            "moat_points": [],
+-            "macro_summary": "详见下方专家研讨记录",
+-            "macro_points": [],
+-            "trading_plan": "详见下方专家研讨记录",
+-            "trading_steps": [],
+-            "risks_points": [],
+-            "upside": [],
+-            "downside": [],
++            "moat_summary": "基于专家基本面护城河深度解析研讨内容提炼",
++            "moat_points": moat_points,
++            "macro_summary": "基于专家宏观与资金技术面剖析研讨内容提炼",
++            "macro_points": macro_points,
++            "trading_plan": "基于交易执行步骤与风险防线研讨内容提炼",
++            "trading_steps": trading_steps,
++            "risks_points": risks_points,
++            "upside": upside,
++            "downside": downside,
+             "scenarios": self._default_scenarios(),
+             "score": 75,
+-            "recommendation": "WATCH",
++            "recommendation": rec,
++            "tagline": tagline,
++            "verdict": verdict,
++            "action_stance": action_stance,
+         }
+ 
+     def _extract_thesis_from_discussion(self, discussion_msgs: list) -> dict:
+         """Extract bull/bear thesis points from expert discussion text using pattern matching."""
+-        upside, downside = [], []
+-        all_text = "\n".join([m.get("content", "") for m in discussion_msgs])
+-
+-        # Pattern: markdown list items (- or * or numbered) following bull/bear section headers
+-        bull_patterns = [
+-            r'(?:Bull|看涨|利好|上行|催化剂|Catalyst|Upside|机遇|优势|核心竞争力)[^\n]*\n((?:\s*[-*\d.]+\s+.+\n?)+)',
+-            r'🟢[^\n]*\n((?:\s*[-*\d.]+\s+.+\n?)+)',
+-        ]
+-        bear_patterns = [
+-            r'(?:Bear|看跌|利空|下行|风险|Risk|Downside|压制|脆弱|威胁)[^\n]*\n((?:\s*[-*\d.]+\s+.+\n?)+)',
+-            r'🔴[^\n]*\n((?:\s*[-*\d.]+\s+.+\n?)+)',
+-            r'(?:一致性偏差|被忽视|盲区|Consensus Bias)[^\n]*\n((?:\s*[-*\d.]+\s+.+\n?)+)',
+-        ]
+-
+-        def extract_items(patterns, text, limit=5):
+-            items = []
+-            for pattern in patterns:
+-                for match in re.finditer(pattern, text, re.IGNORECASE):
+-                    block = match.group(1)
+-                    for line in block.strip().split('\n'):
+-                        clean = re.sub(r'^\s*[-*\d.]+\s*', '', line).strip()
+-                        # Filter: must be substantive (>10 chars), skip headers/separators
+-                        if len(clean) > 10 and not clean.startswith('#') and not clean.startswith('---'):
+-                            if clean not in items:
+-                                items.append(clean)
+-                    if len(items) >= limit:
+-                        break
+-                if len(items) >= limit:
+-                    break
+-            return items[:limit]
+-
+-        upside = extract_items(bull_patterns, all_text)
+-        downside = extract_items(bear_patterns, all_text)
+-
++        upside = self._extract_items_by_keywords_dual("upside", ["看涨", "利好", "上行", "催化剂", "Catalyst", "Upside", "机遇", "优势", "核心竞争力", "核心论点"], discussion_msgs)
++        downside = self._extract_items_by_keywords_dual("downside", ["看跌", "利空", "下行", "风险", "Risk", "Downside", "压制", "威胁", "一致性偏差", "被忽视", "盲区", "Consensus Bias"], discussion_msgs)
++        
+         # Fallback: if still empty, try to extract from table rows in Risk Manager content
+         if not downside:
+             for m in discussion_msgs:
+                 if m.get("role") == "Risk Manager":
+                     content = m.get("content", "")
+-                    # Extract risk names from markdown tables: | **risk name** |
+-                    risk_matches = re.findall(r'\|\s*\*\*(.+?)\*\*\s*[-—–|]', content)
++                    content_normalized = content.replace('\\n', '\n')
++                    risk_matches = re.findall(r'\|\s*\*\*(.+?)\*\*\s*[-—–|]', content_normalized)
+                     downside = [r.strip() for r in risk_matches if len(r.strip()) > 5][:5]
+                     break
+ 
+@@ -330,64 +775,64 @@ OUTPUT ONLY THE JSON OBJECT.
+         # Strip DSML tokens
+         stripped = re.sub(r'<[｜|]*DSML[｜|]*[^>]*>', '', stripped)
+         stripped = re.sub(r'</[｜|]*DSML[｜|]*[^>]*>', '', stripped)
+-        stripped = re.sub(r'\n{3,}', '\n\n', stripped).strip()
++        stripped = re.sub(r'\\n{3,}', '\\n\\n', stripped).strip()
+         if not stripped:
+             return "<p><em>(Tool-calling round — no text content)</em></p>"
++        # Also handle Python reprs and escape underscores before markdown conversion
++        stripped = self._replace_python_reprs_in_text(stripped)
+         try:
+             return markdown2.markdown(stripped, extras=["fenced-code-blocks", "tables", "header-ids"])
+         except Exception:
+             return f"<pre>{stripped}</pre>"
+ 
+-    async def _normalize_log_style(self, content: str, model: str = None, deepseek_api_key: str = None) -> str:
++    async def _normalize_log_style(self, content: str, model: str = None, deepseek_api_key: str = None, gemini_api_key: str = None) -> str:
+         stripped = content.strip()
+ 
+         # Strip DeepSeek DSML tokens (native tool call markup that may leak)
+         if 'DSML' in stripped:
+-            import re
+             stripped = re.sub(r'<[｜|]*DSML[｜|]*[^>]*>', '', stripped)
+             stripped = re.sub(r'</[｜|]*DSML[｜|]*[^>]*>', '', stripped)
+             stripped = re.sub(r'\n{3,}', '\n\n', stripped).strip()
+             if not stripped:
+                 return "<p><em>(Tool-calling round — no text content)</em></p>"
+ 
++        # Detect raw tool-call data fragments (mostly numbers/N/A without prose)
++        lines = stripped.split('\n')
++        non_empty_lines = [l.strip() for l in lines if l.strip()]
++        if non_empty_lines:
++            data_lines = sum(1 for l in non_empty_lines if re.match(
++                r'^[\d.,\-+%]+$|^N/?A$|^[\d]+\.\d+$|^\d{6}$', l
++            ))
++            # If >60% of lines are pure data fragments and total is short, skip this entry
++            if len(non_empty_lines) <= 20 and data_lines / len(non_empty_lines) > 0.6:
++                return "<p><em>(数据查询轮次 — 无分析文本)</em></p>"
++
+         # Detect JSON-containing content — use LLM to convert to 1️⃣2️⃣ styled markdown
+         has_json = stripped.startswith("{") or stripped.startswith("```json")
+         
+         # Also detect trailing JSON block (markdown text followed by JSON at the end)
+         trailing_json_md = ""
+         if not has_json:
+-            # Find JSON block containing key analyst fields
+             json_clean = None
+             json_start_pos = -1
+-            
+-            # Try to find ```json ... ``` fenced block
+-            for key in ["tagline", "investmentThesis", "tradingPlan"]:
+-                pattern = rf'\n```json\s*\n'
+-                for fence_match in re.finditer(pattern, stripped):
+-                    fence_start = fence_match.end()
+-                    candidate = self._extract_balanced_json(stripped[fence_start:])
+-                    if candidate and key in candidate:
+-                        json_clean = candidate
+-                        json_start_pos = fence_match.start()
+-                        break
+-                if json_clean:
++
++            # 1) Any ```json ... ``` fenced block (schema-agnostic)
++            for fence_match in re.finditer(r'```json\s*\n', stripped):
++                fence_start = fence_match.end()
++                candidate = self._extract_balanced_json(stripped[fence_start:])
++                if candidate and candidate.count('"') >= 2:
++                    json_clean = candidate
++                    json_start_pos = fence_match.start()
+                     break
+-            
+-            # If no fenced block, try bare JSON object
++
++            # 2) No fenced block — find first bare {...} object with at least one key
+             if not json_clean:
+-                for key in ["tagline", "investmentThesis", "tradingPlan"]:
+-                    # Find positions of key in content
+-                    idx = stripped.find(f'"{key}"')
+-                    if idx < 0:
+-                        continue
+-                    # Walk backwards to find opening {
+-                    brace_pos = stripped.rfind('{', 0, idx)
+-                    if brace_pos > 0:
+-                        candidate = self._extract_balanced_json(stripped[brace_pos:])
+-                        if candidate:
+-                            json_clean = candidate
+-                            json_start_pos = brace_pos
+-                            break
++                for brace_pos in (m.start() for m in re.finditer(r'\{', stripped)):
++                    candidate = self._extract_balanced_json(stripped[brace_pos:])
++                    if candidate and '":' in candidate and len(candidate) > 40:
++                        json_clean = candidate
++                        json_start_pos = brace_pos
++                        break
+             
+             if json_clean:
+                 text_part = stripped[:json_start_pos].strip()
+@@ -428,22 +873,28 @@ CONTENT:
+                 if not model:
+                     provider = os.getenv("DEFAULT_LLM_PROVIDER", "deepseek").lower()
+                     model = os.getenv("DEEPSEEK_MODEL", "deepseek-v4-pro") if provider == "deepseek" else os.getenv("GEMINI_MODEL", "gemini-3.1-pro-preview")
+-                res = await llm_gateway.generate_content(prompt, model=model, temperature=0.2, deepseek_api_key=deepseek_api_key)
++                res = await llm_gateway.generate_content(prompt, model=model, temperature=0.2, deepseek_api_key=deepseek_api_key, gemini_api_key=gemini_api_key)
+                 if res and len(res) > 100:
+                     return markdown2.markdown(res.strip(), extras=["tables", "fenced-code-blocks"])
+             except Exception as e:
+                 print(f"JSON-to-markdown conversion failed: {e}")
+ 
+         # Templates already enforce clean format — use fast local cleanup.
++        # Apply Python repr → markdown conversion before rendering
++        stripped = self._replace_python_reprs_in_text(stripped)
++
+         has_chatter = any(content.strip().startswith(prefix) for prefix in
+-            ["好的", "好的，", "Here is", "As a", "As an", "收到", "OK", "Okay,"])
++            ["好的", "好的，", "Here is", "As a", "As an", "收到", "OK", "Okay,",
++             "Now I have", "Now I need", "Now I will", "Let me ", "Based on my",
++             "Actually, let me", "I have comprehensive", "I'll ",
++             "现在我已", "让我", "根据分析", "我将对", "根据对上述", "接下来", "收到，"])
+ 
+         if not has_chatter:
+             result = markdown2.markdown(stripped, extras=["tables", "fenced-code-blocks"])
+             return result + trailing_json_md if trailing_json_md else result
+ 
+         prompt = """Reformat the following analyst report. STRICT RULES:
+-1. REMOVE ALL conversational openings (e.g. "好的", "好的，作为...", "Here is the report...", "As an analyst...").
++1. REMOVE ALL conversational openings and thinking prefixes (e.g. "好的", "Now I have comprehensive data", "Let me compile", "Based on my analysis, here are", "OK, let me write").
+ 2. DO NOT remove, summarize, or change any other text. KEEP ALL tables, bullets, and details EXACTLY AS IS.
+ 3. Return ONLY the cleaned markdown content — no code blocks.
+ """
+@@ -451,7 +902,7 @@ CONTENT:
+             if not model:
+                 provider = os.getenv("DEFAULT_LLM_PROVIDER", "deepseek").lower()
+                 model = os.getenv("DEEPSEEK_MODEL", "deepseek-v4-pro") if provider == "deepseek" else os.getenv("GEMINI_MODEL", "gemini-3.1-pro-preview")
+-            res = await llm_gateway.generate_content(f"{prompt}\n\nCONTENT:\n{stripped}", model=model, temperature=0.2, deepseek_api_key=deepseek_api_key)
++            res = await llm_gateway.generate_content(f"{prompt}\n\nCONTENT:\n{stripped}", model=model, temperature=0.2, deepseek_api_key=deepseek_api_key, gemini_api_key=gemini_api_key)
+             if not res:
+                 result = markdown2.markdown(stripped, extras=["tables", "fenced-code-blocks"])
+                 return result + trailing_json_md if trailing_json_md else result
+@@ -475,7 +926,7 @@ CONTENT:
+             if escape:
+                 escape = False
+                 continue
+-            if ch == '\\' and in_string:
++            if ch == '\\\\' and in_string:
+                 escape = True
+                 continue
+             if ch == '"' and not escape:
+@@ -489,7 +940,6 @@ CONTENT:
+                 depth -= 1
+                 if depth == 0:
+                     candidate = text[:i+1]
+-                    # Validate it's parseable JSON
+                     try:
+                         json.loads(candidate)
+                         return candidate
+@@ -497,6 +947,179 @@ CONTENT:
+                         return ""
+         return ""
+ 
++    def _replace_python_reprs_in_text(self, text: str) -> str:
++        """Find Python dict/list repr strings in text and convert them to markdown tables/lists.
++
++        Uses a balanced-brace-scanner approach that is more robust than regex for
++        nested or multi-line structures. Also escapes underscores in the output so
++        markdown2 doesn't corrupt technical terms (e.g. market_cap_billion→market<em>cap</em>billion).
++        """
++        if not text:
++            return text
++
++        # Step 1: Save code blocks and inline code so we don't touch them
++        code_blocks = []
++        def _save_block(m):
++            code_blocks.append(m.group(0))
++            return f"__CB{len(code_blocks)-1}__"
++        result = re.sub(r'```[\s\S]*?```', _save_block, text)
++        result = re.sub(r'`[^`]+`', _save_block, result)
++
++        def _try_convert(block: str) -> str:
++            """Try to parse a block as Python literal and convert to markdown."""
++            try:
++                obj = ast.literal_eval(block)
++                if isinstance(obj, dict) and len(obj) >= 2:
++                    md = ReportGeneratorService._python_repr_to_markdown(block)
++                    # Escape underscores in the generated markdown to prevent
++                    # markdown2 from treating them as italics markers
++                    return self._escape_technical_underscores(md)
++                elif isinstance(obj, list) and len(obj) >= 2:
++                    md = ReportGeneratorService._python_repr_to_markdown(block)
++                    return self._escape_technical_underscores(md)
++            except (ValueError, SyntaxError, MemoryError):
++                pass
++            return ""
++
++        # Step 2: Find balanced {...} blocks (braces only — no nested braces inside)
++        # These are simple single-level dicts: {'key': val, 'key2': val2}
++        for m in re.finditer(r'\{([^{}]*)\}', result):
++            block = m.group(0)
++            # Must contain at least one single-quoted key to be a Python dict repr
++            if "'" not in block or ":" not in block:
++                continue
++            md = _try_convert(block)
++            if md:
++                # Check context: is this inline after a label (e.g., "- **Key**: {dict}")
++                before = result[max(0, m.start()-3):m.start()]
++                after_label = before.rstrip().endswith(':') or before.rstrip().endswith('=')
++                if after_label:
++                    # Replace inline: keep the label context, add newlines for table
++                    result = result[:m.start()] + '\n\n' + md + '\n\n' + result[m.end():]
++                else:
++                    result = result[:m.start()] + '\n' + md + '\n' + result[m.end():]
++
++        # Step 3: Find balanced [...] blocks (simple lists of dicts or strings)
++        pos = 0
++        while pos < len(result):
++            if result[pos] != '[':
++                pos += 1
++                continue
++            end = self._find_matching_bracket(result, pos)
++            if end == -1:
++                pos += 1
++                continue
++            block = result[pos:end+1]
++            # Skip if inside protected code block
++            before_ctx = result[max(0, pos-20):pos]
++            if '__CB' in before_ctx:
++                pos = end + 1
++                continue
++            md = _try_convert(block)
++            if md:
++                before = result[max(0, pos-3):pos]
++                after_label = before.rstrip().endswith(':') or before.rstrip().endswith('=')
++                if after_label:
++                    result = result[:pos] + '\n\n' + md + '\n\n' + result[end+1:]
++                else:
++                    result = result[:pos] + '\n' + md + '\n' + result[end+1:]
++            pos = end + 1
++
++        # Step 4: Handle remaining Python list reprs of strings: ['a', 'b']
++        for m in re.finditer(r'\[((?:[\'\"][^\'\"]*[\'\"]\s*(?:,\s*)?)+)\]', result):
++            block = m.group(0)
++            before_ctx = result[max(0, m.start()-50):m.start()]
++            if '__CB' in before_ctx:
++                continue
++            md = _try_convert(block)
++            if md:
++                try:
++                    obj = ast.literal_eval(block)
++                    if isinstance(obj, list) and len(obj) >= 2 and all(isinstance(x, str) for x in obj):
++                        before = result[max(0, m.start()-3):m.start()]
++                        after_label = before.rstrip().endswith(':') or before.rstrip().endswith('=')
++                        if after_label:
++                            result = result[:m.start()] + '\n\n' + md + '\n\n' + result[m.end():]
++                        else:
++                            result = result[:m.start()] + '\n' + md + '\n' + result[m.end():]
++                except (ValueError, SyntaxError, MemoryError):
++                    pass
++
++        # Step 5: Escape remaining underscores in non-converted technical terms
++        # that markdown2 would otherwise corrupt (market_cap_billion → market<em>cap</em>billion)
++        result = self._escape_residual_underscores(result)
++
++        # Restore code blocks
++        for i, block in reversed(list(enumerate(code_blocks))):
++            result = result.replace(f"__CB{i}__", block)
++        return result
++
++    def _find_matching_bracket(self, text: str, start: int) -> int:
++        """Find the position of the matching closing bracket for text[start].
++        Handles nested braces/brackets and strings. Returns -1 if not found."""
++        if start >= len(text):
++            return -1
++        open_ch = text[start]
++        close_map = {'[': ']', '{': '}'}
++        if open_ch not in close_map:
++            return -1
++        close_ch = close_map[open_ch]
++        depth = 0
++        in_string = False
++        string_char = None
++        escape = False
++        for i in range(start, len(text)):
++            ch = text[i]
++            if escape:
++                escape = False
++                continue
++            if ch == '\\' and in_string:
++                escape = True
++                continue
++            if ch in ('"', "'") and not escape:
++                if not in_string:
++                    in_string = True
++                    string_char = ch
++                elif ch == string_char:
++                    in_string = False
++                continue
++            if in_string:
++                continue
++            if ch == open_ch:
++                depth += 1
++            elif ch == close_ch:
++                depth -= 1
++                if depth == 0:
++                    return i
++        return -1
++
++    def _escape_technical_underscores(self, md_text: str) -> str:
++        """Escape underscores that look like technical identifiers (snake_case)
++        so markdown2 doesn't convert them to <em> tags. Preserves markdown syntax
++        like **bold** and *italic*."""
++        # Only escape underscores in words that look like identifiers:
++        # lowercase_with_underscores (at least one underscore with word chars on both sides)
++        def _escape_id(m):
++            word = m.group(0)
++            # Don't escape if it's already escaped or inside markdown formatting
++            return word.replace('_', '\\_')
++        # Match snake_case identifiers (letter_letter pattern) using lookarounds to handle Chinese/non-ascii boundaries
++        md_text = re.sub(r'(?<![a-zA-Z0-9])[a-z]+_[a-z][a-z_]*(?![a-zA-Z0-9])', _escape_id, md_text)
++        return md_text
++
++    def _escape_residual_underscores(self, text: str) -> str:
++        """Escape underscores in remaining Python-repr-like fragments that look like
++        snake_case identifiers, to prevent markdown2 corruption. Does NOT touch
++        underscores that are part of markdown formatting (*italic*, **bold**, etc.)"""
++        # Escape underscores between lowercase letters (snake_case identifiers)
++        # that markdown2 would interpret as italics markers
++        def _escape_snake(m):
++            word = m.group(0)
++            return word.replace('_', '\\_')
++        # Only match genuine snake_case using lookarounds to avoid boundary issues with non-ascii chars
++        result = re.sub(r'(?<![\\*a-zA-Z0-9])[a-z]+_[a-z][a-z_]*(?![a-zA-Z0-9])', _escape_snake, text)
++        return result
++
+     def _json_to_markdown(self, text: str) -> str:
+         """Convert structured JSON analyst output to readable markdown locally (no LLM needed)."""
+         try:
+@@ -509,8 +1132,102 @@ CONTENT:
+         except (json.JSONDecodeError, ValueError):
+             return ""
+ 
++        # Readable labels for common expert-JSON keys (avoids raw snake_case in report)
++        key_labels = {
++            "core_thesis": "🎯 核心论点", "key_metrics_extracted": "📊 关键指标",
++            "risks": "⚠️ 风险提示", "rating": "🏅 评级",
++            "recommendation": "💡 操作建议", "minervini_stage": "📈 趋势阶段",
++            "summary": "📝 摘要", "conclusion": "✅ 结论",
++            "analysis": "🔍 分析", "verdict": "⚖️ 裁决",
++            "key_findings": "🔑 核心发现", "catalysts": "🚀 催化剂",
++            "valuation": "💰 估值", "thesis": "📋 论点",
++            "score": "📊 评分", "confidence": "🎚️ 置信度",
++        }
++
++        def _humanize(k: str) -> str:
++            if k in key_labels:
++                return key_labels[k]
++            # Replace separators; escape underscores to avoid markdown italics
++            return re.sub(r'[_]+', ' ', k).strip().title()
++
++        def _format_field(label: str, val: Any) -> str:
++            field_lines = []
++            if isinstance(val, str):
++                field_lines.append(f"### {label}\n\n{val}\n")
++            elif isinstance(val, dict):
++                if "rows" in val:
++                    # Structured table rendering
++                    title = val.get("title", label)
++                    field_lines.append(f"### {title}\n")
++                    rows = val["rows"]
++                    headers = val.get("headers")
++                    if isinstance(rows, list) and rows:
++                        if not headers:
++                            if isinstance(rows[0], dict):
++                                headers = list(rows[0].keys())
++                            elif isinstance(rows[0], list):
++                                headers = [f"Col {i+1}" for i in range(len(rows[0]))]
++                        
++                        if headers:
++                            field_lines.append("| " + " | ".join(_humanize(h) for h in headers) + " |")
++                            field_lines.append("|" + "|".join("------" for _ in headers) + "|")
++                            for r in rows:
++                                if isinstance(r, dict):
++                                    row_vals = []
++                                    for h in headers:
++                                        v = r.get(h)
++                                        if v is None:
++                                            for rk, rv in r.items():
++                                                if rk.lower().replace('_', ' ') == h.lower().replace('_', ' '):
++                                                    v = rv
++                                                    break
++                                        if v is None and len(r) == len(headers):
++                                            idx = headers.index(h)
++                                            v = list(r.values())[idx]
++                                        row_vals.append(ReportGeneratorService._format_py_value(v))
++                                    field_lines.append("| " + " | ".join(row_vals) + " |")
++                                elif isinstance(r, list):
++                                    row_vals = [ReportGeneratorService._format_py_value(x) for x in r]
++                                    field_lines.append("| " + " | ".join(row_vals) + " |")
++                            field_lines.append("")
++                        else:
++                            for r in rows:
++                                field_lines.append(f"- {ReportGeneratorService._format_py_value(r)}")
++                            field_lines.append("")
++                    else:
++                        field_lines.append(f"- *(空)*\n")
++                else:
++                    field_lines.append(f"### {label}\n")
++                    for dk, dv in val.items():
++                        if isinstance(dv, list):
++                            field_lines.append(f"- **{_humanize(dk)}**:")
++                            for item in dv:
++                                field_lines.append(f"  - {ReportGeneratorService._format_py_value(item)}")
++                        elif isinstance(dv, dict):
++                            field_lines.append(f"- **{_humanize(dk)}**:")
++                            for sub_k, sub_v in dv.items():
++                                field_lines.append(f"  - **{_humanize(sub_k)}**: {ReportGeneratorService._format_py_value(sub_v)}")
++                        else:
++                            field_lines.append(f"- **{_humanize(dk)}**: {ReportGeneratorService._format_py_value(dv)}")
++                    field_lines.append("")
++            elif isinstance(val, list):
++                if val and all(isinstance(item, dict) for item in val):
++                    field_lines.append(f"### {label}\n")
++                    field_lines.append(ReportGeneratorService._format_list_of_dicts(val))
++                    field_lines.append("")
++                else:
++                    field_lines.append(f"### {label}\n")
++                    for item in val:
++                        if isinstance(item, dict):
++                            field_lines.append(f"- {' | '.join(str(v) for v in item.values())}")
++                        else:
++                            field_lines.append(f"- {item}")
++                    field_lines.append("")
++            else:
++                field_lines.append(f"### {label}\n\n{val}\n")
++            return "\n".join(field_lines)
++
+         lines = []
+-        # Field name → display label mapping
+         labels = {
+             "tagline": "📌 核心论点",
+             "investmentThesis": "📋 投资论题",
+@@ -521,94 +1238,46 @@ CONTENT:
+         }
+         for key, label in labels.items():
+             if key in data:
+-                val = data[key]
+-                if isinstance(val, str):
+-                    lines.append(f"### {label}\n\n{val}\n")
+-                elif isinstance(val, dict):
+-                    lines.append(f"### {label}\n")
+-                    for dk, dv in val.items():
+-                        lines.append(f"- **{dk}**: {dv}")
+-                    lines.append("")
++                lines.append(_format_field(label, data[key]))
+ 
+-        # Expected price
+         if "expectedPrice" in data and isinstance(data["expectedPrice"], dict):
+             ep = data["expectedPrice"]
+             lines.append("### 💰 预期价格计算\n")
+             lines.append(f"- **计算公式**: {ep.get('calculation', 'N/A')}")
+-            result_val = ep.get('result', 'N/A')
+-            lines.append(f"- **预期价格**: ${result_val}")
+-            vs_current = ep.get('vsCurrentPrice', ep.get('currentPrice', 'N/A'))
+-            lines.append(f"- **vs当前价格**: {vs_current}")
++            lines.append(f"- **预期价格**: ${ep.get('result', 'N/A')}")
++            lines.append(f"- **vs当前价格**: {ep.get('vsCurrentPrice', ep.get('currentPrice', 'N/A'))}")
+             lines.append(f"- **预期回报**: {ep.get('expectedReturn', 'N/A')}")
+-            decision = ep.get('decisionRuleCheck')
+-            if decision:
+-                lines.append(f"- **决策规则**: {decision}")
+-            lines.append("")
+-
+-        # Trading plan
+-        if "tradingPlan" in data and isinstance(data["tradingPlan"], dict):
+-            tp = data["tradingPlan"]
+-            lines.append("### 📈 交易计划\n")
+-            for k, v in tp.items():
+-                lines.append(f"- **{k}**: {v}")
+-            lines.append("")
+-
+-        # Kelly position
+-        if "kellyPosition" in data and isinstance(data["kellyPosition"], dict):
+-            kp = data["kellyPosition"]
+-            lines.append("### 🎲 Kelly仓位\n")
+-            for k, v in kp.items():
+-                lines.append(f"- **{k}**: {v}")
++            if ep.get('decisionRuleCheck'):
++                lines.append(f"- **决策规则校验**: {ep.get('decisionRuleCheck')}")
+             lines.append("")
+ 
+-        # Time horizon
+-        if "timeHorizon" in data and isinstance(data["timeHorizon"], dict):
+-            lines.append("### ⏰ 时间维度策略\n")
+-            for period, info in data["timeHorizon"].items():
+-                if isinstance(info, dict):
+-                    lines.append(f"**{info.get('period', period)}** — {info.get('action', '')}")
+-                    lines.append(f"  - 逻辑: {info.get('logic', '')}\n")
+-
+-        # Build plan
+-        if "buildPlan" in data and isinstance(data["buildPlan"], list):
+-            lines.append("### 🏗️ 建仓计划\n")
+-            lines.append("| 阶段 | 价格 | 仓位 | 累计仓位 | 逻辑 |")
+-            lines.append("|------|------|------|----------|------|")
+-            for step in data["buildPlan"]:
+-                if isinstance(step, dict):
+-                    lines.append(f"| {step.get('level','')} | {step.get('price','')} | {step.get('weight','')} | {step.get('cumulative', step.get('cumulativePosition', step.get('cumulativeWeight','')))} | {step.get('logic','')} |")
+-            lines.append("")
+-
+-        # Exit mechanism
+-        if "exitMechanism" in data and isinstance(data["exitMechanism"], dict):
+-            em = data["exitMechanism"]
++        # Exit Mechanism / Disciplines
++        em = data.get("exit_mechanism") or data.get("exitMechanism") or {}
++        if em:
+             lines.append("### 🚪 退出机制\n")
+             if "takeProfit" in em:
+                 lines.append("**止盈:**")
+-                for tp_item in em["takeProfit"]:
+-                    lines.append(f"- {tp_item}")
++                for item in em["takeProfit"]:
++                    lines.append(f"- {item}")
+             if "stopLoss" in em:
+                 lines.append("\n**止损:**")
+-                for sl_item in em["stopLoss"]:
+-                    lines.append(f"- {sl_item}")
++                for item in em["stopLoss"]:
++                    lines.append(f"- {item}")
+             if "thesisFalsification" in em or "thesisInvalidation" in em:
+                 lines.append("\n**论题证伪条件:**")
+-                for tf_item in em.get("thesisFalsification", em.get("thesisInvalidation", [])):
+-                    lines.append(f"- {tf_item}")
++                for item in em.get("thesisFalsification", em.get("thesisInvalidation", [])):
++                    lines.append(f"- {item}")
+             lines.append("")
+ 
+-        # Critical risks
+         if "criticalRisks" in data and isinstance(data["criticalRisks"], list):
+             lines.append("### ⚠️ 关键风险\n")
+             for risk in data["criticalRisks"]:
+                 lines.append(f"- {risk}")
+             lines.append("")
+ 
+-        # Falsification redlines
+         if "falsificationRedlines" in data and isinstance(data["falsificationRedlines"], list):
+             lines.append("### 🚨 证伪红线\n")
+-            lines.append("| 条件 | 窗口 | 行动 |")
+-            lines.append("|------|------|------|")
++            lines.append("| 条件 | 窗口 | 行动 |\n|------|------|------|")
+             for item in data["falsificationRedlines"]:
+                 if isinstance(item, dict):
+                     lines.append(f"| {item.get('condition','')} | {item.get('window','')} | {item.get('action','')} |")
+@@ -616,26 +1285,26 @@ CONTENT:
+                     lines.append(f"- {item}")
+             lines.append("")
+ 
+-        # Key revisions
+         if "keyRevisionsToPriorAnalyses" in data and isinstance(data["keyRevisionsToPriorAnalyses"], dict):
+             lines.append("### 📝 关键修正\n")
+             for rk, rv in data["keyRevisionsToPriorAnalyses"].items():
+-                lines.append(f"- **{rk}**: {rv}")
++                lines.append(f"- **{_humanize(rk)}**: {rv}")
+             lines.append("")
+ 
+-        # Fallback: any unhandled keys
++        # Formatting anything else
+         handled = set(labels.keys()) | {"expectedPrice", "tradingPlan", "kellyPosition", "timeHorizon", "buildPlan", "exitMechanism", "criticalRisks", "falsificationRedlines", "keyRevisionsToPriorAnalyses"}
+         for key, val in data.items():
+             if key not in handled:
++                label = _humanize(key)
+                 if isinstance(val, str):
+-                    lines.append(f"### {key}\n\n{val}\n")
++                    lines.append(f"### {label}\n\n{val}\n")
+                 elif isinstance(val, dict):
+-                    lines.append(f"### {key}\n")
++                    lines.append(f"### {label}\n")
+                     for dk, dv in val.items():
+-                        lines.append(f"- **{dk}**: {dv}")
++                        lines.append(f"- **{_humanize(dk)}**: {dv}")
+                     lines.append("")
+                 elif isinstance(val, list):
+-                    lines.append(f"### {key}\n")
++                    lines.append(f"### {label}\n")
+                     for item in val:
+                         if isinstance(item, dict):
+                             lines.append(f"- {' | '.join(str(v) for v in item.values())}")
+@@ -643,7 +1312,160 @@ CONTENT:
+                             lines.append(f"- {item}")
+                     lines.append("")
+ 
+-        return "\n".join(lines) if lines else ""
++        raw_md = "\n".join(lines) if lines else ""
++        return self._escape_technical_underscores(raw_md)
++
++    @staticmethod
++    def _python_repr_to_markdown(text: str) -> str:
++        """Convert Python dict/list repr strings (single-quoted) to markdown tables/lists.
++
++        Handles the common LLM output pattern where structured data leaks as Python repr
++        rather than JSON. Uses ast.literal_eval for safe parsing."""
++        if not text:
++            return ""
++        # Try to find a Python repr in the text
++        # Look for dict {...} or list [...] patterns (not inside markdown code blocks)
++        # Strip surrounding markdown code fences if present
++        cleaned = text.strip()
++        # Remove leading ```python or ``` markers
++        cleaned = re.sub(r'^```(?:python|py)?\s*\n?', '', cleaned)
++        cleaned = re.sub(r'\n?```\s*$', '', cleaned)
++
++        # Try to parse as Python literal
++        try:
++            obj = ast.literal_eval(cleaned)
++        except (ValueError, SyntaxError):
++            return ""
++
++        if isinstance(obj, list):
++            return ReportGeneratorService._format_py_list(obj)
++        elif isinstance(obj, dict):
++            return ReportGeneratorService._format_py_dict(obj)
++        return ""
++
++    @staticmethod
++    def _format_py_dict(d: dict) -> str:
++        """Format a Python dict as a markdown key-value table."""
++        if not d:
++            return ""
++        lines = []
++        lines.append("| 字段 | 值 |")
++        lines.append("|------|-----|")
++        for k, v in d.items():
++            # Humanize key: replace underscores with spaces, title-case
++            key_display = k.replace('_', ' ').strip().title()
++            val_str = ReportGeneratorService._format_py_value(v)
++            lines.append(f"| {key_display} | {val_str} |")
++        return "\n".join(lines)
++
++    @staticmethod
++    def _format_py_list(lst: list) -> str:
++        """Format a Python list as markdown. List of dicts → table; list of scalars → bullets."""
++        if not lst:
++            return ""
++        # If list of dicts, render as table
++        if all(isinstance(item, dict) for item in lst):
++            return ReportGeneratorService._format_list_of_dicts(lst)
++        # Otherwise render as bullet list
++        lines = []
++        for item in lst:
++            if isinstance(item, dict):
++                # Mixed types — flatten to key: value bullets
++                for k, v in item.items():
++                    lines.append(f"- **{k.replace('_', ' ').title()}**: {ReportGeneratorService._format_py_value(v)}")
++            elif isinstance(item, (list, tuple)):
++                lines.append(f"- {', '.join(str(x) for x in item)}")
++            else:
++                # Skip items that are already full sentences (likely not data)
++                s = str(item)
++                if len(s) > 200 and ('。' in s or '.' in s):
++                    lines.append(f"- {s}")
++                else:
++                    lines.append(f"- {s}")
++        return "\n".join(lines)
++
++    @staticmethod
++    def _format_list_of_dicts(lst: list) -> str:
++        """Format a list of dicts as a markdown table using keys as headers."""
++        if not lst:
++            return ""
++        # Collect all keys across all dicts (preserving order of first dict, then adding others)
++        first_keys = list(lst[0].keys())
++        all_keys = list(first_keys)
++        for d in lst[1:]:
++            for k in d.keys():
++                if k not in all_keys:
++                    all_keys.append(k)
++
++        # Humanize headers
++        def humanize_key(k: str) -> str:
++            return k.replace('_', ' ').strip().title()
++
++        lines = []
++        header = "| " + " | ".join(humanize_key(k) for k in all_keys) + " |"
++        sep = "|" + "|".join("------" for _ in all_keys) + "|"
++        lines.append(header)
++        lines.append(sep)
++
++        for d in lst:
++            vals = []
++            for k in all_keys:
++                v = d.get(k, "")
++                vals.append(ReportGeneratorService._format_py_value(v))
++            lines.append("| " + " | ".join(vals) + " |")
++        return "\n".join(lines)
++
++    @staticmethod
++    def _format_py_value(v) -> str:
++        """Format a single Python value for display in a markdown table cell."""
++        if v is None:
++            return "—"
++        if isinstance(v, bool):
++            return "✅" if v else "❌"
++        if isinstance(v, (list, tuple)):
++            # Short lists: join; long lists: truncate
++            items = [str(x) for x in v]
++            joined = ", ".join(items)
++            if len(joined) > 120:
++                return joined[:117] + "..."
++            return joined
++        if isinstance(v, dict):
++            # Flatten small dicts inline
++            parts = [f"{k.replace('_', ' ')}: {ReportGeneratorService._format_py_value(v2)}" for k, v2 in v.items()]
++            joined = "; ".join(parts)
++            if len(joined) > 150:
++                return joined[:147] + "..."
++            return joined
++        return str(v)
++
++    @staticmethod
++    def _format_sensitivity_table(sensitivity_str: str) -> str:
++        """Convert WACC sensitivity Python repr like [{'wacc': 5.4, 'g': 1.0, 'value': 27.83}, ...]
++        into a compact sensitivity matrix markdown table."""
++        try:
++            data = ast.literal_eval(sensitivity_str)
++        except (ValueError, SyntaxError):
++            # Try as JSON
++            try:
++                data = json.loads(sensitivity_str)
++            except (json.JSONDecodeError, ValueError):
++                return sensitivity_str  # Can't parse, return as-is
++
++        if not isinstance(data, list) or not data:
++            return sensitivity_str
++
++        # Build table: columns = unique g values, rows = unique wacc values
++        if all(isinstance(d, dict) and 'wacc' in d and 'value' in d for d in data):
++            lines = []
++            lines.append("| WACC | g | 每股价值 |")
++            lines.append("|------|---|----------|")
++            for d in data:
++                wacc = d.get('wacc', 'N/A')
++                g = d.get('g', 'N/A')
++                value = d.get('value', 'N/A')
++                lines.append(f"| {wacc} | {g} | {value} |")
++            return "\n".join(lines)
++        return sensitivity_str
+ 
+     def _get_locale(self, market: str) -> dict:
+         """Return localized labels based on market."""
+@@ -794,6 +1616,8 @@ CONTENT:
+         locale = self._get_locale(info.get("market", "A-Share"))
+ 
+         def md(t): return markdown2.markdown(t) if t else ""
++        import html
++        def esc(t): return html.escape(str(t)) if t else ""
+ 
+         # Raw variable extractions with safe defaults
+         tagline = d.get("tagline") or f"{info.get('name', '')} ({info.get('symbol', '')}) 投资分析报告"
+@@ -861,7 +1685,7 @@ CONTENT:
+         }.get(archetype, archetype or "通用分析型")
+         
+         kill_switch = d.get("kill_switch") or {}
+-        ks_condition = kill_switch.get("condition") or "分析师未配置具体防伪红线条件"
++        ks_condition = esc(kill_switch.get("condition") or "分析师未配置具体防伪红线条件")
+         ks_status = kill_switch.get("status") or "SAFE"
+         ks_class = "triggered" if ks_status.upper() in ("TRIGGERED", "WARN", "触发") else "safe"
+         ks_status_zh = "已触发预警 (TRIGGERED)" if ks_class == "triggered" else "安全 (SAFE)"
+@@ -898,6 +1722,7 @@ CONTENT:
+                     <tr>
+                         <td colspan="8" class="wacc-source"><strong>WACC 参数来源与逻辑：</strong> {wacc_data.get("source", "未披露")}</td>
+                     </tr>
++                    {"<tr><td colspan='8' class='wacc-source'><strong>敏感性分析：</strong></td></tr><tr><td colspan='8' class='wacc-source'>" + markdown2.markdown(self._format_sensitivity_table(wacc_data.get("sensitivity", "")), extras=["tables"]) + "</td></tr>" if wacc_data.get("sensitivity") else ""}
+                 </tbody>
+             </table>
+             '''
+@@ -909,16 +1734,19 @@ CONTENT:
+         peer_section_html = ""
+         if peers and isinstance(peers, list) and len(peers) > 0:
+             peer_rows = ""
++            def _fv(v, suffix=""):
++                if v is None or v == "N/A": return "N/A"
++                return f"{v}{suffix}"
+             for p in peers:
+                 if not isinstance(p, dict): continue
+                 peer_rows += f'''<tr>
+                     <td>{p.get("name", "")}</td>
+                     <td>{p.get("symbol", "")}</td>
+-                    <td>{p.get("pe", "N/A")}</td>
+-                    <td>{p.get("pb", "N/A")}</td>
+-                    <td>{p.get("roe", "N/A")}%</td>
+-                    <td>{p.get("margin", "N/A")}%</td>
+-                    <td>{p.get("marketCap", "N/A")}</td>
++                    <td>{_fv(p.get("pe"))}</td>
++                    <td>{_fv(p.get("pb"))}</td>
++                    <td>{_fv(p.get("roe"), "%")}</td>
++                    <td>{_fv(p.get("margin"), "%")}</td>
++                    <td>{_fv(p.get("marketCap"))}</td>
+                     <td>{p.get("vs_target", "")}</td>
+                 </tr>'''
+             peer_section_html = f'''
+@@ -1033,10 +1861,40 @@ CONTENT:
+             scenarios = self._default_scenarios()
+ 
+         sc_rows = "".join([
+-            f'<tr><td><strong>{s.get("case", "N/A")}</strong></td><td>{str(s.get("probability", 0)).rstrip("%")}%</td><td><strong>{s.get("targetPrice", "N/A")}</strong></td><td>{s.get("logic", "")}</td></tr>'
++            f'<tr><td><strong>{esc(s.get("case", "N/A"))}</strong></td><td>{str(s.get("probability", 0)).rstrip("%")}%</td><td><strong>{s.get("targetPrice", "N/A")}</strong></td><td>{esc(s.get("logic", ""))}</td></tr>'
+             for s in scenarios
+         ])
+ 
++        expected_return_html = ""
++        try:
++            current_price = d.get("snapshot", {}).get("quote", {}).get("price")
++            if current_price and current_price > 0:
++                exp_price = 0.0
++                tot_prob = 0.0
++                for s in scenarios:
++                    p_str = str(s.get("probability", "0")).replace("%", "").strip()
++                    prob = float(p_str) if p_str else 0.0
++                    
++                    t_str = str(s.get("targetPrice", "0")).replace("元", "").replace("HKD", "").replace("USD", "").replace("¥", "").strip()
++                    if "-" in t_str:
++                        parts = t_str.split("-")
++                        t_val = (float(parts[0]) + float(parts[1])) / 2.0
++                    else:
++                        t_val = float(t_str) if t_str else 0.0
++                        
++                    exp_price += t_val * (prob / 100.0)
++                    tot_prob += prob
++                
++                if tot_prob > 0 and exp_price > 0:
++                    if abs(tot_prob - 100) > 1:
++                        exp_price = exp_price / (tot_prob / 100.0)
++                    exp_ret = (exp_price / current_price - 1.0) * 100
++                    color = "var(--bull)" if exp_ret > 0 else "var(--bear)"
++                    expected_return_html = f'<div style="margin-top: 10px; font-weight: bold; font-size: 14px; text-align: right;">概率加权期望目标价: {exp_price:.2f} 现价({current_price}) 期望回报: <span style="color: {color};">{exp_ret:+.2f}%</span></div>'
++        except Exception as e:
++            print(f"Error calculating expected return: {e}")
++
++
+         # Trading Plan Grid
+         trading_steps = d.get("trading_steps", [])
+         if not isinstance(trading_steps, list) or (len(trading_steps) > 0 and not isinstance(trading_steps[0], dict)):
+@@ -1050,7 +1908,7 @@ CONTENT:
+                 <div class="trade-level">{s.get('level', '仓位')}</div>
+                 <div class="trade-price">{s.get('price', 'N/A')}</div>
+                 <div class="trade-weight">占比: {s.get('weight', 'N/A')}</div>
+-                <div class="trade-logic">{s.get('logic', '')}</div>
++                <div class="trade-logic">{esc(s.get('logic', ''))}</div>
+             </div>"""
+ 
+         # Market wind control and disciplines
+@@ -1073,15 +1931,15 @@ CONTENT:
+                     <div class="wind-card">
+                         <div class="wind-card-title">📅 限售股解禁日历</div>
+                         <div class="wind-card-body">
+-                            <strong>解禁信息：</strong> {wind_control.get("lockup_date") or "无近三个月大额解禁信息"}<br>
+-                            <strong>解禁冲击：</strong> {wind_control.get("lockup_impact") or "解禁冲击评估为低/无"}
++                            <strong>解禁信息：</strong> {esc(wind_control.get("lockup_date") or "无近三个月大额解禁信息")}<br>
++                            <strong>解禁冲击：</strong> {esc(wind_control.get("lockup_impact") or "解禁冲击评估为低/无")}
+                         </div>
+                     </div>
+                     <div class="wind-card">
+                         <div class="wind-card-title">📢 减持公告与拥挤度</div>
+                         <div class="wind-card-body">
+-                            <strong>减持情况：</strong> {wind_control.get("reduction_plan") or "无未完成减持公告"}<br>
+-                            <strong>机构拥挤：</strong> {wind_control.get("crowding_level") or "机构仓位拥挤度适中"}
++                            <strong>减持情况：</strong> {esc(wind_control.get("reduction_plan") or "无未完成减持公告")}<br>
++                            <strong>机构拥挤：</strong> {esc(wind_control.get("crowding_level") or "机构仓位拥挤度适中")}
+                         </div>
+                     </div>"""
+         elif market_str == "HK-Share" or market_str.lower() in ("hk", "hkshare", "hk-share"):
+@@ -1089,15 +1947,15 @@ CONTENT:
+                     <div class="wind-card">
+                         <div class="wind-card-title">📅 基石/主要股东禁售解禁</div>
+                         <div class="wind-card-body">
+-                            <strong>禁售解禁：</strong> {wind_control.get("lockup_date") or "无近三个月大额禁售解禁信息"}<br>
+-                            <strong>减持/解禁冲击：</strong> {wind_control.get("lockup_impact") or "解禁及减持冲击低/无"}
++                            <strong>禁售解禁：</strong> {esc(wind_control.get("lockup_date") or "无近三个月大额禁售解禁信息")}<br>
++                            <strong>减持/解禁冲击：</strong> {esc(wind_control.get("lockup_impact") or "解禁及减持冲击低/无")}
+                         </div>
+                     </div>
+                     <div class="wind-card">
+                         <div class="wind-card-title">📢 港股通持股与大股东质押</div>
+                         <div class="wind-card-body">
+-                            <strong>港股通持股：</strong> {wind_control.get("crowding_level") or "南向资金持股变动稳健"}<br>
+-                            <strong>股份质押/减持：</strong> {wind_control.get("reduction_plan") or "大股东及质押风险为安全/无"}
++                            <strong>港股通持股：</strong> {esc(wind_control.get("crowding_level") or "南向资金持股变动稳健")}<br>
++                            <strong>股份质押/减持：</strong> {esc(wind_control.get("reduction_plan") or "大股东及质押风险为安全/无")}
+                         </div>
+                     </div>"""
+         else: # US-Share
+@@ -1105,18 +1963,31 @@ CONTENT:
+                     <div class="wind-card">
+                         <div class="wind-card-title">📅 内部人交易 Form 4</div>
+                         <div class="wind-card-body">
+-                            <strong>内部人交易：</strong> {wind_control.get("lockup_date") or "无大额内部人买卖交易记录"}<br>
+-                            <strong>10b5-1 计划：</strong> {wind_control.get("lockup_impact") or "无正在执行的10b5-1大额减持计划"}
++                            <strong>内部人交易：</strong> {esc(wind_control.get("lockup_date") or "无大额内部人买卖交易记录")}<br>
++                            <strong>10b5-1 计划：</strong> {esc(wind_control.get("lockup_impact") or "无正在执行的10b5-1大额减持计划")}
+                         </div>
+                     </div>
+                     <div class="wind-card">
+                         <div class="wind-card-title">📢 空头头寸与机构持仓</div>
+                         <div class="wind-card-body">
+-                            <strong>空头占比：</strong> {wind_control.get("reduction_plan") or "空头头寸占比 (Short Interest) 处于安全低位"}<br>
+-                            <strong>机构持仓：</strong> {wind_control.get("crowding_level") or "13F 机构持仓未见踩踏或大幅抛售"}
++                            <strong>空头占比：</strong> {esc(wind_control.get("reduction_plan") or "空头头寸占比 (Short Interest) 处于安全低位")}<br>
++                            <strong>机构持仓：</strong> {esc(wind_control.get("crowding_level") or "13F 机构持仓未见踩踏或大幅抛售")}
+                         </div>
+                     </div>"""
+ 
++        # Data completeness warning
++        data_completeness = d.get("data_completeness", {})
++        data_score = data_completeness.get("score", 100)
++        data_warning_html = ""
++        if data_score < 50:
++            missing_items = ", ".join(data_completeness.get("missing", [])) or "关键财务及宏观数据"
++            data_warning_html = f'''
++            <div style="background-color: #fef2f2; border-left: 4px solid #dc2626; padding: 16px; margin: 20px 0; border-radius: 4px;">
++                <h4 style="color: #991b1b; margin: 0 0 8px 0; display: flex; align-items: center;"><span style="font-size: 18px; margin-right: 8px;">⚠️</span> 严重数据缺失警告 (完整度: {data_score}%)</h4>
++                <p style="color: #b91c1c; margin: 0; font-size: 14px;">本报告因关键数据缺失（{missing_items}），结论仅供参考，不构成交易建议。建议在数据补齐后重新生成。</p>
++            </div>
++            '''
++
+         return f"""<!DOCTYPE html>
+ <html lang="{'en' if info.get('market') == 'US-Share' else 'zh-CN'}">
+ <head>
+@@ -1571,6 +2442,9 @@ CONTENT:
+         .wind-card-title {{ font-size: 14px; font-weight: 800; color: var(--primary); margin-bottom: 12px; border-left: 4px solid var(--warning); padding-left: 8px; }}
+         .wind-card-body {{ font-size: 13px; color: var(--text); line-height: 1.6; }}
+         
++        .data-warning {{ margin: 20px 0; padding: 15px; background: #fffbeb; border: 1px solid #fcd34d; border-radius: 8px; color: #92400e; font-size: 13px; display: flex; align-items: center; }}
++        .data-warning::before {{ content: '⚠️'; margin-right: 10px; font-size: 16px; }}
++
+         .risk-section {{ margin-top: 40px; background: #fff1f2; border: 1px solid #fecaca; border-radius: 8px; padding: 30px; text-align: left; }}
+         .risk-header {{ font-weight: 800; color: #991b1b; display: flex; align-items: center; margin-bottom: 15px; font-size: 18px; }}
+         .risk-header::before {{ content: '⚠️'; margin-right: 12px; }}
+@@ -1599,6 +2473,8 @@ CONTENT:
+         .log-body table {{ width: 100%; border-collapse: collapse; margin: 20px 0; border: 1px solid var(--border); }}
+         .log-body th {{ background: var(--bg); padding: 10px; border: 1px solid var(--border); font-weight: 700; }}
+         .log-body td {{ padding: 8px 10px; border: 1px solid var(--border); }}
++        .log-body pre {{ white-space: pre-wrap; word-wrap: break-word; overflow-wrap: break-word; overflow-x: auto; max-width: 100%; background: #f8fafc; padding: 15px; border-radius: 6px; border: 1px solid var(--border); }}
++        .log-body code {{ background: none; padding: 0; border: none; font-family: monospace; white-space: pre-wrap; word-wrap: break-word; }}
+ 
+         .report-footer {{ margin-top: 60px; padding-top: 20px; border-top: 1px solid var(--border); color: #94a3b8; font-size: 12px; text-align: center; }}
+         
+@@ -1613,6 +2489,21 @@ CONTENT:
+             font-size: 13px;
+         }}
+ 
++        @media (max-width: 900px) {{
++            .dashboard-grid, .consensus-split, .valuation-top-row, .wind-control-grid, .thesis-grid {{
++                grid-template-columns: 1fr !important;
++            }}
++            .fund-category-grid, .trading-grid {{
++                grid-template-columns: 1fr !important;
++            }}
++            .report-page {{
++                padding: 30px;
++            }}
++            .dashboard-card, .wind-card, .thesis-card {{
++                padding: 15px;
++            }}
++        }}
++
+         @media print {{
+             body {{ background: #fff; }}
+             .report-page {{ box-shadow: none; margin: 0; padding: 30px; border: none; max-width: 100%; }}
+@@ -1689,6 +2580,7 @@ CONTENT:
+                     <thead><tr><th>{locale["scenario_case"]}</th><th>{locale["scenario_prob"]}</th><th>{locale["scenario_target"]}</th><th>{locale["scenario_logic"]}</th></tr></thead>
+                     <tbody>{sc_rows}</tbody>
+                 </table>
++                {expected_return_html}
+             </div>
+         </div>
+         
+@@ -1794,16 +2686,16 @@ CONTENT:
+             <div class="dashboard-card">
+                 <h3 class="card-title">{locale["card_lr_signal"]}</h3>
+                 <div style="font-size:13px; line-height:1.7;">
+-                    <strong>{locale["label_left_side"]}</strong> {discipline.get("left_side_condition") or locale["label_no_left"]}<br><br>
+-                    <strong>{locale["label_right_side"]}</strong> {discipline.get("right_side_trigger") or locale["label_no_right"]}
++                    <strong>{locale["label_left_side"]}</strong> {esc(discipline.get("left_side_condition") or locale["label_no_left"])}<br><br>
++                    <strong>{locale["label_right_side"]}</strong> {esc(discipline.get("right_side_trigger") or locale["label_no_right"])}
+                 </div>
+             </div>
+             
+             <div class="dashboard-card">
+                 <h3 class="card-title">{locale["card_drawdown"]}</h3>
+                 <div style="font-size:13px; line-height:1.7;">
+-                    <strong>{locale["label_max_drawdown"]}</strong> <span style="color:var(--bear); font-weight:700;">{discipline.get("max_drawdown_limit") or locale["label_default_drawdown"]}</span><br><br>
+-                    <strong>{locale["label_invalidation"]}</strong> {discipline.get("thesis_invalidation_trigger") or locale["label_no_invalidation"]}
++                    <strong>{locale["label_max_drawdown"]}</strong> <span style="color:var(--bear); font-weight:700;">{esc(discipline.get("max_drawdown_limit") or locale["label_default_drawdown"])}</span><br><br>
++                    <strong>{locale["label_invalidation"]}</strong> {esc(discipline.get("thesis_invalidation_trigger") or locale["label_no_invalidation"])}
+                 </div>
+             </div>
+         </div>

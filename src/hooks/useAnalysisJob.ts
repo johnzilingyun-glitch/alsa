@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { StockAnalysis } from '../types';
 import { useUIStore } from '../stores/useUIStore';
 import { useDiscussionStore } from '../stores/useDiscussionStore';
@@ -9,12 +9,17 @@ export function useAnalysisJob() {
   const [error, setError] = useState<string | null>(null);
   const [jobId, setJobId] = useState<string | null>(null);
   const [insufficientBalance, setInsufficientBalance] = useState(false);
+  const submittingRef = useRef(false);
 
   const setAnalysisStatus = useUIStore(s => s.setAnalysisStatus);
   const setContentCount = useUIStore(s => s.setContentCount);
   const setRoundProgress = useDiscussionStore(s => s.setRoundProgress);
 
   const startAnalysis = useCallback(async (symbol: string, market: string, analysisLevel: string, model: string | null = null, config: any = null) => {
+    // Prevent concurrent submissions — use ref to avoid stale closure on status state
+    if (submittingRef.current) return;
+    submittingRef.current = true;
+    
     setStatus('queued');
     setError(null);
     setResult(null);
@@ -48,6 +53,8 @@ export function useAnalysisJob() {
     } catch (err: any) {
       setStatus('failed');
       setError(err.message);
+    } finally {
+      submittingRef.current = false;
     }
   }, []);
 

@@ -19,8 +19,16 @@ class AnalysisJobService:
         # In-memory API key store — NEVER persisted to disk, shared across jobs
         self._api_key_events: Dict[str, asyncio.Event] = {}
         self._api_keys: Dict[str, str] = {}  # {provider: key} — global cache
+        self._key_timestamps: Dict[str, float] = {}  # {provider: last_used_timestamp}
+        self._KEY_TTL: int = 1800  # 30 minutes inactivity timeout before auto-clear
 
     async def start_job(self, symbol: str, market: str, level: str = "standard", model: Optional[str] = None, config: Optional[Dict[str, Any]] = None) -> str:
+        # Deduplicate: if same symbol+market already has a running/queued job within 60s, reuse it
+        existing = self.job_repo.find_recent_running(symbol, market, within_seconds=60)
+        if existing:
+            print(f"Dedup: returning existing job {existing} for {symbol} (already running/queued)")
+            return existing
+        
         job_id = f"job_{uuid.uuid4().hex[:8]}"
         self.job_repo.create(job_id, symbol, market, level=level, model=model)
         
@@ -38,8 +46,10 @@ class AnalysisJobService:
     def submit_api_key(self, job_id: str, provider: str, api_key: str) -> bool:
         """Receive an API key from the frontend. Cached in memory — never persisted.
            Once cached, subsequent jobs reuse the key without asking the frontend again."""
+        import time
         # Store in global cache (shared across all jobs)
         self._api_keys[provider] = api_key
+        self._key_timestamps[provider] = time.time()  # Track when key was provided
         # Wake the specific job if it's waiting
         if job_id in self._api_key_events:
             self._api_key_events[job_id].set()
@@ -48,14 +58,58 @@ class AnalysisJobService:
 
     def set_api_key(self, provider: str, api_key: str):
         """Proactively register/update an API key in memory cache (user settings change)."""
+        import time
         self._api_keys[provider] = api_key
+        self._key_timestamps[provider] = time.time()
+
+    def _clear_stale_keys(self):
+        """Clear API keys that have been idle longer than KEY_TTL to prevent leakage."""
+        import time
+        now = time.time()
+        stale = [p for p, ts in self._key_timestamps.items() if now - ts > self._KEY_TTL]
+        for provider in stale:
+            self._api_keys.pop(provider, None)
+            self._key_timestamps.pop(provider, None)
+
+    def get_key_status(self) -> Dict[str, Any]:
+        """Return which providers have cached keys and when they expire."""
+        import time
+        now = time.time()
+        status = {}
+        for provider, key in self._api_keys.items():
+            ts = self._key_timestamps.get(provider, 0)
+            remaining = max(0, int(self._KEY_TTL - (now - ts))) if ts else 0
+            # Show only whether key exists and remaining TTL — never expose the key itself
+            status[provider] = {
+                "cached": bool(key),
+                "expires_in_seconds": remaining,
+            }
+        return status
+
+    def clear_api_key(self, provider: str = None):
+        """Clear cached API key for a specific provider, or all if provider is None."""
+        if provider:
+            self._api_keys.pop(provider, None)
+            self._key_timestamps.pop(provider, None)
+        else:
+            self._api_keys.clear()
+            self._key_timestamps.clear()
+
+    def _refresh_key_timestamp(self, provider: str):
+        """Update the last-used timestamp for a key (called when key is used)."""
+        import time
+        if provider in self._api_keys:
+            self._key_timestamps[provider] = time.time()
 
     async def _wait_for_api_key(self, job_id: str, provider: str, timeout: int = 120) -> Optional[str]:
         """Pause the job and wait for the frontend to send an API key.
            If key is already cached from a previous job, return it immediately."""
+        # Clear stale keys before checking cache
+        self._clear_stale_keys()
         # Check cache first — reuse key across jobs
         cached = self._api_keys.get(provider)
         if cached:
+            self._refresh_key_timestamp(provider)
             self.update_job_progress(job_id, "discussion", 50, message="使用缓存的 API Key")
             return cached
         
@@ -133,8 +187,8 @@ class AnalysisJobService:
             )
             
             self.update_job_progress(job_id, "finalizing", 90)
-            # Key used — discard from memory
-            self._api_keys.pop(job_id, None)
+            # Key used — refresh timestamp (keeps it alive while job is active)
+            self._refresh_key_timestamp(provider)
             # 4. Final Payload — enrich stockInfo with quote data for Flash UI
             quote = snapshot.get("quote", {})
             snapshot_id = snapshot.get("snapshot_id")

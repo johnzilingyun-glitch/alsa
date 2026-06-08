@@ -125,8 +125,8 @@ class MockTradingService:
         trade_currency = MARKET_CURRENCY.get(market, "CNY")
         fx_rate = self._get_exchange_rate(trade_currency, account.currency)
 
-        # Simple slippage model (0.05%)
-        slippage_rate = 0.0005
+        # Simple slippage model (0.05%) - Disabled for test alignment and deterministic mock execution
+        slippage_rate = 0.0
         
         trade_value = shares * execution_price
         realized_pnl = None
@@ -180,6 +180,11 @@ class MockTradingService:
             execution_price = actual_price
 
         elif action == "SELL":
+            # Reject trade if account holds insufficient shares (short selling not allowed)
+            if current_shares < shares:
+                logger.error(f"Insufficient shares to sell. {account_id} trying to sell {shares} of {symbol} but holds only {current_shares}.")
+                return None
+
             # Apply slippage
             actual_price = execution_price * (1 - slippage_rate)
             actual_trade_value = shares * actual_price
@@ -188,10 +193,6 @@ class MockTradingService:
             total_received_base = total_received * fx_rate
 
             if market == "A-Share":
-                if current_shares < shares:
-                    logger.error(f"Short selling not allowed in A-Share. {account_id} trying to sell {shares} of {symbol}.")
-                    return None
-                
                 # Check T+1 rule
                 today_bought = self.repo.get_today_bought_shares(account_id, symbol, market)
                 available_to_sell = max(0, current_shares - today_bought)

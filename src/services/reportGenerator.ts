@@ -1,3 +1,4 @@
+import { marked } from "marked";
 import { StockAnalysis, AgentMessage, Scenario, CoreVariable } from "../types";
 
 /**
@@ -256,6 +257,67 @@ export class ReportGeneratorService {
         .message-content {
             font-size: 14px;
             color: var(--text-main);
+            line-height: 1.7;
+        }
+
+        .message-content h1, .message-content h2, .message-content h3 {
+            color: var(--secondary);
+            margin-top: 16px;
+            margin-bottom: 8px;
+            font-size: 15px;
+        }
+
+        .message-content table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 12px 0;
+            font-size: 13px;
+        }
+
+        .message-content th {
+            background: var(--bg-light);
+            padding: 8px 10px;
+            border: 1px solid var(--border);
+            font-weight: 700;
+            text-align: left;
+        }
+
+        .message-content td {
+            padding: 6px 10px;
+            border: 1px solid var(--border);
+        }
+
+        .message-content ul, .message-content ol {
+            padding-left: 20px;
+            margin: 8px 0;
+        }
+
+        .message-content li {
+            margin-bottom: 4px;
+        }
+
+        .message-content pre {
+            background: var(--bg-light);
+            padding: 12px;
+            border-radius: 4px;
+            overflow-x: auto;
+            font-size: 12px;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+
+        .message-content code {
+            background: var(--bg-light);
+            padding: 2px 4px;
+            border-radius: 3px;
+            font-size: 12px;
+        }
+
+        .message-content blockquote {
+            border-left: 3px solid var(--accent);
+            padding-left: 12px;
+            margin: 8px 0;
+            color: var(--text-muted);
         }
 
         .scenario-container {
@@ -505,7 +567,8 @@ export class ReportGeneratorService {
         <h3>${t("研讨会核心结论与逻辑辩论", "Expert Deliberation & Logic Debate")}</h3>
         <div class="discussion-log">
             ${discussion!.map((m: AgentMessage) => {
-              const content = (m.content || '').replace(/\\n/g, '<br>');
+              const raw = m.content || '';
+              const content = marked.parse(raw, { breaks: true, gfm: true }) as string;
               return `
                 <div class="message">
                     <span class="message-role">${m.role || t('专家', 'Analyst')}</span>

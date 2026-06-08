@@ -114,6 +114,25 @@ async def set_api_key_global(body: ApiKeySubmission, service: AnalysisJobService
     service.set_api_key(body.provider, body.apiKey)
     return success_response({"provider": body.provider, "status": "cached"})
 
+@router.get("/apikey/status")
+async def get_api_key_status(service: AnalysisJobService = Depends(get_job_service)):
+    """Check which API keys are cached and their remaining TTL.
+       Never exposes the actual key value."""
+    status = service.get_key_status()
+    return success_response(status)
+
+@router.delete("/apikey/{provider}")
+async def clear_api_key(provider: str, service: AnalysisJobService = Depends(get_job_service)):
+    """Clear cached API key for a specific provider from memory."""
+    service.clear_api_key(provider)
+    return success_response({"provider": provider, "status": "cleared"})
+
+@router.delete("/apikey")
+async def clear_all_api_keys(service: AnalysisJobService = Depends(get_job_service)):
+    """Clear all cached API keys from memory."""
+    service.clear_api_key()
+    return success_response({"status": "all_keys_cleared"})
+
 @router.post("/jobs/{job_id}/cancel")
 async def cancel_job(job_id: str, service: AnalysisJobService = Depends(get_job_service)):
     success = await service.cancel_job(job_id)
@@ -149,6 +168,7 @@ async def get_analysis_history(symbol: str, service: AnalysisJobService = Depend
 
 class ReportRequest(BaseModel):
     deepseekApiKey: Optional[str] = None
+    geminiApiKey: Optional[str] = None
 
 @router.post("/jobs/{job_id}/report")
 async def generate_report(job_id: str, body: ReportRequest = None, service: AnalysisJobService = Depends(get_job_service)):
@@ -171,9 +191,12 @@ async def generate_report(job_id: str, body: ReportRequest = None, service: Anal
     # Generate into a temp file, then read and return HTML
     tmp_path = os.path.join(tempfile.gettempdir(), f"{job.symbol}_{job_id}_report.html")
     try:
+        deepseek_key = body.deepseekApiKey or service._api_keys.get("deepseek")
+        gemini_key = body.geminiApiKey or service._api_keys.get("gemini")
         await report_service.generate_html_report_async(
             result, tmp_path, model=job.requested_model,
-            deepseek_api_key=body.deepseekApiKey
+            deepseek_api_key=deepseek_key,
+            gemini_api_key=gemini_key
         )
         with open(tmp_path, "r", encoding="utf-8") as f:
             html_content = f.read()
@@ -206,9 +229,12 @@ async def export_pdf(job_id: str, body: ReportRequest = None, service: AnalysisJ
 
     tmp_path = os.path.join(tempfile.gettempdir(), f"{job.symbol}_{job_id}_report.html")
     try:
+        deepseek_key = body.deepseekApiKey or service._api_keys.get("deepseek")
+        gemini_key = body.geminiApiKey or service._api_keys.get("gemini")
         await report_service.generate_html_report_async(
             result, tmp_path, model=job.requested_model,
-            deepseek_api_key=body.deepseekApiKey
+            deepseek_api_key=deepseek_key,
+            gemini_api_key=gemini_key
         )
         with open(tmp_path, "r", encoding="utf-8") as f:
             html_content = f.read()

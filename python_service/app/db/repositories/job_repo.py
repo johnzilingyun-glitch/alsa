@@ -81,3 +81,23 @@ class JobRepository:
                 .limit(limit)
             )
             return session.exec(statement).all()
+
+    def find_recent_running(self, symbol: str, market: str, within_seconds: int = 60) -> Optional[str]:
+        """Find a recently created running/queued job for the same symbol+market.
+        Returns job_id if found, None otherwise. Used to deduplicate rapid-fire submits."""
+        from datetime import datetime, timedelta
+        cutoff = datetime.utcnow() - timedelta(seconds=within_seconds)
+        with self.session_factory() as session:
+            statement = (
+                select(AnalysisJob)
+                .where(
+                    AnalysisJob.symbol == symbol,
+                    AnalysisJob.market == market,
+                    AnalysisJob.status.in_(["queued", "running"]),
+                    AnalysisJob.created_at >= cutoff
+                )
+                .order_by(AnalysisJob.created_at.asc())
+                .limit(1)
+            )
+            result = session.exec(statement).first()
+            return result.job_id if result else None

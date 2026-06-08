@@ -776,14 +776,16 @@ class DiscussionService:
             "2. 如果某项数据显示为 N/A，请查阅下方工具列表并使用工具进行补充。\n"
             "3. 如果前序专家引用的数值与 API 数据矛盾，你必须以 API 数据为准并指出矛盾。\n"
             "4. **严禁编造搜索结果**——无论使用什么工具，如果你实际没有搜索到数据，绝对不得伪造。\n"
-            "5. **严禁伪造数据来源**——只有 API 数据标注'API Data'，工具获得的数据标注对应工具名，推算数据标注'基于API推算'。"
+            "5. **严禁伪造数据来源**——只有 API 数据标注'API Data'，工具获得的数据标注对应工具名，推算数据标注'基于API推算'。\n"
+            "6. **工具失败时自行兜底**——如果提供的搜索/数据工具全部返回空或报错，不要卡住分析流程。你应该使用自身的联网搜索能力、推理能力或训练知识继续完成分析，并在输出中注明'此部分数据基于自有知识库/联网搜索补充'。"
             if is_zh else
             "The [API DATA / MARKET SNAPSHOT] above comes from real-time APIs and is the **core ground truth** for this analysis.\n"
             "1. All reasoning MUST anchor to these values. Never use stale training data.\n"
             "2. If a value is N/A, check the tools list below and use them to fetch data.\n"
             "3. If a previous expert contradicts API data, you MUST flag the contradiction and use the API value.\n"
             "4. **NEVER fabricate results** — if you didn't actually find data, do not pretend you did.\n"
-            "5. **NEVER fabricate data sources** — use 'API Data', tool names, or 'Estimated from API' labels only."
+            "5. **NEVER fabricate data sources** — use 'API Data', tool names, or 'Estimated from API' labels only.\n"
+            "6. **Fallback when tools fail** — if all provided search/data tools return empty or error, do NOT block analysis. Use your own web-search capability, reasoning, or training knowledge to continue, and label output as 'supplemented from own knowledge / web search'."
         )
 
         # P2-12: Data priority labels

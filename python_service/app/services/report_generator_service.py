@@ -1,6 +1,7 @@
 import os
 import json
 import re
+import ast
 import asyncio
 import markdown2
 from datetime import datetime
@@ -21,7 +22,7 @@ class ReportGeneratorService:
         loop = asyncio.get_event_loop()
         return loop.run_until_complete(self.generate_html_report_async(result, output_path))
 
-    async def generate_html_report_async(self, result: dict, output_path: str, model: str = None, deepseek_api_key: str = None) -> str:
+    async def generate_html_report_async(self, result: dict, output_path: str, model: str = None, deepseek_api_key: str = None, gemini_api_key: str = None) -> str:
         stock_info = result.get("stockInfo", {})
         symbol = result.get("symbol") or stock_info.get("symbol", "UNKNOWN")
         market = result.get("market") or stock_info.get("market", "US-Share")
@@ -38,7 +39,7 @@ class ReportGeneratorService:
         full_discussion = "\n".join([f"[{m['role']}]: {m['content']}" for m in cleaned_msgs])
         
         # UI Data Expert Pass - REFINED CONTENT (RESTORING RAW LOGS)
-        ui_data = await self._run_ui_data_expert(symbol, market, snapshot, full_discussion, model=model, deepseek_api_key=deepseek_api_key)
+        ui_data = await self._run_ui_data_expert(symbol, market, snapshot, full_discussion, model=model, deepseek_api_key=deepseek_api_key, gemini_api_key=gemini_api_key)
         
         # If UI data expert failed (empty dict) OR critical fields are empty, build fallback
         if not ui_data:
@@ -62,7 +63,7 @@ class ReportGeneratorService:
         # Parallelize normalization for performance — fallback to markdown if LLM fails
         try:
             normalized_contents = await asyncio.gather(*[
-                self._normalize_log_style(m["content"], model=model, deepseek_api_key=deepseek_api_key) for m in cleaned_msgs
+                self._normalize_log_style(m["content"], model=model, deepseek_api_key=deepseek_api_key, gemini_api_key=gemini_api_key) for m in cleaned_msgs
             ])
             # Check if all normalizations returned empty/error
             if all(not c or c.strip() == "" for c in normalized_contents):
@@ -121,7 +122,7 @@ class ReportGeneratorService:
             f.write(html)
         return os.path.abspath(output_path)
 
-    async def _run_ui_data_expert(self, symbol: str, market: str, snapshot: dict, discussion: str, model: str = None, deepseek_api_key: str = None) -> dict:
+    async def _run_ui_data_expert(self, symbol: str, market: str, snapshot: dict, discussion: str, model: str = None, deepseek_api_key: str = None, gemini_api_key: str = None) -> dict:
         prompt = f"""# ROLE
 You are the ALSA Report Structuring Engine — a specialized system that transforms raw multi-expert stock analysis discussions into structured JSON for UI rendering.
 
@@ -277,7 +278,7 @@ Now extract from the following discussion:
             if not model:
                 provider = os.getenv("DEFAULT_LLM_PROVIDER", "deepseek").lower()
                 model = os.getenv("DEEPSEEK_MODEL", "deepseek-v4-pro") if provider == "deepseek" else os.getenv("GEMINI_MODEL", "gemini-3.1-pro-preview")
-            res = await llm_gateway.generate_content(prompt + f"\n\nEXPERT DISCUSSION:\n{discussion}", model=model, deepseek_api_key=deepseek_api_key)
+            res = await llm_gateway.generate_content(prompt + f"\n\nEXPERT DISCUSSION:\n{discussion}", model=model, deepseek_api_key=deepseek_api_key, gemini_api_key=gemini_api_key)
             # Clean markdown code blocks and extract JSON
             cleaned = re.sub(r'```(?:json)?\s*\n?', '', res)
             cleaned = re.sub(r'\n?```\s*$', '', cleaned)
@@ -303,20 +304,35 @@ Now extract from the following discussion:
 
     # --- Thinking prefix patterns common in DeepSeek/LLM outputs ---
     _THINKING_PREFIXES = [
-        r"^Now I (?:have|need|will|should|can|am going)[^\n]*\n+",
-        r"^(?:OK|Okay|Alright|Right)[,.]?\s*(?:let me|I'll|I will|I need|now)[^\n]*\n+",
-        r"^Let me (?:think|consider|analyze|review|proceed|compile|write|start|check|reconsider|also consider)[^\n]*\n+",
-        r"^Based on (?:my|the|this) (?:analysis|review|data|findings|research)[^\n]*\n+",
-        r"^I (?:have|need to|should|will|can|am going to) (?:now|also|first|proceed|comprehensive)[^\n]*\n+",
-        r"^Actually,? let me[^\n]*\n+",
-        r"^(?:Here are|The following|Below)[^\n]*(?:findings|results|analysis|key)[^\n]*:\s*\n+",
+        # English patterns (sentence-bound or line-bound)
+        r"^Now I (?:have|need|will|should|can|am going)[^.\n]*(?:\.|\n+)",
+        r"^(?:OK|Okay|Alright|Right)[,.]?\s*(?:let me|I'll|I will|I need|now)[^.\n]*(?:\.|\n+)",
+        r"^Let me (?:think|consider|analyze|review|proceed|compile|write|start|check|reconsider|also consider)[^.\n]*(?:\.|\n+)",
+        r"^Based on (?:my|the|this) (?:analysis|review|data|findings|research)[^.\n]*(?:\.|\n+)",
+        r"^I (?:have|need to|should|will|can|am going to) (?:now|also|first|proceed|comprehensive)[^.\n]*(?:\.|\n+)",
+        r"^Actually,? let me[^.\n]*(?:\.|\n+)",
+        r"^(?:Here are|The following|Below)[^.\n]*(?:findings|results|analysis|key)[^.\n]*(?::|\n+)",
+        
+        # Chinese patterns (sentence-bound or line-bound)
+        r"^(?:现在我已|我已|现在我)[^。\n]*(?:掌握|获取|获取到|搜集到|已掌握)[^。\n]*数据[^。\n]*(?:。|\n+)",
+        r"^(?:好的|好的，|收到|收到，|首先)[^。\n]*(?:我将|让我|开始|进行|分析)[^。\n]*(?:。|\n+)",
+        r"^(?:让我|让我先|先让我|现在让我)[^。\n]*(?:分析|思考|陈述|总结|写出|开始|进行)[^。\n]*(?:。|\n+)",
+        r"^(?:根据|基于)[^。\n]*(?:分析|讨论|研究|数据|讨论结果)[^。\n]*(?:。|\n+)",
+        r"^(?:以下是|下面是|根据我的|结合上述|基于上述|综上所述)[^。\n]*(?:分析|报告|结论|裁决|意见|报告内容)[^。\n]*(?:。|：|:\n+|\n+)",
+        r"^(?:数据收集|数据获取|数据采集|工具调用|分析准备|所有核心计算|所有核心计算工具|计算工具)[^。\n]*(?:完成|结束|就绪|调用完成)[^。\n]*(?:。|\n+)",
+        r"^(?:现在让我|让我|我将|接下来我)[^。\n]*(?:分析|思考|撰写|陈述|总结|写出|输出|整理)[^。\n]*(?:。|\n+)",
     ]
 
-    def _strip_thinking_prefix(self, content: str) -> str:
+    def _strip_thinking_prefix(self, content: Any) -> Any:
         """Remove LLM thinking/reasoning prefixes from discussion content.
         These are visible model outputs that read like internal monologue rather than analysis."""
         if not content:
             return content
+        if not isinstance(content, str):
+            if isinstance(content, list):
+                content = "\n".join([str(x) for x in content])
+            else:
+                return content
         stripped = content.strip()
 
         # Iteratively strip thinking prefixes (model may chain multiple thinking sentences)
@@ -339,8 +355,16 @@ Now extract from the following discussion:
 
     def _validate_and_backfill_ui_data(self, ui_data: dict, discussion_msgs: list, snapshot: dict):
         """Validate critical UI fields; backfill from discussion if LLM returned empty or thinking text."""
+        # Clean thinking prefixes from structured fields
+        for field in ["investment_thesis", "tagline", "verdict", "action_stance", "the_call"]:
+            if ui_data.get(field):
+                ui_data[field] = self._strip_thinking_prefix(ui_data[field])
+
         # Check for thinking text that leaked into structured fields
-        thinking_indicators = ["Now I have", "Let me ", "Based on my analysis", "OK, let me", "I will ", "I'll "]
+        thinking_indicators = [
+            "Now I have", "Let me ", "Based on my analysis", "OK, let me", "I will ", "I'll ",
+            "现在我已", "让我", "根据分析", "好的，", "好的 ", "收到，", "收到 "
+        ]
 
         def _is_thinking_text(val: str) -> bool:
             if not val or not isinstance(val, str):
@@ -348,13 +372,18 @@ Now extract from the following discussion:
             return any(val.strip().startswith(prefix) for prefix in thinking_indicators)
 
         # Fix investment_thesis if it contains thinking text
-        if _is_thinking_text(ui_data.get("investment_thesis", "")):
+        if not ui_data.get("investment_thesis") or _is_thinking_text(ui_data.get("investment_thesis", "")):
             ui_data["investment_thesis"] = self._extract_first_substantive_sentence(discussion_msgs)
 
         # Fix tagline if it's empty or default-like
         tagline = ui_data.get("tagline", "")
         if not tagline or _is_thinking_text(tagline):
-            ui_data["tagline"] = ""  # Will use fallback in _render_html
+            symbol = snapshot.get("quote", {}).get("symbol", "股票")
+            first_sent = ui_data.get("investment_thesis", "").split("。")[0].split("！")[0].split("?")[0].strip()
+            if len(first_sent) > 10:
+                ui_data["tagline"] = f"{symbol}: {first_sent}"
+            else:
+                ui_data["tagline"] = f"{symbol} 投资分析报告"
 
         # Ensure verdict exists — try to extract from discussion
         if not ui_data.get("verdict"):
@@ -366,6 +395,18 @@ Now extract from the following discussion:
         if not ui_data.get("action_stance"):
             rec = ui_data.get("recommendation", "WATCH")
             ui_data["action_stance"] = f"当前建议 {rec}，详见专家研讨记录中的交易计划"
+
+        # Backfill lists if they are empty
+        if not ui_data.get("upside"):
+            ui_data["upside"] = self._extract_items_by_keywords_dual("upside", ["看涨", "利好", "上行", "催化剂", "Catalyst", "Upside", "机遇", "优势", "核心竞争力", "核心论点"], discussion_msgs)
+        if not ui_data.get("downside"):
+            ui_data["downside"] = self._extract_items_by_keywords_dual("downside", ["看跌", "利空", "下行", "风险", "Risk", "Downside", "压制", "威胁", "一致性偏差", "被忽视", "盲区", "Consensus Bias"], discussion_msgs)
+        if not ui_data.get("moat_points"):
+            ui_data["moat_points"] = self._extract_items_by_keywords_dual("moat", ["护城河", "Moat", "壁垒", "竞争优势"], discussion_msgs)
+        if not ui_data.get("macro_points"):
+            ui_data["macro_points"] = self._extract_items_by_keywords_dual("macro", ["宏观", "技术面", "资金面", "Technical", "Macro"], discussion_msgs)
+        if not ui_data.get("risks_points"):
+            ui_data["risks_points"] = self._extract_items_by_keywords_dual("risks", ["证伪", "失效", "止损", "Invalidation", "风险预警"], discussion_msgs)
 
         # Ensure data_completeness is populated
         dc = ui_data.get("data_completeness")
@@ -385,7 +426,8 @@ Now extract from the following discussion:
             if len(content) < 100:
                 continue
             # Try to find a sentence that looks like analysis (contains stock/financial terms)
-            lines = content.split('\n')
+            content_normalized = content.replace('\\n', '\n')
+            lines = content_normalized.split('\n')
             for line in lines:
                 line = line.strip().lstrip('- *#>')
                 if len(line) > 30 and any(kw in line for kw in ["核心", "投资", "估值", "盈利", "增长", "周期",
@@ -400,91 +442,326 @@ Now extract from the following discussion:
             r'(?:结论|核心观点|投资建议|最终判定|Overall|Verdict|Conclusion)[：:\s]*([^\n]{10,60})',
             r'(?:综合评估|总体判断|综上)[：:\s]*([^\n]{10,60})',
         ]
-        all_text = "\n".join([m.get("content", "") for m in discussion_msgs])
+        all_text = "\n".join([m.get("content", "").replace('\\n', '\n') for m in discussion_msgs])
         for pattern in verdict_patterns:
             match = re.search(pattern, all_text, re.IGNORECASE)
             if match:
                 return match.group(1).strip()[:60]
         return ""
 
-    def _build_fallback_ui_data(self, symbol: str, discussion_msgs: list, snapshot: dict) -> dict:
-        """Build report data directly from discussion messages when LLM is unavailable."""
-        all_text = "\n".join([m.get("content", "") for m in discussion_msgs])
-        # Take first 500 chars of the first substantive message as summary
-        summary_text = ""
+    def _extract_strings_from_dict(self, d_val: dict, category: str) -> List[str]:
+        strs = []
+        for dk, dv in d_val.items():
+            if category in ("moat", "upside"):
+                if any(x in dk.lower() for x in ["disadvantage", "risk", "shortcoming", "weakness", "threat", "bear"]):
+                    continue
+            if isinstance(dv, str) and len(dv) > 5:
+                strs.append(dv)
+            elif isinstance(dv, dict):
+                strs.extend(self._extract_strings_from_dict(dv, category))
+            elif isinstance(dv, list):
+                for item in dv:
+                    if isinstance(item, str) and len(item) > 5:
+                        strs.append(item)
+        return strs
+
+    def _extract_items_by_keywords_dual(self, category: str, keywords: List[str], discussion_msgs: List[Dict[str, Any]], limit: int = 5) -> List[str]:
+        # Category key mappings for JSON extraction
+        category_keys = {
+            "upside": ["upside", "opportunities", "bull_thesis", "catalysts", "key_opps", "upside_points", "core_thesis"],
+            "downside": ["downside", "risks", "critical_risks", "risks_summary", "key_risks", "downside_points"],
+            "moat": ["moat_points", "competitive_advantages", "moat", "competitive_positioning", "moat_summary"],
+            "macro": ["macro_points", "macro", "technical_analysis", "macro_supply_demand", "macro_summary"],
+            "risks": ["risks_points", "thesis_invalidation_trigger", "stop_loss_rules", "exit_mechanism", "risks", "risks_summary"]
+        }
+
+        # 1. Try JSON extraction first
+        items = []
         for m in discussion_msgs:
             content = m.get("content", "").strip()
-            if len(content) > 100:
-                # Remove tool call markup
-                clean = re.sub(r'<[｜|]*DSML[｜|]*[^>]*>.*?</[｜|]*DSML[｜|]*[^>]*>', '', content, flags=re.DOTALL)
-                clean = re.sub(r'```json.*?```', '', clean, flags=re.DOTALL)
-                clean = clean.strip()
-                if clean:
-                    summary_text = clean[:500] + ("..." if len(clean) > 500 else "")
-                    break
+            match = re.search(r'\{[\s\S]*\}', content)
+            if match:
+                try:
+                    obj = json.loads(match.group(0))
+                    target_keys = category_keys.get(category, [])
+                    for tk in target_keys:
+                        for k in obj.keys():
+                            if k.lower() == tk.lower() or tk.lower() in k.lower() or k.lower() in tk.lower():
+                                val = obj[k]
+                                if isinstance(val, list):
+                                    for item in val:
+                                        if isinstance(item, str) and len(item) > 5:
+                                            if item not in items:
+                                                items.append(item)
+                                elif isinstance(val, dict):
+                                    for item in self._extract_strings_from_dict(val, category):
+                                        if item not in items:
+                                            items.append(item)
+                                elif isinstance(val, str) and len(val) > 10:
+                                    sentences = re.split(r'[。\n]+', val)
+                                    for s in sentences:
+                                        s_clean = s.strip()
+                                        if len(s_clean) > 8:
+                                            if s_clean not in items:
+                                                items.append(s_clean)
+                except Exception:
+                    pass
         
+        if len(items) >= 2:
+            return items[:limit]
+
+        # 2. Fallback to boundary-aware text scanner on normalized text
+        for m in discussion_msgs:
+            content = m.get("content", "")
+            if not content:
+                continue
+            content_normalized = content.replace('\\n', '\n')
+            lines = content_normalized.split('\n')
+            in_section = False
+            for line in lines:
+                line_stripped = line.strip()
+                
+                # Check for header or bold label
+                is_header = line_stripped.startswith('#')
+                is_bold = line_stripped.startswith('**')
+                is_bold_label = is_bold and any(kw.lower() in line_stripped.lower() for kw in keywords)
+                
+                if is_header:
+                    if any(kw.lower() in line_stripped.lower() for kw in keywords):
+                        in_section = True
+                    else:
+                        in_section = False
+                    continue
+                elif is_bold:
+                    if is_bold_label:
+                        in_section = True
+                    else:
+                        in_section = False
+                    continue
+                
+                if in_section:
+                    # Ignore table lines and dividers
+                    if '|' in line_stripped or line_stripped.startswith('---') or line_stripped.startswith('==='):
+                        continue
+                    if not line_stripped:
+                        continue
+                        
+                    m_bullet = re.match(r'^\s*[-*•▪◆\d.)]+\s*(.+)$', line_stripped)
+                    if m_bullet:
+                        clean = m_bullet.group(1).strip().strip('*').strip()
+                        if len(clean) > 8 and not clean.startswith('#') and not clean.startswith('---'):
+                            if clean not in items:
+                                items.append(clean)
+                                if len(items) >= limit:
+                                    break
+                    elif line_stripped and not line_stripped.startswith('#') and len(line_stripped) > 15:
+                        if line_stripped not in items:
+                            items.append(line_stripped)
+                            if len(items) >= limit:
+                                break
+            if len(items) >= limit:
+                break
+        return items[:limit]
+
+    def _extract_trading_steps_from_discussion(self, discussion_msgs: list) -> list:
+        steps = []
+        for m in discussion_msgs:
+            content = m.get("content", "")
+            if not content:
+                continue
+            content_normalized = content.replace('\\n', '\n')
+            lines = content_normalized.split('\n')
+            in_section = False
+            for line in lines:
+                line_stripped = line.strip()
+                is_header = line_stripped.startswith('#')
+                is_bold = line_stripped.startswith('**')
+                is_plan_header = (is_header or is_bold) and any(kw in line_stripped for kw in ["建仓", "交易计划", "操作步骤", "Trading Plan", "Execution", "交易策略"])
+                
+                if is_header or is_bold:
+                    if is_plan_header:
+                        in_section = True
+                    else:
+                        in_section = False
+                    continue
+                
+                if in_section:
+                    if line_stripped.startswith('|') and line_stripped.endswith('|'):
+                        parts = [p.strip() for p in line_stripped.split('|')[1:-1]]
+                        if not parts or any('---' in p for p in parts) or any(p in ["建仓层级", "建仓", "层级", "触发价位", "价格", "触发价格", "仓位", "仓位百分比", "权重", "占比", "累计仓位", "累计", "触发逻辑", "逻辑"] for p in parts):
+                            continue
+                        if len(parts) >= 3:
+                            steps.append({
+                                "level": parts[0].strip().strip('*'),
+                                "price": parts[1].strip(),
+                                "weight": parts[2].strip() if len(parts) > 2 else "自定",
+                                "logic": parts[-1].strip() if len(parts) > 3 else (parts[2].strip() if len(parts) > 2 else "")
+                            })
+                            if len(steps) >= 4:
+                                break
+            if steps:
+                break
+        return steps
+
+    def _build_fallback_ui_data(self, symbol: str, discussion_msgs: list, snapshot: dict) -> dict:
+        """Build report data directly from discussion messages when LLM is unavailable."""
+        # Try to parse the JSON blocks from discussion messages to extract structured data
+        parsed_json_objs = []
+        for m in discussion_msgs:
+            content = m.get("content", "").strip()
+            match = re.search(r'\{[\s\S]*\}', content)
+            if match:
+                try:
+                    obj = json.loads(match.group(0))
+                    parsed_json_objs.append(obj)
+                except Exception:
+                    pass
+
+        # Extract summary (prefer core_thesis)
+        summary_text = ""
+        for obj in parsed_json_objs:
+            if "core_thesis" in obj and obj["core_thesis"]:
+                summary_text = obj["core_thesis"]
+                break
+            elif "audit_officer_report" in obj and isinstance(obj["audit_officer_report"], dict):
+                summary_text = obj["audit_officer_report"].get("audit_findings_summary")
+                if summary_text: break
+            elif "reviewer_report" in obj and isinstance(obj["reviewer_report"], dict):
+                summary_text = obj["reviewer_report"].get("overall_assessment")
+                if summary_text: break
+
+        if not summary_text:
+            # Fallback to text-based extraction
+            for m in discussion_msgs:
+                content = m.get("content", "").strip()
+                if len(content) > 100:
+                    clean = re.sub(r'<[｜|]*DSML[｜|]*[^>]*>.*?</[｜|]*DSML[｜|]*[^>]*>', '', content, flags=re.DOTALL)
+                    clean = re.sub(r'```json.*?```', '', clean, flags=re.DOTALL)
+                    clean = clean.strip()
+                    if clean:
+                        summary_text = clean[:500] + ("..." if len(clean) > 500 else "")
+                        break
         if not summary_text:
             summary_text = f"{symbol} 分析报告 — 基于多轮专家研讨生成"
 
+        # Clean thinking prefix
+        summary_text = self._strip_thinking_prefix(summary_text)
+
+        # Extract recommendation
+        rating_val = None
+        for obj in parsed_json_objs:
+            if "rating" in obj and obj["rating"]:
+                rating_val = obj["rating"]
+                break
+            elif "reviewer_report" in obj and isinstance(obj["reviewer_report"], dict) and obj["reviewer_report"].get("rating"):
+                rating_val = obj["reviewer_report"]["rating"]
+                break
+        
+        rec = "WATCH"
+        if rating_val:
+            r_upper = str(rating_val).upper()
+            if any(k in r_upper for k in ("BUY", "STRONG BUY", "买入", "增持", "OVERWEIGHT", "长多")):
+                rec = "BUY"
+            elif any(k in r_upper for k in ("SELL", "STRONG SELL", "REDUCE", "AVOID", "卖出", "减持", "UNDERPERFORM", "看空", "避险")):
+                rec = "SELL"
+            elif any(k in r_upper for k in ("HOLD", "WATCH", "NEUTRAL", "中性", "观望")):
+                rec = "HOLD"
+
+        # Construct tagline
+        tagline = ""
+        for obj in parsed_json_objs:
+            if "reviewer_report" in obj and isinstance(obj["reviewer_report"], dict):
+                tagline = obj["reviewer_report"].get("report_title")
+                if tagline: break
+            elif "audit_officer_report" in obj and isinstance(obj["audit_officer_report"], dict):
+                tagline = obj["audit_officer_report"].get("report_title")
+                if tagline: break
+        
+        if tagline:
+            tagline = self._strip_thinking_prefix(tagline)
+        else:
+            first_sent = summary_text.split("。")[0].split("！")[0].split("?")[0].strip()
+            if len(first_sent) > 10:
+                tagline = f"{symbol}: {first_sent}"
+            else:
+                tagline = f"{symbol} 投资分析报告"
+
+        # Extract verdict
+        verdict = ""
+        for obj in parsed_json_objs:
+            if "rating_rationale" in obj and obj["rating_rationale"]:
+                verdict = obj["rating_rationale"].split("。")[0][:40]
+                if verdict: break
+        if verdict:
+            verdict = self._strip_thinking_prefix(verdict)
+        else:
+            verdict = summary_text.split("。")[0][:40]
+
+        # Extract action_stance
+        action_stance = ""
+        for obj in parsed_json_objs:
+            if "reviewer_report" in obj and isinstance(obj["reviewer_report"], dict):
+                action_stance = obj["reviewer_report"].get("final_action_directive")
+                if action_stance: break
+            elif "final_mandate_to_chief_strategist" in obj and obj["final_mandate_to_chief_strategist"]:
+                action_stance = obj["final_mandate_to_chief_strategist"]
+                if action_stance: break
+        if action_stance:
+            action_stance = self._strip_thinking_prefix(action_stance)
+        else:
+            action_stance = f"根据研讨分析结论，当前建议对该标的采取 {rec} 评级指导意见"
+
+        # Extract lists using the new dual method
+        upside = self._extract_items_by_keywords_dual("upside", ["看涨", "利好", "上行", "催化剂", "Catalyst", "Upside", "机遇", "优势", "核心竞争力", "核心论点"], discussion_msgs)
+        downside = self._extract_items_by_keywords_dual("downside", ["看跌", "利空", "下行", "风险", "Risk", "Downside", "压制", "威胁", "一致性偏差", "被忽视", "盲区", "Consensus Bias"], discussion_msgs)
+        moat_points = self._extract_items_by_keywords_dual("moat", ["护城河", "Moat", "壁垒", "竞争优势"], discussion_msgs)
+        macro_points = self._extract_items_by_keywords_dual("macro", ["宏观", "技术面", "资金面", "Technical", "Macro"], discussion_msgs)
+        risks_points = self._extract_items_by_keywords_dual("risks", ["证伪", "失效", "止损", "Invalidation", "风险预警"], discussion_msgs)
+
+        # Build trading steps
+        trading_steps = self._extract_trading_steps_from_discussion(discussion_msgs)
+        if not trading_steps:
+            trading_lines = self._extract_items_by_keywords_dual("risks", ["交易计划", "操作步骤", "Trading Plan", "Execution", "交易策略"], discussion_msgs)
+            trading_steps = []
+            for i, line in enumerate(trading_lines[:4]):
+                trading_steps.append({
+                    "level": f"步骤 {i+1}",
+                    "price": "价格见研讨",
+                    "weight": "自定",
+                    "logic": line[:150]
+                })
+
         return {
             "summary": summary_text,
-            "moat_summary": "详见下方专家研讨记录",
-            "moat_points": [],
-            "macro_summary": "详见下方专家研讨记录",
-            "macro_points": [],
-            "trading_plan": "详见下方专家研讨记录",
-            "trading_steps": [],
-            "risks_points": [],
-            "upside": [],
-            "downside": [],
+            "moat_summary": "基于专家基本面护城河深度解析研讨内容提炼",
+            "moat_points": moat_points,
+            "macro_summary": "基于专家宏观与资金技术面剖析研讨内容提炼",
+            "macro_points": macro_points,
+            "trading_plan": "基于交易执行步骤与风险防线研讨内容提炼",
+            "trading_steps": trading_steps,
+            "risks_points": risks_points,
+            "upside": upside,
+            "downside": downside,
             "scenarios": self._default_scenarios(),
             "score": 75,
-            "recommendation": "WATCH",
+            "recommendation": rec,
+            "tagline": tagline,
+            "verdict": verdict,
+            "action_stance": action_stance,
         }
 
     def _extract_thesis_from_discussion(self, discussion_msgs: list) -> dict:
         """Extract bull/bear thesis points from expert discussion text using pattern matching."""
-        upside, downside = [], []
-        all_text = "\n".join([m.get("content", "") for m in discussion_msgs])
-
-        # Pattern: markdown list items (- or * or numbered) following bull/bear section headers
-        bull_patterns = [
-            r'(?:Bull|看涨|利好|上行|催化剂|Catalyst|Upside|机遇|优势|核心竞争力)[^\n]*\n((?:\s*[-*\d.]+\s+.+\n?)+)',
-            r'🟢[^\n]*\n((?:\s*[-*\d.]+\s+.+\n?)+)',
-        ]
-        bear_patterns = [
-            r'(?:Bear|看跌|利空|下行|风险|Risk|Downside|压制|脆弱|威胁)[^\n]*\n((?:\s*[-*\d.]+\s+.+\n?)+)',
-            r'🔴[^\n]*\n((?:\s*[-*\d.]+\s+.+\n?)+)',
-            r'(?:一致性偏差|被忽视|盲区|Consensus Bias)[^\n]*\n((?:\s*[-*\d.]+\s+.+\n?)+)',
-        ]
-
-        def extract_items(patterns, text, limit=5):
-            items = []
-            for pattern in patterns:
-                for match in re.finditer(pattern, text, re.IGNORECASE):
-                    block = match.group(1)
-                    for line in block.strip().split('\n'):
-                        clean = re.sub(r'^\s*[-*\d.]+\s*', '', line).strip()
-                        # Filter: must be substantive (>10 chars), skip headers/separators
-                        if len(clean) > 10 and not clean.startswith('#') and not clean.startswith('---'):
-                            if clean not in items:
-                                items.append(clean)
-                    if len(items) >= limit:
-                        break
-                if len(items) >= limit:
-                    break
-            return items[:limit]
-
-        upside = extract_items(bull_patterns, all_text)
-        downside = extract_items(bear_patterns, all_text)
-
+        upside = self._extract_items_by_keywords_dual("upside", ["看涨", "利好", "上行", "催化剂", "Catalyst", "Upside", "机遇", "优势", "核心竞争力", "核心论点"], discussion_msgs)
+        downside = self._extract_items_by_keywords_dual("downside", ["看跌", "利空", "下行", "风险", "Risk", "Downside", "压制", "威胁", "一致性偏差", "被忽视", "盲区", "Consensus Bias"], discussion_msgs)
+        
         # Fallback: if still empty, try to extract from table rows in Risk Manager content
         if not downside:
             for m in discussion_msgs:
                 if m.get("role") == "Risk Manager":
                     content = m.get("content", "")
-                    # Extract risk names from markdown tables: | **risk name** |
-                    risk_matches = re.findall(r'\|\s*\*\*(.+?)\*\*\s*[-—–|]', content)
+                    content_normalized = content.replace('\\n', '\n')
+                    risk_matches = re.findall(r'\|\s*\*\*(.+?)\*\*\s*[-—–|]', content_normalized)
                     downside = [r.strip() for r in risk_matches if len(r.strip()) > 5][:5]
                     break
 
@@ -498,15 +775,17 @@ Now extract from the following discussion:
         # Strip DSML tokens
         stripped = re.sub(r'<[｜|]*DSML[｜|]*[^>]*>', '', stripped)
         stripped = re.sub(r'</[｜|]*DSML[｜|]*[^>]*>', '', stripped)
-        stripped = re.sub(r'\n{3,}', '\n\n', stripped).strip()
+        stripped = re.sub(r'\\n{3,}', '\\n\\n', stripped).strip()
         if not stripped:
             return "<p><em>(Tool-calling round — no text content)</em></p>"
+        # Also handle Python reprs and escape underscores before markdown conversion
+        stripped = self._replace_python_reprs_in_text(stripped)
         try:
             return markdown2.markdown(stripped, extras=["fenced-code-blocks", "tables", "header-ids"])
         except Exception:
             return f"<pre>{stripped}</pre>"
 
-    async def _normalize_log_style(self, content: str, model: str = None, deepseek_api_key: str = None) -> str:
+    async def _normalize_log_style(self, content: str, model: str = None, deepseek_api_key: str = None, gemini_api_key: str = None) -> str:
         stripped = content.strip()
 
         # Strip DeepSeek DSML tokens (native tool call markup that may leak)
@@ -594,17 +873,21 @@ CONTENT:
                 if not model:
                     provider = os.getenv("DEFAULT_LLM_PROVIDER", "deepseek").lower()
                     model = os.getenv("DEEPSEEK_MODEL", "deepseek-v4-pro") if provider == "deepseek" else os.getenv("GEMINI_MODEL", "gemini-3.1-pro-preview")
-                res = await llm_gateway.generate_content(prompt, model=model, temperature=0.2, deepseek_api_key=deepseek_api_key)
+                res = await llm_gateway.generate_content(prompt, model=model, temperature=0.2, deepseek_api_key=deepseek_api_key, gemini_api_key=gemini_api_key)
                 if res and len(res) > 100:
                     return markdown2.markdown(res.strip(), extras=["tables", "fenced-code-blocks"])
             except Exception as e:
                 print(f"JSON-to-markdown conversion failed: {e}")
 
         # Templates already enforce clean format — use fast local cleanup.
+        # Apply Python repr → markdown conversion before rendering
+        stripped = self._replace_python_reprs_in_text(stripped)
+
         has_chatter = any(content.strip().startswith(prefix) for prefix in
             ["好的", "好的，", "Here is", "As a", "As an", "收到", "OK", "Okay,",
              "Now I have", "Now I need", "Now I will", "Let me ", "Based on my",
-             "Actually, let me", "I have comprehensive", "I'll "])
+             "Actually, let me", "I have comprehensive", "I'll ",
+             "现在我已", "让我", "根据分析", "我将对", "根据对上述", "接下来", "收到，"])
 
         if not has_chatter:
             result = markdown2.markdown(stripped, extras=["tables", "fenced-code-blocks"])
@@ -619,7 +902,7 @@ CONTENT:
             if not model:
                 provider = os.getenv("DEFAULT_LLM_PROVIDER", "deepseek").lower()
                 model = os.getenv("DEEPSEEK_MODEL", "deepseek-v4-pro") if provider == "deepseek" else os.getenv("GEMINI_MODEL", "gemini-3.1-pro-preview")
-            res = await llm_gateway.generate_content(f"{prompt}\n\nCONTENT:\n{stripped}", model=model, temperature=0.2, deepseek_api_key=deepseek_api_key)
+            res = await llm_gateway.generate_content(f"{prompt}\n\nCONTENT:\n{stripped}", model=model, temperature=0.2, deepseek_api_key=deepseek_api_key, gemini_api_key=gemini_api_key)
             if not res:
                 result = markdown2.markdown(stripped, extras=["tables", "fenced-code-blocks"])
                 return result + trailing_json_md if trailing_json_md else result
@@ -643,7 +926,7 @@ CONTENT:
             if escape:
                 escape = False
                 continue
-            if ch == '\\' and in_string:
+            if ch == '\\\\' and in_string:
                 escape = True
                 continue
             if ch == '"' and not escape:
@@ -657,13 +940,185 @@ CONTENT:
                 depth -= 1
                 if depth == 0:
                     candidate = text[:i+1]
-                    # Validate it's parseable JSON
                     try:
                         json.loads(candidate)
                         return candidate
                     except json.JSONDecodeError:
                         return ""
         return ""
+
+    def _replace_python_reprs_in_text(self, text: str) -> str:
+        """Find Python dict/list repr strings in text and convert them to markdown tables/lists.
+
+        Uses a balanced-brace-scanner approach that is more robust than regex for
+        nested or multi-line structures. Also escapes underscores in the output so
+        markdown2 doesn't corrupt technical terms (e.g. market_cap_billion→market<em>cap</em>billion).
+        """
+        if not text:
+            return text
+
+        # Step 1: Save code blocks and inline code so we don't touch them
+        code_blocks = []
+        def _save_block(m):
+            code_blocks.append(m.group(0))
+            return f"__CB{len(code_blocks)-1}__"
+        result = re.sub(r'```[\s\S]*?```', _save_block, text)
+        result = re.sub(r'`[^`]+`', _save_block, result)
+
+        def _try_convert(block: str) -> str:
+            """Try to parse a block as Python literal and convert to markdown."""
+            try:
+                obj = ast.literal_eval(block)
+                if isinstance(obj, dict) and len(obj) >= 2:
+                    md = ReportGeneratorService._python_repr_to_markdown(block)
+                    # Escape underscores in the generated markdown to prevent
+                    # markdown2 from treating them as italics markers
+                    return self._escape_technical_underscores(md)
+                elif isinstance(obj, list) and len(obj) >= 2:
+                    md = ReportGeneratorService._python_repr_to_markdown(block)
+                    return self._escape_technical_underscores(md)
+            except (ValueError, SyntaxError, MemoryError):
+                pass
+            return ""
+
+        # Step 2: Find balanced {...} blocks (braces only — no nested braces inside)
+        # These are simple single-level dicts: {'key': val, 'key2': val2}
+        for m in re.finditer(r'\{([^{}]*)\}', result):
+            block = m.group(0)
+            # Must contain at least one single-quoted key to be a Python dict repr
+            if "'" not in block or ":" not in block:
+                continue
+            md = _try_convert(block)
+            if md:
+                # Check context: is this inline after a label (e.g., "- **Key**: {dict}")
+                before = result[max(0, m.start()-3):m.start()]
+                after_label = before.rstrip().endswith(':') or before.rstrip().endswith('=')
+                if after_label:
+                    # Replace inline: keep the label context, add newlines for table
+                    result = result[:m.start()] + '\n\n' + md + '\n\n' + result[m.end():]
+                else:
+                    result = result[:m.start()] + '\n' + md + '\n' + result[m.end():]
+
+        # Step 3: Find balanced [...] blocks (simple lists of dicts or strings)
+        pos = 0
+        while pos < len(result):
+            if result[pos] != '[':
+                pos += 1
+                continue
+            end = self._find_matching_bracket(result, pos)
+            if end == -1:
+                pos += 1
+                continue
+            block = result[pos:end+1]
+            # Skip if inside protected code block
+            before_ctx = result[max(0, pos-20):pos]
+            if '__CB' in before_ctx:
+                pos = end + 1
+                continue
+            md = _try_convert(block)
+            if md:
+                before = result[max(0, pos-3):pos]
+                after_label = before.rstrip().endswith(':') or before.rstrip().endswith('=')
+                if after_label:
+                    result = result[:pos] + '\n\n' + md + '\n\n' + result[end+1:]
+                else:
+                    result = result[:pos] + '\n' + md + '\n' + result[end+1:]
+            pos = end + 1
+
+        # Step 4: Handle remaining Python list reprs of strings: ['a', 'b']
+        for m in re.finditer(r'\[((?:[\'\"][^\'\"]*[\'\"]\s*(?:,\s*)?)+)\]', result):
+            block = m.group(0)
+            before_ctx = result[max(0, m.start()-50):m.start()]
+            if '__CB' in before_ctx:
+                continue
+            md = _try_convert(block)
+            if md:
+                try:
+                    obj = ast.literal_eval(block)
+                    if isinstance(obj, list) and len(obj) >= 2 and all(isinstance(x, str) for x in obj):
+                        before = result[max(0, m.start()-3):m.start()]
+                        after_label = before.rstrip().endswith(':') or before.rstrip().endswith('=')
+                        if after_label:
+                            result = result[:m.start()] + '\n\n' + md + '\n\n' + result[m.end():]
+                        else:
+                            result = result[:m.start()] + '\n' + md + '\n' + result[m.end():]
+                except (ValueError, SyntaxError, MemoryError):
+                    pass
+
+        # Step 5: Escape remaining underscores in non-converted technical terms
+        # that markdown2 would otherwise corrupt (market_cap_billion → market<em>cap</em>billion)
+        result = self._escape_residual_underscores(result)
+
+        # Restore code blocks
+        for i, block in reversed(list(enumerate(code_blocks))):
+            result = result.replace(f"__CB{i}__", block)
+        return result
+
+    def _find_matching_bracket(self, text: str, start: int) -> int:
+        """Find the position of the matching closing bracket for text[start].
+        Handles nested braces/brackets and strings. Returns -1 if not found."""
+        if start >= len(text):
+            return -1
+        open_ch = text[start]
+        close_map = {'[': ']', '{': '}'}
+        if open_ch not in close_map:
+            return -1
+        close_ch = close_map[open_ch]
+        depth = 0
+        in_string = False
+        string_char = None
+        escape = False
+        for i in range(start, len(text)):
+            ch = text[i]
+            if escape:
+                escape = False
+                continue
+            if ch == '\\' and in_string:
+                escape = True
+                continue
+            if ch in ('"', "'") and not escape:
+                if not in_string:
+                    in_string = True
+                    string_char = ch
+                elif ch == string_char:
+                    in_string = False
+                continue
+            if in_string:
+                continue
+            if ch == open_ch:
+                depth += 1
+            elif ch == close_ch:
+                depth -= 1
+                if depth == 0:
+                    return i
+        return -1
+
+    def _escape_technical_underscores(self, md_text: str) -> str:
+        """Escape underscores that look like technical identifiers (snake_case)
+        so markdown2 doesn't convert them to <em> tags. Preserves markdown syntax
+        like **bold** and *italic*."""
+        # Only escape underscores in words that look like identifiers:
+        # lowercase_with_underscores (at least one underscore with word chars on both sides)
+        def _escape_id(m):
+            word = m.group(0)
+            # Don't escape if it's already escaped or inside markdown formatting
+            return word.replace('_', '\\_')
+        # Match snake_case identifiers (letter_letter pattern) using lookarounds to handle Chinese/non-ascii boundaries
+        md_text = re.sub(r'(?<![a-zA-Z0-9])[a-z]+_[a-z][a-z_]*(?![a-zA-Z0-9])', _escape_id, md_text)
+        return md_text
+
+    def _escape_residual_underscores(self, text: str) -> str:
+        """Escape underscores in remaining Python-repr-like fragments that look like
+        snake_case identifiers, to prevent markdown2 corruption. Does NOT touch
+        underscores that are part of markdown formatting (*italic*, **bold**, etc.)"""
+        # Escape underscores between lowercase letters (snake_case identifiers)
+        # that markdown2 would interpret as italics markers
+        def _escape_snake(m):
+            word = m.group(0)
+            return word.replace('_', '\\_')
+        # Only match genuine snake_case using lookarounds to avoid boundary issues with non-ascii chars
+        result = re.sub(r'(?<![\\*a-zA-Z0-9])[a-z]+_[a-z][a-z_]*(?![a-zA-Z0-9])', _escape_snake, text)
+        return result
 
     def _json_to_markdown(self, text: str) -> str:
         """Convert structured JSON analyst output to readable markdown locally (no LLM needed)."""
@@ -677,121 +1132,6 @@ CONTENT:
         except (json.JSONDecodeError, ValueError):
             return ""
 
-        lines = []
-        # Field name → display label mapping
-        labels = {
-            "tagline": "📌 核心论点",
-            "investmentThesis": "📋 投资论题",
-            "sentiment": "🎯 投资建议",
-            "masterVariable": "🔑 核心变量",
-            "coreContradiction": "⚡ 核心矛盾",
-            "credibilityScore": "📊 可信度评分",
-        }
-        for key, label in labels.items():
-            if key in data:
-                val = data[key]
-                if isinstance(val, str):
-                    lines.append(f"### {label}\n\n{val}\n")
-                elif isinstance(val, dict):
-                    lines.append(f"### {label}\n")
-                    for dk, dv in val.items():
-                        lines.append(f"- **{dk}**: {dv}")
-                    lines.append("")
-
-        # Expected price
-        if "expectedPrice" in data and isinstance(data["expectedPrice"], dict):
-            ep = data["expectedPrice"]
-            lines.append("### 💰 预期价格计算\n")
-            lines.append(f"- **计算公式**: {ep.get('calculation', 'N/A')}")
-            result_val = ep.get('result', 'N/A')
-            lines.append(f"- **预期价格**: ${result_val}")
-            vs_current = ep.get('vsCurrentPrice', ep.get('currentPrice', 'N/A'))
-            lines.append(f"- **vs当前价格**: {vs_current}")
-            lines.append(f"- **预期回报**: {ep.get('expectedReturn', 'N/A')}")
-            decision = ep.get('decisionRuleCheck')
-            if decision:
-                lines.append(f"- **决策规则**: {decision}")
-            lines.append("")
-
-        # Trading plan
-        if "tradingPlan" in data and isinstance(data["tradingPlan"], dict):
-            tp = data["tradingPlan"]
-            lines.append("### 📈 交易计划\n")
-            for k, v in tp.items():
-                lines.append(f"- **{k}**: {v}")
-            lines.append("")
-
-        # Kelly position
-        if "kellyPosition" in data and isinstance(data["kellyPosition"], dict):
-            kp = data["kellyPosition"]
-            lines.append("### 🎲 Kelly仓位\n")
-            for k, v in kp.items():
-                lines.append(f"- **{k}**: {v}")
-            lines.append("")
-
-        # Time horizon
-        if "timeHorizon" in data and isinstance(data["timeHorizon"], dict):
-            lines.append("### ⏰ 时间维度策略\n")
-            for period, info in data["timeHorizon"].items():
-                if isinstance(info, dict):
-                    lines.append(f"**{info.get('period', period)}** — {info.get('action', '')}")
-                    lines.append(f"  - 逻辑: {info.get('logic', '')}\n")
-
-        # Build plan
-        if "buildPlan" in data and isinstance(data["buildPlan"], list):
-            lines.append("### 🏗️ 建仓计划\n")
-            lines.append("| 阶段 | 价格 | 仓位 | 累计仓位 | 逻辑 |")
-            lines.append("|------|------|------|----------|------|")
-            for step in data["buildPlan"]:
-                if isinstance(step, dict):
-                    lines.append(f"| {step.get('level','')} | {step.get('price','')} | {step.get('weight','')} | {step.get('cumulative', step.get('cumulativePosition', step.get('cumulativeWeight','')))} | {step.get('logic','')} |")
-            lines.append("")
-
-        # Exit mechanism
-        if "exitMechanism" in data and isinstance(data["exitMechanism"], dict):
-            em = data["exitMechanism"]
-            lines.append("### 🚪 退出机制\n")
-            if "takeProfit" in em:
-                lines.append("**止盈:**")
-                for tp_item in em["takeProfit"]:
-                    lines.append(f"- {tp_item}")
-            if "stopLoss" in em:
-                lines.append("\n**止损:**")
-                for sl_item in em["stopLoss"]:
-                    lines.append(f"- {sl_item}")
-            if "thesisFalsification" in em or "thesisInvalidation" in em:
-                lines.append("\n**论题证伪条件:**")
-                for tf_item in em.get("thesisFalsification", em.get("thesisInvalidation", [])):
-                    lines.append(f"- {tf_item}")
-            lines.append("")
-
-        # Critical risks
-        if "criticalRisks" in data and isinstance(data["criticalRisks"], list):
-            lines.append("### ⚠️ 关键风险\n")
-            for risk in data["criticalRisks"]:
-                lines.append(f"- {risk}")
-            lines.append("")
-
-        # Falsification redlines
-        if "falsificationRedlines" in data and isinstance(data["falsificationRedlines"], list):
-            lines.append("### 🚨 证伪红线\n")
-            lines.append("| 条件 | 窗口 | 行动 |")
-            lines.append("|------|------|------|")
-            for item in data["falsificationRedlines"]:
-                if isinstance(item, dict):
-                    lines.append(f"| {item.get('condition','')} | {item.get('window','')} | {item.get('action','')} |")
-                elif isinstance(item, str):
-                    lines.append(f"- {item}")
-            lines.append("")
-
-        # Key revisions
-        if "keyRevisionsToPriorAnalyses" in data and isinstance(data["keyRevisionsToPriorAnalyses"], dict):
-            lines.append("### 📝 关键修正\n")
-            for rk, rv in data["keyRevisionsToPriorAnalyses"].items():
-                lines.append(f"- **{rk}**: {rv}")
-            lines.append("")
-
-        # Fallback: any unhandled keys
         # Readable labels for common expert-JSON keys (avoids raw snake_case in report)
         key_labels = {
             "core_thesis": "🎯 核心论点", "key_metrics_extracted": "📊 关键指标",
@@ -810,6 +1150,148 @@ CONTENT:
             # Replace separators; escape underscores to avoid markdown italics
             return re.sub(r'[_]+', ' ', k).strip().title()
 
+        def _format_field(label: str, val: Any) -> str:
+            field_lines = []
+            if isinstance(val, str):
+                field_lines.append(f"### {label}\n\n{val}\n")
+            elif isinstance(val, dict):
+                if "rows" in val:
+                    # Structured table rendering
+                    title = val.get("title", label)
+                    field_lines.append(f"### {title}\n")
+                    rows = val["rows"]
+                    headers = val.get("headers")
+                    if isinstance(rows, list) and rows:
+                        if not headers:
+                            if isinstance(rows[0], dict):
+                                headers = list(rows[0].keys())
+                            elif isinstance(rows[0], list):
+                                headers = [f"Col {i+1}" for i in range(len(rows[0]))]
+                        
+                        if headers:
+                            field_lines.append("| " + " | ".join(_humanize(h) for h in headers) + " |")
+                            field_lines.append("|" + "|".join("------" for _ in headers) + "|")
+                            for r in rows:
+                                if isinstance(r, dict):
+                                    row_vals = []
+                                    for h in headers:
+                                        v = r.get(h)
+                                        if v is None:
+                                            for rk, rv in r.items():
+                                                if rk.lower().replace('_', ' ') == h.lower().replace('_', ' '):
+                                                    v = rv
+                                                    break
+                                        if v is None and len(r) == len(headers):
+                                            idx = headers.index(h)
+                                            v = list(r.values())[idx]
+                                        row_vals.append(ReportGeneratorService._format_py_value(v))
+                                    field_lines.append("| " + " | ".join(row_vals) + " |")
+                                elif isinstance(r, list):
+                                    row_vals = [ReportGeneratorService._format_py_value(x) for x in r]
+                                    field_lines.append("| " + " | ".join(row_vals) + " |")
+                            field_lines.append("")
+                        else:
+                            for r in rows:
+                                field_lines.append(f"- {ReportGeneratorService._format_py_value(r)}")
+                            field_lines.append("")
+                    else:
+                        field_lines.append(f"- *(空)*\n")
+                else:
+                    field_lines.append(f"### {label}\n")
+                    for dk, dv in val.items():
+                        if isinstance(dv, list):
+                            field_lines.append(f"- **{_humanize(dk)}**:")
+                            for item in dv:
+                                field_lines.append(f"  - {ReportGeneratorService._format_py_value(item)}")
+                        elif isinstance(dv, dict):
+                            field_lines.append(f"- **{_humanize(dk)}**:")
+                            for sub_k, sub_v in dv.items():
+                                field_lines.append(f"  - **{_humanize(sub_k)}**: {ReportGeneratorService._format_py_value(sub_v)}")
+                        else:
+                            field_lines.append(f"- **{_humanize(dk)}**: {ReportGeneratorService._format_py_value(dv)}")
+                    field_lines.append("")
+            elif isinstance(val, list):
+                if val and all(isinstance(item, dict) for item in val):
+                    field_lines.append(f"### {label}\n")
+                    field_lines.append(ReportGeneratorService._format_list_of_dicts(val))
+                    field_lines.append("")
+                else:
+                    field_lines.append(f"### {label}\n")
+                    for item in val:
+                        if isinstance(item, dict):
+                            field_lines.append(f"- {' | '.join(str(v) for v in item.values())}")
+                        else:
+                            field_lines.append(f"- {item}")
+                    field_lines.append("")
+            else:
+                field_lines.append(f"### {label}\n\n{val}\n")
+            return "\n".join(field_lines)
+
+        lines = []
+        labels = {
+            "tagline": "📌 核心论点",
+            "investmentThesis": "📋 投资论题",
+            "sentiment": "🎯 投资建议",
+            "masterVariable": "🔑 核心变量",
+            "coreContradiction": "⚡ 核心矛盾",
+            "credibilityScore": "📊 可信度评分",
+        }
+        for key, label in labels.items():
+            if key in data:
+                lines.append(_format_field(label, data[key]))
+
+        if "expectedPrice" in data and isinstance(data["expectedPrice"], dict):
+            ep = data["expectedPrice"]
+            lines.append("### 💰 预期价格计算\n")
+            lines.append(f"- **计算公式**: {ep.get('calculation', 'N/A')}")
+            lines.append(f"- **预期价格**: ${ep.get('result', 'N/A')}")
+            lines.append(f"- **vs当前价格**: {ep.get('vsCurrentPrice', ep.get('currentPrice', 'N/A'))}")
+            lines.append(f"- **预期回报**: {ep.get('expectedReturn', 'N/A')}")
+            if ep.get('decisionRuleCheck'):
+                lines.append(f"- **决策规则校验**: {ep.get('decisionRuleCheck')}")
+            lines.append("")
+
+        # Exit Mechanism / Disciplines
+        em = data.get("exit_mechanism") or data.get("exitMechanism") or {}
+        if em:
+            lines.append("### 🚪 退出机制\n")
+            if "takeProfit" in em:
+                lines.append("**止盈:**")
+                for item in em["takeProfit"]:
+                    lines.append(f"- {item}")
+            if "stopLoss" in em:
+                lines.append("\n**止损:**")
+                for item in em["stopLoss"]:
+                    lines.append(f"- {item}")
+            if "thesisFalsification" in em or "thesisInvalidation" in em:
+                lines.append("\n**论题证伪条件:**")
+                for item in em.get("thesisFalsification", em.get("thesisInvalidation", [])):
+                    lines.append(f"- {item}")
+            lines.append("")
+
+        if "criticalRisks" in data and isinstance(data["criticalRisks"], list):
+            lines.append("### ⚠️ 关键风险\n")
+            for risk in data["criticalRisks"]:
+                lines.append(f"- {risk}")
+            lines.append("")
+
+        if "falsificationRedlines" in data and isinstance(data["falsificationRedlines"], list):
+            lines.append("### 🚨 证伪红线\n")
+            lines.append("| 条件 | 窗口 | 行动 |\n|------|------|------|")
+            for item in data["falsificationRedlines"]:
+                if isinstance(item, dict):
+                    lines.append(f"| {item.get('condition','')} | {item.get('window','')} | {item.get('action','')} |")
+                elif isinstance(item, str):
+                    lines.append(f"- {item}")
+            lines.append("")
+
+        if "keyRevisionsToPriorAnalyses" in data and isinstance(data["keyRevisionsToPriorAnalyses"], dict):
+            lines.append("### 📝 关键修正\n")
+            for rk, rv in data["keyRevisionsToPriorAnalyses"].items():
+                lines.append(f"- **{_humanize(rk)}**: {rv}")
+            lines.append("")
+
+        # Formatting anything else
         handled = set(labels.keys()) | {"expectedPrice", "tradingPlan", "kellyPosition", "timeHorizon", "buildPlan", "exitMechanism", "criticalRisks", "falsificationRedlines", "keyRevisionsToPriorAnalyses"}
         for key, val in data.items():
             if key not in handled:
@@ -830,7 +1312,160 @@ CONTENT:
                             lines.append(f"- {item}")
                     lines.append("")
 
-        return "\n".join(lines) if lines else ""
+        raw_md = "\n".join(lines) if lines else ""
+        return self._escape_technical_underscores(raw_md)
+
+    @staticmethod
+    def _python_repr_to_markdown(text: str) -> str:
+        """Convert Python dict/list repr strings (single-quoted) to markdown tables/lists.
+
+        Handles the common LLM output pattern where structured data leaks as Python repr
+        rather than JSON. Uses ast.literal_eval for safe parsing."""
+        if not text:
+            return ""
+        # Try to find a Python repr in the text
+        # Look for dict {...} or list [...] patterns (not inside markdown code blocks)
+        # Strip surrounding markdown code fences if present
+        cleaned = text.strip()
+        # Remove leading ```python or ``` markers
+        cleaned = re.sub(r'^```(?:python|py)?\s*\n?', '', cleaned)
+        cleaned = re.sub(r'\n?```\s*$', '', cleaned)
+
+        # Try to parse as Python literal
+        try:
+            obj = ast.literal_eval(cleaned)
+        except (ValueError, SyntaxError):
+            return ""
+
+        if isinstance(obj, list):
+            return ReportGeneratorService._format_py_list(obj)
+        elif isinstance(obj, dict):
+            return ReportGeneratorService._format_py_dict(obj)
+        return ""
+
+    @staticmethod
+    def _format_py_dict(d: dict) -> str:
+        """Format a Python dict as a markdown key-value table."""
+        if not d:
+            return ""
+        lines = []
+        lines.append("| 字段 | 值 |")
+        lines.append("|------|-----|")
+        for k, v in d.items():
+            # Humanize key: replace underscores with spaces, title-case
+            key_display = k.replace('_', ' ').strip().title()
+            val_str = ReportGeneratorService._format_py_value(v)
+            lines.append(f"| {key_display} | {val_str} |")
+        return "\n".join(lines)
+
+    @staticmethod
+    def _format_py_list(lst: list) -> str:
+        """Format a Python list as markdown. List of dicts → table; list of scalars → bullets."""
+        if not lst:
+            return ""
+        # If list of dicts, render as table
+        if all(isinstance(item, dict) for item in lst):
+            return ReportGeneratorService._format_list_of_dicts(lst)
+        # Otherwise render as bullet list
+        lines = []
+        for item in lst:
+            if isinstance(item, dict):
+                # Mixed types — flatten to key: value bullets
+                for k, v in item.items():
+                    lines.append(f"- **{k.replace('_', ' ').title()}**: {ReportGeneratorService._format_py_value(v)}")
+            elif isinstance(item, (list, tuple)):
+                lines.append(f"- {', '.join(str(x) for x in item)}")
+            else:
+                # Skip items that are already full sentences (likely not data)
+                s = str(item)
+                if len(s) > 200 and ('。' in s or '.' in s):
+                    lines.append(f"- {s}")
+                else:
+                    lines.append(f"- {s}")
+        return "\n".join(lines)
+
+    @staticmethod
+    def _format_list_of_dicts(lst: list) -> str:
+        """Format a list of dicts as a markdown table using keys as headers."""
+        if not lst:
+            return ""
+        # Collect all keys across all dicts (preserving order of first dict, then adding others)
+        first_keys = list(lst[0].keys())
+        all_keys = list(first_keys)
+        for d in lst[1:]:
+            for k in d.keys():
+                if k not in all_keys:
+                    all_keys.append(k)
+
+        # Humanize headers
+        def humanize_key(k: str) -> str:
+            return k.replace('_', ' ').strip().title()
+
+        lines = []
+        header = "| " + " | ".join(humanize_key(k) for k in all_keys) + " |"
+        sep = "|" + "|".join("------" for _ in all_keys) + "|"
+        lines.append(header)
+        lines.append(sep)
+
+        for d in lst:
+            vals = []
+            for k in all_keys:
+                v = d.get(k, "")
+                vals.append(ReportGeneratorService._format_py_value(v))
+            lines.append("| " + " | ".join(vals) + " |")
+        return "\n".join(lines)
+
+    @staticmethod
+    def _format_py_value(v) -> str:
+        """Format a single Python value for display in a markdown table cell."""
+        if v is None:
+            return "—"
+        if isinstance(v, bool):
+            return "✅" if v else "❌"
+        if isinstance(v, (list, tuple)):
+            # Short lists: join; long lists: truncate
+            items = [str(x) for x in v]
+            joined = ", ".join(items)
+            if len(joined) > 120:
+                return joined[:117] + "..."
+            return joined
+        if isinstance(v, dict):
+            # Flatten small dicts inline
+            parts = [f"{k.replace('_', ' ')}: {ReportGeneratorService._format_py_value(v2)}" for k, v2 in v.items()]
+            joined = "; ".join(parts)
+            if len(joined) > 150:
+                return joined[:147] + "..."
+            return joined
+        return str(v)
+
+    @staticmethod
+    def _format_sensitivity_table(sensitivity_str: str) -> str:
+        """Convert WACC sensitivity Python repr like [{'wacc': 5.4, 'g': 1.0, 'value': 27.83}, ...]
+        into a compact sensitivity matrix markdown table."""
+        try:
+            data = ast.literal_eval(sensitivity_str)
+        except (ValueError, SyntaxError):
+            # Try as JSON
+            try:
+                data = json.loads(sensitivity_str)
+            except (json.JSONDecodeError, ValueError):
+                return sensitivity_str  # Can't parse, return as-is
+
+        if not isinstance(data, list) or not data:
+            return sensitivity_str
+
+        # Build table: columns = unique g values, rows = unique wacc values
+        if all(isinstance(d, dict) and 'wacc' in d and 'value' in d for d in data):
+            lines = []
+            lines.append("| WACC | g | 每股价值 |")
+            lines.append("|------|---|----------|")
+            for d in data:
+                wacc = d.get('wacc', 'N/A')
+                g = d.get('g', 'N/A')
+                value = d.get('value', 'N/A')
+                lines.append(f"| {wacc} | {g} | {value} |")
+            return "\n".join(lines)
+        return sensitivity_str
 
     def _get_locale(self, market: str) -> dict:
         """Return localized labels based on market."""
@@ -1087,7 +1722,7 @@ CONTENT:
                     <tr>
                         <td colspan="8" class="wacc-source"><strong>WACC 参数来源与逻辑：</strong> {wacc_data.get("source", "未披露")}</td>
                     </tr>
-                    {"<tr><td colspan='8' class='wacc-source'><strong>敏感性分析：</strong> " + wacc_data.get("sensitivity") + "</td></tr>" if wacc_data.get("sensitivity") else ""}
+                    {"<tr><td colspan='8' class='wacc-source'><strong>敏感性分析：</strong></td></tr><tr><td colspan='8' class='wacc-source'>" + markdown2.markdown(self._format_sensitivity_table(wacc_data.get("sensitivity", "")), extras=["tables"]) + "</td></tr>" if wacc_data.get("sensitivity") else ""}
                 </tbody>
             </table>
             '''
@@ -1284,9 +1919,8 @@ CONTENT:
         macro_list = "".join([f'<li>{p}</li>' for p in d.get("macro_points", [])])
         risk_points_html = "".join([f'<li>{p}</li>' for p in d.get("risks_points", [])])
 
-        import markdown2
         log_html = "".join([
-            f'<div class="log-msg"><div class="log-role"><span>{m["role"]}</span></div><div class="log-body">{markdown2.markdown(m["content"], extras=["tables", "fenced-code-blocks"])}</div></div>'
+            f'<div class="log-msg"><div class="log-role"><span>{m["role"]}</span></div><div class="log-body">{m["content"]}</div></div>'
             for m in d["discussion"]
         ])
 

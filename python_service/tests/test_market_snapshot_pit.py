@@ -32,7 +32,7 @@ class FakeTicker:
     def __init__(self, symbol):
         self.symbol = symbol
 
-    def history(self, period="6mo"):
+    def history(self, period="6mo", interval="1d", **kwargs):
         dates = pd.date_range(end="2026-04-17", periods=60)
         return pd.DataFrame(
             {

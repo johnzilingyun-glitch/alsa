@@ -63,6 +63,11 @@ async def test_analysis_job_persists_snapshot_id(monkeypatch, tmp_path):
             ]
         ),
     )
+    monkeypatch.setattr(
+        service,
+        "_wait_for_api_key",
+        AsyncMock(return_value="mock_gemini_api_key"),
+    )
 
     job_id = await service.start_job("MSFT", "US-Share")
     await service._run_job(job_id, "MSFT", "US-Share")

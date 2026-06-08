@@ -452,6 +452,9 @@
         .wind-card-title { font-size: 14px; font-weight: 800; color: var(--primary); margin-bottom: 12px; border-left: 4px solid var(--warning); padding-left: 8px; }
         .wind-card-body { font-size: 13px; color: var(--text); line-height: 1.6; }
         
+        .data-warning { margin: 20px 0; padding: 15px; background: #fffbeb; border: 1px solid #fcd34d; border-radius: 8px; color: #92400e; font-size: 13px; display: flex; align-items: center; }
+        .data-warning::before { content: '⚠️'; margin-right: 10px; font-size: 16px; }
+
         .risk-section { margin-top: 40px; background: #fff1f2; border: 1px solid #fecaca; border-radius: 8px; padding: 30px; text-align: left; }
         .risk-header { font-weight: 800; color: #991b1b; display: flex; align-items: center; margin-bottom: 15px; font-size: 18px; }
         .risk-header::before { content: '⚠️'; margin-right: 12px; }
@@ -480,6 +483,8 @@
         .log-body table { width: 100%; border-collapse: collapse; margin: 20px 0; border: 1px solid var(--border); }
         .log-body th { background: var(--bg); padding: 10px; border: 1px solid var(--border); font-weight: 700; }
         .log-body td { padding: 8px 10px; border: 1px solid var(--border); }
+        .log-body pre { white-space: pre-wrap; word-wrap: break-word; overflow-wrap: break-word; overflow-x: auto; max-width: 100%; background: #f8fafc; padding: 15px; border-radius: 6px; border: 1px solid var(--border); }
+        .log-body code { background: none; padding: 0; border: none; font-family: monospace; white-space: pre-wrap; word-wrap: break-word; }
 
         .report-footer { margin-top: 60px; padding-top: 20px; border-top: 1px solid var(--border); color: #94a3b8; font-size: 12px; text-align: center; }
         
@@ -492,6 +497,21 @@
             color: var(--text-light);
             text-align: center;
             font-size: 13px;
+        }
+
+        @media (max-width: 900px) {
+            .dashboard-grid, .consensus-split, .valuation-top-row, .wind-control-grid, .thesis-grid {
+                grid-template-columns: 1fr !important;
+            }
+            .fund-category-grid, .trading-grid {
+                grid-template-columns: 1fr !important;
+            }
+            .report-page {
+                padding: 30px;
+            }
+            .dashboard-card, .wind-card, .thesis-card {
+                padding: 15px;
+            }
         }
 
         @media print {
@@ -507,22 +527,17 @@
             <div class="ticker-info">
                 <div class="brand-logo">ALSA Multi-Agent Intelligence</div>
                 <h1>藏格矿业</h1>
-                <div class="ticker-sub">000408 | A-Share | 研究报告号: 202606021107</div>
+                <div class="ticker-sub">000408 | A-Share | 研究报告号: 202606081652</div>
             </div>
             <div class="price-box">
                 <div class="current-price">28.5 <span style="font-size:16px; font-weight:400; color:#94a3b8;">CNY</span></div>
                 <div class="price-pct">+2.5%</div>
-                <div style="font-size:11px; color:#94a3b8; margin-top:5px;">数据更新: 2026-06-02 11:07</div>
+                <div style="font-size:11px; color:#94a3b8; margin-top:5px;">数据更新: 2026-06-08 16:52</div>
             </div>
         </header>
 
         <div class="verdict-banner"><span class="verdict-text">钾锂双轮驱动，低估值周期筑底，具备极高安全边际</span><span class="verdict-rec buy">BUY</span></div>
-        <div class="data-warning">
-                <div class="data-warning-header">数据完整度: 95%</div>
-                <div class="data-bar"><div class="data-bar-fill high" style="width:95%"></div></div>
-                <div>缺失关键数据: 碳酸锂高频社会库存</div>
-                <div style="margin-top:4px;color:#b45309;">影响: 微调对毛利率的短期波动敏感性分析</div>
-            </div>
+        
         <div class="action-stance">建议逢低建仓</div>
 
         <!-- 第一层：核心决策包 (1-Pager CIO Dashboard) -->
@@ -575,6 +590,7 @@
                     <thead><tr><th>演练情景</th><th>概率</th><th>目标价</th><th>核心驱动逻辑</th></tr></thead>
                     <tbody><tr><td><strong>看多</strong></td><td>30%</td><td><strong>35.0 CNY</strong></td><td>锂价平稳回升且新产能加速投产</td></tr><tr><td><strong>基准</strong></td><td>50%</td><td><strong>30.0 CNY</strong></td><td>钾肥价格维持高位，锂价磨底</td></tr><tr><td><strong>看空</strong></td><td>20%</td><td><strong>24.0 CNY</strong></td><td>锂价暴跌，扩产项目环评审批延误</td></tr></tbody>
                 </table>
+                
             </div>
         </div>
         
@@ -637,6 +653,7 @@
                     <tr>
                         <td colspan="8" class="wacc-source"><strong>WACC 参数来源与逻辑：</strong> 中债10年期国债收益率作为Rf，有色金属/采掘行业Beta，公司财务费用除以有息负债测算有息债务成本Kd</td>
                     </tr>
+                    
                 </tbody>
             </table>
             

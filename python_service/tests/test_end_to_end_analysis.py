@@ -41,8 +41,9 @@ async def test_full_analysis_job_lifecycle(mock_db, tmp_path):
         }
     ]
     
-    with patch("akshare.stock_zh_a_hist") as mock_hist, \
-         patch("akshare.stock_individual_info_em") as mock_info, \
+    with patch("python_service.app.services.data_providers.data_router.get_history") as mock_hist, \
+         patch("python_service.app.services.data_providers.data_router.get_financial_summary") as mock_summary, \
+         patch("python_service.app.services.data_providers.data_router.get_quote") as mock_quote, \
          patch("python_service.app.services.discussion_service.discussion_service.run_discussion", new_callable=MagicMock) as mock_discuss:
         
         # run_discussion is an async function, mock it returning mock_messages
@@ -53,18 +54,38 @@ async def test_full_analysis_job_lifecycle(mock_db, tmp_path):
         # Mock 120 days of data
         dates = pd.date_range(end="2026-04-17", periods=120)
         mock_hist.return_value = pd.DataFrame({
-            "日期": dates.strftime("%Y-%m-%d"),
-            "开盘": [1600] * 120,
-            "最高": [1700] * 120,
-            "最低": [1500] * 120,
-            "收盘": [1650] * 120,
-            "成交量": [10000] * 120
+            "date": dates.strftime("%Y-%m-%d"),
+            "open": [1600.0] * 120,
+            "high": [1700.0] * 120,
+            "low": [1500.0] * 120,
+            "close": [1650.0] * 120,
+            "volume": [10000.0] * 120
         })
         
-        mock_info.return_value = pd.DataFrame({
-            "item": ["总市值", "市盈率", "市净率"],
-            "value": [2.1e12, 30.5, 8.2]
-        })
+        mock_summary.return_value = {
+            "marketCap": 2.1e12,
+            "pe": 30.5,
+            "pb": 8.2,
+            "industry": "Liquor",
+            "totalShares": 1.25e9,
+            "floatShares": 1.25e9,
+        }
+        
+        from python_service.app.services.data_providers.base import QuoteData
+        mock_quote.return_value = QuoteData(
+            symbol=symbol,
+            name="贵州茅台",
+            price=1650.0,
+            open=1600.0,
+            high=1700.0,
+            low=1500.0,
+            last_close=1650.0,
+            change=0.0,
+            change_pct=0.0,
+            volume=10000.0,
+            amount=0.0,
+            source="mock"
+        )
         
         # Start Job
         job_id = await service.start_job(symbol, market)
@@ -72,6 +93,8 @@ async def test_full_analysis_job_lifecycle(mock_db, tmp_path):
         
         # Since _run_job is an async task, we need to wait for it or call it directly for the test
         # In this test we use a small sleep to let the task progress or await the internal method
+        from unittest.mock import AsyncMock
+        service._wait_for_api_key = AsyncMock(return_value="mock_gemini_api_key")
         await service._run_job(job_id, symbol, market)
         
         # Verify result in DB

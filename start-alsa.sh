@@ -17,8 +17,8 @@ echo "API started (PID $!)"
 nohup npx vite --host 0.0.0.0 > /home/ubuntu/work/alsa/logs/vite.log 2>&1 &
 echo "Vite started (PID $!)"
 
-# Start Python FastAPI service (with AkShare enabled for Chinese markets)
-AKSHARE_ENABLED=true nohup /home/ubuntu/work/alsa/python_service/.venv/bin/python3.11 /home/ubuntu/work/alsa/run_py_service.py > /home/ubuntu/work/alsa/logs/py_api.log 2>&1 &
+# Start Python FastAPI service (with AkShare + Iwencai enabled for Chinese markets)
+AKSHARE_ENABLED=true nohup /home/ubuntu/work/alsa/run_py_service_with_env.sh > /home/ubuntu/work/alsa/logs/py_api.log 2>&1 &
 echo "Python API started (PID $!)"
 
 echo "---"

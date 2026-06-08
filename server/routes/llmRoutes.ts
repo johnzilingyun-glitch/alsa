@@ -9,11 +9,12 @@ router.post('/llm/generate', async (req, res) => {
     const params = req.body?.params ?? {};
     const prompt = extractPrompt(params);
     const model = typeof req.body?.model === 'string' ? req.body.model : String(params?.model || '');
+    const config = req.body?.config ?? {};
     if (!prompt.trim()) {
       return res.status(400).json({ success: false, error: 'prompt is required' });
     }
 
-    const text = await gatewayGenerate(prompt, model, () => {});
+    const text = await gatewayGenerate(prompt, model, () => {}, config);
     return res.json({
       success: true,
       via: 'server-llm-gateway',

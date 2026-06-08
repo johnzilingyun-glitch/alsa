@@ -69,6 +69,9 @@ function getServiceMode(config?: { serviceMode?: ServiceMode }): ServiceMode {
 
 function createBackendBridgeClient(config?: { model?: string; serviceMode?: ServiceMode }) {
   const fallbackModel = config?.model || GEMINI_MODEL;
+  const storeConfig = useConfigStore.getState().config as any;
+  const deepseekApiKey = storeConfig?.deepseekApiKey || '';
+  const geminiApiKey = config?.apiKey || storeConfig?.apiKey || '';
   return {
     models: {
       generateContent: async (params: any) => {
@@ -77,7 +80,14 @@ function createBackendBridgeClient(config?: { model?: string; serviceMode?: Serv
         const response = await fetch('/api/llm/generate', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ params, model: requestedModel }),
+          body: JSON.stringify({
+            params,
+            model: requestedModel,
+            config: {
+              ...(deepseekApiKey ? { deepseekApiKey } : {}),
+              ...(geminiApiKey ? { geminiApiKey } : {}),
+            },
+          }),
         });
 
         const elapsed = Date.now() - startTime;

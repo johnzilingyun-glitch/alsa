@@ -46,14 +46,22 @@ async def lifespan(app: FastAPI):
         await asyncio.sleep(10)  # Wait for startup
         await signal_monitor.monitor_loop(interval_seconds=60)
 
+    # API key cache cleanup — clear stale keys every 5 minutes to prevent leakage
+    async def api_key_cleanup_loop():
+        while True:
+            await asyncio.sleep(300)  # Every 5 minutes
+            analysis_job_service._clear_stale_keys()
+
     task = asyncio.create_task(precompute_loop())
     monitor_task = asyncio.create_task(signal_monitor_loop())
+    cleanup_task = asyncio.create_task(api_key_cleanup_loop())
     try:
         yield
     finally:
         signal_monitor.stop()
         task.cancel()
         monitor_task.cancel()
+        cleanup_task.cancel()
         try:
             await task
         except asyncio.CancelledError:

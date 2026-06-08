@@ -459,7 +459,8 @@ export const Header = memo(function Header({
 
         <button
           type="submit"
-          className="btn-primary h-14 px-10 rounded-xl shadow-indigo-600/10 shadow-xl transition-all"
+          disabled={loading}
+          className="btn-primary h-14 px-10 rounded-xl shadow-indigo-600/10 shadow-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {loading ? (
             <div className="flex items-center gap-2">

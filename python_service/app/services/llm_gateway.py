@@ -729,6 +729,53 @@ class LLMGateway:
                     deduped.append(result_frag)
             return deduped
 
+        async def _recovery_synthesis() -> str:
+            """Force a tools-free synthesis from gathered tool results. Used when the
+            model ended the loop by emitting raw tool params instead of an analysis."""
+            recovery_messages = [messages[0], messages[1]]  # system + original user prompt
+            tool_summaries = []
+            for msg in messages:
+                if msg.get("role") == "tool":
+                    tool_summaries.append((msg.get("content", ""))[:500])
+            if tool_summaries:
+                recovery_messages.append({
+                    "role": "user",
+                    "content": "Here is a summary of data you gathered from your tool calls:\n\n"
+                    + "\n---\n".join(tool_summaries[:8])
+                    + "\n\nBased on the above data AND the API data in the original prompt, write your COMPLETE "
+                    "expert analysis report NOW. 400+ words with specific data points, tables, and conclusions. "
+                    "Do NOT output raw numbers, tool parameters, or planning text — write investor-facing prose."
+                })
+            else:
+                recovery_messages.append({
+                    "role": "user",
+                    "content": "Write your COMPLETE expert analysis report NOW based on the API data in the original prompt. "
+                    "400+ words with specific data points and conclusions. Do NOT output raw numbers or tool parameters."
+                })
+
+            def _recovery_call():
+                resp = self.deepseek_client(api_key=deepseek_api_key).chat.completions.create(
+                    model=final_model, messages=recovery_messages,
+                    temperature=temperature, max_tokens=16384, stream=True
+                )
+                parts = []
+                for chunk in resp:
+                    if chunk.choices and chunk.choices[0].delta.content:
+                        parts.append(chunk.choices[0].delta.content)
+                        if len(parts) % 50 == 0:
+                            print(".", end="", flush=True)
+                print(flush=True)
+                return "".join(parts)
+
+            try:
+                rc = await asyncio.to_thread(_recovery_call)
+                if rc and _is_valid_analysis(rc):
+                    print(f"  [ToolLoop] Recovery synthesis successful: {len(rc)} chars")
+                    return rc
+            except Exception as e:
+                print(f"  [ToolLoop] Recovery synthesis error: {e}")
+            return ""
+
         if final_content and _is_valid_analysis(final_content):
             # Check if model wrote analysis incrementally across tool-calling rounds
             # (e.g. sections 1-9 during tool rounds, section 10 in final round)
@@ -824,53 +871,39 @@ class LLMGateway:
                 if retry_content and _is_valid_analysis(retry_content):
                     result = retry_content
                 else:
-                    result = final_content
+                    # Retry still produced junk — force a tools-free synthesis from gathered data
+                    recovered = await _recovery_synthesis()
+                    result = recovered or (retry_content if _is_valid_analysis(retry_content or "") else "")
             except Exception:
-                result = final_content
+                recovered = await _recovery_synthesis()
+                result = recovered or ""
         elif tool_round_text:
             # No final content at all — the final round failed or produced empty response
-            # Try one more time with aggressively trimmed context
             print(f"  [ToolLoop] WARNING: No final analysis produced. Attempting recovery...")
-            # Keep only system, original user prompt, and a summary of tool results
-            recovery_messages = [messages[0], messages[1]]  # system + user
-            tool_summaries = []
-            for msg in messages:
-                if msg.get("role") == "tool":
-                    content_preview = (msg.get("content", ""))[:500]
-                    tool_summaries.append(content_preview)
-            if tool_summaries:
-                recovery_messages.append({
-                    "role": "user",
-                    "content": "Here is a summary of search results you gathered:\n\n" + "\n---\n".join(tool_summaries[:6]) + 
-                    "\n\nBased on the above data AND the API data in the original prompt, write your COMPLETE expert analysis report now. 400+ words with specific data points."
-                })
-            try:
-                def _recovery_call():
-                    resp = self.deepseek_client(api_key=deepseek_api_key).chat.completions.create(
-                        model=final_model, messages=recovery_messages,
-                        temperature=temperature, max_tokens=16384, stream=True
-                    )
-                    parts = []
-                    for chunk in resp:
-                        if chunk.choices and chunk.choices[0].delta.content:
-                            parts.append(chunk.choices[0].delta.content)
-                            if len(parts) % 50 == 0:
-                                print(".", end="", flush=True)
-                    print(flush=True)
-                    return "".join(parts)
-                
-                recovery_content = await asyncio.to_thread(_recovery_call)
-                if recovery_content and len(recovery_content.strip()) > 100:
-                    result = recovery_content
-                    print(f"  [ToolLoop] Recovery successful: {len(recovery_content)} chars")
-                else:
-                    print(f"  [ToolLoop] Recovery failed. Using {len(tool_round_text)} tool-round fragments as fallback.")
-                    result = "\n".join(tool_round_text)
-            except Exception as e:
-                print(f"  [ToolLoop] Recovery error: {e}. Using tool-round fragments.")
-                result = "\n".join(tool_round_text)
+            recovered = await _recovery_synthesis()
+            if recovered:
+                result = recovered
+            else:
+                # Recovery failed — only keep tool-round text if it is real analysis, not filler
+                fragments = [t for t in tool_round_text if _is_analysis_fragment(t)]
+                result = "\n\n".join(fragments) if fragments else ""
         else:
             result = content or ""
+
+        # Final guard: never emit raw tool params / junk as an expert's analysis.
+        # If everything failed, run a last-resort synthesis; if that also fails, use an honest note.
+        if not _is_valid_analysis(result):
+            print(f"  [ToolLoop] WARNING: Assembled result invalid ({len(result or '')} chars). Last-resort synthesis...")
+            recovered = await _recovery_synthesis()
+            if recovered:
+                result = recovered
+            elif not (result and len(result.strip()) >= 200):
+                result = (
+                    "**数据采集受限说明**\n\n"
+                    "本轮分析所需的关键行情/财务数据在多次工具调用后仍未能完整获取，"
+                    "为避免编造数据，本专家不输出推测性结论。请检查数据源（行情/财务接口）可用性后重试。"
+                )
+
         # Safety net: strip any remaining DSML tokens that may have leaked
         if 'DSML' in result:
             import re

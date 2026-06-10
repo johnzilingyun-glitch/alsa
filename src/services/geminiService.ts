@@ -67,7 +67,7 @@ function getServiceMode(config?: { serviceMode?: ServiceMode }): ServiceMode {
   return config?.serviceMode || storeConfig?.serviceMode || 'byok';
 }
 
-function createBackendBridgeClient(config?: { model?: string; serviceMode?: ServiceMode }) {
+function createBackendBridgeClient(config?: { model?: string; serviceMode?: ServiceMode; apiKey?: string }) {
   const fallbackModel = config?.model || GEMINI_MODEL;
   const storeConfig = useConfigStore.getState().config as any;
   const deepseekApiKey = storeConfig?.deepseekApiKey || '';

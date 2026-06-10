@@ -45,7 +45,7 @@ export function AnalysisLoadingPulse() {
   // Track content count changes for "AI is streaming" indicator
   const prevCountRef = useRef(0);
   const [isStreaming, setIsStreaming] = useState(false);
-  const streamTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
+  const streamTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   
   useEffect(() => {
     if (contentCount > prevCountRef.current) {

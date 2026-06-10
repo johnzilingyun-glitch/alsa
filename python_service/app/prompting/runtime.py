@@ -15,8 +15,9 @@ class PromptRuntimeService:
         Retrieves a prompt template from the filesystem.
         Respects the language parameter: loads _zh for zh-CN, _en for others.
         """
-        lang_suffix = "zh" if language == "zh-CN" else "en"
-        fallback_suffix = "en" if lang_suffix == "zh" else "zh"
+        # Always force 'zh' (Chinese) prompts as requested
+        lang_suffix = "zh"
+        fallback_suffix = "en"
         
         # Try preferred language first, then fallback
         possible_files = [

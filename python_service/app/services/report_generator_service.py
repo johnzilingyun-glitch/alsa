@@ -35,7 +35,7 @@ class ReportGeneratorService:
             model = os.getenv("DEEPSEEK_MODEL", "deepseek-v4-pro") if provider == "deepseek" else os.getenv("GEMINI_MODEL", "gemini-3.1-pro-preview")
         
         # Clean discussion content: strip LLM thinking prefixes before downstream use
-        cleaned_msgs = [{"role": m["role"], "content": self._strip_thinking_prefix(m["content"])} for m in discussion_msgs]
+        cleaned_msgs = [{"role": m.get("role", "分析师"), "content": self._strip_thinking_prefix(m.get("content", "")), "model": m.get("model", model)} for m in discussion_msgs]
         full_discussion = "\n".join([f"[{m['role']}]: {m['content']}" for m in cleaned_msgs])
         
         # UI Data Expert Pass - REFINED CONTENT (RESTORING RAW LOGS)
@@ -112,7 +112,7 @@ class ReportGeneratorService:
             "score": ui_data.get("score", 75),
             "recommendation": ui_data.get("recommendation", "WATCH"),
             "discussion": [
-                {"role": m["role"], "content": content}
+                {"role": m["role"], "content": content, "model": m.get("model", model)}
                 for m, content in zip(cleaned_msgs, normalized_contents)
             ]
         }
@@ -1920,7 +1920,9 @@ CONTENT:
         risk_points_html = "".join([f'<li>{p}</li>' for p in d.get("risks_points", [])])
 
         log_html = "".join([
-            f'<div class="log-msg"><div class="log-role"><span>{m["role"]}</span></div><div class="log-body">{m["content"]}</div></div>'
+            f'<div class="log-msg"><div class="log-role" style="display:flex; align-items:center; gap:8px;"><span>{m["role"]}</span>'
+            f'<span style="background:var(--bg); color:var(--text-light); border:1px solid var(--border); padding:2px 8px; border-radius:4px; font-size:10px; font-weight:500; text-transform:none; letter-spacing:normal;">{m.get("model", "AI")}</span></div>'
+            f'<div class="log-body">{m["content"]}</div></div>'
             for m in d["discussion"]
         ])
 

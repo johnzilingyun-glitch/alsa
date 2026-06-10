@@ -11,27 +11,36 @@ from .expert_tools import format_tool_descriptions
 
 # --- Topologies (Ported from orchestrator.ts) ---
 
+# DEEP_TOPOLOGY = [
+#     # Round 1: 基础数据清洗与事实注入
+#     {"round": 1, "experts": ["Deep Research Specialist"], "parallel": False},
+#     # Round 2: 硬伤审计（紧跟数据层，防止后续专家基于错误数据建立空中楼阁）
+#     {"round": 2, "experts": ["Chief Audit Officer"], "parallel": False},
+#     # Round 3: 技术面与基本面并行分析
+#     {"round": 3, "experts": ["Technical Analyst", "Fundamental Analyst"], "parallel": True},
+#     # Round 4: 情绪面引入（为多空辩论提供筹码）
+#     {"round": 4, "experts": ["Sentiment Analyst"], "parallel": False},
+#     # Round 5: 多空对撞（基于完整数据+情绪的辩论矩阵）
+#     {"round": 5, "experts": ["Bull Researcher", "Bear Researcher"], "parallel": True},
+#     # Round 6: 逻辑纠偏（审查多空辩论中的确认偏差和叙事过拟合）
+#     {"round": 6, "experts": ["Professional Reviewer"], "parallel": False},
+#     # Round 7: 流派大师升华（Soros反身性 + Value安全边际 + Serenity Alpha小盘弹性）
+#     {"round": 7, "experts": ["Soros-style Financial Philosopher", "Value Investing Sage", "Serenity Alpha Analyst"], "parallel": True},
+#     # Round 8: 逆向思维寻找共识之外的特立独行机会
+#     {"round": 8, "experts": ["Contrarian Strategist"], "parallel": False},
+#     # Round 9: 风险量化（VaR/仓位/止损/相关性/尾部风险）
+#     {"round": 9, "experts": ["Risk Manager"], "parallel": False},
+#     # Round 10: 首席策略师发布最终交易计划与 Kill Switch
+#     {"round": 10, "experts": ["Chief Strategist"], "parallel": False},
+# ]
+
 DEEP_TOPOLOGY = [
-    # Round 1: 基础数据清洗与事实注入
     {"round": 1, "experts": ["Deep Research Specialist"], "parallel": False},
-    # Round 2: 硬伤审计（紧跟数据层，防止后续专家基于错误数据建立空中楼阁）
-    {"round": 2, "experts": ["Chief Audit Officer"], "parallel": False},
-    # Round 3: 技术面与基本面并行分析
-    {"round": 3, "experts": ["Technical Analyst", "Fundamental Analyst"], "parallel": True},
-    # Round 4: 情绪面引入（为多空辩论提供筹码）
-    {"round": 4, "experts": ["Sentiment Analyst"], "parallel": False},
-    # Round 5: 多空对撞（基于完整数据+情绪的辩论矩阵）
-    {"round": 5, "experts": ["Bull Researcher", "Bear Researcher"], "parallel": True},
-    # Round 6: 逻辑纠偏（审查多空辩论中的确认偏差和叙事过拟合）
-    {"round": 6, "experts": ["Professional Reviewer"], "parallel": False},
-    # Round 7: 流派大师升华（Soros反身性 + Value安全边际 + Serenity Alpha小盘弹性）
-    {"round": 7, "experts": ["Soros-style Financial Philosopher", "Value Investing Sage", "Serenity Alpha Analyst"], "parallel": True},
-    # Round 8: 逆向思维寻找共识之外的特立独行机会
-    {"round": 8, "experts": ["Contrarian Strategist"], "parallel": False},
-    # Round 9: 风险量化（VaR/仓位/止损/相关性/尾部风险）
-    {"round": 9, "experts": ["Risk Manager"], "parallel": False},
-    # Round 10: 首席策略师发布最终交易计划与 Kill Switch
-    {"round": 10, "experts": ["Chief Strategist"], "parallel": False},
+    {"round": 2, "experts": ["Technical Analyst", "Fundamental Analyst"], "parallel": True},
+    {"round": 3, "experts": ["Sentiment Analyst"], "parallel": False},
+    {"round": 4, "experts": ["Serenity Alpha Analyst"], "parallel": True},
+    {"round": 5, "experts": ["Professional Reviewer"], "parallel": False},
+    {"round": 6, "experts": ["Chief Strategist"], "parallel": False},
 ]
 
 STANDARD_TOPOLOGY = [
@@ -58,6 +67,10 @@ SECTOR_TOPOLOGY = [
     {"round": 4, "experts": ["Sector Chief Strategist"], "parallel": False},
 ]
 
+SERENITY_ALPHA_TOPOLOGY = [
+    {"round": 1, "experts": ["Serenity Alpha Analyst"], "parallel": False}
+]
+
 class DiscussionService:
     def __init__(self):
         pass
@@ -65,6 +78,8 @@ class DiscussionService:
     def build_topology(self, level: str, asset_type: str = "equity") -> List[Dict[str, Any]]:
         if level == "sector":
             template = SECTOR_TOPOLOGY
+        elif level == "serenity_alpha":
+            template = SERENITY_ALPHA_TOPOLOGY
         elif level == "quick":
             template = QUICK_TOPOLOGY
         elif level == "standard":
@@ -257,17 +272,15 @@ class DiscussionService:
         # 4.6 Get Industry Peer Data (for Fundamental Analyst when API lacks peer comparison)
         peer_data = {}
         if role == "Fundamental Analyst":
-            valuation = snapshot.get("valuation", {})
-            if valuation.get("pe") is None or valuation.get("pb") is None:
-                try:
-                    from .search_service import search_service
-                    market_name = snapshot.get("quote", {}).get("name", name)
-                    query = f"{market_name} {symbol} industry average PE PB ROE valuation comparison"
-                    search_res = await search_service.quick_search(query)
-                    if search_res:
-                        peer_data = {"IndustryPeerSearch": search_res}
-                except Exception as e:
-                    print(f"Industry peer search failed: {e}")
+            try:
+                from .search_service import search_service
+                market_name = snapshot.get("quote", {}).get("name", name)
+                query = f"{market_name} {symbol} industry average PE PB ROE valuation comparison"
+                search_res = await search_service.quick_search(query)
+                if search_res:
+                    peer_data = {"IndustryPeerSearch": search_res}
+            except Exception as e:
+                print(f"Industry peer search failed: {e}")
 
         # 5. Determine model & search capability
         if model:
@@ -275,7 +288,7 @@ class DiscussionService:
             model = model
         else:
             # Fallback to default from env
-            default_provider = os.getenv("DEFAULT_LLM_PROVIDER", "gemini").lower()
+            default_provider = os.getenv("DEFAULT_LLM_PROVIDER", "deepseek").lower()
             if default_provider == "gemini":
                 model = os.getenv("GEMINI_MODEL", "gemini-3.1-pro-preview")
             else:
@@ -336,6 +349,7 @@ class DiscussionService:
         return {
             "role": role,
             "content": content,
+            "model": model,
             "timestamp": datetime.now().isoformat()
         }
 
@@ -391,9 +405,16 @@ class DiscussionService:
         sections.append("\n--- [MANDATORY] OUTPUT FORMAT & DISCIPLINE ---")
         is_final_round = role in ("Chief Strategist", "Sector Chief Strategist")
         is_sector_intermediate = role in ("Sector Macro Strategist", "Sector Stock Screener", "Serenity Alpha Analyst", "Sector Risk Auditor")
+        is_markdown_intermediate = role in (
+            "Fundamental Analyst", "Technical Analyst", "Deep Research Specialist", 
+            "Sentiment Analyst", "Chief Audit Officer", "Risk Manager", 
+            "Professional Reviewer", "Contrarian Strategist", "Value Investing Sage", 
+            "Growth Visionary", "Macro Hedge Titan", "Aggressive Risk Analyst", 
+            "Conservative Risk Analyst", "Neutral Risk Analyst"
+        )
 
-        if is_sector_intermediate:
-            # Sector intermediate experts output full markdown — their content is rendered directly in the HTML report
+        if is_sector_intermediate or is_markdown_intermediate:
+            # Sector and markdown intermediate experts output full markdown — their content is rendered directly in the HTML report
             sections.append(
                 "1. **专业Markdown输出**: 你的输出将直接展示在投资报告中。请使用标准 Markdown 排版（标题、表格、列表、加粗等），输出面向投资者的专业分析内容。\n"
                 "   - 主标题推荐使用 Emoji 序号标号（如 1️⃣, 2️⃣ 等）增加活泼感。\n"

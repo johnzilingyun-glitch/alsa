@@ -22,12 +22,12 @@ class SectorAnalysisService:
         self._progress: Dict[str, Dict[str, Any]] = {}
         self._results: Dict[str, Dict[str, Any]] = {}
 
-    async def start_sector_job(self, sector_name: str, model: Optional[str] = None, config: Optional[Dict[str, Any]] = None, target_date: Optional[str] = None) -> str:
+    async def start_sector_job(self, sector_name: str, model: Optional[str] = None, config: Optional[Dict[str, Any]] = None, target_date: Optional[str] = None, level: str = "sector") -> str:
         job_id = f"sector_{uuid.uuid4().hex[:8]}"
         # Create job in DB
-        self.job_repo.create(job_id, sector_name, "sector", level="sector", model=model, snapshot_id=target_date)
+        self.job_repo.create(job_id, sector_name, "sector", level=level, model=model, snapshot_id=target_date)
 
-        task = asyncio.create_task(self._run_sector_job(job_id, sector_name, model=model, config=config, target_date=target_date))
+        task = asyncio.create_task(self._run_sector_job(job_id, sector_name, model=model, config=config, target_date=target_date, level=level))
         self._running_tasks[job_id] = task
         task.add_done_callback(lambda t: self._running_tasks.pop(job_id, None))
         return job_id
@@ -38,7 +38,7 @@ class SectorAnalysisService:
     def get_progress(self, job_id: str) -> Dict[str, Any]:
         return self._progress.get(job_id, {})
 
-    async def _run_sector_job(self, job_id: str, sector_name: str, model: Optional[str] = None, config: Optional[Dict[str, Any]] = None, target_date: Optional[str] = None):
+    async def _run_sector_job(self, job_id: str, sector_name: str, model: Optional[str] = None, config: Optional[Dict[str, Any]] = None, target_date: Optional[str] = None, level: str = "sector"):
         from .discussion_service import discussion_service
         from ..db.models import AnalysisRun, AnalysisJob
 
@@ -81,7 +81,7 @@ class SectorAnalysisService:
                 sector_name,           # symbol → sector_name
                 sector_name,           # name → sector_name
                 snapshot,
-                level="sector",        # triggers SECTOR_TOPOLOGY
+                level=level,           # triggers SECTOR_TOPOLOGY or SERENITY_ALPHA_TOPOLOGY
                 model=requested_model,
                 on_progress=report_progress,
                 job_id=job_id,

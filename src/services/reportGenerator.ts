@@ -1,5 +1,6 @@
 import { marked } from "marked";
 import { StockAnalysis, AgentMessage, Scenario, CoreVariable } from "../types";
+import { useConfigStore } from "../stores/useConfigStore";
 
 /**
  * ReportGeneratorService
@@ -64,7 +65,7 @@ export class ReportGeneratorService {
       : `<div>${t('报告生成', 'Report Date')}: ${new Date().toLocaleDateString(language)}</div>`;
 
     // Build fundamental items from both analysis.fundamentals and stockInfo top-level fields
-    const fundamentalItems: { label: string; val: string | null | undefined }[] = [
+    const fundamentalItems: { label: string; val: string | number | null | undefined }[] = [
       { label: 'PE (TTM)', val: fundamentals?.pe ?? stockInfo.pe ?? undefined },
       { label: 'PB', val: fundamentals?.pb ?? stockInfo.pb ?? undefined },
       { label: 'ROE', val: fundamentals?.roe ?? undefined },
@@ -569,9 +570,13 @@ export class ReportGeneratorService {
             ${discussion!.map((m: AgentMessage) => {
               const raw = m.content || '';
               const content = marked.parse(raw, { breaks: true, gfm: true }) as string;
+              const modelUsed = (m as any).model || useConfigStore.getState().geminiConfig.model;
               return `
                 <div class="message">
-                    <span class="message-role">${m.role || t('专家', 'Analyst')}</span>
+                    <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 5px;">
+                        <span class="message-role" style="margin-bottom: 0;">${m.role || t('专家', 'Analyst')}</span>
+                        <span class="badge" style="font-size: 9px; color: var(--text-muted); padding: 1px 6px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg-light);">${modelUsed}</span>
+                    </div>
                     <div class="message-content">${content}</div>
                 </div>`;
             }).join('')}

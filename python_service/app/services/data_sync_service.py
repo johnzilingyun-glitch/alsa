@@ -97,17 +97,21 @@ class DataSyncService:
                 utc_tz = timezone.utc
                 
                 for dt, row in df.iterrows():
-                    # Ensure dt is a native python datetime, not pandas Timestamp
                     dt_native = dt.to_pydatetime()
                     
-                    # Handle MultiIndex for single ticker cleanly
-                    close_price = row[('Close', yf_symbol)] if isinstance(df.columns, pd.MultiIndex) else row['Close']
-                    if pd.isna(close_price):
+                    close_raw = row[('Close', yf_symbol)] if isinstance(df.columns, pd.MultiIndex) else row['Close']
+                    if pd.isna(close_raw) or close_raw <= 0:
                         continue
                         
-                    open_price = row[('Open', yf_symbol)] if isinstance(df.columns, pd.MultiIndex) else row['Open']
-                    high_price = row[('High', yf_symbol)] if isinstance(df.columns, pd.MultiIndex) else row['High']
-                    low_price = row[('Low', yf_symbol)] if isinstance(df.columns, pd.MultiIndex) else row['Low']
+                    adj_close = row[('Adj Close', yf_symbol)] if isinstance(df.columns, pd.MultiIndex) else row.get('Adj Close', close_raw)
+                    if pd.isna(adj_close):
+                        adj_close = close_raw
+                        
+                    adj_factor = float(adj_close / close_raw)
+                    
+                    open_price = float((row[('Open', yf_symbol)] if isinstance(df.columns, pd.MultiIndex) else row['Open']) * adj_factor)
+                    high_price = float((row[('High', yf_symbol)] if isinstance(df.columns, pd.MultiIndex) else row['High']) * adj_factor)
+                    low_price = float((row[('Low', yf_symbol)] if isinstance(df.columns, pd.MultiIndex) else row['Low']) * adj_factor)
                     volume = row[('Volume', yf_symbol)] if isinstance(df.columns, pd.MultiIndex) else row['Volume']
                         
                     bar = BarData(
@@ -116,10 +120,10 @@ class DataSyncService:
                         datetime=dt_native.replace(tzinfo=utc_tz),
                         interval=Interval.DAILY,
                         volume=float(volume),
-                        open_price=float(open_price),
-                        high_price=float(high_price),
-                        low_price=float(low_price),
-                        close_price=float(close_price),
+                        open_price=open_price,
+                        high_price=high_price,
+                        low_price=low_price,
+                        close_price=float(adj_close),
                         gateway_name="YF"
                     )
                     bars.append(bar)

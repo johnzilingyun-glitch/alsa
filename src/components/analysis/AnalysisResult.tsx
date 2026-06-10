@@ -101,6 +101,8 @@ export function AnalysisResult({
         onExportPdf={onExportPdf}
         onExportShareCard={onExportShareCard}
         onSendStockReport={onSendStockReport}
+        isStarred={watchlist.some(w => w.symbol === analysis.stockInfo?.symbol)}
+        onToggleWatchlist={toggleWatchlist}
       />
 
       {/* Tab Switcher */}

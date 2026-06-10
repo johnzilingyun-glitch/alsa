@@ -1,15 +1,696 @@
 {
   "start_date": "2020-01-01",
-  "end_date": "2021-12-31",
-  "model": "MockAgent",
-  "final_account": 9966534.98865366,
-  "metrics": {
-    "risk": {
-      "mean": -6.871907086469941e-06,
-      "std": 0.0002013082370448301,
-      "annualized_return": -0.0016355138865798461,
-      "information_ratio": -0.5266283222013615,
-      "max_drawdown": -0.004696005266223179
+  "end_date": "2020-06-30",
+  "model": "custom_rule",
+  "market": "CN",
+  "final_account": 1000000.0,
+  "snapshots": [
+    {
+      "date": "2020-01-02",
+      "total_equity": 1000000.0,
+      "close_price": 978.99267578125,
+      "cash": 0
+    },
+    {
+      "date": "2020-01-03",
+      "total_equity": 1000000.0,
+      "close_price": 934.4268798828125,
+      "cash": 0
+    },
+    {
+      "date": "2020-01-06",
+      "total_equity": 1000000.0,
+      "close_price": 933.9330444335938,
+      "cash": 0
+    },
+    {
+      "date": "2020-01-07",
+      "total_equity": 1000000.0,
+      "close_price": 948.2627563476562,
+      "cash": 0
+    },
+    {
+      "date": "2020-01-08",
+      "total_equity": 1000000.0,
+      "close_price": 942.7266845703125,
+      "cash": 0
+    },
+    {
+      "date": "2020-01-09",
+      "total_equity": 1000000.0,
+      "close_price": 955.3407592773438,
+      "cash": 0
+    },
+    {
+      "date": "2020-01-10",
+      "total_equity": 1000000.0,
+      "close_price": 963.8313598632812,
+      "cash": 0
+    },
+    {
+      "date": "2020-01-13",
+      "total_equity": 1000000.0,
+      "close_price": 974.0284423828125,
+      "cash": 0
+    },
+    {
+      "date": "2020-01-14",
+      "total_equity": 1000000.0,
+      "close_price": 959.412841796875,
+      "cash": 0
+    },
+    {
+      "date": "2020-01-15",
+      "total_equity": 1000000.0,
+      "close_price": 963.5107421875,
+      "cash": 0
+    },
+    {
+      "date": "2020-01-16",
+      "total_equity": 1000000.0,
+      "close_price": 959.0662841796875,
+      "cash": 0
+    },
+    {
+      "date": "2020-01-17",
+      "total_equity": 1000000.0,
+      "close_price": 959.4993896484375,
+      "cash": 0
+    },
+    {
+      "date": "2020-01-20",
+      "total_equity": 1000000.0,
+      "close_price": 945.2044677734375,
+      "cash": 0
+    },
+    {
+      "date": "2020-01-21",
+      "total_equity": 1000000.0,
+      "close_price": 931.6025390625,
+      "cash": 0
+    },
+    {
+      "date": "2020-01-22",
+      "total_equity": 1000000.0,
+      "close_price": 931.7844848632812,
+      "cash": 0
+    },
+    {
+      "date": "2020-01-23",
+      "total_equity": 1000000.0,
+      "close_price": 912.1093139648438,
+      "cash": 0
+    },
+    {
+      "date": "2020-02-03",
+      "total_equity": 1000000.0,
+      "close_price": 869.7613525390625,
+      "cash": 0
+    },
+    {
+      "date": "2020-02-04",
+      "total_equity": 1000000.0,
+      "close_price": 899.2957153320312,
+      "cash": 0
+    },
+    {
+      "date": "2020-02-05",
+      "total_equity": 1000000.0,
+      "close_price": 909.6747436523438,
+      "cash": 0
+    },
+    {
+      "date": "2020-02-07",
+      "total_equity": 1000000.0,
+      "close_price": 932.2090454101562,
+      "cash": 0
+    },
+    {
+      "date": "2020-02-10",
+      "total_equity": 1000000.0,
+      "close_price": 923.9697875976562,
+      "cash": 0
+    },
+    {
+      "date": "2020-02-11",
+      "total_equity": 1000000.0,
+      "close_price": 951.2689819335938,
+      "cash": 0
+    },
+    {
+      "date": "2020-02-12",
+      "total_equity": 1000000.0,
+      "close_price": 950.636474609375,
+      "cash": 0
+    },
+    {
+      "date": "2020-02-13",
+      "total_equity": 1000000.0,
+      "close_price": 945.2044677734375,
+      "cash": 0
+    },
+    {
+      "date": "2020-02-14",
+      "total_equity": 1000000.0,
+      "close_price": 942.6052856445312,
+      "cash": 0
+    },
+    {
+      "date": "2020-02-17",
+      "total_equity": 1000000.0,
+      "close_price": 947.6475219726562,
+      "cash": 0
+    },
+    {
+      "date": "2020-02-18",
+      "total_equity": 1000000.0,
+      "close_price": 939.1398315429688,
+      "cash": 0
+    },
+    {
+      "date": "2020-02-19",
+      "total_equity": 1000000.0,
+      "close_price": 949.969482421875,
+      "cash": 0
+    },
+    {
+      "date": "2020-02-20",
+      "total_equity": 1000000.0,
+      "close_price": 968.5963134765625,
+      "cash": 0
+    },
+    {
+      "date": "2020-02-21",
+      "total_equity": 1000000.0,
+      "close_price": 964.1605224609375,
+      "cash": 0
+    },
+    {
+      "date": "2020-02-25",
+      "total_equity": 1000000.0,
+      "close_price": 931.177978515625,
+      "cash": 0
+    },
+    {
+      "date": "2020-02-26",
+      "total_equity": 1000000.0,
+      "close_price": 930.2161865234375,
+      "cash": 0
+    },
+    {
+      "date": "2020-02-27",
+      "total_equity": 1000000.0,
+      "close_price": 942.0767822265625,
+      "cash": 0
+    },
+    {
+      "date": "2020-02-28",
+      "total_equity": 1000000.0,
+      "close_price": 915.748046875,
+      "cash": 0
+    },
+    {
+      "date": "2020-03-02",
+      "total_equity": 1000000.0,
+      "close_price": 940.8811645507812,
+      "cash": 0
+    },
+    {
+      "date": "2020-03-03",
+      "total_equity": 1000000.0,
+      "close_price": 964.2644653320312,
+      "cash": 0
+    },
+    {
+      "date": "2020-03-04",
+      "total_equity": 1000000.0,
+      "close_price": 978.0570678710938,
+      "cash": 0
+    },
+    {
+      "date": "2020-03-05",
+      "total_equity": 1000000.0,
+      "close_price": 1014.513671875,
+      "cash": 0
+    },
+    {
+      "date": "2020-03-06",
+      "total_equity": 1000000.0,
+      "close_price": 1001.0850219726562,
+      "cash": 0
+    },
+    {
+      "date": "2020-03-09",
+      "total_equity": 1000000.0,
+      "close_price": 965.1395263671875,
+      "cash": 0
+    },
+    {
+      "date": "2020-03-10",
+      "total_equity": 1000000.0,
+      "close_price": 1001.51806640625,
+      "cash": 0
+    },
+    {
+      "date": "2020-03-11",
+      "total_equity": 1000000.0,
+      "close_price": 1003.7014770507812,
+      "cash": 0
+    },
+    {
+      "date": "2020-03-12",
+      "total_equity": 1000000.0,
+      "close_price": 986.3568115234375,
+      "cash": 0
+    },
+    {
+      "date": "2020-03-16",
+      "total_equity": 1000000.0,
+      "close_price": 924.4118041992188,
+      "cash": 0
+    },
+    {
+      "date": "2020-03-17",
+      "total_equity": 1000000.0,
+      "close_price": 905.4381713867188,
+      "cash": 0
+    },
+    {
+      "date": "2020-03-18",
+      "total_equity": 1000000.0,
+      "close_price": 873.2874755859375,
+      "cash": 0
+    },
+    {
+      "date": "2020-03-19",
+      "total_equity": 1000000.0,
+      "close_price": 862.8997802734375,
+      "cash": 0
+    },
+    {
+      "date": "2020-03-20",
+      "total_equity": 1000000.0,
+      "close_price": 896.9304809570312,
+      "cash": 0
+    },
+    {
+      "date": "2020-03-23",
+      "total_equity": 1000000.0,
+      "close_price": 882.8260498046875,
+      "cash": 0
+    },
+    {
+      "date": "2020-03-24",
+      "total_equity": 1000000.0,
+      "close_price": 914.881591796875,
+      "cash": 0
+    },
+    {
+      "date": "2020-03-25",
+      "total_equity": 1000000.0,
+      "close_price": 935.760986328125,
+      "cash": 0
+    },
+    {
+      "date": "2020-03-26",
+      "total_equity": 1000000.0,
+      "close_price": 922.609619140625,
+      "cash": 0
+    },
+    {
+      "date": "2020-03-27",
+      "total_equity": 1000000.0,
+      "close_price": 931.7757568359375,
+      "cash": 0
+    },
+    {
+      "date": "2020-03-30",
+      "total_equity": 1000000.0,
+      "close_price": 928.7435302734375,
+      "cash": 0
+    },
+    {
+      "date": "2020-04-01",
+      "total_equity": 1000000.0,
+      "close_price": 955.6007690429688,
+      "cash": 0
+    },
+    {
+      "date": "2020-04-02",
+      "total_equity": 1000000.0,
+      "close_price": 991.9882202148438,
+      "cash": 0
+    },
+    {
+      "date": "2020-04-03",
+      "total_equity": 1000000.0,
+      "close_price": 987.4744873046875,
+      "cash": 0
+    },
+    {
+      "date": "2020-04-07",
+      "total_equity": 1000000.0,
+      "close_price": 1004.9402465820312,
+      "cash": 0
+    },
+    {
+      "date": "2020-04-08",
+      "total_equity": 1000000.0,
+      "close_price": 1004.7757568359375,
+      "cash": 0
+    },
+    {
+      "date": "2020-04-09",
+      "total_equity": 1000000.0,
+      "close_price": 1003.6839599609375,
+      "cash": 0
+    },
+    {
+      "date": "2020-04-10",
+      "total_equity": 1000000.0,
+      "close_price": 1009.3154296875,
+      "cash": 0
+    },
+    {
+      "date": "2020-04-13",
+      "total_equity": 1000000.0,
+      "close_price": 1006.9762573242188,
+      "cash": 0
+    },
+    {
+      "date": "2020-04-14",
+      "total_equity": 1000000.0,
+      "close_price": 1026.7293701171875,
+      "cash": 0
+    },
+    {
+      "date": "2020-04-15",
+      "total_equity": 1000000.0,
+      "close_price": 1030.628173828125,
+      "cash": 0
+    },
+    {
+      "date": "2020-04-16",
+      "total_equity": 1000000.0,
+      "close_price": 1037.1256103515625,
+      "cash": 0
+    },
+    {
+      "date": "2020-04-17",
+      "total_equity": 1000000.0,
+      "close_price": 1062.163818359375,
+      "cash": 0
+    },
+    {
+      "date": "2020-04-20",
+      "total_equity": 1000000.0,
+      "close_price": 1063.2900390625,
+      "cash": 0
+    },
+    {
+      "date": "2020-04-21",
+      "total_equity": 1000000.0,
+      "close_price": 1039.6383056640625,
+      "cash": 0
+    },
+    {
+      "date": "2020-04-22",
+      "total_equity": 1000000.0,
+      "close_price": 1078.1915283203125,
+      "cash": 0
+    },
+    {
+      "date": "2020-04-23",
+      "total_equity": 1000000.0,
+      "close_price": 1084.91455078125,
+      "cash": 0
+    },
+    {
+      "date": "2020-04-24",
+      "total_equity": 1000000.0,
+      "close_price": 1083.4417724609375,
+      "cash": 0
+    },
+    {
+      "date": "2020-04-27",
+      "total_equity": 1000000.0,
+      "close_price": 1105.48193359375,
+      "cash": 0
+    },
+    {
+      "date": "2020-04-28",
+      "total_equity": 1000000.0,
+      "close_price": 1108.193603515625,
+      "cash": 0
+    },
+    {
+      "date": "2020-04-29",
+      "total_equity": 1000000.0,
+      "close_price": 1104.52880859375,
+      "cash": 0
+    },
+    {
+      "date": "2020-04-30",
+      "total_equity": 1000000.0,
+      "close_price": 1096.5584716796875,
+      "cash": 0
+    },
+    {
+      "date": "2020-05-07",
+      "total_equity": 1000000.0,
+      "close_price": 1136.6712646484375,
+      "cash": 0
+    },
+    {
+      "date": "2020-05-08",
+      "total_equity": 1000000.0,
+      "close_price": 1138.9322509765625,
+      "cash": 0
+    },
+    {
+      "date": "2020-05-11",
+      "total_equity": 1000000.0,
+      "close_price": 1146.209716796875,
+      "cash": 0
+    },
+    {
+      "date": "2020-05-12",
+      "total_equity": 1000000.0,
+      "close_price": 1154.86474609375,
+      "cash": 0
+    },
+    {
+      "date": "2020-05-13",
+      "total_equity": 1000000.0,
+      "close_price": 1157.4205322265625,
+      "cash": 0
+    },
+    {
+      "date": "2020-05-14",
+      "total_equity": 1000000.0,
+      "close_price": 1149.311279296875,
+      "cash": 0
+    },
+    {
+      "date": "2020-05-15",
+      "total_equity": 1000000.0,
+      "close_price": 1137.5374755859375,
+      "cash": 0
+    },
+    {
+      "date": "2020-05-18",
+      "total_equity": 1000000.0,
+      "close_price": 1166.3095703125,
+      "cash": 0
+    },
+    {
+      "date": "2020-05-19",
+      "total_equity": 1000000.0,
+      "close_price": 1166.22265625,
+      "cash": 0
+    },
+    {
+      "date": "2020-05-20",
+      "total_equity": 1000000.0,
+      "close_price": 1170.45947265625,
+      "cash": 0
+    },
+    {
+      "date": "2020-05-21",
+      "total_equity": 1000000.0,
+      "close_price": 1183.5413818359375,
+      "cash": 0
+    },
+    {
+      "date": "2020-05-22",
+      "total_equity": 1000000.0,
+      "close_price": 1150.7060546875,
+      "cash": 0
+    },
+    {
+      "date": "2020-05-25",
+      "total_equity": 1000000.0,
+      "close_price": 1180.7689208984375,
+      "cash": 0
+    },
+    {
+      "date": "2020-05-26",
+      "total_equity": 1000000.0,
+      "close_price": 1176.5238037109375,
+      "cash": 0
+    },
+    {
+      "date": "2020-05-27",
+      "total_equity": 1000000.0,
+      "close_price": 1159.1966552734375,
+      "cash": 0
+    },
+    {
+      "date": "2020-05-28",
+      "total_equity": 1000000.0,
+      "close_price": 1164.394775390625,
+      "cash": 0
+    },
+    {
+      "date": "2020-05-29",
+      "total_equity": 1000000.0,
+      "close_price": 1183.974609375,
+      "cash": 0
+    },
+    {
+      "date": "2020-06-01",
+      "total_equity": 1000000.0,
+      "close_price": 1229.805419921875,
+      "cash": 0
+    },
+    {
+      "date": "2020-06-02",
+      "total_equity": 1000000.0,
+      "close_price": 1222.18994140625,
+      "cash": 0
+    },
+    {
+      "date": "2020-06-03",
+      "total_equity": 1000000.0,
+      "close_price": 1212.3048095703125,
+      "cash": 0
+    },
+    {
+      "date": "2020-06-04",
+      "total_equity": 1000000.0,
+      "close_price": 1219.8336181640625,
+      "cash": 0
+    },
+    {
+      "date": "2020-06-05",
+      "total_equity": 1000000.0,
+      "close_price": 1234.5703125,
+      "cash": 0
+    },
+    {
+      "date": "2020-06-08",
+      "total_equity": 1000000.0,
+      "close_price": 1218.1961669921875,
+      "cash": 0
+    },
+    {
+      "date": "2020-06-09",
+      "total_equity": 1000000.0,
+      "close_price": 1227.249755859375,
+      "cash": 0
+    },
+    {
+      "date": "2020-06-10",
+      "total_equity": 1000000.0,
+      "close_price": 1233.4095458984375,
+      "cash": 0
+    },
+    {
+      "date": "2020-06-12",
+      "total_equity": 1000000.0,
+      "close_price": 1227.09375,
+      "cash": 0
+    },
+    {
+      "date": "2020-06-15",
+      "total_equity": 1000000.0,
+      "close_price": 1198.1832275390625,
+      "cash": 0
+    },
+    {
+      "date": "2020-06-16",
+      "total_equity": 1000000.0,
+      "close_price": 1216.2725830078125,
+      "cash": 0
+    },
+    {
+      "date": "2020-06-17",
+      "total_equity": 1000000.0,
+      "close_price": 1217.2430419921875,
+      "cash": 0
+    },
+    {
+      "date": "2020-06-18",
+      "total_equity": 1000000.0,
+      "close_price": 1224.1741943359375,
+      "cash": 0
+    },
+    {
+      "date": "2020-06-19",
+      "total_equity": 1000000.0,
+      "close_price": 1247.4271240234375,
+      "cash": 0
+    },
+    {
+      "date": "2020-06-22",
+      "total_equity": 1000000.0,
+      "close_price": 1246.6993408203125,
+      "cash": 0
+    },
+    {
+      "date": "2020-06-23",
+      "total_equity": 1000000.0,
+      "close_price": 1277.4554443359375,
+      "cash": 0
+    },
+    {
+      "date": "2020-06-24",
+      "total_equity": 1000000.0,
+      "close_price": 1279.677490234375,
+      "cash": 0
+    },
+    {
+      "date": "2020-06-30",
+      "total_equity": 1000000.0,
+      "close_price": 1282.1929931640625,
+      "cash": 0
     }
+  ],
+  "trades": [],
+  "metrics": {
+    "annualized_return": {
+      "risk": 0.0
+    },
+    "max_drawdown": {
+      "risk": 0.0
+    },
+    "sharpe_ratio": 0.0,
+    "win_rate": 0.0,
+    "mean": {
+      "risk": 0.0
+    },
+    "std": {
+      "risk": 0.0
+    },
+    "alpha": -0.05,
+    "beta": 1.0,
+    "treynor_ratio": 0.0,
+    "information_ratio": 0.0,
+    "calmar_ratio": 0.0,
+    "sortino_ratio": -12598815.76697424,
+    "profit_factor": 0.0,
+    "profit_loss_ratio": 0.0,
+    "max_consecutive_loss": 0,
+    "avg_holding_days": 0.0
   }
 }

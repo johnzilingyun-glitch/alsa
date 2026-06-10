@@ -55,7 +55,7 @@ class BrainManager:
 
         from mem0 import Memory
 
-        default_provider = os.getenv("DEFAULT_LLM_PROVIDER", "gemini").lower()
+        default_provider = os.getenv("DEFAULT_LLM_PROVIDER", "deepseek").lower()
         is_gemini = default_provider == "gemini" and self.api_key
 
         llm_config = {

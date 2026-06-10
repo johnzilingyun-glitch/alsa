@@ -14,6 +14,10 @@ from ..utils.responses import success_response, error_response
 
 router = APIRouter(prefix="/sector", tags=["sector"])
 
+# Project root: python_service/app/api/sector.py -> api -> app -> python_service -> <root>
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+SECTOR_REPORTS_DIR = os.getenv("SECTOR_REPORTS_DIR", os.path.join(_PROJECT_ROOT, "reports", "sector"))
+
 # In-memory store for scan/analysis jobs (same pattern as AnalysisJobService)
 _scan_jobs: Dict[str, Dict[str, Any]] = {}
 _scan_tasks: Dict[str, asyncio.Task] = {}
@@ -29,6 +33,15 @@ class SectorScanRequest(BaseModel):
 
 class SectorAnalyzeRequest(BaseModel):
     sector_name: str
+    model: Optional[str] = None
+    date: Optional[str] = None
+    force: Optional[bool] = False
+    gemini_api_key: Optional[str] = None
+    deepseek_api_key: Optional[str] = None
+
+
+class SerenityAnalyzeRequest(BaseModel):
+    sector_name: Optional[str] = None
     model: Optional[str] = None
     date: Optional[str] = None
     force: Optional[bool] = False
@@ -363,6 +376,65 @@ async def start_sector_analysis(req: SectorAnalyzeRequest):
     return success_response({"job_id": job_id, "status": "running"})
 
 
+@router.post("/serenity-analyze")
+async def start_serenity_analysis(req: SerenityAnalyzeRequest):
+    """Start a sector analysis job using Serenity Alpha Analyst only."""
+    from ..db.sqlite import build_session_factory, DATABASE_URL
+    from ..db.repositories.job_repo import JobRepository
+    from ..services.sector_analysis_service import SectorAnalysisService
+    from ..db.models import AnalysisJob
+    from sqlmodel import select
+
+    session_factory = build_session_factory(DATABASE_URL)
+    job_repo = JobRepository(session_factory)
+    service = SectorAnalysisService(job_repo)
+
+    sector_name = req.sector_name if req.sector_name else "A股市场"
+    target_date = req.date if req.date else datetime.now().strftime("%Y-%m-%d")
+    try:
+        model = _resolve_model(req.model)
+    except ValueError as e:
+        return error_response(str(e))
+
+    # Cache check
+    if not req.force:
+        with session_factory() as session:
+            statement = select(AnalysisJob).where(
+                AnalysisJob.market == "sector",
+                AnalysisJob.analysis_level == "serenity_alpha",
+                AnalysisJob.status == "completed",
+                AnalysisJob.snapshot_id == target_date,
+                AnalysisJob.symbol.like(f"%{sector_name}%")
+            ).order_by(AnalysisJob.finished_at.desc())
+            existing_job = session.exec(statement).first()
+            if existing_job:
+                # Register in-memory reference
+                _scan_jobs[f"analyze_{existing_job.job_id}"] = {
+                    "service": service,
+                    "job_repo": job_repo,
+                }
+                return success_response({
+                    "job_id": existing_job.job_id,
+                    "status": "completed"
+                })
+
+    job_id = await service.start_sector_job(
+        sector_name, model=model, target_date=target_date, level="serenity_alpha",
+        config={
+            "geminiApiKey": req.gemini_api_key,
+            "deepseekApiKey": req.deepseek_api_key
+        }
+    )
+
+    # Keep reference so we can poll progress
+    _scan_jobs[f"analyze_{job_id}"] = {
+        "service": service,
+        "job_repo": job_repo,
+    }
+
+    return success_response({"job_id": job_id, "status": "running"})
+
+
 @router.get("/analyze/{job_id}")
 async def get_sector_analysis_status(job_id: str):
     """Poll sector analysis job status."""
@@ -465,10 +537,10 @@ async def get_sector_report(job_id: str):
     if last_updated:
         date_str = last_updated[:10].replace("/", "-")
         
-    output_path = f"/home/zily/alsa/reports/sector/{date_str}/report_{job_id}.html"
+    output_path = os.path.join(SECTOR_REPORTS_DIR, date_str, f"report_{job_id}.html")
 
-    model = _resolve_model()
-    html_path = await report_service.generate_sector_report(result, output_path, model=model)
+    # Report rendering is pure markdown->HTML; no LLM/API key required.
+    html_path = await report_service.generate_sector_report(result, output_path)
 
     with open(html_path, "r", encoding="utf-8") as f:
         html_content = f.read()
@@ -519,9 +591,8 @@ async def export_sector_html(job_id: str):
     if last_updated:
         date_str = last_updated[:10].replace("/", "-")
         
-    output_path = f"/home/zily/alsa/reports/sector/{date_str}/report_{job_id}.html"
-    model = _resolve_model()
-    html_path = await report_service.generate_sector_report(result, output_path, model=model)
+    output_path = os.path.join(SECTOR_REPORTS_DIR, date_str, f"report_{job_id}.html")
+    html_path = await report_service.generate_sector_report(result, output_path)
 
     with open(html_path, "r", encoding="utf-8") as f:
         html_content = f.read()
@@ -551,9 +622,8 @@ async def export_sector_pdf(job_id: str):
     if last_updated:
         date_str = last_updated[:10].replace("/", "-")
         
-    output_path = f"/home/zily/alsa/reports/sector/{date_str}/report_{job_id}.html"
-    model = _resolve_model()
-    html_path = await report_service.generate_sector_report(result, output_path, model=model)
+    output_path = os.path.join(SECTOR_REPORTS_DIR, date_str, f"report_{job_id}.html")
+    html_path = await report_service.generate_sector_report(result, output_path)
 
     with open(html_path, "r", encoding="utf-8") as f:
         html_content = f.read()

@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import {
-  ArrowLeft, Download, Share2, Loader2, CheckCircle2, FileText, Image, ChevronDown,
+  ArrowLeft, Download, Share2, Loader2, CheckCircle2, FileText, Image, ChevronDown, Heart,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { cn } from './utils';
@@ -12,6 +12,8 @@ interface AnalysisActionBarProps {
   onExportPdf?: () => void;
   onExportShareCard?: () => void;
   onSendStockReport: () => void;
+  isStarred?: boolean;
+  onToggleWatchlist?: () => void;
 }
 
 export function AnalysisActionBar({
@@ -20,6 +22,8 @@ export function AnalysisActionBar({
   onExportPdf,
   onExportShareCard,
   onSendStockReport,
+  isStarred = false,
+  onToggleWatchlist,
 }: AnalysisActionBarProps) {
   const { t } = useTranslation();
   const { isGeneratingReport, isSendingReport, reportStatus } = useUIStore();
@@ -48,6 +52,21 @@ export function AnalysisActionBar({
       </button>
 
       <div className="flex items-center gap-2">
+        {onToggleWatchlist && (
+          <button
+            onClick={onToggleWatchlist}
+            className={cn(
+              "flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all border",
+              isStarred
+                ? "bg-rose-50/50 text-rose-500 border-rose-200/80 hover:bg-rose-100/50"
+                : "bg-white border border-zinc-200/60 hover:bg-zinc-50 text-zinc-500"
+            )}
+          >
+            <Heart size={16} className={cn(isStarred && "fill-rose-500 text-rose-500")} />
+            {isStarred ? "已关注" : "添加自选"}
+          </button>
+        )}
+
         {/* Export dropdown */}
         <div className="relative" ref={dropdownRef}>
           <button

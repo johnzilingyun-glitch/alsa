@@ -15,8 +15,9 @@ import { ErrorNotice } from '../ErrorNotice';
 import { getMarketHistoryByDate, getAvailableMarketDates } from '../../services/adminService';
 import { InstitutionalAlertPanel } from './InstitutionalAlertPanel';
 import { SectorScanner } from './SectorScanner';
+import { SerenityAlphaAnalyst } from './SerenityAlphaAnalyst';
 import { alertsClient } from '../../services/api/alertsClient';
-import { Target, Activity, Star as StarIcon, Heart, Trash2 } from 'lucide-react';
+import { Target, Activity, Star as StarIcon, Heart, Trash2, Plus, X } from 'lucide-react';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -105,6 +106,128 @@ export const MarketOverview = memo(function MarketOverview({ onFetchMarketOvervi
   const [availableDates, setAvailableDates] = useState<string[]>([]);
   const [historyData, setHistoryData] = useState<MarketOverviewType | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
+
+  // Watchlist Manual Addition State
+  const [isAddingWatchlist, setIsAddingWatchlist] = useState(false);
+  const [newWatchlistSymbol, setNewWatchlistSymbol] = useState('');
+  const [newWatchlistMarket, setNewWatchlistMarket] = useState<Market>('A-Share');
+  const [newWatchlistName, setNewWatchlistName] = useState('');
+  const [watchlistSuggestions, setWatchlistSuggestions] = useState<any[]>([]);
+  const [showWatchlistSuggestions, setShowWatchlistSuggestions] = useState(false);
+  const [wlSelectedIndex, setWlSelectedIndex] = useState(-1);
+  const watchlistFormRef = useRef<HTMLDivElement>(null);
+
+  // Watchlist Suggestions Fetcher
+  useEffect(() => {
+    const controller = new AbortController();
+    const fetchWlSuggestions = async () => {
+      const trimmed = newWatchlistSymbol.trim();
+      if (!trimmed || trimmed.length < 1) {
+        setWatchlistSuggestions([]);
+        setShowWatchlistSuggestions(false);
+        return;
+      }
+      try {
+        const params = new URLSearchParams();
+        params.set('input', trimmed);
+        params.set('market', newWatchlistMarket);
+        const res = await fetch(`/api/stock/suggest?${params.toString()}`, { signal: controller.signal });
+        if (res.ok) {
+          const data = await res.json();
+          setWatchlistSuggestions(data);
+          setShowWatchlistSuggestions(data.length > 0);
+          setWlSelectedIndex(-1);
+        }
+      } catch (e: any) {
+        if (e.name !== 'AbortError') console.error('Failed to fetch watchlist suggestions:', e);
+      }
+    };
+
+    const timeout = setTimeout(fetchWlSuggestions, 300);
+    return () => { clearTimeout(timeout); controller.abort(); };
+  }, [newWatchlistSymbol, newWatchlistMarket]);
+
+  // Click outside to close watchlist suggestions
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (watchlistFormRef.current && !watchlistFormRef.current.contains(e.target as Node)) {
+        setShowWatchlistSuggestions(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const handleAddWatchlistItem = async (selectedStock?: { symbol: string; name: string; market: Market }) => {
+    let symbolToUse = newWatchlistSymbol.trim().toUpperCase();
+    let marketToUse = newWatchlistMarket;
+    let nameToUse = newWatchlistName.trim() || symbolToUse;
+
+    if (selectedStock) {
+      symbolToUse = selectedStock.symbol.toUpperCase();
+      marketToUse = selectedStock.market;
+      nameToUse = selectedStock.name;
+    }
+
+    if (!symbolToUse) {
+      showToast('请输入股票代码', 'info');
+      return;
+    }
+
+    // Check if already in watchlist
+    if (watchlist.some(w => w.symbol.toUpperCase() === symbolToUse && w.market === marketToUse)) {
+      showToast('该股票已在关注列表中', 'info');
+      setIsAddingWatchlist(false);
+      setNewWatchlistSymbol('');
+      setNewWatchlistName('');
+      return;
+    }
+
+    try {
+      const res = await fetch('/api/watchlist/', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          symbol: symbolToUse,
+          name: nameToUse,
+          market: marketToUse
+        })
+      });
+      if (res.ok) {
+        const newItem = await res.json();
+        setWatchlist([...watchlist, newItem]);
+        showToast(`成功添加 ${nameToUse} 到关注列表`, 'success');
+        setIsAddingWatchlist(false);
+        setNewWatchlistSymbol('');
+        setNewWatchlistName('');
+      } else {
+        showToast('添加失败，请稍后重试', 'error');
+      }
+    } catch (err) {
+      console.error('Failed to add to watchlist:', err);
+      showToast('添加出错，请稍后重试', 'error');
+    }
+  };
+
+  const handleWlKeyDown = (e: React.KeyboardEvent) => {
+    if (!showWatchlistSuggestions || watchlistSuggestions.length === 0) return;
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setWlSelectedIndex(prev => (prev + 1) % watchlistSuggestions.length);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setWlSelectedIndex(prev => (prev - 1 + watchlistSuggestions.length) % watchlistSuggestions.length);
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (wlSelectedIndex >= 0 && wlSelectedIndex < watchlistSuggestions.length) {
+        handleAddWatchlistItem(watchlistSuggestions[wlSelectedIndex]);
+      } else {
+        handleAddWatchlistItem();
+      }
+    } else if (e.key === 'Escape') {
+      setShowWatchlistSuggestions(false);
+    }
+  };
 
   // Deterministic News & Sectors State
   const [hotNews, setHotNews] = useState<any[]>([]);
@@ -346,10 +469,124 @@ export const MarketOverview = memo(function MarketOverview({ onFetchMarketOvervi
                 <Heart size={16} className="text-rose-500 fill-rose-500/10" />
                 {t('marketOverview.watchlist_title')}
               </h3>
-              <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest bg-zinc-100 px-2 py-1 rounded-md">
-                Dual-Logic Tracking
-              </span>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => setIsAddingWatchlist(prev => !prev)}
+                  className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest bg-zinc-100 hover:bg-zinc-200 text-zinc-600 px-3 py-1.5 rounded-xl transition-all"
+                >
+                  {isAddingWatchlist ? (
+                    <>
+                      <X size={12} />
+                      {t('common.cancel')}
+                    </>
+                  ) : (
+                    <>
+                      <Plus size={12} />
+                      手动添加
+                    </>
+                  )}
+                </button>
+                <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest bg-zinc-100 px-2 py-1 rounded-md">
+                  Dual-Logic Tracking
+                </span>
+              </div>
             </div>
+
+            {isAddingWatchlist && (
+              <div 
+                ref={watchlistFormRef}
+                className="relative p-5 bg-white border border-zinc-200/80 rounded-2xl flex flex-col md:flex-row gap-4 items-stretch md:items-end animate-in fade-in slide-in-from-top-2 duration-200 z-30 shadow-sm"
+              >
+                <div className="flex-1 grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  {/* Market Dropdown */}
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-[10px] font-bold uppercase text-zinc-400 tracking-wider">选择市场</label>
+                    <select
+                      value={newWatchlistMarket}
+                      onChange={(e) => setNewWatchlistMarket(e.target.value as Market)}
+                      className="bg-zinc-50 text-zinc-700 border border-zinc-200/85 rounded-xl px-3 py-2.5 text-xs focus:ring-2 focus:ring-indigo-600/10 focus:border-indigo-600/40 outline-none hover:bg-zinc-100 transition-colors cursor-pointer"
+                    >
+                      <option value="A-Share">A-Share (沪深)</option>
+                      <option value="HK-Share">HK-Share (港股)</option>
+                      <option value="US-Share">US-Share (美股)</option>
+                    </select>
+                  </div>
+
+                  {/* Symbol Input */}
+                  <div className="relative flex flex-col gap-1.5">
+                    <label className="text-[10px] font-bold uppercase text-zinc-400 tracking-wider">股票代码 / 拼音</label>
+                    <input
+                      type="text"
+                      value={newWatchlistSymbol}
+                      onChange={(e) => setNewWatchlistSymbol(e.target.value)}
+                      onKeyDown={handleWlKeyDown}
+                      onFocus={() => { if (watchlistSuggestions.length > 0) setShowWatchlistSuggestions(true); }}
+                      placeholder="代码、名称或拼音..."
+                      className="bg-zinc-50 text-zinc-950 border border-zinc-200/85 rounded-xl px-3 py-2.5 text-xs focus:ring-2 focus:ring-indigo-600/10 focus:border-indigo-600/40 outline-none transition-all placeholder:text-zinc-400"
+                    />
+
+                    {/* Suggestions Popover */}
+                    {showWatchlistSuggestions && watchlistSuggestions.length > 0 && (
+                      <div className="absolute top-full left-0 right-0 mt-2 z-50 overflow-hidden rounded-xl border border-zinc-100 bg-white shadow-xl max-h-60 overflow-y-auto">
+                        <div className="p-1" role="listbox" aria-label="Watchlist suggestions">
+                          {watchlistSuggestions.map((s, idx) => (
+                            <button
+                              key={`wl-s-${s.symbol}-${idx}`}
+                              type="button"
+                              onClick={() => handleAddWatchlistItem(s)}
+                              onMouseEnter={() => setWlSelectedIndex(idx)}
+                              className={`flex w-full items-center justify-between px-3 py-2.5 rounded-lg text-left transition-all text-xs ${
+                                idx === wlSelectedIndex ? 'bg-indigo-50 text-indigo-700 font-semibold' : 'text-zinc-600 hover:bg-zinc-50'
+                              }`}
+                            >
+                              <div className="flex items-center gap-2">
+                                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${idx === wlSelectedIndex ? 'bg-indigo-100 text-indigo-600' : 'bg-zinc-100 text-zinc-500'}`}>
+                                  {s.symbol}
+                                </span>
+                                <span className="truncate max-w-[120px]">{s.name}</span>
+                              </div>
+                              <span className="text-[9px] uppercase tracking-widest text-zinc-400">{s.exchange || s.market}</span>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Stock Name (Optional) */}
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-[10px] font-bold uppercase text-zinc-400 tracking-wider">显示名称 (选填)</label>
+                    <input
+                      type="text"
+                      value={newWatchlistName}
+                      onChange={(e) => setNewWatchlistName(e.target.value)}
+                      placeholder="默认使用官方名称"
+                      className="bg-zinc-50 text-zinc-950 border border-zinc-200/85 rounded-xl px-3 py-2.5 text-xs focus:ring-2 focus:ring-indigo-600/10 focus:border-indigo-600/40 outline-none transition-all placeholder:text-zinc-400"
+                    />
+                  </div>
+                </div>
+
+                {/* Actions */}
+                <div className="flex gap-2 flex-shrink-0">
+                  <button
+                    onClick={() => handleAddWatchlistItem()}
+                    className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all shadow-sm"
+                  >
+                    添加
+                  </button>
+                  <button
+                    onClick={() => {
+                      setIsAddingWatchlist(false);
+                      setNewWatchlistSymbol('');
+                      setNewWatchlistName('');
+                    }}
+                    className="px-5 py-2.5 bg-zinc-100 hover:bg-zinc-200 text-zinc-700 rounded-xl text-xs font-medium transition-all"
+                  >
+                    取消
+                  </button>
+                </div>
+              </div>
+            )}
             
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {/* Combine Watchlist and Top Recent Searches */}
@@ -523,6 +760,11 @@ export const MarketOverview = memo(function MarketOverview({ onFetchMarketOvervi
         {/* Sector Scanner */}
         {!isHistoryMode && overviewMarket === 'A-Share' && (
           <SectorScanner />
+        )}
+
+        {/* Serenity Alpha Analyst */}
+        {!isHistoryMode && overviewMarket === 'A-Share' && (
+          <SerenityAlphaAnalyst />
         )}
 
         <div className="grid grid-cols-2 gap-4 md:grid-cols-5">

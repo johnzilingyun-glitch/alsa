@@ -1,7 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Loader2, FileText, AlertCircle } from 'lucide-react';
+import { Loader2, FileText, AlertCircle, Target, CheckCircle2, Bell, BellRing } from 'lucide-react';
 import { useAnalysisStore } from '../../stores/useAnalysisStore';
 import { useConfigStore } from '../../stores/useConfigStore';
+import { useUIStore } from '../../stores/useUIStore';
+import { alertsClient } from '../../services/api/alertsClient';
+import { useTranslation } from 'react-i18next';
+import { cn } from './utils';
+import type { Market } from '../../types';
 
 /**
  * Renders the CLI-quality institutional HTML report from the Python backend.
@@ -13,6 +18,80 @@ export function InstitutionalReportView() {
   const cachedReportJobId = useAnalysisStore(s => s.cachedReportJobId);
   const setCachedReport = useAnalysisStore(s => s.setCachedReport);
   const config = useConfigStore(s => s.config);
+
+  // States and logic for Signal Monitoring
+  const { t } = useTranslation();
+  const analysis = useAnalysisStore(s => s.analysis);
+  const [isAdding, setIsAdding] = useState(false);
+  const [added, setAdded] = useState(false);
+  const [createdAlertId, setCreatedAlertId] = useState<string | null>(null);
+  const [showMonitorConfirm, setShowMonitorConfirm] = useState(false);
+  const [monitoringEnabled, setMonitoringEnabled] = useState(false);
+  const [isEnablingMonitor, setIsEnablingMonitor] = useState(false);
+  const showToast = useUIStore(s => s.showToast);
+  const feishuWebhookUrl = useConfigStore(s => s.feishuWebhookUrl);
+
+  const isNotRecommended = analysis?.tradingPlan?.entryPrice?.includes('不推荐') || 
+                          analysis?.tradingPlan?.entryPrice?.includes('Not Recommended');
+
+  const handleAddToSignalCenter = async () => {
+    if (!analysis || !analysis.tradingPlan || !analysis.stockInfo) return;
+    setIsAdding(true);
+    try {
+      const { entryPrice, targetPrice, stopLoss } = analysis.tradingPlan as any;
+      const parseNum = (s: string) => {
+        const match = String(s || '').match(/[\d.]+/);
+        return match ? parseFloat(match[0]) : 0;
+      };
+      const entry = parseNum(entryPrice);
+      const target = parseNum(targetPrice);
+      const stop = parseNum(stopLoss);
+      
+      if (entry > 0 && target > 0 && stop > 0) {
+        const result = await alertsClient.create({
+          symbol: analysis.stockInfo.symbol,
+          name: analysis.stockInfo.name,
+          market: analysis.stockInfo.market as Market,
+          entry_price: entry,
+          target_price: target,
+          stop_loss: stop,
+          currency: analysis.stockInfo.currency || 'CNY',
+        });
+        setAdded(true);
+        setCreatedAlertId(result.alert_id);
+        setShowMonitorConfirm(true);
+        showToast('已添加至信号中心，请确认是否启动实时监控', 'success');
+      } else {
+        showToast('交易计划中未能提取有效的数值，无法添加', 'error');
+      }
+    } catch (e: any) {
+      showToast('添加失败: ' + e.message, 'error');
+    } finally {
+      setIsAdding(false);
+    }
+  };
+
+  const handleEnableMonitoring = async () => {
+    if (!createdAlertId || !analysis) return;
+    setIsEnablingMonitor(true);
+    try {
+      const thesis = analysis.summary || '';
+      const invalidation = analysis.tradingPlan?.strategyRisks || '';
+
+      await alertsClient.enableMonitoring(createdAlertId, {
+        feishu_webhook_url: feishuWebhookUrl || undefined,
+        thesis: thesis.slice(0, 500),
+        invalidation_criteria: invalidation.slice(0, 500),
+      });
+      setMonitoringEnabled(true);
+      setShowMonitorConfirm(false);
+      showToast('✅ 信号监控已启动！价格触发时将通过飞书实时通知', 'success');
+    } catch (e: any) {
+      showToast('启动监控失败: ' + e.message, 'error');
+    } finally {
+      setIsEnablingMonitor(false);
+    }
+  };
   
   // Derive initial state from cache
   const hasCachedReport = cachedReportJobId === lastJobId && !!cachedReportHtml;
@@ -119,15 +198,141 @@ export function InstitutionalReportView() {
   if (!html) return null;
 
   return (
-    <div className="w-full rounded-2xl border border-zinc-200 overflow-hidden bg-white shadow-sm">
-      <iframe
-        ref={iframeRef}
-        srcDoc={html}
-        className="w-full border-0"
-        style={{ minHeight: '800px' }}
-        sandbox="allow-same-origin"
-        title="Institutional Research Report"
-      />
+    <div className="space-y-6">
+      {analysis?.tradingPlan && (
+        <div className={cn(
+          "rounded-2xl p-6 border transition-all duration-300 bg-white shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-6",
+          isNotRecommended 
+            ? "border-rose-100 bg-rose-50/50" 
+            : "border-indigo-100 bg-indigo-50/20"
+        )}>
+          {/* Left Side: Info & Metrics */}
+          <div className="flex-1 space-y-2">
+            <div className="flex items-center gap-2">
+              <span className={cn(
+                "p-2 rounded-lg flex items-center justify-center",
+                isNotRecommended ? "bg-rose-100 text-rose-600" : "bg-indigo-100 text-indigo-600"
+              )}>
+                <Target size={18} />
+              </span>
+              <div>
+                <h4 className="font-bold text-zinc-950 text-base flex items-center gap-2">
+                  智能信号监控与执行计划
+                  {analysis.stockInfo?.symbol && (
+                    <span className="text-xs font-mono text-zinc-400 font-normal">
+                      {analysis.stockInfo.symbol} · {analysis.stockInfo.market}
+                    </span>
+                  )}
+                </h4>
+                <p className="text-xs text-zinc-500">
+                  基于本篇深度研报得出的量化交易模型，启动后可对入场、止盈、止损价格进行自动盯盘。
+                </p>
+              </div>
+            </div>
+
+            {isNotRecommended ? (
+              <p className="text-xs text-rose-500 font-medium">
+                {t('analysis.trading.not_recommended_desc')}
+              </p>
+            ) : (
+              <div className="flex flex-wrap gap-x-6 gap-y-2 pt-2">
+                <div className="text-xs">
+                  <span className="text-zinc-400 mr-1.5">{t('analysis.conference.entry_price')}:</span>
+                  <span className="font-semibold text-indigo-600 font-mono">{analysis.tradingPlan.entryPrice}</span>
+                </div>
+                <div className="text-xs">
+                  <span className="text-zinc-400 mr-1.5">{t('analysis.conference.target_price')}:</span>
+                  <span className="font-semibold text-emerald-600 font-mono">{analysis.tradingPlan.targetPrice}</span>
+                </div>
+                <div className="text-xs">
+                  <span className="text-zinc-400 mr-1.5">{t('analysis.conference.stop_loss')}:</span>
+                  <span className="font-semibold text-rose-500 font-mono">{analysis.tradingPlan.stopLoss}</span>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Right Side: Actions / Form */}
+          {!isNotRecommended && (
+            <div className="flex flex-col sm:flex-row items-center gap-3">
+              {showMonitorConfirm ? (
+                <div className="flex items-center gap-3 bg-amber-50 border border-amber-200/80 rounded-xl p-3 animate-in fade-in slide-in-from-right-3 duration-200">
+                  <div className="text-left max-w-[220px]">
+                    <p className="text-xs font-bold text-amber-800 flex items-center gap-1">
+                      <BellRing size={12} className="text-amber-600 animate-pulse" />
+                      启动实时信号监控？
+                    </p>
+                    <p className="text-[10px] text-amber-600 leading-normal mt-0.5">
+                      系统将持续盯盘，触及价格线时自动通过飞书发送警报。
+                    </p>
+                    {!feishuWebhookUrl && (
+                      <p className="text-[9px] text-rose-500 font-medium mt-1">
+                        ⚠ 未检测到飞书 Webhook，无法接收通知。请去设置中配置。
+                      </p>
+                    )}
+                  </div>
+                  <div className="flex flex-col gap-1 flex-shrink-0">
+                    <button
+                      onClick={handleEnableMonitoring}
+                      disabled={isEnablingMonitor || !feishuWebhookUrl}
+                      className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-[10px] font-bold transition-all disabled:opacity-40 whitespace-nowrap"
+                    >
+                      {isEnablingMonitor ? '启动中...' : '确认启动'}
+                    </button>
+                    <button
+                      onClick={() => setShowMonitorConfirm(false)}
+                      className="px-3 py-1.5 bg-zinc-200 hover:bg-zinc-300 text-zinc-700 rounded-lg text-[10px] font-medium transition-all whitespace-nowrap"
+                    >
+                      暂不启动
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  onClick={handleAddToSignalCenter}
+                  disabled={isAdding || added}
+                  className={cn(
+                    "w-full sm:w-auto flex items-center justify-center gap-2 px-5 py-3 rounded-xl text-xs font-bold transition-all shadow-sm border",
+                    monitoringEnabled
+                      ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                      : added
+                      ? "bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100/50"
+                      : "bg-indigo-600 hover:bg-indigo-700 text-white border-transparent"
+                  )}
+                >
+                  {monitoringEnabled ? (
+                    <>
+                      <BellRing size={14} className="text-emerald-600" />
+                      监控已启动
+                    </>
+                  ) : added ? (
+                    <>
+                      <CheckCircle2 size={14} className="text-amber-600" />
+                      已加入信号中心 (点击开启盯盘)
+                    </>
+                  ) : (
+                    <>
+                      {isAdding ? <Loader2 size={14} className="animate-spin" /> : <Target size={14} />}
+                      执行计划并启动信号监控
+                    </>
+                  )}
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      <div className="w-full rounded-2xl border border-zinc-200 overflow-hidden bg-white shadow-sm">
+        <iframe
+          ref={iframeRef}
+          srcDoc={html}
+          className="w-full border-0"
+          style={{ minHeight: '800px' }}
+          sandbox="allow-same-origin"
+          title="Institutional Research Report"
+        />
+      </div>
     </div>
   );
 }

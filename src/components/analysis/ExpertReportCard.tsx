@@ -9,6 +9,7 @@ import {
 import { useTranslation } from 'react-i18next';
 import { cn } from './utils';
 import type { AgentMessage, AgentRole } from '../../types';
+import { useConfigStore } from '../../stores/useConfigStore';
 
 interface ExpertReportCardProps {
   message: AgentMessage;
@@ -44,8 +45,10 @@ export function ExpertReportCard({
   message, isExpert, expertiseArea, references, isVerified, auditDetail, sentiment 
 }: ExpertReportCardProps) {
   const { t } = useTranslation();
+  const { geminiConfig } = useConfigStore();
   const theme = roleThemes[message.role] || roleThemes["Moderator"];
   const RoleIcon = theme.icon;
+  const modelUsed = (message as any).model || geminiConfig.model;
 
   const activeSentiment = sentiment || 
     (message.role === 'Bull Researcher' ? 'bullish' : 
@@ -94,7 +97,7 @@ export function ExpertReportCard({
 
       <div className="flex-1 space-y-4">
         {/* Header */}
-        <div className="flex items-center justify-between items-start">
+        <div className="flex items-start justify-between">
           <div className="flex flex-col gap-1">
             <div className="flex items-center gap-3">
               <span className={cn(
@@ -103,6 +106,11 @@ export function ExpertReportCard({
               )}>
                 {t(`analysis.roles.${message.role}`)}
               </span>
+              
+              <div className="px-2.5 py-1 rounded-xl bg-zinc-50 text-zinc-400 text-[8px] font-bold uppercase tracking-widest border border-zinc-200/60 shadow-sm">
+                {modelUsed}
+              </div>
+
               {isExpert && (
                 <div className="px-3 py-1.5 rounded-2xl bg-indigo-600 text-white text-[9px] font-bold uppercase tracking-widest flex items-center gap-2 shadow-lg shadow-indigo-600/20">
                   <Award size={12} />
@@ -148,19 +156,18 @@ export function ExpertReportCard({
 
         {/* Content Body */}
         <div className={cn(
-          "relative bg-white/70 backdrop-blur-xl border border-white/60 rounded-[2.5rem] p-1 shadow-[0_8px_32px_rgba(0,0,0,0.04)]",
-          "group-hover:shadow-[0_12px_48px_rgba(0,0,0,0.08)] transition-all duration-500 overflow-hidden",
-          activeSentiment === 'bullish' && "ring-1 ring-emerald-500/20",
-          activeSentiment === 'bearish' && "ring-1 ring-rose-500/20"
+          "p-8 rounded-[2rem] border relative overflow-hidden group shadow-sm transition-all duration-300",
+          theme.bg, theme.border
         )}>
           {/* Background accent */}
           <div className={cn(
-            "absolute top-0 right-0 w-64 h-64 -mr-32 -mt-32 rounded-full opacity-[0.03] blur-3xl pointer-events-none",
-            activeSentiment === 'bullish' ? "bg-emerald-500" : 
-            activeSentiment === 'bearish' ? "bg-rose-500" : theme.bg.replace('bg-', 'bg-')
-          )} />
+            "absolute top-0 right-0 p-6 opacity-[0.03] group-hover:opacity-[0.06] transition-opacity pointer-events-none",
+            theme.color
+          )}>
+            <RoleIcon size={120} className="rotate-12" />
+          </div>
           
-          <div className="p-8 space-y-10 relative z-10">
+          <div className="space-y-10 relative z-10">
             {parsedSections.map((section, idx) => {
               const isKelly = section.title.includes("KELLY");
               const isRisk = section.title.includes("RISK");
@@ -221,39 +228,41 @@ export function ExpertReportCard({
                        </div>
                     </div>
                   ) : (
-                    <div className={cn(
-                      "prose prose-zinc max-w-none w-full",
-                      "prose-sm sm:prose-base antialiased",
-                      // Paragraphs
-                      "prose-p:text-zinc-600 prose-p:leading-[1.8] prose-p:mb-5",
-                      // Headings
-                      "prose-headings:text-zinc-900 prose-headings:font-bold prose-headings:tracking-tight",
-                      "prose-h3:text-lg prose-h3:mt-8 prose-h3:mb-4",
-                      "prose-h4:text-base prose-h4:mt-6 prose-h4:mb-3",
-                      // Typography
-                      "prose-strong:text-zinc-900 prose-strong:font-semibold",
-                      "prose-em:italic",
-                      // Lists
-                      "prose-ul:list-outside prose-ul:pl-5 prose-ul:mb-6 prose-ul:space-y-2",
-                      "prose-ol:list-decimal prose-ol:list-outside prose-ol:pl-5 prose-ol:mb-6 prose-ol:space-y-2",
-                      "prose-li:text-zinc-600 prose-li:leading-relaxed",
-                      // Blockquotes (styled dynamically by role theme)
-                      "prose-blockquote:border-l-4 prose-blockquote:pl-5 prose-blockquote:py-1 prose-blockquote:not-italic",
-                      "prose-blockquote:text-zinc-600 prose-blockquote:bg-zinc-50 prose-blockquote:rounded-r-xl",
-                      // Tables (Institutional Grade)
-                      "prose-table:w-full prose-table:my-8 prose-table:border-collapse",
-                      "prose-table:shadow-sm prose-table:rounded-xl prose-table:overflow-hidden",
-                      "prose-thead:bg-zinc-100/80 prose-thead:border-b-2 prose-thead:border-zinc-200",
-                      "prose-th:px-4 prose-th:py-3.5 prose-th:text-left prose-th:text-[11px] prose-th:font-bold prose-th:uppercase prose-th:tracking-wider prose-th:text-zinc-500",
-                      "prose-tbody:bg-white",
-                      "prose-tr:border-b prose-tr:border-zinc-100 hover:prose-tr:bg-zinc-50/50 prose-tr:transition-colors",
-                      "prose-td:px-4 prose-td:py-3.5 prose-td:text-sm prose-td:text-zinc-600 prose-td:align-middle",
-                      // Links
-                      "prose-a:text-indigo-600 prose-a:no-underline hover:prose-a:underline prose-a:font-medium",
-                      // Inline Code
-                      "prose-code:text-[13px] prose-code:font-mono prose-code:bg-zinc-100 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded-md prose-code:text-zinc-800 before:prose-code:content-none after:prose-code:content-none"
-                    )}>
-                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{section.content}</ReactMarkdown>
+                    <div className="prose prose-zinc max-w-none w-full">
+                      <ReactMarkdown 
+                        remarkPlugins={[remarkGfm]}
+                        components={{
+                          h1: ({node, ...props}) => <h1 className="text-lg font-bold text-zinc-900 border-b border-zinc-100 pb-2 mb-4" {...props} />,
+                          h2: ({node, ...props}) => <h2 className="text-base font-bold text-zinc-800 mb-3" {...props} />,
+                          h3: ({node, ...props}) => <h3 className={cn("text-sm font-bold mt-2 mb-2 uppercase tracking-widest", theme.color)} {...props} />,
+                          p: ({node, ...props}) => <p className="text-zinc-600 leading-relaxed mb-4 text-[13px]" {...props} />,
+                          ul: ({node, ...props}) => <ul className="space-y-2 mb-6 ml-4" {...props} />,
+                          li: ({node, ...props}) => (
+                            <li className="flex items-start gap-2 text-zinc-600 text-[13px]">
+                              <div className={cn("mt-1.5 w-1.5 h-1.5 rounded-full shrink-0", theme.color.replace('text-', 'bg-').replace('600', '500').replace('700', '600'))} />
+                              <span {...props} />
+                            </li>
+                          ),
+                          table: ({node, ...props}) => (
+                            <div className="my-4 overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm overflow-x-auto">
+                              <table className="w-full text-left border-collapse" {...props} />
+                            </div>
+                          ),
+                          thead: ({node, ...props}) => <thead className="bg-zinc-50 border-b border-zinc-100" {...props} />,
+                          th: ({node, ...props}) => <th className="px-3 py-2 text-[8px] font-bold text-zinc-400 uppercase tracking-widest" {...props} />,
+                          td: ({node, ...props}) => <td className="px-3 py-2 text-[10px] text-zinc-500 border-b border-zinc-50" {...props} />,
+                          blockquote: ({node, ...props}) => (
+                            <blockquote className="my-4 p-4 rounded-xl bg-zinc-50 border-l-2 border-zinc-300 italic text-zinc-500" {...props} />
+                          ),
+                          code: ({node, inline, className, children, ...props}: any) => (
+                            <code className="text-[13px] font-mono bg-zinc-100 px-1.5 py-0.5 rounded-md text-zinc-800" {...props}>
+                              {children}
+                            </code>
+                          )
+                        }}
+                      >
+                        {section.content}
+                      </ReactMarkdown>
                     </div>
                   )}
                 </div>

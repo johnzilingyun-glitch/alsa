@@ -207,89 +207,91 @@ export const DiscussionPanel: React.FC<DiscussionPanelProps> = ({
       </div>
 
       {/* Header Bar */}
-      <div className="px-8 py-6 border-b border-zinc-100 bg-white/70 backdrop-blur-xl flex items-center justify-between relative z-10 shadow-sm">
-        <div className="flex items-center gap-6">
-          <div
-            className="group relative cursor-grab active:cursor-grabbing p-2 hover:bg-zinc-100 rounded-2xl transition-all"
-            onPointerDown={onPointerDownDrag}
-          >
-            <div className="w-3.5 h-3.5 rounded-full bg-indigo-600 shadow-lg shadow-indigo-600/30 animate-pulse" />
-          </div>
-          <div>
-            <h3 className="text-sm font-bold tracking-tight text-zinc-950 uppercase flex items-center gap-2">
-              {t('analysis.expert_discussion')}
-              <span className="text-[9px] font-bold text-zinc-400 border border-zinc-200 px-1.5 py-0.5 rounded-md">LIVE</span>
-            </h3>
-            <p className="text-[10px] font-medium text-zinc-400 mt-0.5 tracking-wider">{t('app.subtitle')}</p>
-          </div>
-          
-          <div className="ml-6 hidden md:flex items-center gap-3">
-            <div className="h-6 w-px bg-zinc-100" />
-            <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-zinc-50 border border-zinc-100">
-              <Target size={12} className="text-zinc-400" />
-              <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">{stockSymbol || 'GLOBAL MONITOR'}</span>
+      <div className="px-8 py-6 border-b border-zinc-100 bg-white/70 backdrop-blur-xl relative z-10 shadow-sm">
+        <div className="flex items-center justify-between max-w-5xl mx-auto w-full">
+          <div className="flex items-center gap-6">
+            <div
+              className="group relative cursor-grab active:cursor-grabbing p-2 hover:bg-zinc-100 rounded-2xl transition-all"
+              onPointerDown={onPointerDownDrag}
+            >
+              <div className="w-3.5 h-3.5 rounded-full bg-indigo-600 shadow-lg shadow-indigo-600/30 animate-pulse" />
+            </div>
+            <div>
+              <h3 className="text-sm font-bold tracking-tight text-zinc-950 uppercase flex items-center gap-2">
+                {t('analysis.expert_discussion')}
+                <span className="text-[9px] font-bold text-zinc-400 border border-zinc-200 px-1.5 py-0.5 rounded-md">LIVE</span>
+              </h3>
+              <p className="text-[10px] font-medium text-zinc-400 mt-0.5 tracking-wider">{t('app.subtitle')}</p>
+            </div>
+            
+            <div className="ml-6 hidden md:flex items-center gap-3">
+              <div className="h-6 w-px bg-zinc-100" />
+              <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-zinc-50 border border-zinc-100">
+                <Target size={12} className="text-zinc-400" />
+                <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">{stockSymbol || 'GLOBAL MONITOR'}</span>
+              </div>
             </div>
           </div>
-        </div>
 
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2 mr-3">
-            {messages.length > 0 && !isDiscussing && (
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2 mr-3">
+              {messages.length > 0 && !isDiscussing && (
+                <button
+                  onClick={handleDownload}
+                  className="btn-secondary h-10 px-4 rounded-xl text-[10px] tracking-wider uppercase border-zinc-100 shadow-sm"
+                >
+                  <Download size={14} />
+                  {t('analysis.actions.download_discussion')}
+                </button>
+              )}
+
+              {messages.length > 0 && !isDiscussing && (
+                <button
+                  onClick={handleFeishuShare}
+                  disabled={isSendingToFeishu}
+                  className={cn(
+                    "btn-primary h-10 px-5 rounded-xl text-[10px] tracking-wider uppercase shadow-indigo-600/5",
+                    shareStatus === "success" && "bg-emerald-500 hover:bg-emerald-600",
+                    shareStatus === "error" && "bg-rose-500 hover:bg-rose-600"
+                  )}
+                >
+                  {shareStatus === "loading" ? <Loader2 size={14} className="animate-spin" /> : 
+                  shareStatus === "success" ? <CheckCircle2 size={14} /> : 
+                  shareStatus === "error" ? <AlertTriangle size={14} /> : <Share2 size={14} />}
+                  {shareStatus === "loading" ? t('analysis.actions.sending_to_feishu') : shareStatus === "success" ? t('analysis.actions.sent') : t('analysis.actions.feishu_discussion')}
+                </button>
+              )}
+            </div>
+
+            {isDiscussing && (
+              <div className="flex items-center gap-3 px-4 py-1.5 rounded-full bg-indigo-50 border border-indigo-100">
+                <Loader2 size={14} className="animate-spin text-indigo-600 shrink-0" />
+                <span className="text-[10px] font-bold text-indigo-600 uppercase tracking-widest">
+                  {currentRound > 0 ? t('analysis.conference.round', { n: currentRound }) : t('analysis.conference.status_entering')}
+                </span>
+              </div>
+            )}
+
+            <div className="flex h-10 w-[1px] bg-zinc-100 mx-1" />
+
+            {onToggleFullscreen && (
               <button
-                onClick={handleDownload}
-                className="btn-secondary h-10 px-4 rounded-xl text-[10px] tracking-wider uppercase border-zinc-100 shadow-sm"
+                onClick={onToggleFullscreen}
+                className="p-2.5 hover:bg-zinc-100 rounded-xl text-zinc-400 hover:text-zinc-950 transition-all"
               >
-                <Download size={14} />
-                {t('analysis.actions.download_discussion')}
+                {isFullscreen ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
               </button>
             )}
 
-            {messages.length > 0 && !isDiscussing && (
+            {onClose && (
               <button
-                onClick={handleFeishuShare}
-                disabled={isSendingToFeishu}
-                className={cn(
-                  "btn-primary h-10 px-5 rounded-xl text-[10px] tracking-wider uppercase shadow-indigo-600/5",
-                  shareStatus === "success" && "bg-emerald-500 hover:bg-emerald-600",
-                  shareStatus === "error" && "bg-rose-500 hover:bg-rose-600"
-                )}
+                onClick={onClose}
+                className="p-2.5 hover:bg-zinc-100 rounded-xl text-zinc-400 hover:text-rose-500 transition-all"
               >
-                {shareStatus === "loading" ? <Loader2 size={14} className="animate-spin" /> : 
-                shareStatus === "success" ? <CheckCircle2 size={14} /> : 
-                shareStatus === "error" ? <AlertTriangle size={14} /> : <Share2 size={14} />}
-                {shareStatus === "loading" ? t('analysis.actions.sending_to_feishu') : shareStatus === "success" ? t('analysis.actions.sent') : t('analysis.actions.feishu_discussion')}
+                <X size={18} />
               </button>
             )}
           </div>
-
-          {isDiscussing && (
-            <div className="flex items-center gap-3 px-4 py-1.5 rounded-full bg-indigo-50 border border-indigo-100">
-              <Loader2 size={14} className="animate-spin text-indigo-600 shrink-0" />
-              <span className="text-[10px] font-bold text-indigo-600 uppercase tracking-widest">
-                {currentRound > 0 ? t('analysis.conference.round', { n: currentRound }) : t('analysis.conference.status_entering')}
-              </span>
-            </div>
-          )}
-
-          <div className="flex h-10 w-[1px] bg-zinc-100 mx-1" />
-
-          {onToggleFullscreen && (
-            <button
-              onClick={onToggleFullscreen}
-              className="p-2.5 hover:bg-zinc-100 rounded-xl text-zinc-400 hover:text-zinc-950 transition-all"
-            >
-              {isFullscreen ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
-            </button>
-          )}
-
-          {onClose && (
-            <button
-              onClick={onClose}
-              className="p-2.5 hover:bg-zinc-100 rounded-xl text-zinc-400 hover:text-rose-500 transition-all"
-            >
-              <X size={18} />
-            </button>
-          )}
         </div>
       </div>
 

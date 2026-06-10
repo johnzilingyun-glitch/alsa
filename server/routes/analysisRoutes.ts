@@ -64,7 +64,7 @@ router.post('/reports/save', async (req, res) => {
 });
 
 router.post('/analysis/jobs', async (req, res) => {
-  const { symbol, market, model, promptVersion, config } = req.body;
+  const { symbol, market, analysis_level, model, promptVersion, config } = req.body;
   // SECURITY: Strip API keys from config — NEVER persisted to database
   const safeConfig = config ? { ...config } : {};
   delete safeConfig.apiKey;
@@ -94,7 +94,7 @@ router.post('/analysis/jobs', async (req, res) => {
     const fastApiRes = await fetch(`${PYTHON_SERVICE_URL}/api/analysis/jobs`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ symbol, market, requested_model: config?.model || model || null, config: safeConfig })
+      body: JSON.stringify({ symbol, market, analysis_level: analysis_level || 'standard', requested_model: config?.model || model || null, config: safeConfig })
     });
 
     if (!fastApiRes.ok) {

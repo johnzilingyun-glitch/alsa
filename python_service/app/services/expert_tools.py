@@ -1443,6 +1443,25 @@ class ToolExecutor:
 
                 ticker = yf.Ticker(yf_symbol)
 
+                if _budget_ok() and any(kw in query_lower for kw in ["valuation", "pe", "pb", "roe", "margin", "marketcap", "peer", "industry", "估值", "对标", "同业", "市盈率", "市净率"]):
+                    try:
+                        info = ticker.info
+                        if info:
+                            lines.append("## Valuation & Key Metrics")
+                            lines.append(f"- Market Cap: {_fmt_num(info.get('marketCap'))}")
+                            lines.append(f"- Trailing PE: {_fmt_num(info.get('trailingPE'))}")
+                            lines.append(f"- Forward PE: {_fmt_num(info.get('forwardPE'))}")
+                            lines.append(f"- Price to Book (PB): {_fmt_num(info.get('priceToBook'))}")
+                            roe_val = info.get('returnOnEquity')
+                            roe_str = f"{roe_val * 100:.2f}%" if isinstance(roe_val, (int, float)) else "N/A"
+                            lines.append(f"- Return on Equity (ROE): {roe_str}")
+                            margin_val = info.get('profitMargins')
+                            margin_str = f"{margin_val * 100:.2f}%" if isinstance(margin_val, (int, float)) else "N/A"
+                            lines.append(f"- Net Profit Margin: {margin_str}")
+                            lines.append("")
+                    except Exception as e:
+                        lines.append(f"⚠ valuation metrics failed: {e}")
+
                 if _budget_ok() and any(kw in query_lower for kw in ["quarter", "earnings", "revenue", "profit", "eps"]):
                     qf = ticker.quarterly_financials
                     if qf is not None and not qf.empty:

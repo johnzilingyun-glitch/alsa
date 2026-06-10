@@ -1,6 +1,6 @@
 import React from 'react';
 import {
-  AlertCircle, Loader2, AlertTriangle, Zap, Award, Target,
+  AlertCircle, MessageSquare, ChevronDown, Loader2, AlertTriangle, Zap, Award, Target,
   RefreshCcw, Clock, Layers, Database, History, Coins,
   ShieldCheck, Search, TrendingUp, BarChart3, Cpu, CheckCircle2,
   Share2, Download, User, ExternalLink, Activity, BarChart,
@@ -1314,6 +1314,34 @@ export function ConferenceResults({ analysis, onSendDiscussionReport }: Conferen
                 <div className="flex items-center gap-3 px-6 py-4 rounded-2xl bg-amber-500/5 border border-amber-500/20 mt-4">
                   <Loader2 size={16} className="animate-spin text-amber-500" />
                   <p className="text-xs font-medium text-amber-500 uppercase tracking-widest">{t('analysis.conference.organizing_opinion')}</p>
+                </div>
+              )}
+
+              {/* Expert Discussion (Expandable) */}
+              {discussionMessages.length > 0 && (
+                <div className="mt-8 border border-zinc-200 rounded-2xl overflow-hidden">
+                  <details className="group">
+                    <summary className="flex items-center justify-between p-4 bg-zinc-50 cursor-pointer hover:bg-zinc-100 transition-colors list-none">
+                      <span className="text-sm font-bold text-zinc-700 flex items-center gap-2">
+                        <MessageSquare size={16} className="text-indigo-500" />
+                        {t('analysis.expert_discussion')}
+                      </span>
+                      <ChevronDown size={16} className="text-zinc-400 group-open:rotate-180 transition-transform" />
+                    </summary>
+                    <div className="p-6 bg-white space-y-6">
+                      {discussionMessages.filter(m => m.role !== "Moderator").map((m, i) => (
+                        <div key={`expert-${i}-${m.id}`} className="space-y-3">
+                          <div className="flex items-center gap-3">
+                            <span className="text-xs font-bold text-indigo-600 px-2 py-1 bg-indigo-50 rounded-lg">{t(`analysis.roles.${m.role}`)}</span>
+                            <span className="text-[9px] font-bold text-zinc-400 uppercase tracking-widest px-2 py-1 border border-zinc-200 rounded-lg bg-zinc-50 shadow-sm">{m.model || 'AI'}</span>
+                          </div>
+                          <div className="prose prose-sm max-w-none text-zinc-600 bg-zinc-50/50 p-4 rounded-xl border border-zinc-100">
+                            <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </details>
                 </div>
               )}
             </div>

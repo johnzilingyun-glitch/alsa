@@ -2,6 +2,8 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Zap, Newspaper, Loader2, CheckCircle2, Share2, X } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { useUIStore } from '../../stores/useUIStore';
 
 function cn(...inputs: ClassValue[]) {
@@ -48,7 +50,7 @@ export function DetailModal({ onSendHistoryToFeishu }: DetailModalProps) {
                     {selectedDetail.type === 'log' ? "优化思考链路日志" : "深度分析备份报告"}
                   </h3>
                   <p className="text-xs font-mono text-zinc-400 uppercase tracking-widest mt-1">
-                    {selectedDetail.type === 'log' 
+                    {selectedDetail.type === 'log'
                       ? `FIELD: ${selectedDetail.data.field} • ${new Date(selectedDetail.data.timestamp).toLocaleString()}`
                       : `${selectedDetail.data.stockInfo?.symbol || 'MARKET'} • ${selectedDetail.data.stockInfo?.lastUpdated || 'RECENT'}`
                     }
@@ -62,11 +64,11 @@ export function DetailModal({ onSendHistoryToFeishu }: DetailModalProps) {
                     disabled={isSendingReport}
                     className={cn(
                       "flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-medium transition-all",
-                      reportStatus === 'success' 
+                      reportStatus === 'success'
                         ? "bg-indigo-100 text-indigo-600 border border-indigo-600/50"
                         : reportStatus === 'error'
-                        ? "bg-rose-500/20 text-rose-400 border border-rose-500/50"
-                        : "bg-zinc-50 border border-zinc-200 hover:bg-zinc-100 text-zinc-500"
+                          ? "bg-rose-500/20 text-rose-400 border border-rose-500/50"
+                          : "bg-zinc-50 border border-zinc-200 hover:bg-zinc-100 text-zinc-500"
                     )}
                   >
                     {isSendingReport ? (
@@ -104,14 +106,14 @@ export function DetailModal({ onSendHistoryToFeishu }: DetailModalProps) {
                     <h4 className="text-sm font-medium uppercase tracking-widest text-zinc-400">操作描述</h4>
                     <p className="text-lg leading-relaxed text-zinc-600">{selectedDetail.data.description}</p>
                   </div>
-                  
+
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                     <div className="space-y-4">
                       <h4 className="text-sm font-medium uppercase tracking-widest text-zinc-400">优化前 (Old Value)</h4>
                       <div className="rounded-2xl bg-zinc-50 p-6 border border-zinc-200/50">
                         <pre className="text-sm font-mono text-zinc-400 whitespace-pre-wrap leading-relaxed">
-                          {typeof selectedDetail.data.oldValue === 'object' 
-                            ? JSON.stringify(selectedDetail.data.oldValue, null, 2) 
+                          {typeof selectedDetail.data.oldValue === 'object'
+                            ? JSON.stringify(selectedDetail.data.oldValue, null, 2)
                             : selectedDetail.data.oldValue}
                         </pre>
                       </div>
@@ -120,8 +122,8 @@ export function DetailModal({ onSendHistoryToFeishu }: DetailModalProps) {
                       <h4 className="text-sm font-medium uppercase tracking-widest text-emerald-900/50">优化后 (New Value)</h4>
                       <div className="rounded-2xl bg-emerald-950/10 p-6 border border-indigo-100">
                         <pre className="text-sm font-mono text-indigo-500/80 whitespace-pre-wrap leading-relaxed">
-                          {typeof selectedDetail.data.newValue === 'object' 
-                            ? JSON.stringify(selectedDetail.data.newValue, null, 2) 
+                          {typeof selectedDetail.data.newValue === 'object'
+                            ? JSON.stringify(selectedDetail.data.newValue, null, 2)
                             : selectedDetail.data.newValue}
                         </pre>
                       </div>
@@ -193,14 +195,22 @@ export function DetailModal({ onSendHistoryToFeishu }: DetailModalProps) {
                   {selectedDetail.data.technicalAnalysis && (
                     <div className="space-y-4">
                       <h4 className="text-sm font-medium uppercase tracking-widest text-zinc-400">技术面分析</h4>
-                      <p className="text-base leading-relaxed text-zinc-500">{selectedDetail.data.technicalAnalysis}</p>
+                      <div className="prose prose-zinc max-w-none w-full text-zinc-600 leading-relaxed text-[13px]">
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                          {selectedDetail.data.technicalAnalysis}
+                        </ReactMarkdown>
+                      </div>
                     </div>
                   )}
 
                   {selectedDetail.data.fundamentalAnalysis && (
                     <div className="space-y-4">
                       <h4 className="text-sm font-medium uppercase tracking-widest text-zinc-400">基本面分析</h4>
-                      <p className="text-base leading-relaxed text-zinc-500">{selectedDetail.data.fundamentalAnalysis}</p>
+                      <div className="prose prose-zinc max-w-none w-full text-zinc-600 leading-relaxed text-[13px]">
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                          {selectedDetail.data.fundamentalAnalysis}
+                        </ReactMarkdown>
+                      </div>
                     </div>
                   )}
 

@@ -20,6 +20,9 @@ export interface StockInfo {
   technicalIndicators?: TechnicalIndicators;
   fundamentalScores?: any;
   intrinsicValueEstimate?: number;
+  pe?: number;
+  pb?: number;
+  dividendYield?: number;
 }
 
 export interface TechnicalIndicators {
@@ -313,6 +316,7 @@ export interface AgentMessage {
   role: AgentRole;
   content: string;
   timestamp: string;
+  model?: string;
   type?: "discussion" | "research" | "review" | "user_question" | "fact_check";
   references?: { title: string; url: string }[];
   round?: number;

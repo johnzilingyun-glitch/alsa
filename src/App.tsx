@@ -63,6 +63,7 @@ export default function App() {
   const setMarket = useAnalysisStore(s => s.setMarket);
   const setChatHistory = useAnalysisStore(s => s.setChatHistory);
   const resetAnalysis = useAnalysisStore(s => s.resetAnalysis);
+  const setLastJobId = useAnalysisStore(s => s.setLastJobId);
 
   const setDiscussionResults = useDiscussionStore(s => s.setDiscussionResults);
   const resetDiscussion = useDiscussionStore(s => s.resetDiscussion);
@@ -187,6 +188,7 @@ export default function App() {
               setAnalysis(item);
               setSymbol(item.stockInfo?.symbol || '');
               setMarket(item.stockInfo?.market || 'A-Share');
+              setLastJobId(item.analysis_id || item.analysisId || item.jobId || item.job_id || item._jobId || null);
               
               if (item.chatHistory) {
                 setChatHistory(item.chatHistory);

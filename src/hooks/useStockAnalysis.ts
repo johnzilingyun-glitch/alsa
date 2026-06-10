@@ -150,8 +150,8 @@ export function useStockAnalysis() {
         setDiscussionMessages(result.discussion);
       }
       
-      // Save to history for the HistoryModal
-      void saveAnalysisToHistory('stock', result);
+      // Save to history for the HistoryModal — include jobId for deep report reload
+      void saveAnalysisToHistory('stock', { ...result, _jobId: jobId });
       
       // Add to recent searches
       if (result.stockInfo) {
@@ -254,6 +254,7 @@ export function useStockAnalysis() {
         setAnalysis(data.data);
         setScenarioResults(data.data as any);
         setDiscussionStoreResults(data.data as any);
+        setLastJobId(data.data.analysis_id || data.data.job_id || data.data.jobId || null);
         if (data.data.discussion) {
           setDiscussionMessages(data.data.discussion);
         }

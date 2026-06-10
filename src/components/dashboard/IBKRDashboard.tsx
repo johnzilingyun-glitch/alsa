@@ -357,7 +357,7 @@ function LocalChartTab({ symbol, onSymbolChange }: { symbol: string; onSymbolCha
         const res = await fetch(`/api/market/history/${symbol}?period=1y&interval=1d`);
         if (!res.ok) throw new Error("Failed to fetch");
         const result = await res.json();
-        
+
         if (result.success && result.data && Array.isArray(result.data)) {
           const chartData = result.data.map((item: any) => ({
             timestamp: new Date(item.date).getTime(),
@@ -368,8 +368,13 @@ function LocalChartTab({ symbol, onSymbolChange }: { symbol: string; onSymbolCha
             volume: Number(item.volume || 0),
             turnover: Number(item.amount || 0)
           }));
-          
-          chartRef.current.applyNewData(chartData);
+
+          // klinecharts v10 uses setDataLoader instead of deprecated applyNewData
+          chartRef.current.setDataLoader({
+            getBars: (params: any) => {
+              params.callback(chartData, { backward: false, forward: false });
+            }
+          });
         }
       } catch (err) {
         console.error("Failed to load chart data", err);
@@ -377,7 +382,7 @@ function LocalChartTab({ symbol, onSymbolChange }: { symbol: string; onSymbolCha
         setLoading(false);
       }
     };
-    
+
     fetchData();
   }, [symbol]);
 

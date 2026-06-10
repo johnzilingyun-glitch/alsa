@@ -113,6 +113,13 @@ class AnalysisJobService:
             self.update_job_progress(job_id, "discussion", 50, message="使用缓存的 API Key")
             return cached
         
+        # Check environment variables as fallback
+        env_key = os.getenv(f"{provider.upper()}_API_KEY")
+        if env_key:
+            self.set_api_key(provider, env_key)
+            self.update_job_progress(job_id, "discussion", 50, message="使用环境变量 API Key")
+            return env_key
+        
         event = asyncio.Event()
         self._api_key_events[job_id] = event
         # Signal frontend via progress that we need a key
@@ -650,6 +657,7 @@ class AnalysisJobService:
             
         result = json.loads(job.result_payload)
         result["analysis_id"] = run.analysis_id
+        result["job_id"] = run.job_id
         result["summary_verdict"] = run.summary_verdict
         result["score"] = run.score
         result["risk_level"] = run.risk_level

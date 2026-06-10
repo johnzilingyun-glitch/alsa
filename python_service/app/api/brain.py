@@ -20,7 +20,8 @@ async def get_brain_context(user_id: str = "default", query: Optional[str] = Non
         return {"success": False, "error": str(e)}
 
 class FeedbackPayload(BaseModel):
-    role: str
+    role: Optional[str] = None
+    user_id: str = "default"
     feedback: str
     context: Optional[str] = None
 

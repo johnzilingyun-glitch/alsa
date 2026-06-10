@@ -251,6 +251,14 @@ class PortfolioBacktester:
         print("Running vnpy portfolio backtesting...")
         engine.run_backtesting()
         df_daily = engine.calculate_result()
+        
+        # Guard: if calculate_result returned empty/None df, return error early
+        if df_daily is None or df_daily.empty or "net_pnl" not in df_daily.columns:
+            raise ValueError(
+                "组合回测失败：在指定期间内没有产生任何交易结果。"
+                "可能原因：K线数据不足、基本面数据缺失、或策略未触发信号。"
+            )
+        
         stats = engine.calculate_statistics()
         
         strat = engine.strategy

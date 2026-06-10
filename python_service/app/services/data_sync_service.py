@@ -99,20 +99,36 @@ class DataSyncService:
                 for dt, row in df.iterrows():
                     dt_native = dt.to_pydatetime()
                     
-                    close_raw = row[('Close', yf_symbol)] if isinstance(df.columns, pd.MultiIndex) else row['Close']
-                    if pd.isna(close_raw) or close_raw <= 0:
-                        continue
+                    if isinstance(df.columns, pd.MultiIndex):
+                        close_raw = row.get(('Close', yf_symbol))
+                        if pd.isna(close_raw) or close_raw <= 0:
+                            continue
+                            
+                        adj_close = row.get(('Adj Close', yf_symbol), close_raw)
+                        if pd.isna(adj_close):
+                            adj_close = close_raw
+                            
+                        adj_factor = float(adj_close / close_raw)
                         
-                    adj_close = row[('Adj Close', yf_symbol)] if isinstance(df.columns, pd.MultiIndex) else row.get('Adj Close', close_raw)
-                    if pd.isna(adj_close):
-                        adj_close = close_raw
+                        open_price = float(row.get(('Open', yf_symbol), close_raw) * adj_factor)
+                        high_price = float(row.get(('High', yf_symbol), close_raw) * adj_factor)
+                        low_price = float(row.get(('Low', yf_symbol), close_raw) * adj_factor)
+                        volume = row.get(('Volume', yf_symbol), 0)
+                    else:
+                        close_raw = row.get('Close')
+                        if pd.isna(close_raw) or close_raw <= 0:
+                            continue
+                            
+                        adj_close = row.get('Adj Close', close_raw)
+                        if pd.isna(adj_close):
+                            adj_close = close_raw
+                            
+                        adj_factor = float(adj_close / close_raw)
                         
-                    adj_factor = float(adj_close / close_raw)
-                    
-                    open_price = float((row[('Open', yf_symbol)] if isinstance(df.columns, pd.MultiIndex) else row['Open']) * adj_factor)
-                    high_price = float((row[('High', yf_symbol)] if isinstance(df.columns, pd.MultiIndex) else row['High']) * adj_factor)
-                    low_price = float((row[('Low', yf_symbol)] if isinstance(df.columns, pd.MultiIndex) else row['Low']) * adj_factor)
-                    volume = row[('Volume', yf_symbol)] if isinstance(df.columns, pd.MultiIndex) else row['Volume']
+                        open_price = float(row.get('Open', close_raw) * adj_factor)
+                        high_price = float(row.get('High', close_raw) * adj_factor)
+                        low_price = float(row.get('Low', close_raw) * adj_factor)
+                        volume = row.get('Volume', 0)
                         
                     bar = BarData(
                         symbol=symbol,

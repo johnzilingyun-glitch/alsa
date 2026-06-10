@@ -282,10 +282,26 @@ class BacktestEngine:
         
         # 3. Load data from local database & Run
         engine.load_data()
+        
+        # Guard: if no history data was loaded, return error early
+        if not engine.history_data:
+            raise ValueError(
+                f"回测失败：未能加载到 {vt_symbol} 在 {start_date} 至 {end_date} 期间的K线数据。"
+                "请检查数据源是否可用，或确认股票代码和日期范围是否正确。"
+            )
+        
         engine.run_backtesting()
         
         # Calculate statistics
         df_daily = engine.calculate_result()
+        
+        # Guard: if calculate_result returned empty/None df, return error early
+        if df_daily is None or df_daily.empty or "net_pnl" not in df_daily.columns:
+            raise ValueError(
+                f"回测失败：{vt_symbol} 在指定期间内没有产生任何交易结果。"
+                "可能原因：K线数据不足、策略未触发信号、或数据格式不匹配。"
+            )
+        
         stats = engine.calculate_statistics(df_daily)
         
         # Extract Results

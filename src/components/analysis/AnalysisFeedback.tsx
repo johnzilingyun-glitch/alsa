@@ -27,13 +27,13 @@ export const AnalysisFeedback: React.FC<AnalysisFeedbackProps> = ({ analysisId, 
 
     setIsSubmitting(true);
     try {
-      const response = await fetch('/api/brain/feedback', {
+      const response = await fetch('/api/analysis/feedback', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          user_id: 'default_user', // Will be dynamic in the future
+          analysisId,
           feedback: `${FEEDBACK_OPTIONS.find(o => o.id === selectedOption)?.label}: ${comment}`,
-          context: `Stock: ${symbol}, Analysis ID: ${analysisId}`,
+          userId: 'default_user', // Will be dynamic in the future
         }),
       });
 

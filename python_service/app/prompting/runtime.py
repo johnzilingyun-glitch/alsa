@@ -20,9 +20,13 @@ class PromptRuntimeService:
         fallback_suffix = "en"
         
         # Try preferred language first, then fallback
+        # .md files have priority over .txt (new structured format)
         possible_files = [
+            f"{name}_{lang_suffix}.md",
             f"{name}_{lang_suffix}.txt",
+            f"{name}_{fallback_suffix}.md",
             f"{name}_{fallback_suffix}.txt",
+            f"{name}.md",
             f"{name}.txt",
             f"{name}.jinja2"
         ]

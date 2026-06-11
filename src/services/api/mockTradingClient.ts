@@ -54,6 +54,7 @@ export interface MockTrade {
   shares: number;
   execution_price: number;
   realized_pnl: number | null;
+  commission: number | null;
   trigger_source: string;
   timestamp: string;
 }

@@ -209,6 +209,7 @@ class MockTradingRepo:
         related_alert_id: Optional[str] = None,
         position_size_pct: Optional[float] = None,
         realized_pnl: Optional[float] = None,
+        commission: Optional[float] = None,
     ) -> MockTrade:
         trade = MockTrade(
             account_id=account_id,
@@ -221,6 +222,7 @@ class MockTradingRepo:
             related_alert_id=related_alert_id,
             position_size_pct=position_size_pct,
             realized_pnl=realized_pnl,
+            commission=commission,
         )
         self.session.add(trade)
         self.session.commit()

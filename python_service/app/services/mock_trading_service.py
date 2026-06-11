@@ -244,6 +244,7 @@ class MockTradingService:
             related_alert_id=related_alert_id,
             position_size_pct=position_size_pct,
             realized_pnl=realized_pnl,
+            commission=cost * fx_rate,
         )
         return trade
 
@@ -263,7 +264,16 @@ class MockTradingService:
     ):
         """Place an order. If MARKET, executes immediately. Otherwise creates a PendingOrder."""
         if order_type == "MARKET":
-            return self.execute_trade(account_id, symbol, market, action, shares, target_price, trigger_source)
+            trade = self.execute_trade(account_id, symbol, market, action, shares, target_price, trigger_source)
+            if trade and stop_price is not None:
+                # Attach a stop order
+                stop_action = "SELL" if action == "BUY" else "BUY"
+                self.repo.create_pending_order(
+                    account_id=account_id, symbol=symbol, market=market,
+                    action=stop_action, order_type="STOP", shares=shares,
+                    target_price=stop_price, stop_price=stop_price
+                )
+            return trade
         else:
             return self.repo.create_pending_order(
                 account_id=account_id, symbol=symbol, market=market,

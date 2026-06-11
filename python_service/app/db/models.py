@@ -249,6 +249,7 @@ class MockTrade(SQLModel, table=True):
     execution_price: float
     position_size_pct: Optional[float] = None  # AI-determined sizing as % of portfolio
     realized_pnl: Optional[float] = None  # PnL realized on SELL trades
+    commission: Optional[float] = None  # Commission and fees paid
     trigger_source: str  # AI_SIGNAL/MANUAL
     related_alert_id: Optional[str] = None
     timestamp: datetime = Field(default_factory=utc_now)

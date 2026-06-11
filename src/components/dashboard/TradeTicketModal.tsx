@@ -16,6 +16,9 @@ export function TradeTicketModal({ account, onClose, onSuccess }: TradeTicketMod
   const [orderType, setOrderType] = useState<'MARKET' | 'LIMIT'>('MARKET');
   const [shares, setShares] = useState('');
   const [targetPriceInput, setTargetPriceInput] = useState('');
+  const [stopLossInput, setStopLossInput] = useState('');
+  const [takeProfitInput, setTakeProfitInput] = useState('');
+  const [isAdvanced, setIsAdvanced] = useState(false);
   const [price, setPrice] = useState<number | null>(null);
   const [loadingPrice, setLoadingPrice] = useState(false);
   const [executing, setExecuting] = useState(false);
@@ -129,7 +132,7 @@ export function TradeTicketModal({ account, onClose, onSuccess }: TradeTicketMod
         Number(shares),
         finalPrice,
         orderType,
-        undefined, // stopPrice
+        isAdvanced && stopLossInput ? Number(stopLossInput) : undefined,
         'MANUAL'
       );
       onSuccess();
@@ -144,6 +147,22 @@ export function TradeTicketModal({ account, onClose, onSuccess }: TradeTicketMod
   const estimatedValue = (orderType === 'MARKET' ? price : Number(targetPriceInput)) && shares 
     ? (orderType === 'MARKET' ? price! : Number(targetPriceInput)) * Number(shares) 
     : 0;
+
+  const getEstimatedFee = () => {
+    if (!estimatedValue || !shares) return 0;
+    const numShares = Number(shares);
+    if (market === 'A-Share') {
+      const rate = action === 'BUY' ? 0.00015 : 0.00115;
+      return Math.max(estimatedValue * rate, 5);
+    } else if (market === 'US-Share') {
+      return Math.max(numShares * 0.005, 1);
+    } else if (market === 'HK-Share') {
+      const rate = action === 'BUY' ? 0.001 : 0.002;
+      return Math.max(estimatedValue * rate, 15);
+    }
+    return 0;
+  };
+  const estimatedFee = getEstimatedFee();
 
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
@@ -283,6 +302,42 @@ export function TradeTicketModal({ account, onClose, onSuccess }: TradeTicketMod
             </div>
           )}
 
+          {/* Advanced Orders Toggle */}
+          <div>
+            <button 
+              onClick={() => setIsAdvanced(!isAdvanced)}
+              className="text-xs font-bold text-indigo-600 hover:text-indigo-700 transition-colors flex items-center gap-1"
+            >
+              {isAdvanced ? '- 收起高级选项' : '+ 添加止损/止盈 (条件单)'}
+            </button>
+            
+            {isAdvanced && (
+              <div className="mt-3 grid grid-cols-2 gap-3 p-3 bg-zinc-50 rounded-xl border border-zinc-100">
+                <div>
+                  <label className="text-[10px] font-bold text-zinc-500 uppercase block mb-1">触发止损价</label>
+                  <input
+                    type="number"
+                    value={stopLossInput}
+                    onChange={e => setStopLossInput(e.target.value)}
+                    placeholder="选填"
+                    className="w-full px-3 py-2 rounded-lg border border-zinc-200 text-sm focus:outline-none focus:border-indigo-400"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold text-zinc-500 uppercase block mb-1">触发止盈价 (规划中)</label>
+                  <input
+                    type="number"
+                    value={takeProfitInput}
+                    onChange={e => setTakeProfitInput(e.target.value)}
+                    placeholder="选填"
+                    disabled
+                    className="w-full px-3 py-2 rounded-lg border border-zinc-200 text-sm bg-zinc-100 text-zinc-400 cursor-not-allowed"
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+
           <div>
             <label className="text-[10px] font-bold text-zinc-500 uppercase block mb-1">交易数量 (股)</label>
             <input
@@ -299,6 +354,13 @@ export function TradeTicketModal({ account, onClose, onSuccess }: TradeTicketMod
             <span className="text-base font-bold text-zinc-900 flex items-center">
               <DollarSign size={14} className="text-zinc-400 mr-0.5" />
               {estimatedValue.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </span>
+          </div>
+          <div className="flex items-center justify-between pb-2">
+            <span className="text-xs text-zinc-500">预估手续费 (印花税+佣金)</span>
+            <span className="text-sm font-bold text-zinc-600 flex items-center">
+              ≈ <DollarSign size={12} className="text-zinc-400 ml-1 mr-0.5" />
+              {estimatedFee.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </span>
           </div>
 

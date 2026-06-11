@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { ArrowLeft, RefreshCw, TrendingUp, DollarSign, BarChart3, Wallet, Plus, Trash2, Activity, AlertTriangle, Clock, Combine } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import { useUIStore } from '../../stores/useUIStore';
@@ -27,6 +27,8 @@ export function MockTradingDashboard() {
   const [accounts, setAccounts] = useState<MockAccount[]>([]);
   const [selectedAccount, setSelectedAccount] = useState<MockAccount | null>(null);
   const [portfolio, setPortfolio] = useState<PortfolioSummary | null>(null);
+  const [stockNames, setStockNames] = useState<Record<string, string>>({});
+  const [currentPrices, setCurrentPrices] = useState<Record<string, number>>({});
   const [trades, setTrades] = useState<MockTrade[]>([]);
   const [snapshots, setSnapshots] = useState<Snapshot[]>([]);
   const [anomalies, setAnomalies] = useState<AnomalyEntry[]>([]);
@@ -40,6 +42,7 @@ export function MockTradingDashboard() {
   const [newMarket, setNewMarket] = useState('Global');
   const [newInitialBalance, setNewInitialBalance] = useState<string>('');
   const [activeUserId, setActiveUserId] = useState<string>('default_user');
+  const [benchmarkData, setBenchmarkData] = useState<any[]>([]);
 
   useEffect(() => {
     const detectUser = async () => {
@@ -76,7 +79,13 @@ export function MockTradingDashboard() {
         const symbols = pf.positions.map(p => p.symbol);
         const quotes = await getQuotes(symbols).catch(() => []);
         const priceMap: Record<string, number> = {};
-        quotes.forEach(q => { priceMap[q.symbol] = q.price; });
+        const nameMap: Record<string, string> = {};
+        quotes.forEach(q => { 
+          priceMap[q.symbol] = q.price; 
+          if (q.name) nameMap[q.symbol] = q.name;
+        });
+        setCurrentPrices(priceMap);
+        setStockNames(nameMap);
         
         // Fetch updated portfolio with live prices
         pf = await getPortfolioWithPrices(acc.account_id, priceMap).catch(() => pf);
@@ -113,9 +122,13 @@ export function MockTradingDashboard() {
           const symbols = portfolio.positions.map(p => p.symbol);
           const quotes = await getQuotes(symbols);
           const priceMap: Record<string, number> = {};
+          const nameMap: Record<string, string> = {};
           quotes.forEach(q => {
             if (q.price) priceMap[q.symbol] = q.price;
+            if (q.name) nameMap[q.symbol] = q.name;
           });
+          setCurrentPrices(priceMap);
+          setStockNames(prev => ({ ...prev, ...nameMap }));
           const updatedPf = await getPortfolioWithPrices(selectedAccount.account_id, priceMap);
           setPortfolio(updatedPf);
           consecutiveFailures = 0; // Reset on success
@@ -134,6 +147,57 @@ export function MockTradingDashboard() {
       if (interval) clearInterval(interval);
     };
   }, [selectedAccount, portfolio]);
+
+  useEffect(() => {
+    if (selectedAccount && snapshots.length > 0) {
+      const benchmarkSymbol = selectedAccount.market === 'US-Share' ? '^GSPC' : (selectedAccount.market === 'HK-Share' ? '^HSI' : '000300.SS');
+      fetch(`/api/market/history/${benchmarkSymbol}?period=120d&interval=1d`)
+        .then(res => res.json())
+        .then(data => {
+          if (data.success && data.data && data.data.length > 0) {
+             setBenchmarkData(data.data);
+          }
+        })
+        .catch(console.error);
+    }
+  }, [selectedAccount?.account_id, snapshots.length > 0 ? snapshots[0].snapshot_date : null]);
+
+  const chartData = useMemo(() => {
+    if (snapshots.length === 0) return [];
+    const sorted = [...snapshots].sort((a, b) => new Date(a.snapshot_date).getTime() - new Date(b.snapshot_date).getTime());
+    
+    const bMap = new Map<string, number>();
+    if (benchmarkData.length > 0) {
+      benchmarkData.forEach(item => {
+        const d = item.Date.split(' ')[0];
+        bMap.set(d, item.Close);
+      });
+    }
+
+    const baseEquity = sorted[0].total_equity;
+    const firstSnapDate = sorted[0].snapshot_date;
+    let baseBenchmark = bMap.get(firstSnapDate);
+    if (!baseBenchmark && benchmarkData.length > 0) {
+      baseBenchmark = benchmarkData[0].Close;
+    }
+
+    let lastKnownB = baseBenchmark;
+
+    return sorted.map(snap => {
+      let bValue = undefined;
+      if (baseBenchmark) {
+        const currentB = bMap.get(snap.snapshot_date);
+        if (currentB) lastKnownB = currentB;
+        if (lastKnownB) {
+          bValue = (lastKnownB / baseBenchmark) * baseEquity;
+        }
+      }
+      return {
+        ...snap,
+        benchmark: bValue
+      };
+    });
+  }, [snapshots, benchmarkData]);
 
   const handleCreate = async () => {
     if (!newName.trim()) return;
@@ -315,14 +379,15 @@ export function MockTradingDashboard() {
                 {/* Equity Curve */}
                 {snapshots.length > 1 && (
                   <div className="p-6 bg-white border border-zinc-200 rounded-2xl">
-                    <h3 className="text-lg font-bold text-zinc-900 mb-4">资产曲线</h3>
+                    <h3 className="text-lg font-bold text-zinc-900 mb-4">资产曲线 (含基准对比)</h3>
                     <ResponsiveContainer width="100%" height={280}>
-                      <LineChart data={snapshots}>
+                      <LineChart data={chartData}>
                         <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                         <XAxis dataKey="snapshot_date" tick={{ fontSize: 11 }} />
                         <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => fmt(v, currency)} />
-                        <Tooltip formatter={(v: any) => [fmt(Number(v), currency), '总资产']} contentStyle={{ borderRadius: '12px', border: '1px solid #e4e4e7' }} />
-                        <Line type="monotone" dataKey="total_equity" stroke="#6366f1" strokeWidth={2.5} dot={false} />
+                        <Tooltip formatter={(v: any, name: any) => [fmt(Number(v), currency), name === 'total_equity' ? '总资产' : '基准指数']} contentStyle={{ borderRadius: '12px', border: '1px solid #e4e4e7' }} />
+                        <Line type="monotone" dataKey="total_equity" name="total_equity" stroke="#6366f1" strokeWidth={2.5} dot={false} />
+                        <Line type="monotone" dataKey="benchmark" name="benchmark" stroke="#94a3b8" strokeWidth={2} strokeDasharray="5 5" dot={false} />
                       </LineChart>
                     </ResponsiveContainer>
                   </div>
@@ -366,6 +431,7 @@ export function MockTradingDashboard() {
                           <thead>
                             <tr className="border-b border-zinc-100 text-zinc-500">
                               <th className="text-left py-3 px-2 font-medium">股票</th>
+                              <th className="text-right py-3 px-2 font-medium">当前股价</th>
                               <th className="text-right py-3 px-2 font-medium">持仓</th>
                               <th className="text-right py-3 px-2 font-medium">成本</th>
                               <th className="text-right py-3 px-2 font-medium">市值</th>
@@ -376,7 +442,15 @@ export function MockTradingDashboard() {
                           <tbody>
                             {portfolio.positions.map(pos => (
                               <tr key={pos.symbol} className="border-b border-zinc-50 hover:bg-zinc-50 transition-colors">
-                                <td className="py-3 px-2 font-semibold text-zinc-900">{pos.symbol}</td>
+                                <td className="py-3 px-2 font-semibold text-zinc-900">
+                                  <div className="flex flex-col">
+                                    <span>{pos.symbol}</span>
+                                    <span className="text-xs text-zinc-500 font-normal">{stockNames[pos.symbol] || '--'}</span>
+                                  </div>
+                                </td>
+                                <td className="text-right py-3 px-2 font-medium text-zinc-900">
+                                  {currentPrices[pos.symbol] ? currentPrices[pos.symbol].toFixed(2) : (pos.market_value ? (pos.market_value / pos.shares).toFixed(2) : pos.average_cost.toFixed(2))}
+                                </td>
                                 <td className="text-right py-3 px-2 text-zinc-700">{pos.shares}</td>
                                 <td className="text-right py-3 px-2 text-zinc-700">{pos.average_cost.toFixed(2)}</td>
                                 <td className="text-right py-3 px-2 text-zinc-700">{fmt(pos.market_value || pos.shares * pos.average_cost, currency)}</td>
@@ -472,6 +546,7 @@ export function MockTradingDashboard() {
                           <th className="text-right py-3 px-2 font-medium">数量</th>
                           <th className="text-right py-3 px-2 font-medium">价格</th>
                           <th className="text-right py-3 px-2 font-medium">实现盈亏</th>
+                          <th className="text-right py-3 px-2 font-medium">手续费</th>
                           <th className="text-center py-3 px-2 font-medium">触发源</th>
                         </tr>
                       </thead>
@@ -489,6 +564,9 @@ export function MockTradingDashboard() {
                             <td className="text-right py-3 px-2 text-zinc-700">{t.execution_price.toFixed(2)}</td>
                             <td className={`text-right py-3 px-2 font-medium ${t.realized_pnl != null ? (t.realized_pnl >= 0 ? 'text-emerald-600' : 'text-rose-600') : 'text-zinc-300'}`}>
                               {t.realized_pnl != null ? fmtPnL(t.realized_pnl, currency) : '--'}
+                            </td>
+                            <td className="text-right py-3 px-2 text-zinc-500 font-medium">
+                              {t.commission != null ? fmt(t.commission, currency) : '--'}
                             </td>
                             <td className="text-center py-3 px-2">
                               <span className={`text-[10px] font-bold uppercase tracking-wider ${t.trigger_source === 'AI_SIGNAL' ? 'text-indigo-600' : 'text-zinc-400'}`}>

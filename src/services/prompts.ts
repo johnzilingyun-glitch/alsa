@@ -19,12 +19,13 @@ ${JSON.stringify(newsData, null, 2)}
 **IMPORTANT**: Use THIS news data to populate your topNews array and to deduce your market summary.
 
 **REAL-TIME SECTOR CAPITAL FLOWS (主力净流入榜单 - GROUND TRUTH)**:
-${sectorsData ? JSON.stringify(sectorsData, null, 2) : "Sector flows unavailable. Default to index-based sector deduction."}
-**IMPORTANT**: When identifying hot sectors, you MUST strictly use the "topInflows" (highest net inflow sectors) provided above. This is actual institutional tracking data. Do not hallucinate sectors. Focus the "sectorAnalysis" purely on explaining *why* these specific sectors are receiving massive capital injections.
+${(sectorsData && sectorsData.topInflows && sectorsData.topInflows.length > 0) ? JSON.stringify(sectorsData, null, 2) : "Sector flows unavailable."}
+**IMPORTANT**: When identifying hot sectors, you MUST strictly use the "topInflows" (highest net inflow sectors) provided above. This is actual institutional tracking data. Do not hallucinate sectors. Focus the "sectorAnalysis" purely on explaining *why* these specific sectors are receiving massive capital injections. IF data is marked as unavailable, explicitly state that "板块资金流向数据暂无可查" and perform your analysis based solely on news. DO NOT hallucinate zero inflows or invent flow numbers.
 
 **NORTHBOUND CAPITAL (北向资金 - GROUND TRUTH)**:
-${northboundData ? JSON.stringify(northboundData, null, 2) : "Northbound data unavailable."}
-**IMPORTANT**: Incorporate this exact foreign/institutional capital sentiment into your market summary.
+${(northboundData && northboundData.length > 0) ? JSON.stringify(northboundData, null, 2) : "Northbound data unavailable."}
+**IMPORTANT**: Incorporate this exact foreign/institutional capital sentiment into your market summary. IF data is marked as unavailable, explicitly state that "北向资金数据暂无可查" and DO NOT guess, DO NOT hallucinate "0 inflow", and DO NOT make assumptions about it.
+
 
 You are a professional ${market} markets analyst.
 
@@ -48,9 +49,9 @@ Requirements:
 1. **STRICT JSON STRUCTURE (CRITICAL)**: The root object MUST contain the "indices" array.
 2. Prioritize today's ${market} market tone in the summary.
 3. Include exactly 5 indices for the ${market} market:
-   - If A-Share: SSE Composite, Shenzhen Component, ChiNext Index, CSI 300, and Hang Seng Index.
-   - If HK-Share: Hang Seng Index, Hang Seng Tech Index, Hang Seng China Enterprises Index, Red Chips Index, and GEM Index.
-   - If US-Share: S&P 500, Nasdaq Composite, Dow Jones Industrial Average, Russell 2000, and PHLX Semiconductor Index.
+   - If A-Share: 上证指数, 深证成指, 创业板指, 沪深300, and 恒生指数.
+   - If HK-Share: 恒生指数, 恒生科技指数, 恒生国企指数, 红筹指数, and 创业板指(GEM).
+   - If US-Share: 标普500, 纳斯达克, 道琼斯, 罗素2000, and 费城半导体.
 4. For each index provide: name, symbol, price, change, changePercent.
 **SEARCH STRATEGY (RESTRICTED)**: 
    - Since news is now provided in REAL-TIME NEWS DATA, you do NOT need to search for daily news.
@@ -62,13 +63,13 @@ Requirements:
    - **SOURCE NAMING**: In the "marketSummary" field, mention the tool data source (Yahoo Finance) and any additional search sources used for context.
    - **BEIJING TIME (CRITICAL)**: All times in the summary MUST be in Beijing Time (CST). The "lastUpdated" field for news MUST be in "YYYY-MM-DD HH:mm:ss CST" format.
    - **DATA INTEGRITY CHECK**: If the "change" or "changePercent" is exactly 0, verify if the market was closed.
-4. **SECTOR DEDUCTION (ENHANCED QUANTITATIVE)**: Identify currently hot sectors exactly based on the TRUE capital inflows provided in the REAL-TIME SECTOR CAPITAL FLOWS. For each provided hot sector, you MUST perform **Industrial Chain Deduction**:
+4. **SECTOR DEDUCTION (ENHANCED QUANTITATIVE)**: Identify exactly 3 currently hot sectors. Prioritize the TRUE capital inflows provided in REAL-TIME SECTOR CAPITAL FLOWS. If that data is empty or unavailable (e.g., for HK/US markets), you MUST STILL derive 3 hot sectors based on REAL-TIME NEWS DATA and broader market context. DO NOT return an empty array. For each hot sector, perform **Industrial Chain Deduction**:
     - Explain the fundamental or macro catalyst driving this institutional inflow.
     - Identify the **Upstream** (supply, raw materials) and **Downstream** (application, consumption) effects.
     - Assign a **Rotation Stage**: Is the sector Leading (领涨), Weakening (转弱), Lagging (补涨), or Improving (筑底)?
 5. **COMMODITY ANALYSIS (NEW)**: Analyze major commodity trends. **RELEVANCE (CRITICAL)**: Only analyze commodities that are currently driving the market.
-6. **RECOMMENDATIONS**: Provide recommended stocks or sectors in the ${market} market based strictly on the above quantitative inflows and fundamental logic.
-7. **LANGUAGE (MANDATORY)**: All user-facing text fields MUST be in ${isChinese ? "Simplified Chinese" : "English"}.
+6. **RECOMMENDATIONS**: Provide exactly 3 recommended stocks or sectors in the ${market} market based on quantitative inflows (if available) and fundamental logic from news. DO NOT return an empty array.
+7. **LANGUAGE (MANDATORY)**: All user-facing text fields MUST be in ${isChinese ? "Simplified Chinese" : "English"}. For index names, ALWAYS use their established Chinese names (e.g., 上证指数, 恒生科技指数, 纳斯达克).
 8. Continuity: Based on previous analysis, identify if trends are continuing or reversing.
 
 JSON schema:

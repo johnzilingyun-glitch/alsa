@@ -124,14 +124,23 @@ export async function getMarketOverview(config?: GeminiConfig, market: Market = 
         previousClose: d.previousClose ?? 0,
       })),
       topNews: newsData || [],
-      sectorAnalysis: [], // Raw sectors are available in state but we don't have the AI synthesis here
+      sectorAnalysis: sectorsData?.topInflows?.length ? sectorsData.topInflows.slice(0, 3).map((s: any) => ({
+        name: s['行业'],
+        trend: Number(s['涨跌幅']) > 0 ? '上涨' : '下跌',
+        rotationStage: 'Leading',
+        conclusion: `资金净流入: ${s['主力净流入-净额']}, 涨跌幅: ${s['涨跌幅']}%`,
+      })) : [],
       commodityAnalysis: (commoditiesData || []).map((d: any) => ({
         name: d.name,
         trend: d.changePercent > 0 ? '上涨' : d.changePercent < 0 ? '下跌' : '持平',
         expectation: `${d.price} (${d.changePercent}%)`,
       })),
-      recommendations: [],
-      marketSummary: "AI 分析服务暂时不可用 (配额用尽)。正在为您显示实时市场数据与资讯。",
+      recommendations: sectorsData?.topInflows?.length ? sectorsData.topInflows.slice(0, 3).map((s: any) => ({
+        type: 'Sector',
+        name: s['行业'],
+        reason: `基于实时量化数据，该板块当前主力资金净买入居前 (${s['主力净流入-净额']})。`,
+      })) : [],
+      marketSummary: `AI 分析服务暂时不可用 (${e instanceof Error ? e.message : String(e)})。正在为您显示实时市场数据与资讯。`,
     } as MarketOverview;
   }
 

@@ -23,6 +23,23 @@ class MarketDataService:
     def __init__(self):
         self._cache = {}
         self._cache_ttl = 300 # 5 minutes
+        self.GLOBAL_INDEX_NAMES = {
+            "^HSI": "恒生指数",
+            "^HSTECH": "恒生科技指数",
+            "^HSCE": "恒生国企指数",
+            "^HSCCI": "红筹指数",
+            "^GSPC": "标普500",
+            "^IXIC": "纳斯达克",
+            "^DJI": "道琼斯",
+            "^RUT": "罗素2000",
+            "^SOX": "费城半导体",
+            "000001.SS": "上证指数",
+            "399001.SZ": "深证成指",
+            "399006.SZ": "创业板指",
+            "000300.SS": "沪深300",
+            "000905.SS": "中证500",
+            "000016.SS": "上证50",
+        }
 
     async def resolve_symbol(self, query: str, market: Optional[str] = None) -> List[Dict[str, Any]]:
         """
@@ -147,6 +164,35 @@ class MarketDataService:
                 processed_symbols.append(s)
                 symbol_map[s] = s
 
+        # Pre-fetch A-share names if needed
+        a_share_names = getattr(self, '_a_share_names_cache', {})
+        if not a_share_names and any(ps.endswith(".SS") or ps.endswith(".SZ") for ps in processed_symbols):
+            if _AKSHARE_ENABLED:
+                try:
+                    df_names = await safe_ak_call(ak.stock_info_a_code_name)
+                    if df_names is not None and not df_names.empty:
+                        a_share_names = dict(zip(df_names['code'], df_names['name']))
+                        self._a_share_names_cache = a_share_names
+                except Exception as e:
+                    print(f"Failed to load A-share names: {e}")
+            else:
+                # Fallback to Tencent for specific symbols to get Chinese names
+                try:
+                    import urllib.request
+                    for sym in symbols:
+                        if sym.isdigit() and len(sym) == 6:
+                            prefix = "sh" if sym.startswith(('6', '9')) else "sz"
+                            url = f"http://qt.gtimg.cn/q={prefix}{sym}"
+                            req = urllib.request.Request(url)
+                            resp = urllib.request.urlopen(req, timeout=5)
+                            text = resp.read().decode("gbk")
+                            if "~" in text:
+                                parts = text.split("~")
+                                if len(parts) > 2:
+                                    a_share_names[sym] = parts[1]  # The Chinese name
+                except Exception as e:
+                    print(f"Failed to fetch Tencent names: {e}")
+
         results = []
         try:
             loop = asyncio.get_event_loop()
@@ -166,9 +212,10 @@ class MarketDataService:
                         change_percent = (change / prev_close) * 100
                     
                     orig_symbol = symbol_map[ps]
+                    cn_name = a_share_names.get(orig_symbol) or self.GLOBAL_INDEX_NAMES.get(orig_symbol)
                     results.append({
                         "symbol": orig_symbol,
-                        "name": info.get("shortName") or info.get("longName") or orig_symbol,
+                        "name": cn_name or info.get("shortName") or info.get("longName") or orig_symbol,
                         "price": price,
                         "change": round(change, 4) if change else 0,
                         "changePercent": round(change_percent, 2) if change_percent else 0,
@@ -317,24 +364,19 @@ class MarketDataService:
         Fetch general market news.
         """
         try:
-            if market == "A-Share":
-                # Use akshare for A-Share news
-                try:
-                    df = await safe_ak_call(ak.stock_news_em, symbol="300750")
-                except:
-                    df = None
-                if not validate_ak_data(df, min_rows=1):
-                    return []
-                
-                # Transform to standard format
+            if market in ["A-Share", "HK-Share"]:
+                loop = asyncio.get_event_loop()
+                symbol = "深证成指" if market == "A-Share" else "恒生指数"
+                df = await loop.run_in_executor(None, lambda: ak.stock_news_em(symbol=symbol))
                 items = []
-                for _, row in df.head(10).iterrows():
-                    items.append({
-                        "title": row["新闻标题"],
-                        "url": row["新闻链接"],
-                        "time": row["发布时间"],
-                        "source": "EastMoney"
-                    })
+                if df is not None and not df.empty:
+                    for _, row in df.head(8).iterrows():
+                        items.append({
+                            "title": row.get("新闻标题"),
+                            "url": row.get("新闻链接"),
+                            "time": row.get("发布时间"),
+                            "source": "东方财富"
+                        })
                 return items
             else:
                 # Use yfinance for others

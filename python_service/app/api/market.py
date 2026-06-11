@@ -52,22 +52,39 @@ async def get_symbol_history(
 
 @router.get("/sector_flow")
 async def get_sector_fund_flow() -> Dict[str, Any]:
-    max_retries = 3
-    inflow_col = "主力净流入-净额"
-    for attempt in range(max_retries):
-        try:
-            df = ak.stock_sector_fund_flow_rank(indicator="今日", sector_type="行业资金流")
-            if df.empty:
-                df = ak.stock_sector_fund_flow_rank(indicator="5日", sector_type="行业资金流")
-            if not df.empty:
+    import pandas as pd
+    try:
+        df = await safe_ak_call(ak.stock_sector_fund_flow_rank, indicator="今日", sector_type="行业资金流")
+        if df is None or df.empty:
+            df = await safe_ak_call(ak.stock_sector_fund_flow_rank, indicator="5日", sector_type="行业资金流")
+        
+        if df is not None and not df.empty:
+            # Dynamically find the inflow column since Eastmoney frequently changes column names
+            # It's usually '主力净流入-净额' or '今日主力净流入-净额' or '主力净额'
+            col_candidates = [c for c in df.columns if '主力' in c and '净额' in c]
+            if not col_candidates:
+                col_candidates = [c for c in df.columns if '净流入' in c and '占比' not in c]
+            
+            if col_candidates:
+                inflow_col = col_candidates[0]
+                # Ensure column is numeric for sorting
+                df[inflow_col] = pd.to_numeric(df[inflow_col], errors='coerce').fillna(0)
                 df = df.sort_values(by=inflow_col, ascending=False)
+                
+                # Standardize output column name to what the frontend expects
+                records = df.to_dict(orient="records")
+                for r in records:
+                    r["主力净流入-净额"] = r.get(inflow_col)
+                    r["行业"] = r.get("名称", r.get("行业", "未知"))
+                    
                 return success_response({
-                    "topInflows": df.head(5).to_dict(orient="records"),
-                    "topOutflows": df.tail(3).to_dict(orient="records")
+                    "topInflows": records[:5],
+                    "topOutflows": records[-3:]
                 })
-        except Exception as e:
-            if attempt == max_retries - 1:
-                return error_response("DATA_SOURCE_ERROR", str(e))
+            else:
+                raise ValueError(f"Could not find inflow column. Available columns: {df.columns.tolist()}")
+    except Exception as e:
+        return error_response("DATA_SOURCE_ERROR", str(e))
     return error_response("DATA_EMPTY", "No sector flow data available")
 
 @router.get("/northbound")

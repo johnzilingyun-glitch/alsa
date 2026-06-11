@@ -49,8 +49,9 @@
     "indices": "Major Indices",
     "hot_sectors": "Hot Sectors",
     "commodity_trends": "Commodity Trends",
-    "recommendations": "Today's Recommendations",
-    "news": "Top Financial News",
+    "recommendations": "Top Picks",
+    "trending_search": "Trending Searches",
+    "news": "Key Financial News",
     "table": {
       "name": "Name",
       "price": "Price",

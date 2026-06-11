@@ -757,15 +757,6 @@ export const MarketOverview = memo(function MarketOverview({ onFetchMarketOvervi
           </div>
         )}
 
-        {/* Sector Scanner */}
-        {!isHistoryMode && overviewMarket === 'A-Share' && (
-          <SectorScanner />
-        )}
-
-        {/* Serenity Alpha Analyst */}
-        {!isHistoryMode && overviewMarket === 'A-Share' && (
-          <SerenityAlphaAnalyst />
-        )}
 
         <div className="grid grid-cols-2 gap-4 md:grid-cols-5">
           {(!marketOverview?.indices?.length && displayLoading) ? Array(5).fill(0).map((_, i) => (
@@ -794,6 +785,16 @@ export const MarketOverview = memo(function MarketOverview({ onFetchMarketOvervi
               <div className="h-32 skeleton rounded-2xl border border-zinc-200/50" />
             </div>
             
+            {/* Recommendations Skeleton */}
+            <div className="space-y-4 rounded-2xl border border-zinc-200/50 bg-white/30 p-6">
+              <div className="h-4 w-32 skeleton mb-4" />
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {Array(3).fill(0).map((_, i) => (
+                  <div key={`sk-rec-${i}`} className="h-24 skeleton rounded-xl" />
+                ))}
+              </div>
+            </div>
+
             {/* Sectors & Commodities Skeleton */}
             <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
               <div className="space-y-4 rounded-2xl border border-zinc-200/50 bg-white/30 p-6">
@@ -811,16 +812,6 @@ export const MarketOverview = memo(function MarketOverview({ onFetchMarketOvervi
                     <div key={`sk-commodity-${i}`} className="h-16 skeleton rounded-xl" />
                   ))}
                 </div>
-              </div>
-            </div>
-
-            {/* Recommendations Skeleton */}
-            <div className="space-y-4 rounded-2xl border border-zinc-200/50 bg-white/30 p-6">
-              <div className="h-4 w-32 skeleton mb-4" />
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                {Array(3).fill(0).map((_, i) => (
-                  <div key={`sk-rec-${i}`} className="h-24 skeleton rounded-xl" />
-                ))}
               </div>
             </div>
           </div>
@@ -842,6 +833,28 @@ export const MarketOverview = memo(function MarketOverview({ onFetchMarketOvervi
               </div>
             </div>
 
+            <div className="space-y-4 rounded-2xl border border-zinc-200/50 bg-white/30 p-6">
+              <h3 className="flex items-center gap-2 text-sm font-medium uppercase tracking-widest text-zinc-400">
+                <Star size={16} className="text-blue-500" />
+                {t('market.recommendations')}
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {marketOverview.recommendations?.length ? marketOverview.recommendations.map((rec, i) => (
+                  <div key={`${rec.type}-${rec.name}-${i}`} className="rounded-xl bg-zinc-50/30 p-4 border border-zinc-200/30">
+                    <div className="flex items-center gap-2 mb-2">
+                       <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-600 font-medium uppercase">{rec.type}</span>
+                       <span className="font-medium text-zinc-950">{rec.name}</span>
+                    </div>
+                    <p className="text-xs text-zinc-500 leading-relaxed">{rec.reason}</p>
+                  </div>
+                )) : (
+                  <div className="col-span-full py-6 text-center text-zinc-400 text-xs italic bg-zinc-50/50 rounded-xl border border-dashed border-zinc-200">
+                    {t('marketOverview.no_recommendations', '暂无推荐数据')}
+                  </div>
+                )}
+              </div>
+            </div>
+
             <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
               <div className="space-y-4 rounded-2xl border border-zinc-200/50 bg-white/30 p-6">
                 <h3 className="flex items-center gap-2 text-sm font-medium uppercase tracking-widest text-zinc-400">
@@ -849,7 +862,7 @@ export const MarketOverview = memo(function MarketOverview({ onFetchMarketOvervi
                   {t('market.hot_sectors')}
                 </h3>
                 <div className="space-y-3">
-                  {marketOverview.sectorAnalysis?.map((sector, i) => (
+                  {marketOverview.sectorAnalysis?.length ? marketOverview.sectorAnalysis.map((sector, i) => (
                     <div key={`sector-${sector.name}-${i}`} className="rounded-xl bg-zinc-50/50 p-4 border border-zinc-200/60 shadow-sm hover:shadow-md transition-all group">
                       <div className="flex items-start justify-between mb-3">
                         <div className="space-y-1">
@@ -857,9 +870,9 @@ export const MarketOverview = memo(function MarketOverview({ onFetchMarketOvervi
                           {sector.rotationStage && (
                             <span className={cn(
                               "text-[8px] px-1.5 py-0.5 rounded border font-bold uppercase tracking-widest",
-                              sector.rotationStage.toLowerCase().includes('leading') ? "bg-indigo-600 text-white border-indigo-600" :
-                              sector.rotationStage.toLowerCase().includes('improving') ? "bg-emerald-500/10 text-emerald-600 border-emerald-500/20" :
-                              sector.rotationStage.toLowerCase().includes('weakening') ? "bg-rose-500/10 text-rose-500 border-rose-500/20" :
+                              sector.rotationStage.toLowerCase().includes('leading') || sector.rotationStage.includes('领涨') ? "bg-indigo-600 text-white border-indigo-600" :
+                              sector.rotationStage.toLowerCase().includes('improving') || sector.rotationStage.includes('筑底') || sector.rotationStage.includes('补涨') ? "bg-emerald-500/10 text-emerald-600 border-emerald-500/20" :
+                              sector.rotationStage.toLowerCase().includes('weakening') || sector.rotationStage.includes('转弱') ? "bg-rose-500/10 text-rose-500 border-rose-500/20" :
                               "bg-zinc-100 text-zinc-500 border-zinc-200"
                             )}>
                               {sector.rotationStage}
@@ -892,7 +905,11 @@ export const MarketOverview = memo(function MarketOverview({ onFetchMarketOvervi
                         )}
                       </div>
                     </div>
-                  ))}
+                  )) : (
+                    <div className="py-6 text-center text-zinc-400 text-xs italic bg-zinc-50/50 rounded-xl border border-dashed border-zinc-200">
+                      {t('marketOverview.no_sectors', '暂无板块数据')}
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -902,7 +919,7 @@ export const MarketOverview = memo(function MarketOverview({ onFetchMarketOvervi
                   {t('market.commodity_trends')}
                 </h3>
                 <div className="space-y-3">
-                  {marketOverview.commodityAnalysis?.map((item, i) => (
+                  {marketOverview.commodityAnalysis?.length ? marketOverview.commodityAnalysis.map((item, i) => (
                     <div key={`commodity-${item.name}-${i}`} className="rounded-xl bg-zinc-50/30 p-3 border border-zinc-200/30">
                       <div className="flex items-center justify-between mb-1">
                         <span className="font-medium text-zinc-950">{item.name}</span>
@@ -912,30 +929,17 @@ export const MarketOverview = memo(function MarketOverview({ onFetchMarketOvervi
                       </div>
                       <p className="text-xs text-zinc-500 leading-relaxed">{item.expectation}</p>
                     </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            <div className="space-y-4 rounded-2xl border border-zinc-200/50 bg-white/30 p-6">
-              <h3 className="flex items-center gap-2 text-sm font-medium uppercase tracking-widest text-zinc-400">
-                <Star size={16} className="text-blue-500" />
-                {t('market.recommendations')}
-              </h3>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                {marketOverview.recommendations?.map((rec, i) => (
-                  <div key={`${rec.type}-${rec.name}-${i}`} className="rounded-xl bg-zinc-50/30 p-4 border border-zinc-200/30">
-                    <div className="flex items-center gap-2 mb-2">
-                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-600 font-medium uppercase">{rec.type}</span>
-                      <span className="font-medium text-zinc-950">{rec.name}</span>
+                  )) : (
+                    <div className="py-6 text-center text-zinc-400 text-xs italic bg-zinc-50/50 rounded-xl border border-dashed border-zinc-200">
+                      {t('marketOverview.no_commodities', '暂无商品数据')}
                     </div>
-                    <p className="text-xs text-zinc-500 leading-relaxed">{rec.reason}</p>
-                  </div>
-                ))}
+                  )}
+                </div>
               </div>
             </div>
           </div>
         ) : null}
+
       </section>
 
       <InstitutionalAlertPanel />
@@ -1025,6 +1029,16 @@ export const MarketOverview = memo(function MarketOverview({ onFetchMarketOvervi
           </div>
         </div>
       </section>
+
+      {/* Sector Scanner */}
+      {!isHistoryMode && overviewMarket === 'A-Share' && (
+        <SectorScanner />
+      )}
+
+      {/* Serenity Alpha Analyst */}
+      {!isHistoryMode && overviewMarket === 'A-Share' && (
+        <SerenityAlphaAnalyst />
+      )}
     </motion.div>
   );
 });

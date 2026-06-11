@@ -352,12 +352,21 @@ async function tryDefault(prompt: string, log: LogFn, requestedModel?: string): 
 
 export function getPreferredProvider(requestedModel: string): GatewayProvider | null {
   const m = requestedModel.toLowerCase();
+  
+  if (m.startsWith('gemini') && process.env.GEMINI_API_KEY) return 'gemini';
+  if ((m.startsWith('gpt-') || /^o\d/.test(m)) && process.env.OPENAI_API_KEY) return 'openai';
+  if (m.startsWith('claude') && process.env.ANTHROPIC_API_KEY) return 'anthropic';
+  if (m.startsWith('deepseek') && process.env.DEEPSEEK_API_KEY) return 'deepseek';
+  
+  // Route all models through xbrain by default (supports qwen, kimi, glm, etc.)
+  if (process.env.DEFAULT_LLM_API_KEY) return 'default';
+  
+  // Fallbacks if no default API key is configured
   if (m.startsWith('gemini')) return 'gemini';
   if (m.startsWith('gpt-') || /^o\d/.test(m)) return 'openai';
   if (m.startsWith('claude')) return 'anthropic';
   if (m.startsWith('deepseek')) return 'deepseek';
-  // Route all models through xbrain by default (supports qwen, kimi, glm, etc.)
-  if (process.env.DEFAULT_LLM_API_KEY) return 'default';
+  
   return null;
 }
 

@@ -70,8 +70,10 @@ function getServiceMode(config?: { serviceMode?: ServiceMode }): ServiceMode {
 function createBackendBridgeClient(config?: { model?: string; serviceMode?: ServiceMode; apiKey?: string }) {
   const fallbackModel = config?.model || GEMINI_MODEL;
   const storeConfig = useConfigStore.getState().config as any;
-  const deepseekApiKey = storeConfig?.deepseekApiKey || '';
-  const geminiApiKey = config?.apiKey || storeConfig?.apiKey || '';
+  const genericApiKey = config?.apiKey || storeConfig?.apiKey || '';
+  const deepseekApiKey = storeConfig?.deepseekApiKey || (fallbackModel.startsWith('deepseek') ? genericApiKey : '');
+  const geminiApiKey = fallbackModel.startsWith('gemini') ? genericApiKey : '';
+  
   return {
     models: {
       generateContent: async (params: any) => {

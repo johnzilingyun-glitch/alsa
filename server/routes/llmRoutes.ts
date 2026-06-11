@@ -14,14 +14,17 @@ router.post('/llm/generate', async (req, res) => {
       return res.status(400).json({ success: false, error: 'prompt is required' });
     }
 
-    const text = await gatewayGenerate(prompt, model, () => {}, config);
+    const response = await gatewayGenerate(prompt, model, (event, data) => console.log(`[Gateway] ${event}`, data), config);
+    const generatedText = response.text;
+    
     return res.json({
       success: true,
       via: 'server-llm-gateway',
-      model,
+      model: response.model,
+      provider: response.provider,
       result: {
-        text,
-        candidates: [{ content: { parts: [{ text }] } }],
+        text: generatedText,
+        candidates: [{ content: { parts: [{ text: generatedText }] } }],
       },
     });
   } catch (error) {
@@ -46,6 +49,7 @@ router.post('/llm/models', async (_req, res) => {
 
 function extractPrompt(params: any): string {
   if (typeof params?.prompt === 'string') return params.prompt;
+  if (typeof params?.contents === 'string') return params.contents;
   const contents = Array.isArray(params?.contents) ? params.contents : [];
   return contents
     .flatMap((content: any) => Array.isArray(content?.parts) ? content.parts : [])

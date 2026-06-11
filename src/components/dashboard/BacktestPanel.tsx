@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { X, Play, RefreshCw, BarChart2, TrendingUp, AlertCircle, ShieldAlert, CheckCircle2, ChevronRight, Activity, Calendar, List, DollarSign } from 'lucide-react';
+import { X, Play, RefreshCw, BarChart2, TrendingUp, AlertCircle, ShieldAlert, CheckCircle2, ChevronRight, Activity, Calendar, List, DollarSign, ZoomIn, ZoomOut, RotateCcw } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useTranslation } from 'react-i18next';
 import { clsx, type ClassValue } from 'clsx';
@@ -46,6 +46,7 @@ export function BacktestPanel({ isOpen, onClose }: BacktestPanelProps) {
   const [crBuyPe, setCrBuyPe] = useState(true);
   const [crBuyPb, setCrBuyPb] = useState(false);
   const [crBuyMcap, setCrBuyMcap] = useState(false);
+  const [crBuyPrice, setCrBuyPrice] = useState(false);
   const [crBuyMom, setCrBuyMom] = useState(false);
   const [crBuyVol, setCrBuyVol] = useState(false);
   const [crBuyBeta, setCrBuyBeta] = useState(false);
@@ -57,6 +58,10 @@ export function BacktestPanel({ isOpen, onClose }: BacktestPanelProps) {
   const [crSellMom, setCrSellMom] = useState(false);
   const [crSellVol, setCrSellVol] = useState(false);
   const [crSellBeta, setCrSellBeta] = useState(false);
+  const [crSellPrice, setCrSellPrice] = useState(false);
+
+  const [crBuyPriceMax, setCrBuyPriceMax] = useState(10.0);
+  const [crSellPriceMin, setCrSellPriceMin] = useState(10.0);
   // Indicator params
   const [crRsiPeriod, setCrRsiPeriod] = useState(14);
   const [crRsiBuyThreshold, setCrRsiBuyThreshold] = useState(30);
@@ -113,6 +118,36 @@ export function BacktestPanel({ isOpen, onClose }: BacktestPanelProps) {
       trades: tradesMap[s.date] || [],
     }));
   }, [results]);
+
+  const [zoomStart, setZoomStart] = useState<number>(0);
+  const [zoomEnd, setZoomEnd] = useState<number>(100);
+
+  const displayedChartData = useMemo(() => {
+    if (!chartData || chartData.length === 0) return [];
+    let startIdx = Math.floor((zoomStart / 100) * (chartData.length - 1));
+    let endIdx = Math.floor((zoomEnd / 100) * (chartData.length - 1));
+    // Ensure at least 2 points are shown to avoid chart breaking
+    if (endIdx - startIdx < 1) {
+      if (startIdx > 0) startIdx -= 1;
+      else endIdx += 1;
+    }
+    return chartData.slice(startIdx, endIdx + 1);
+  }, [chartData, zoomStart, zoomEnd]);
+
+  const handleZoomIn = () => {
+    setZoomStart(s => Math.min(s + 10, zoomEnd - 5));
+    setZoomEnd(e => Math.max(e - 10, zoomStart + 5));
+  };
+
+  const handleZoomOut = () => {
+    setZoomStart(s => Math.max(s - 10, 0));
+    setZoomEnd(e => Math.min(e + 10, 100));
+  };
+
+  const handleZoomReset = () => {
+    setZoomStart(0);
+    setZoomEnd(100);
+  };
 
   // Autocomplete Suggestions for Target Symbol
   const [suggestions, setSuggestions] = useState<any[]>([]);
@@ -231,6 +266,7 @@ export function BacktestPanel({ isOpen, onClose }: BacktestPanelProps) {
     if (crBuyPe) buyRules.push({ type: 'pe_below', pe_max: crPeMax });
     if (crBuyPb) buyRules.push({ type: 'pb_below', pb_max: crPbMax });
     if (crBuyMcap) buyRules.push({ type: 'market_cap_above', mc_min: crMcapMin });
+    if (crBuyPrice) buyRules.push({ type: 'price_below', price_max: crBuyPriceMax });
     if (crBuyMom) buyRules.push({ type: 'momentum_above', momentum_period: crMomPeriod, momentum_threshold: crMomThreshold });
     if (crBuyVol) buyRules.push({ type: 'volatility_above', volatility_period: crVolPeriod, volatility_threshold: crVolThreshold });
     if (crBuyBeta) buyRules.push({ type: 'beta_above', beta_period: crBetaPeriod, beta_threshold: crBetaThreshold });
@@ -240,6 +276,7 @@ export function BacktestPanel({ isOpen, onClose }: BacktestPanelProps) {
     if (crSellMacd) sellRules.push({ type: 'macd_dead_cross', fast: crMacdFast, slow: crMacdSlow, signal: crMacdSignal });
     if (crSellMa) sellRules.push({ type: 'price_below_ma', ma_period: crMaPeriod, ma_type: crMaType });
     if (crSellBoll) sellRules.push({ type: 'boll_upper_break', boll_period: crBollPeriod, boll_dev: crBollDev });
+    if (crSellPrice) sellRules.push({ type: 'price_above', price_min: crSellPriceMin });
     if (crSellMom) sellRules.push({ type: 'momentum_below', momentum_period: crSellMomPeriod, momentum_threshold: crSellMomThreshold });
     if (crSellVol) sellRules.push({ type: 'volatility_below', volatility_period: crSellVolPeriod, volatility_threshold: crSellVolThreshold });
     if (crSellBeta) sellRules.push({ type: 'beta_below', beta_period: crSellBetaPeriod, beta_threshold: crSellBetaThreshold });
@@ -389,13 +426,13 @@ export function BacktestPanel({ isOpen, onClose }: BacktestPanelProps) {
     }
   };
 
-  const formatPct = (val: number | undefined) => {
-    if (val === undefined) return '--';
+  const formatPct = (val: number | undefined | null) => {
+    if (val === undefined || val === null) return '--';
     return (val * 100).toFixed(2) + '%';
   };
 
-  const formatNum = (val: number | undefined) => {
-    if (val === undefined) return '--';
+  const formatNum = (val: number | undefined | null) => {
+    if (val === undefined || val === null) return '--';
     return val.toFixed(4);
   };
 
@@ -451,17 +488,17 @@ export function BacktestPanel({ isOpen, onClose }: BacktestPanelProps) {
                         { id: 'MockAgent', name: 'Mock Agent', desc: '用于测试底层连通性的沙盒代理' },
                         { id: 'portfolio_cross_sectional', name: '多股截面调仓 (真实基本面)', desc: '按PE和市值周期性轮动' },
                         { id: 'custom_rule', name: '自定义规则策略', desc: '可视化配置指标/估值/风控规则' },
-                        { id: 'GPT-4o', name: 'GPT-4o (即将开放)', desc: '深度语言模型基本面分析' },
-                        { id: 'DeepSeek-V3', name: 'DeepSeek-V3 (即将开放)', desc: '金融定制强化学习模型' }
+                        { id: 'alpha101', name: 'WorldQuant Alpha 101', desc: 'Kakushadze 101个公式化量化因子' },
+                        { id: 'gtja191', name: '国泰君安 191 因子', desc: '国泰君安证券研究的高频与量价因子' },
+                        { id: 'qlib158', name: '微软 Qlib 158 因子', desc: '微软开源的基础量价多因子库' },
+                        { id: 'academic', name: '经典学术因子模型', desc: 'Fama-French 5因子与动量因子' }
                       ].map(m => (
                         <button
                           key={m.id}
                           onClick={() => setModel(m.id)}
-                          disabled={m.id !== 'MockAgent' && m.id !== 'portfolio_cross_sectional' && m.id !== 'custom_rule'}
                           className={cn(
                             "text-left p-3 rounded-xl border-2 transition-all flex flex-col items-start w-full",
-                            model === m.id ? "border-indigo-600 bg-indigo-50/50" : "border-zinc-100 hover:border-zinc-200",
-                            (m.id !== 'MockAgent' && m.id !== 'portfolio_cross_sectional' && m.id !== 'custom_rule') && "opacity-50 cursor-not-allowed"
+                            model === m.id ? "border-indigo-600 bg-indigo-50/50" : "border-zinc-100 hover:border-zinc-200"
                           )}
                         >
                           <span className={cn("text-sm font-bold", model === m.id ? "text-indigo-700" : "text-zinc-700")}>{m.name}</span>
@@ -475,9 +512,17 @@ export function BacktestPanel({ isOpen, onClose }: BacktestPanelProps) {
                         <span><strong>Mock Agent 介绍：</strong>使用经典的趋势跟踪（双均线交叉）算法。当快线向上穿越（金叉）慢线时发出买入信号，向下穿越（死叉）时发出卖出信号。主要用于测试回测系统各功能的底层连通。</span>
                       ) : model === 'portfolio_cross_sectional' ? (
                         <span><strong>多股截面调仓介绍：</strong>基于价值和市值轮动的多因子量化策略。从白马股池中挑选估值偏低（PE &lt; 20）且市值大于10亿的股票，并等权重分配资金进行周期持仓与调仓。</span>
-                      ) : (
+                      ) : model === 'custom_rule' ? (
                         <span><strong>自定义规则策略介绍：</strong>支持可视化配置多重买入条件（RSI、MACD、布林带、均线、PE/PB 估值及市值）和卖出条件，可设定固定止损、固定止盈和移动止损等出场风控。</span>
-                      )}
+                      ) : model === 'alpha101' ? (
+                        <span><strong>Alpha 101 介绍：</strong>基于 WorldQuant 论文《101 Formulaic Alphas》实现的101个中高频量价因子。这些因子通过复杂的开盘价、收盘价、成交量以及波动率组合，发掘短期市场异象和均值回归机会，适合构建高周期的统计套利模型。</span>
+                      ) : model === 'gtja191' ? (
+                        <span><strong>国泰君安 191 介绍：</strong>源自国泰君安证券《基于量价关系的多因子挖掘与组合构建》报告，包含191个专门针对A股市场的高频短周期Alpha因子，侧重于资金流向、动量反转和流动性特征的刻画。</span>
+                      ) : model === 'qlib158' ? (
+                        <span><strong>微软 Qlib 158 介绍：</strong>由微软亚洲研究院主导开源的经典中低频多因子模型 (Alpha158)。提取了包括技术指标、量价动量、波动率特征在内的158维度交叉特征，常作为深度学习和机器学习选股模型的标准输入特征工程集。</span>
+                      ) : model === 'academic' ? (
+                        <span><strong>学术模型介绍：</strong>基于 Fama-French 五因子（市场、规模、价值、盈利、投资）以及 Carhart 动量因子的经典学术多因子组合。这类算法更偏向于长线的价值投资与基本面定价规律验证，具有极高的逻辑可解释性和回测长效性。</span>
+                      ) : null}
                     </div>
                   </div>
 
@@ -861,6 +906,30 @@ export function BacktestPanel({ isOpen, onClose }: BacktestPanelProps) {
                             )}
                           </div>
 
+                          {/* Price Below */}
+                          <div className="space-y-1.5 pb-2 border-b border-zinc-200/50">
+                            <label className="flex items-center gap-2 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={crBuyPrice}
+                                onChange={(e) => { setCrBuyPrice(e.target.checked); setCrPreset('custom'); }}
+                                className="rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500 h-3.5 w-3.5"
+                              />
+                              <span className="text-xs font-bold text-zinc-700">股价低于 (元)</span>
+                            </label>
+                            {crBuyPrice && (
+                              <div className="pl-5">
+                                <input
+                                  type="number"
+                                  step="0.01"
+                                  value={crBuyPriceMax}
+                                  onChange={(e) => { setCrBuyPriceMax(Number(e.target.value)); setCrPreset('custom'); }}
+                                  className="w-24 px-2 py-1 rounded-lg border border-zinc-200 text-xs focus:outline-none"
+                                />
+                              </div>
+                            )}
+                          </div>
+
                           {/* PE Below */}
                           <div className="space-y-1.5 pb-2 border-b border-zinc-200/50">
                             <label className="flex items-center gap-2 cursor-pointer">
@@ -1192,6 +1261,30 @@ export function BacktestPanel({ isOpen, onClose }: BacktestPanelProps) {
                                     className="w-full px-2 py-1 rounded-lg border border-zinc-200 text-xs focus:outline-none"
                                   />
                                 </div>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Price Above */}
+                          <div className="space-y-1.5 pb-2 border-b border-zinc-200/50">
+                            <label className="flex items-center gap-2 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={crSellPrice}
+                                onChange={(e) => { setCrSellPrice(e.target.checked); setCrPreset('custom'); }}
+                                className="rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500 h-3.5 w-3.5"
+                              />
+                              <span className="text-xs font-bold text-zinc-700">股价高于 (元)</span>
+                            </label>
+                            {crSellPrice && (
+                              <div className="pl-5">
+                                <input
+                                  type="number"
+                                  step="0.01"
+                                  value={crSellPriceMin}
+                                  onChange={(e) => { setCrSellPriceMin(Number(e.target.value)); setCrPreset('custom'); }}
+                                  className="w-24 px-2 py-1 rounded-lg border border-zinc-200 text-xs focus:outline-none"
+                                />
                               </div>
                             )}
                           </div>
@@ -1579,13 +1672,38 @@ export function BacktestPanel({ isOpen, onClose }: BacktestPanelProps) {
                         {/* Equity Curve */}
                         {results.snapshots && results.snapshots.length > 0 && (
                           <div className="bg-white rounded-2xl border border-zinc-100 shadow-sm p-6">
-                            <h4 className="text-sm font-bold text-zinc-900 mb-4 flex items-center gap-2">
-                              <TrendingUp size={16} className="text-indigo-600" /> 
-                              资金曲线 (Equity Curve)
-                            </h4>
+                            <div className="flex items-center justify-between mb-4">
+                              <h4 className="text-sm font-bold text-zinc-900 flex items-center gap-2">
+                                <TrendingUp size={16} className="text-indigo-600" /> 
+                                资金曲线 (Equity Curve)
+                              </h4>
+                              <div className="flex items-center gap-2">
+                                <button
+                                  onClick={handleZoomIn}
+                                  className="p-1.5 text-zinc-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors border border-transparent hover:border-indigo-100"
+                                  title="放大"
+                                >
+                                  <ZoomIn size={14} />
+                                </button>
+                                <button
+                                  onClick={handleZoomOut}
+                                  className="p-1.5 text-zinc-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors border border-transparent hover:border-indigo-100"
+                                  title="缩小"
+                                >
+                                  <ZoomOut size={14} />
+                                </button>
+                                <button
+                                  onClick={handleZoomReset}
+                                  className="p-1.5 text-zinc-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors border border-transparent hover:border-indigo-100"
+                                  title="恢复默认"
+                                >
+                                  <RotateCcw size={14} />
+                                </button>
+                              </div>
+                            </div>
                             <div className="h-[250px] w-full">
                               <ResponsiveContainer width="100%" height="100%">
-                                <LineChart data={chartData}>
+                                <LineChart data={displayedChartData}>
                                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f4f4f5" />
                                   <XAxis 
                                     dataKey="date" 
@@ -1766,7 +1884,7 @@ export function BacktestPanel({ isOpen, onClose }: BacktestPanelProps) {
                                 <tr>
                                   <td className="py-3 text-zinc-600">平均持仓天数 (Average Holding Days)</td>
                                   <td className="py-3 text-right text-zinc-900">
-                                    {results.metrics?.avg_holding_days !== undefined ? `${results.metrics.avg_holding_days.toFixed(1)} 天` : '--'}
+                                    {results.metrics?.avg_holding_days != null ? `${results.metrics.avg_holding_days.toFixed(1)} 天` : '--'}
                                   </td>
                                 </tr>
                               </tbody>

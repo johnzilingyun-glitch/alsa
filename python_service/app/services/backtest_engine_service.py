@@ -445,7 +445,16 @@ class BacktestEngine:
                 hold_days.append(days)
         avg_holding_days = float(np.mean(hold_days)) if hold_days else 0.0
 
-        return {
+        def _clean_nans(v):
+            if isinstance(v, dict):
+                return {k: _clean_nans(val) for k, val in v.items()}
+            elif isinstance(v, list):
+                return [_clean_nans(val) for val in v]
+            elif isinstance(v, float) and (np.isnan(v) or np.isinf(v)):
+                return None
+            return v
+
+        return _clean_nans({
             "start_date": start_date,
             "end_date": end_date,
             "model": strategy,
@@ -471,4 +480,4 @@ class BacktestEngine:
                 "max_consecutive_loss": int(max_consec_loss),
                 "avg_holding_days": float(avg_holding_days)
             }
-        }
+        })

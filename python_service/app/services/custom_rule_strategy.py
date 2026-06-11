@@ -284,6 +284,15 @@ class CustomRuleCtaStrategy(CtaTemplate):
                 upper, lower = self.am.boll(period, dev)
                 return bar.close_price >= upper
 
+            # ── Price ──
+            elif rule_type == "price_below":
+                price_max = float(rule.get("price_max", 10.0))
+                return bar.close_price < price_max
+
+            elif rule_type == "price_above":
+                price_min = float(rule.get("price_min", 10.0))
+                return bar.close_price > price_min
+
             # ── Fundamental: PE ──
             elif rule_type == "pe_below":
                 pe_max = float(rule.get("pe_max", 20))

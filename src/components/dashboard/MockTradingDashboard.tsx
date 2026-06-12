@@ -199,6 +199,28 @@ export function MockTradingDashboard() {
     });
   }, [snapshots, benchmarkData]);
 
+  const sectorMap = useMemo(() => {
+    const sectors: Record<string, number> = {};
+    if (portfolio?.positions) {
+      portfolio.positions.forEach(p => {
+        let sector = '其他 (Others)';
+        const sym = p.symbol.toUpperCase();
+        if (/^(600|601|000001)/.test(sym)) sector = '大金融与周期 (Financials/Cyclicals)';
+        else if (/^(002|300|688)/.test(sym) || ['AAPL', 'MSFT', 'GOOGL', 'NVDA', 'BABA', 'TCEHY'].includes(sym)) sector = '科技与创新 (Tech/Innovation)';
+        else if (/^(603|0005|0008)/.test(sym)) sector = '大消费与医药 (Consumer/Healthcare)';
+        else if (p.market === 'US-Share') sector = '海外科技 (Global Tech)';
+        else if (p.market === 'HK-Share') sector = '港股核心 (HK Core)';
+        
+        const value = p.market_value || p.shares * p.average_cost;
+        sectors[sector] = (sectors[sector] || 0) + value;
+      });
+    }
+    if (portfolio?.current_cash) {
+      sectors['现金储备 (Cash Reserve)'] = portfolio.current_cash;
+    }
+    return Object.entries(sectors).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value);
+  }, [portfolio]);
+
   const handleCreate = async () => {
     if (!newName.trim()) return;
     try {
@@ -397,24 +419,31 @@ export function MockTradingDashboard() {
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                   {portfolio.positions.length > 0 && (
                     <div className="p-6 bg-white border border-zinc-200 rounded-2xl">
-                      <h3 className="text-sm font-bold text-zinc-900 mb-4">仓位分布</h3>
+                      <div className="flex items-center justify-between mb-4">
+                        <h3 className="text-sm font-bold text-zinc-900">行业资产分配 (Sector Allocation)</h3>
+                      </div>
                       <ResponsiveContainer width="100%" height={220}>
                         <PieChart>
                           <Pie
-                            data={[
-                              { name: '现金', value: portfolio.current_cash },
-                              ...portfolio.positions.map(p => ({ name: p.symbol, value: p.market_value || p.shares * p.average_cost })),
-                            ]}
-                            cx="50%" cy="50%" innerRadius={50} outerRadius={80} paddingAngle={3} dataKey="value"
-                            label={({ name, percent }) => `${name} ${((percent || 0) * 100).toFixed(0)}%`}
+                            data={sectorMap}
+                            cx="50%" cy="50%" innerRadius={55} outerRadius={80} paddingAngle={4} dataKey="value"
+                            labelLine={false}
                           >
-                            {[portfolio.current_cash, ...portfolio.positions.map(p => p.market_value || 0)].map((_, i) => (
+                            {sectorMap.map((_, i) => (
                               <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
                             ))}
                           </Pie>
-                          <Tooltip formatter={(v: any) => [fmt(Number(v), currency), '']} />
+                          <Tooltip formatter={(v: any) => [fmt(Number(v), currency), '']} contentStyle={{ borderRadius: '12px', border: '1px solid #e4e4e7', fontSize: '12px' }} />
                         </PieChart>
                       </ResponsiveContainer>
+                      <div className="mt-4 grid grid-cols-2 gap-2">
+                        {sectorMap.slice(0, 4).map((sec, i) => (
+                          <div key={i} className="flex items-center gap-1.5 text-[10px]">
+                            <div className="w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: PIE_COLORS[i % PIE_COLORS.length] }} />
+                            <span className="text-zinc-600 font-medium truncate">{sec.name.split(' ')[0]}</span>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   )}
 
@@ -468,6 +497,13 @@ export function MockTradingDashboard() {
                     )}
                   </div>
                 </div>
+                
+                {/* 5-Level Order Book (Live Depth Mock) */}
+                {portfolio.positions.length > 0 && (
+                  <div className="mt-6">
+                    <OrderBookDepth symbol={portfolio.positions[0].symbol} basePrice={currentPrices[portfolio.positions[0].symbol] || portfolio.positions[0].average_cost} />
+                  </div>
+                )}
               </div>
             )}
 
@@ -727,6 +763,86 @@ function SummaryCard({ icon, label, value, subtitle, color }: { icon: React.Reac
       <div className="flex items-center gap-2 mb-2 opacity-70">{icon}<span className="text-xs font-medium">{label}</span></div>
       <p className="text-xl font-bold">{value}</p>
       {subtitle && <p className="text-xs font-medium mt-0.5">{subtitle}</p>}
+    </div>
+  );
+}
+
+function OrderBookDepth({ symbol, basePrice }: { symbol: string; basePrice: number }) {
+  const [bids, setBids] = useState<Array<{price: number, size: number}>>([]);
+  const [asks, setAsks] = useState<Array<{price: number, size: number}>>([]);
+
+  useEffect(() => {
+    // Generate realistic looking order book
+    const generateBook = () => {
+      const spread = basePrice * 0.001;
+      const newBids = Array.from({ length: 5 }).map((_, i) => ({
+        price: basePrice - spread * (i + 1) - (Math.random() * spread * 0.5),
+        size: Math.floor(Math.random() * 5000) + 100
+      })).sort((a, b) => b.price - a.price);
+      
+      const newAsks = Array.from({ length: 5 }).map((_, i) => ({
+        price: basePrice + spread * (i + 1) + (Math.random() * spread * 0.5),
+        size: Math.floor(Math.random() * 5000) + 100
+      })).sort((a, b) => a.price - b.price); // Asks sorted ascending price
+      
+      setBids(newBids);
+      setAsks(newAsks);
+    };
+    
+    generateBook();
+    const interval = setInterval(generateBook, 2000); // refresh every 2s
+    return () => clearInterval(interval);
+  }, [basePrice]);
+
+  const maxVolume = Math.max(
+    ...bids.map(b => b.size),
+    ...asks.map(a => a.size)
+  );
+
+  return (
+    <div className="bg-white border border-zinc-200 rounded-2xl p-6">
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-sm font-bold text-zinc-900 flex items-center gap-2">
+          五档订单簿模拟 <span className="px-2 py-0.5 rounded-md bg-indigo-50 text-indigo-600 text-[10px] uppercase">L2 Data</span>
+        </h3>
+        <span className="text-xs font-mono text-zinc-500">{symbol}</span>
+      </div>
+      
+      <div className="grid grid-cols-2 gap-8 text-xs font-mono">
+        {/* Asks (Sell) */}
+        <div>
+          <div className="flex justify-between text-zinc-400 mb-2 font-sans font-medium text-[10px] uppercase tracking-wider">
+            <span>卖盘 (Ask)</span>
+            <span>数量 (Size)</span>
+          </div>
+          <div className="space-y-1">
+            {[...asks].reverse().map((ask, i) => (
+              <div key={`ask-${i}`} className="flex justify-between items-center relative h-6">
+                <div className="absolute right-0 top-0 bottom-0 bg-rose-50 rounded-sm" style={{ width: `${(ask.size / maxVolume) * 100}%` }} />
+                <span className="text-rose-600 font-bold relative z-10 pl-1">{ask.price.toFixed(2)}</span>
+                <span className="text-zinc-600 relative z-10 pr-1">{ask.size}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Bids (Buy) */}
+        <div>
+          <div className="flex justify-between text-zinc-400 mb-2 font-sans font-medium text-[10px] uppercase tracking-wider">
+            <span>买盘 (Bid)</span>
+            <span>数量 (Size)</span>
+          </div>
+          <div className="space-y-1">
+            {bids.map((bid, i) => (
+              <div key={`bid-${i}`} className="flex justify-between items-center relative h-6">
+                <div className="absolute left-0 top-0 bottom-0 bg-emerald-50 rounded-sm" style={{ width: `${(bid.size / maxVolume) * 100}%` }} />
+                <span className="text-emerald-600 font-bold relative z-10 pl-1">{bid.price.toFixed(2)}</span>
+                <span className="text-zinc-600 relative z-10 pr-1">{bid.size}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

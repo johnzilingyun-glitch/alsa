@@ -22,7 +22,11 @@ describe('useConfigStore', () => {
         candidatesTokens: 0, 
         totalTokens: 0, 
         dailyTotal: 0, 
-        dailyResetDate: new Date().toISOString().split('T')[0] 
+        dailyResetDate: new Date().toISOString().split('T')[0],
+        weeklyTotal: 0,
+        weeklyResetDate: new Date().toISOString().split('T')[0],
+        monthlyTotal: 0,
+        monthlyResetDate: new Date().toISOString().split('T')[0],
       },
       availableModels: [],
       feishuWebhookUrl: '',

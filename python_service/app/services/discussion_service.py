@@ -11,36 +11,27 @@ from .expert_tools import format_tool_descriptions
 
 # --- Topologies (Ported from orchestrator.ts) ---
 
-# DEEP_TOPOLOGY = [
-#     # Round 1: 基础数据清洗与事实注入
-#     {"round": 1, "experts": ["Deep Research Specialist"], "parallel": False},
-#     # Round 2: 硬伤审计（紧跟数据层，防止后续专家基于错误数据建立空中楼阁）
-#     {"round": 2, "experts": ["Chief Audit Officer"], "parallel": False},
-#     # Round 3: 技术面与基本面并行分析
-#     {"round": 3, "experts": ["Technical Analyst", "Fundamental Analyst"], "parallel": True},
-#     # Round 4: 情绪面引入（为多空辩论提供筹码）
-#     {"round": 4, "experts": ["Sentiment Analyst"], "parallel": False},
-#     # Round 5: 多空对撞（基于完整数据+情绪的辩论矩阵）
-#     {"round": 5, "experts": ["Bull Researcher", "Bear Researcher"], "parallel": True},
-#     # Round 6: 逻辑纠偏（审查多空辩论中的确认偏差和叙事过拟合）
-#     {"round": 6, "experts": ["Professional Reviewer"], "parallel": False},
-#     # Round 7: 流派大师升华（Soros反身性 + Value安全边际 + Serenity Alpha小盘弹性）
-#     {"round": 7, "experts": ["Soros-style Financial Philosopher", "Value Investing Sage", "Serenity Alpha Analyst"], "parallel": True},
-#     # Round 8: 逆向思维寻找共识之外的特立独行机会
-#     {"round": 8, "experts": ["Contrarian Strategist"], "parallel": False},
-#     # Round 9: 风险量化（VaR/仓位/止损/相关性/尾部风险）
-#     {"round": 9, "experts": ["Risk Manager"], "parallel": False},
-#     # Round 10: 首席策略师发布最终交易计划与 Kill Switch
-#     {"round": 10, "experts": ["Chief Strategist"], "parallel": False},
-# ]
-
 DEEP_TOPOLOGY = [
+    # Round 1: 基础数据清洗与事实注入
     {"round": 1, "experts": ["Deep Research Specialist"], "parallel": False},
-    {"round": 2, "experts": ["Technical Analyst", "Fundamental Analyst"], "parallel": True},
-    {"round": 3, "experts": ["Sentiment Analyst"], "parallel": False},
-    {"round": 4, "experts": ["Serenity Alpha Analyst"], "parallel": True},
-    {"round": 5, "experts": ["Professional Reviewer"], "parallel": False},
-    {"round": 6, "experts": ["Chief Strategist"], "parallel": False},
+    # Round 2: 硬伤审计（紧跟数据层，防止后续专家基于错误数据建立空中楼阁）
+    {"round": 2, "experts": ["Chief Audit Officer"], "parallel": False},
+    # Round 3: 技术面与基本面并行分析
+    {"round": 3, "experts": ["Technical Analyst", "Fundamental Analyst"], "parallel": True},
+    # Round 4: 情绪面引入（为多空辩论提供筹码）
+    {"round": 4, "experts": ["Sentiment Analyst"], "parallel": False},
+    # Round 5: 多空对撞（基于完整数据+情绪的辩论矩阵）
+    {"round": 5, "experts": ["Bull Researcher", "Bear Researcher"], "parallel": True},
+    # Round 6: 逻辑纠偏（审查多空辩论中的确认偏差和叙事过拟合）
+    {"round": 6, "experts": ["Professional Reviewer"], "parallel": False},
+    # Round 7: 流派大师升华（Soros反身性 + Value安全边际 + Serenity Alpha小盘弹性）
+    {"round": 7, "experts": ["Soros-style Financial Philosopher", "Value Investing Sage", "Serenity Alpha Analyst"], "parallel": True},
+    # Round 8: 逆向思维寻找共识之外的特立独行机会
+    {"round": 8, "experts": ["Contrarian Strategist"], "parallel": False},
+    # Round 9: 风险量化（VaR/仓位/止损/相关性/尾部风险）
+    {"round": 9, "experts": ["Risk Manager"], "parallel": False},
+    # Round 10: 首席策略师发布最终交易计划与 Kill Switch
+    {"round": 10, "experts": ["Chief Strategist"], "parallel": False},
 ]
 
 STANDARD_TOPOLOGY = [

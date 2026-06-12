@@ -136,7 +136,7 @@ class AnalysisJobService:
 
     async def _run_job(self, job_id: str, symbol: str, market: str, config: Optional[Dict[str, Any]] = None):
         from .discussion_service import discussion_service
-        from ..db.models import AnalysisRun, AnalysisJob
+        from ..db.models import AnalysisRun, AnalysisJob, PredictionRecord
         from .token_guard import token_guard
         from .llm_gateway import current_token_usage
         
@@ -283,6 +283,28 @@ class AnalysisJobService:
                 session.commit()
                 session.refresh(analysis_run)
                 
+                # Extract and save PredictionRecord if target price exists
+                try:
+                    target_price_str = structured.get("tradingPlan", {}).get("targetPrice")
+                    if target_price_str:
+                        import re
+                        match = re.search(r"[\d.]+", str(target_price_str))
+                        if match:
+                            tp = float(match.group())
+                            cp = float(quote.get("price") or snapshot.get("price", 0.0))
+                            if tp > 0 and cp > 0:
+                                pred = PredictionRecord(
+                                    job_id=job_id,
+                                    symbol=symbol,
+                                    market=market,
+                                    target_price=tp,
+                                    current_price_at_prediction=cp
+                                )
+                                session.add(pred)
+                                session.commit()
+                except Exception as e:
+                    print(f"Failed to save PredictionRecord: {e}")
+                
                 # Update job
                 db_job = session.get(AnalysisJob, job_id)
                 if db_job:
@@ -331,7 +353,7 @@ class AnalysisJobService:
 
     async def _save_partial_results(self, job_id: str, symbol: str, market: str, snapshot: Dict[str, Any], indicators: Dict[str, Any], discussion_messages: List[Dict[str, Any]]):
         """Save partial results when analysis is interrupted (user abort or 402)."""
-        from ..db.models import AnalysisRun, AnalysisJob
+        from ..db.models import AnalysisRun, AnalysisJob, PredictionRecord
         
         # Filter out empty messages
         valid_messages = [m for m in discussion_messages if m.get("content")]
@@ -383,6 +405,28 @@ class AnalysisJobService:
             session.add(analysis_run)
             session.commit()
             session.refresh(analysis_run)
+            
+            # Extract and save PredictionRecord if target price exists
+            try:
+                target_price_str = structured.get("tradingPlan", {}).get("targetPrice")
+                if target_price_str:
+                    import re
+                    match = re.search(r"[\d.]+", str(target_price_str))
+                    if match:
+                        tp = float(match.group())
+                        cp = float(quote.get("price") or snapshot.get("price", 0.0))
+                        if tp > 0 and cp > 0:
+                            pred = PredictionRecord(
+                                job_id=job_id,
+                                symbol=symbol,
+                                market=market,
+                                target_price=tp,
+                                current_price_at_prediction=cp
+                            )
+                            session.add(pred)
+                            session.commit()
+            except Exception as e:
+                print(f"Failed to save PredictionRecord: {e}")
             
             db_job = session.get(AnalysisJob, job_id)
             if db_job:

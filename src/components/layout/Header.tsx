@@ -265,6 +265,14 @@ export const Header = memo(function Header({
               <Activity size={20} strokeWidth={1.5} />
             </button>
             <button
+              onClick={() => useUIStore.getState().setShowPredictionDashboard(true)}
+              className="btn-secondary w-12 h-12 p-0 flex items-center justify-center rounded-xl"
+              aria-label="预测准确率"
+              title="AI 预测准确率看板"
+            >
+              <TrendingUp size={20} strokeWidth={1.5} />
+            </button>
+            <button
               onClick={() => setShowBacktestPanel(true)}
               className="btn-secondary w-12 h-12 p-0 flex items-center justify-center rounded-xl relative overflow-hidden group"
               aria-label="回测"
@@ -334,6 +342,9 @@ export const Header = memo(function Header({
                 </button>
                 <button onClick={() => { setShowMockTradingDashboard(true); setShowMobileMenu(false); }} className="flex w-full items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-zinc-600 hover:bg-zinc-50 transition-colors">
                   <Activity size={18} /> 模拟交易
+                </button>
+                <button onClick={() => { useUIStore.getState().setShowPredictionDashboard(true); setShowMobileMenu(false); }} className="flex w-full items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-zinc-600 hover:bg-zinc-50 transition-colors">
+                  <TrendingUp size={18} /> 预测准确率
                 </button>
                 <button onClick={() => { setShowBacktestPanel(true); setShowMobileMenu(false); }} className="flex w-full items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-zinc-600 hover:bg-zinc-50 transition-colors">
                   <BarChart2 size={18} /> 量化回测

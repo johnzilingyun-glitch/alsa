@@ -138,6 +138,19 @@ class SearchAlert(SQLModel, table=True):
     thesis_stage: Optional[str] = None  # IDEA/WATCHING/ENTERED/EXITED/POSTMORTEM
     lessons_learned: Optional[str] = None  # Post-trade reflection
 
+class PredictionRecord(SQLModel, table=True):
+    prediction_id: str = Field(primary_key=True, default_factory=lambda: f"pred_{uuid.uuid4().hex[:8]}")
+    job_id: str = Field(index=True)
+    symbol: str = Field(index=True)
+    market: str = Field(index=True)
+    target_price: float
+    time_horizon: str = "1_month"  # e.g., "1_month", "3_months"
+    status: str = "pending"  # pending/evaluated
+    current_price_at_prediction: float
+    actual_price_at_horizon: Optional[float] = None
+    accuracy_score: Optional[float] = None
+    created_at: datetime = Field(default_factory=utc_now)
+
 class ReflectionMemory(SQLModel, table=True):
     reflection_id: str = Field(primary_key=True, default_factory=lambda: f"ref_{uuid.uuid4().hex[:8]}")
     user_id: str = Field(default="default_user")

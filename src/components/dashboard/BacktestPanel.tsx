@@ -100,6 +100,10 @@ export function BacktestPanel({ isOpen, onClose }: BacktestPanelProps) {
   const [crPosMode, setCrPosMode] = useState<'fixed_shares' | 'fixed_pct' | 'kelly'>('fixed_pct');
   const [crPosValue, setCrPosValue] = useState(30);
 
+  // Vibe Trading
+  const [vibeSource, setVibeSource] = useState('all');
+  const [vibeThreshold, setVibeThreshold] = useState(0.5);
+
   const chartData = useMemo(() => {
     if (!results || !results.snapshots) return [];
     const tradesMap: Record<string, any[]> = {};
@@ -364,6 +368,8 @@ export function BacktestPanel({ isOpen, onClose }: BacktestPanelProps) {
         ? { fast_window: fastWindow, slow_window: slowWindow }
         : model === 'custom_rule'
         ? buildCustomRuleParams()
+        : model === 'vibe_trading'
+        ? { vibe_source: vibeSource, vibe_threshold: vibeThreshold }
         : { rebalance_interval: rebalanceInterval };
 
       // Pass custom stock pool for portfolio mode
@@ -489,6 +495,7 @@ export function BacktestPanel({ isOpen, onClose }: BacktestPanelProps) {
                         { id: 'portfolio_cross_sectional', name: '多股截面调仓 (真实基本面)', desc: '按PE和市值周期性轮动' },
                         { id: 'custom_rule', name: '自定义规则策略', desc: '可视化配置指标/估值/风控规则' },
                         { id: 'alpha101', name: 'WorldQuant Alpha 101', desc: 'Kakushadze 101个公式化量化因子' },
+                        { id: 'vibe_trading', name: 'Vibe-Trading 情绪驱动模型', desc: '基于社交媒体情绪与宏观舆论的量化回测' },
                         { id: 'gtja191', name: '国泰君安 191 因子', desc: '国泰君安证券研究的高频与量价因子' },
                         { id: 'qlib158', name: '微软 Qlib 158 因子', desc: '微软开源的基础量价多因子库' },
                         { id: 'academic', name: '经典学术因子模型', desc: 'Fama-French 5因子与动量因子' }
@@ -516,6 +523,8 @@ export function BacktestPanel({ isOpen, onClose }: BacktestPanelProps) {
                         <span><strong>自定义规则策略介绍：</strong>支持可视化配置多重买入条件（RSI、MACD、布林带、均线、PE/PB 估值及市值）和卖出条件，可设定固定止损、固定止盈和移动止损等出场风控。</span>
                       ) : model === 'alpha101' ? (
                         <span><strong>Alpha 101 介绍：</strong>基于 WorldQuant 论文《101 Formulaic Alphas》实现的101个中高频量价因子。这些因子通过复杂的开盘价、收盘价、成交量以及波动率组合，发掘短期市场异象和均值回归机会，适合构建高周期的统计套利模型。</span>
+                      ) : model === 'vibe_trading' ? (
+                        <span><strong>Vibe-Trading 情绪驱动介绍：</strong>结合社交网络情绪指数与新闻关键词热度，捕捉短期市场非理性波动带来的交易机会。支持多源舆情分析聚合与情绪阈值信号生成。</span>
                       ) : model === 'gtja191' ? (
                         <span><strong>国泰君安 191 介绍：</strong>源自国泰君安证券《基于量价关系的多因子挖掘与组合构建》报告，包含191个专门针对A股市场的高频短周期Alpha因子，侧重于资金流向、动量反转和流动性特征的刻画。</span>
                       ) : model === 'qlib158' ? (
@@ -1510,6 +1519,40 @@ export function BacktestPanel({ isOpen, onClose }: BacktestPanelProps) {
                           </div>
                           <div>
                             仓位管理：使用【{crPosMode === 'fixed_shares' ? `固定股数 ${crPosValue} 股` : crPosMode === 'fixed_pct' ? `单次交易使用总资金 ${crPosValue}%` : '凯利公式等比调仓'}】。
+                          </div>
+                        </div>
+                      </div>
+                    ) : model === 'vibe_trading' ? (
+                      <div className="space-y-4 pt-2">
+                        <div className="space-y-3 p-4 rounded-2xl bg-zinc-50 border border-zinc-100">
+                          <h4 className="text-sm font-bold text-zinc-900">情绪驱动参数配置</h4>
+                          
+                          <div className="space-y-1.5">
+                            <label className="text-[11px] font-bold text-zinc-500 uppercase">舆情数据源</label>
+                            <select
+                              value={vibeSource}
+                              onChange={(e) => setVibeSource(e.target.value)}
+                              className="w-full px-3 py-2 rounded-xl border border-zinc-200 text-sm font-medium focus:outline-none bg-white text-zinc-800"
+                            >
+                              <option value="all">聚合全局 (Twitter/Weibo/News)</option>
+                              <option value="social">仅社交媒体 (Social Media)</option>
+                              <option value="news">仅主流新闻 (Mainstream News)</option>
+                            </select>
+                          </div>
+                          
+                          <div className="space-y-1.5">
+                            <div className="flex justify-between items-center">
+                              <label className="text-[11px] font-bold text-zinc-500 uppercase">情绪分买入阈值</label>
+                              <span className="text-xs font-bold text-indigo-600">{vibeThreshold.toFixed(2)}</span>
+                            </div>
+                            <input
+                              type="range"
+                              min="0" max="1" step="0.05"
+                              value={vibeThreshold}
+                              onChange={(e) => setVibeThreshold(Number(e.target.value))}
+                              className="w-full accent-indigo-600"
+                            />
+                            <p className="text-[10px] text-zinc-400">当标的综合情绪指数超过阈值时触发建仓信号</p>
                           </div>
                         </div>
                       </div>

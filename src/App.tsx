@@ -39,6 +39,7 @@ const DetailModal = lazy(() => import('./components/shared/DetailModal').then(m 
 const IBKRDashboard = lazy(() => import('./components/dashboard/IBKRDashboard').then(m => ({ default: m.IBKRDashboard })));
 const MockTradingDashboard = lazy(() => import('./components/dashboard/MockTradingDashboard').then(m => ({ default: m.MockTradingDashboard })));
 const BacktestPanel = lazy(() => import('./components/dashboard/BacktestPanel').then(m => ({ default: m.BacktestPanel })));
+const PredictionDashboard = lazy(() => import('./components/dashboard/PredictionDashboard').then(m => ({ default: m.PredictionDashboard })));
 
 export default function App() {
   console.log('App is rendering');
@@ -58,6 +59,7 @@ export default function App() {
   const showIBKRDashboard = useUIStore(s => s.showIBKRDashboard);
   const showMockTradingDashboard = useUIStore(s => s.showMockTradingDashboard);
   const showBacktestPanel = useUIStore(s => s.showBacktestPanel);
+  const showPredictionDashboard = useUIStore(s => s.showPredictionDashboard);
   const setShowDiscussion = useUIStore(s => s.setShowDiscussion);
   const setIsSettingsOpen = useUIStore(s => s.setIsSettingsOpen);
 
@@ -313,6 +315,7 @@ export default function App() {
         {showIBKRDashboard && <Suspense fallback={null}><IBKRDashboard /></Suspense>}
         {showMockTradingDashboard && <Suspense fallback={null}><MockTradingDashboard /></Suspense>}
         {showBacktestPanel && <Suspense fallback={null}><BacktestPanel isOpen={showBacktestPanel} onClose={() => useUIStore.getState().setShowBacktestPanel(false)} /></Suspense>}
+        {showPredictionDashboard && <Suspense fallback={null}><PredictionDashboard isOpen={showPredictionDashboard} onClose={() => useUIStore.getState().setShowPredictionDashboard(false)} /></Suspense>}
         
         <Suspense fallback={null}><AnalysisLoadingPulse /></Suspense>
       </div>

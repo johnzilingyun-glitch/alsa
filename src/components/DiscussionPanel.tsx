@@ -188,7 +188,7 @@ export const DiscussionPanel: React.FC<DiscussionPanelProps> = ({
   };
 
   const saveFeishuWebhook = () => {
-    if (!tempWebhook.trim() || !tempWebhook.includes('feishu.cn')) {
+    if (!tempWebhook.trim()) {
       setShareStatus('error');
       setTimeout(() => setShareStatus('idle'), 3000);
       return;

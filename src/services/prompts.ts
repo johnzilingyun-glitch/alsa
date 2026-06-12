@@ -50,7 +50,7 @@ Requirements:
 2. Prioritize today's ${market} market tone in the summary.
 3. Include exactly 5 indices for the ${market} market:
    - If A-Share: 上证指数, 深证成指, 创业板指, 沪深300, and 恒生指数.
-   - If HK-Share: 恒生指数, 恒生科技指数, 恒生国企指数, 红筹指数, and 创业板指(GEM).
+   - If HK-Share: 恒生指数, 恒生科技指数, 恒生国企指数, and 红筹指数.
    - If US-Share: 标普500, 纳斯达克, 道琼斯, 罗素2000, and 费城半导体.
 4. For each index provide: name, symbol, price, change, changePercent.
 **SEARCH STRATEGY (RESTRICTED)**: 

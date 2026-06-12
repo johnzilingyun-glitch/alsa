@@ -73,6 +73,16 @@ export function useMarketData(fetchAdminData: () => Promise<void>) {
     try {
       const geminiConfig = useConfigStore.getState().config;
       const data = await getMarketOverview(geminiConfig, overviewMarket, forceRefresh, 1);
+      
+      // Preserve fresh API indices from Phase 1 if available, 
+      // preventing stale AI history from overwriting real-time quotes (e.g. 0 prices)
+      if (snapshotLoaded) {
+        const freshIndices = useMarketStore.getState().marketOverviews[overviewMarket]?.indices;
+        if (freshIndices && freshIndices.length > 0) {
+          data.indices = freshIndices;
+        }
+      }
+      
       setMarketOverview(overviewMarket, data);
       setMarketLastUpdated(overviewMarket, data.generatedAt || Date.now());
       void fetchAdminData();

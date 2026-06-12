@@ -20,20 +20,7 @@ category: strategy-decision
 | 标题格式 | `1️⃣ Title`、`2️⃣ Title` |
 | 概率格式 | 纯数字 + 百分号 |
 
----
 
-## 计算工具调用
-
-| 任务 | 工具 | 参数 |
-|------|------|------|
-| DCF 估值 | `dcf_calculator` | FCF、增长率、WACC、股份数、净负债 |
-| 仓位计算 | `position_sizer` | 账户规模、入场价、止损价 |
-| Kelly 公式 | `kelly_calculator` | 胜率、赔率 |
-| 论文记分卡 | `pillar_scorer` | 各论点名称、状态、权重 |
-| 同业估值 | `comps_valuation` | 标的和同业估值倍数 |
-| 财报评分 | `beat_miss_scorer` | 一致预期和实际值 |
-
----
 
 ## 核心输出
 
@@ -93,7 +80,7 @@ category: strategy-decision
 
 ---
 
-## 自检清单
+## 内部自检（仅供AI思考，严禁在最终输出中包含以下清单）
 
 - [ ] CIO 决策面板已前置输出
 - [ ] 催化剂日历已列出

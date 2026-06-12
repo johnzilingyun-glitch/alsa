@@ -2,10 +2,14 @@ import os
 import json
 import asyncio
 import time
+from contextvars import ContextVar
 from google import genai
 from openai import OpenAI
 from typing import Optional, List, Dict, Any
 from dotenv import load_dotenv
+
+# Global context variable to track token usage across the current async task
+current_token_usage: ContextVar[Optional[Dict[str, int]]] = ContextVar("current_token_usage", default=None)
 
 # Load .env
 root_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
@@ -154,39 +158,41 @@ class LLMGateway:
         max_quality_retries = 2
         for quality_attempt in range(max_quality_retries + 1):
             if model.lower().startswith("gemini"):
-                result = await self._generate_gemini(prompt, model, temperature, on_chunk=on_chunk, api_key=gemini_api_key)
+                result_text = await self._generate_gemini(prompt, model, temperature, on_chunk=on_chunk, api_key=gemini_api_key)
             elif self.default_api_key:
                 # Route through default provider (中转站) for all non-gemini models
-                result = await self._generate_default(prompt, model, temperature, on_chunk=on_chunk)
+                result_text = await self._generate_default(prompt, model, temperature, on_chunk=on_chunk)
             elif "deepseek" in model.lower():
-                result = await self._generate_deepseek(prompt, model, temperature, on_chunk=on_chunk, api_key=deepseek_api_key)
+                result_text = await self._generate_deepseek(prompt, model, temperature, on_chunk=on_chunk, api_key=deepseek_api_key)
             else:
                 raise ValueError(f"No provider available for model: {model}. Set DEFAULT_LLM_API_KEY in .env.")
 
+            result_text = result[0] if return_usage and isinstance(result, tuple) else result
+
             # Quality gate: detect truncated responses
-            if result and len(result) < 150:
+            if result_text and len(result_text) < 150:
                 if quality_attempt < max_quality_retries:
-                    print(f"WARNING: Very short response ({len(result)} chars) — quality retry {quality_attempt+1}/{max_quality_retries}")
+                    print(f"WARNING: Very short response ({len(result_text)} chars) — quality retry {quality_attempt+1}/{max_quality_retries}")
                     continue
                 else:
-                    print(f"WARNING: Very short response ({len(result)} chars) after {max_quality_retries} retries — using anyway")
+                    print(f"WARNING: Very short response ({len(result_text)} chars) after {max_quality_retries} retries — using anyway")
 
             # Quality gate: detect off-topic garbage
             garbage_keywords_str = os.getenv("LLM_GARBAGE_KEYWORDS", "h2020,erasmus,empowering women,stem education")
             garbage_keywords = [k.strip().lower() for k in garbage_keywords_str.split(",") if k.strip()]
-            if result and any(keyword in result[:200].lower() for keyword in garbage_keywords):
+            if result_text and any(keyword in result_text[:200].lower() for keyword in garbage_keywords):
                 if quality_attempt < max_quality_retries:
                     print(f"WARNING: Off-topic response — quality retry {quality_attempt+1}/{max_quality_retries}")
                     continue
                 else:
                     print(f"WARNING: Off-topic response persists after retries — using anyway")
 
-            if result and len(result) < 200:
-                print(f"WARNING: Short response ({len(result)} chars) — may be truncated")
+            if result_text and len(result_text) < 200:
+                print(f"WARNING: Short response ({len(result_text)} chars) — may be truncated")
 
-            return result
+            return result_text
 
-        return result  # fallback
+        return result_text  # fallback
 
     async def _generate_default(self, prompt: str, model: str, temperature: float, on_chunk: Optional[callable] = None) -> str:
         """Generate via default provider (中转站, OpenAI-compatible). Rate-limited."""
@@ -204,21 +210,38 @@ class LLMGateway:
                 "temperature": temperature,
                 "max_tokens": 16384,
                 "stream": True,
+                "stream_options": {"include_usage": True}
             }
             if "deepseek" in model.lower():
                 kwargs["extra_body"] = {"reasoning": {"effort": "high"}}
             response = client.chat.completions.create(**kwargs)
             content_parts = []
             char_count = 0
+            usage_dict = {"promptTokens": 0, "candidatesTokens": 0, "totalTokens": 0}
             for chunk in response:
-                if chunk.choices and chunk.choices[0].delta and chunk.choices[0].delta.content:
+                if chunk.choices and len(chunk.choices) > 0 and chunk.choices[0].delta and chunk.choices[0].delta.content:
                     text = chunk.choices[0].delta.content
                     content_parts.append(text)
                     char_count += len(text)
                     if on_chunk:
                         on_chunk(char_count)
+                if hasattr(chunk, 'usage') and chunk.usage:
+                    usage_dict = {
+                        "promptTokens": getattr(chunk.usage, 'prompt_tokens', 0),
+                        "candidatesTokens": getattr(chunk.usage, 'completion_tokens', 0),
+                        "totalTokens": getattr(chunk.usage, 'total_tokens', 0)
+                    }
             print(flush=True)
-            return "".join(content_parts)
+            text_res = "".join(content_parts)
+            
+            usage_ctx = current_token_usage.get()
+            print(f"DEBUG: usage_ctx retrieved: {usage_ctx}", flush=True)
+            if usage_ctx is not None:
+                usage_ctx["promptTokens"] += usage_dict["promptTokens"]
+                usage_ctx["candidatesTokens"] += usage_dict["candidatesTokens"]
+                usage_ctx["totalTokens"] += usage_dict["totalTokens"]
+                
+            return text_res
 
         for attempt in range(max_retries):
             if os.path.exists(".stop"):
@@ -287,6 +310,7 @@ class LLMGateway:
                 def _stream_generate():
                     content_parts = []
                     char_count = 0
+                    usage_dict = {"promptTokens": 0, "candidatesTokens": 0, "totalTokens": 0}
                     response = client.models.generate_content_stream(
                         model=model,
                         contents=prompt,
@@ -303,7 +327,21 @@ class LLMGateway:
                             char_count += len(text)
                             if on_chunk:
                                 on_chunk(char_count)
-                    return "".join(content_parts)
+                        if hasattr(chunk, 'usage_metadata') and chunk.usage_metadata:
+                            usage_dict = {
+                                "promptTokens": getattr(chunk.usage_metadata, 'prompt_token_count', 0),
+                                "candidatesTokens": getattr(chunk.usage_metadata, 'candidates_token_count', 0),
+                                "totalTokens": getattr(chunk.usage_metadata, 'total_token_count', 0)
+                            }
+                    text_res = "".join(content_parts)
+                    
+                    usage_ctx = current_token_usage.get()
+                    if usage_ctx is not None:
+                        usage_ctx["promptTokens"] += usage_dict["promptTokens"]
+                        usage_ctx["candidatesTokens"] += usage_dict["candidatesTokens"]
+                        usage_ctx["totalTokens"] += usage_dict["totalTokens"]
+                        
+                    return text_res
 
                 result = await asyncio.to_thread(_stream_generate)
                 
@@ -356,19 +394,35 @@ class LLMGateway:
                 temperature=temperature,
                 max_tokens=16384,
                 stream=True,
+                stream_options={"include_usage": True},
                 extra_body={"reasoning": {"effort": "high"}},
             )
             content_parts = []
             char_count = 0
+            usage_dict = {"promptTokens": 0, "candidatesTokens": 0, "totalTokens": 0}
             for chunk in response:
-                if chunk.choices and chunk.choices[0].delta and chunk.choices[0].delta.content:
+                if chunk.choices and len(chunk.choices) > 0 and chunk.choices[0].delta and chunk.choices[0].delta.content:
                     text = chunk.choices[0].delta.content
                     content_parts.append(text)
                     char_count += len(text)
                     if on_chunk:
                         on_chunk(char_count)
+                if hasattr(chunk, 'usage') and chunk.usage:
+                    usage_dict = {
+                        "promptTokens": getattr(chunk.usage, 'prompt_tokens', 0),
+                        "candidatesTokens": getattr(chunk.usage, 'completion_tokens', 0),
+                        "totalTokens": getattr(chunk.usage, 'total_tokens', 0)
+                    }
             print(flush=True)  # newline after streaming dots
-            return "".join(content_parts)
+            text_res = "".join(content_parts)
+            
+            usage_ctx = current_token_usage.get()
+            if usage_ctx is not None:
+                usage_ctx["promptTokens"] += usage_dict["promptTokens"]
+                usage_ctx["candidatesTokens"] += usage_dict["candidatesTokens"]
+                usage_ctx["totalTokens"] += usage_dict["totalTokens"]
+                
+            return text_res
         
         for attempt in range(max_retries):
             try:
@@ -481,6 +535,7 @@ class LLMGateway:
                     "temperature": temperature,
                     "max_tokens": 16384,
                     "stream": True,
+                    "stream_options": {"include_usage": True}
                 }
                 if use_tools:
                     kwargs["tools"] = tools
@@ -496,6 +551,18 @@ class LLMGateway:
                 char_count = 0
                 
                 for chunk in response:
+                    if hasattr(chunk, 'usage') and chunk.usage:
+                        usage_dict = {
+                            "promptTokens": getattr(chunk.usage, 'prompt_tokens', 0),
+                            "candidatesTokens": getattr(chunk.usage, 'completion_tokens', 0),
+                            "totalTokens": getattr(chunk.usage, 'total_tokens', 0)
+                        }
+                        usage_ctx = current_token_usage.get()
+                        if usage_ctx is not None:
+                            usage_ctx["promptTokens"] += usage_dict["promptTokens"]
+                            usage_ctx["candidatesTokens"] += usage_dict["candidatesTokens"]
+                            usage_ctx["totalTokens"] += usage_dict["totalTokens"]
+                            
                     if not chunk.choices:
                         continue
                     delta = chunk.choices[0].delta
@@ -527,6 +594,7 @@ class LLMGateway:
                                     tool_calls_acc[idx]["function"]["name"] += tc_delta.function.name
                                 if tc_delta.function.arguments:
                                     tool_calls_acc[idx]["function"]["arguments"] += tc_delta.function.arguments
+
                 
                 print(flush=True)
                 reasoning_content = "".join(reasoning_parts) if reasoning_parts else None

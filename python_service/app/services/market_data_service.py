@@ -160,6 +160,12 @@ class MarketDataService:
                 suffixed = f"{s[:6]}.SZ"
                 processed_symbols.append(suffixed)
                 symbol_map[suffixed] = s
+            elif s == "^HSTECH":
+                processed_symbols.append("HSTECH.HK")
+                symbol_map["HSTECH.HK"] = s
+            elif s == "^HSCCI":
+                processed_symbols.append("^HSCC")
+                symbol_map["^HSCC"] = s
             else:
                 processed_symbols.append(s)
                 symbol_map[s] = s
@@ -196,8 +202,8 @@ class MarketDataService:
         results = []
         try:
             loop = asyncio.get_event_loop()
-            # Note: yf.download is better for batches but let's keep the ticker info logic for detail
-            for ps in processed_symbols:
+            
+            def fetch_single(ps):
                 try:
                     ticker = yf.Ticker(ps)
                     info = ticker.info
@@ -213,7 +219,7 @@ class MarketDataService:
                     
                     orig_symbol = symbol_map[ps]
                     cn_name = a_share_names.get(orig_symbol) or self.GLOBAL_INDEX_NAMES.get(orig_symbol)
-                    results.append({
+                    return {
                         "symbol": orig_symbol,
                         "name": cn_name or info.get("shortName") or info.get("longName") or orig_symbol,
                         "price": price,
@@ -229,7 +235,6 @@ class MarketDataService:
                         "pegRatio": info.get("pegRatio"),
                         "priceToSales": info.get("priceToSalesTrailing12Months"),
                         "enterpriseToEbitda": info.get("enterpriseToEbitda"),
-                        # EV: use raw value if same currency or positive; recompute via FX if currency mismatch + negative
                         "enterpriseValue": self._compute_ev_with_fx(info),
                         "returnOnEquity": info.get("returnOnEquity"),
                         "returnOnAssets": info.get("returnOnAssets"),
@@ -250,11 +255,22 @@ class MarketDataService:
                         "heldPercentInstitutions": info.get("heldPercentInstitutions"),
                         "currency": info.get("currency"),
                         "marketState": info.get("marketState"),
+                        "volume": info.get("volume") or info.get("regularMarketVolume"),
+                        "averageVolume": info.get("averageVolume"),
                         "lastUpdated": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    })
+                    }
                 except Exception as e:
                     print(f"Error fetching quote for {ps}: {e}")
-                    results.append({"symbol": symbol_map[ps], "error": str(e)})
+                    return {"symbol": symbol_map[ps], "error": str(e)}
+
+            from concurrent.futures import ThreadPoolExecutor
+            # Run blocking fetches in a thread pool so 100 symbols take ~1-2 seconds
+            with ThreadPoolExecutor(max_workers=30) as executor:
+                # Use executor.map to preserve order (though order doesn't strictly matter for API)
+                # But we have to await the executor to finish in the asyncio event loop
+                blocking_tasks = [loop.run_in_executor(executor, fetch_single, ps) for ps in processed_symbols]
+                results = await asyncio.gather(*blocking_tasks)
+
                     
         except Exception as e:
             print(f"Batch fetch failed: {e}")

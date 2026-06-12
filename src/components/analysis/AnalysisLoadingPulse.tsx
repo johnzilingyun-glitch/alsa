@@ -107,7 +107,7 @@ export function AnalysisLoadingPulse() {
     }
     if (!analysisStatus) return 0;
     const index = STEPS.findIndex(step => 
-      step.match.some(keyword => analysisStatus.includes(keyword))
+      step.match.some(keyword => String(analysisStatus).includes(keyword))
     );
     return index === -1 ? 0 : index;
   }, [analysisStatus, currentRound, totalRounds]);
@@ -120,12 +120,13 @@ export function AnalysisLoadingPulse() {
       return STAGE_DESCRIPTIONS['discussion'];
     }
     // Try to match from status text
-    if (analysisStatus?.includes('排队') || analysisStatus?.includes('提交')) return STAGE_DESCRIPTIONS['queued'];
-    if (analysisStatus?.includes('启动') || analysisStatus?.includes('初始化')) return STAGE_DESCRIPTIONS['starting'];
-    if (analysisStatus?.includes('行情') || analysisStatus?.includes('获取')) return STAGE_DESCRIPTIONS['snapshot'];
-    if (analysisStatus?.includes('量化') || analysisStatus?.includes('指标')) return STAGE_DESCRIPTIONS['quant'];
-    if (analysisStatus?.includes('专家') || analysisStatus?.includes('研判') || analysisStatus?.includes('召集')) return STAGE_DESCRIPTIONS['discussion'];
-    if (analysisStatus?.includes('整理') || analysisStatus?.includes('结论')) return STAGE_DESCRIPTIONS['finalizing'];
+    const statusStr = String(analysisStatus || '');
+    if (statusStr.includes('排队') || statusStr.includes('提交')) return STAGE_DESCRIPTIONS['queued'];
+    if (statusStr.includes('启动') || statusStr.includes('初始化')) return STAGE_DESCRIPTIONS['starting'];
+    if (statusStr.includes('行情') || statusStr.includes('获取')) return STAGE_DESCRIPTIONS['snapshot'];
+    if (statusStr.includes('量化') || statusStr.includes('指标')) return STAGE_DESCRIPTIONS['quant'];
+    if (statusStr.includes('专家') || statusStr.includes('研判') || statusStr.includes('召集')) return STAGE_DESCRIPTIONS['discussion'];
+    if (statusStr.includes('整理') || statusStr.includes('结论')) return STAGE_DESCRIPTIONS['finalizing'];
     return STAGE_DESCRIPTIONS['queued'];
   }, [analysisStatus, currentRound, totalRounds]);
 

@@ -138,6 +138,7 @@ class AnalysisJobService:
         from .discussion_service import discussion_service
         from ..db.models import AnalysisRun, AnalysisJob
         from .token_guard import token_guard
+        from .llm_gateway import current_token_usage
         
         # Apply user-configured token guard level (default: "high")
         if config and config.get("tokenGuardLevel"):
@@ -181,17 +182,24 @@ class AnalysisJobService:
             # Determine language: explicit config > market-based auto-detection
             language = (config or {}).get("language") or ("en" if market == "us" else "zh-CN")
 
-            discussion_messages = await discussion_service.run_discussion(
-                symbol, 
-                snapshot.get("name", symbol), 
-                snapshot, 
-                level=level,
-                language=language,
-                model=requested_model,
-                on_progress=report_discussion_progress,
-                job_id=job_id,
-                config=safe_config
-            )
+            # Initialize ContextVar for precise token tracking during this job
+            job_usage = {"promptTokens": 0, "candidatesTokens": 0, "totalTokens": 0}
+            token_ctx = current_token_usage.set(job_usage)
+
+            try:
+                discussion_messages = await discussion_service.run_discussion(
+                    symbol, 
+                    snapshot.get("name", symbol), 
+                    snapshot, 
+                    level=level,
+                    language=language,
+                    model=requested_model,
+                    on_progress=report_discussion_progress,
+                    job_id=job_id,
+                    config=safe_config
+                )
+            finally:
+                current_token_usage.reset(token_ctx)
             
             self.update_job_progress(job_id, "finalizing", 90)
             # Key used — refresh timestamp (keeps it alive while job is active)
@@ -229,6 +237,7 @@ class AnalysisJobService:
                 "snapshot": snapshot,
                 "discussion": discussion_messages,
                 "summary": self._extract_summary(discussion_messages),
+                "usageMetadata": job_usage,
             }
             
             # Extract structured fields for Flash UI (sentiment, recommendation, risks, etc.)

@@ -22,6 +22,10 @@ import { ConfirmDialog } from './components/shared/ConfirmDialog';
 import { Toast } from './components/shared/Toast';
 import { NotificationBubbles } from './components/shared/NotificationBubbles';
 
+if (typeof window !== 'undefined') {
+  (window as any).useAnalysisStore = useAnalysisStore;
+}
+
 // Lazy-load conditionally rendered large components
 const SettingsModal = lazy(() => import('./components/SettingsModal').then(m => ({ default: m.SettingsModal })));
 const HistoryModal = lazy(() => import('./components/HistoryModal').then(m => ({ default: m.HistoryModal })));

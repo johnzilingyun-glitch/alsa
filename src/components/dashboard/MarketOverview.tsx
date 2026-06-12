@@ -235,6 +235,7 @@ export const MarketOverview = memo(function MarketOverview({ onFetchMarketOvervi
   const [sectorFlow, setSectorFlow] = useState<any>(null);
   const [northboundFlow, setNorthboundFlow] = useState<any>(null);
   const [flowsLoading, setFlowsLoading] = useState(false);
+  const [trendingStocks, setTrendingStocks] = useState<any[]>([]);
 
   const isHistoryMode = selectedDate !== '';
 
@@ -260,19 +261,21 @@ export const MarketOverview = memo(function MarketOverview({ onFetchMarketOvervi
     return () => { cancelled = true; clearTimeout(timer); };
   }, [overviewMarket, isHistoryMode]);
 
-  // Fetch deterministic capital flows independently (deferred to avoid blocking initial render)
+  // Fetch deterministic capital flows and trending stocks independently
   useEffect(() => {
     let cancelled = false;
     async function fetchFlows() {
-      if (isHistoryMode || overviewMarket !== 'A-Share') return;
+      if (isHistoryMode) return;
       setFlowsLoading(true);
       try {
-        const [sectorsRes, northboundRes] = await Promise.all([
+        const [sectorsRes, northboundRes, trendingRes] = await Promise.all([
           fetch(`/api/stock/sectors`),
-          fetch(`/api/stock/northbound`)
+          overviewMarket === 'A-Share' ? fetch(`/api/stock/northbound`) : Promise.resolve(null),
+          fetch(`/api/stock/trending?market=${overviewMarket}`)
         ]);
         if (sectorsRes.ok && !cancelled) setSectorFlow(await sectorsRes.json());
         if (northboundRes && northboundRes.ok && !cancelled) setNorthboundFlow(await northboundRes.json());
+        if (trendingRes.ok && !cancelled) setTrendingStocks(await trendingRes.json());
       } catch (e) {
         console.warn("Quantitative Data Fetch failed", e);
       } finally {
@@ -970,73 +973,81 @@ export const MarketOverview = memo(function MarketOverview({ onFetchMarketOvervi
         </div>
 
         <div className="space-y-6">
-          {overviewMarket === 'A-Share' && (
-            <div className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm">
-              <h2 className="flex items-center gap-2 text-lg font-semibold text-zinc-950 mb-4">
-                <Coins size={18} className="text-indigo-600" />
-                {t('analysis.panel.institutional_consensus', 'Institutional Flow')}
-                {flowsLoading && <Loader2 className="w-4 h-4 animate-spin text-zinc-400 ml-2" />}
-              </h2>
-              
-              {northboundFlow && overviewMarket === 'A-Share' && (
-                <div className="mb-5 flex items-center justify-between p-3 bg-white rounded-xl border border-zinc-100">
-                  <span className="text-xs font-medium text-zinc-500">{t('marketOverview.northbound', 'Northbound Flow')}</span>
-                  <span className={cn("text-xs font-semibold px-2 py-1 rounded bg-zinc-50", 
-                    String(northboundFlow['净买额']).includes('-') ? "text-rose-500" : "text-emerald-500"
-                  )}>
-                    {northboundFlow['净买额']} {t('marketOverview.unit_yi')}
-                  </span>
-                </div>
-              )}
-              
-              <div className="space-y-3">
-                <span className="text-[10px] uppercase font-bold tracking-widest text-zinc-400">Top Sectors (Inflow)</span>
-                {sectorFlow?.topInflows?.map((sector: any, i: number) => (
-                  <div key={`sector-flow-${sector['行业'] || 'unknown'}-${i}`} className="flex items-center justify-between">
-                    <span className="text-sm font-medium text-zinc-700">{sector['行业']}</span>
-                    <div className="flex flex-col items-end">
-                      <span className="text-xs font-bold text-rose-500">{sector['主力净流入-净额']}</span>
-                      <span className="text-[10px] text-zinc-400">{sector['涨跌幅']}%</span>
-                    </div>
-                  </div>
-                ))}
+          <div className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm">
+            <h2 className="flex items-center gap-2 text-lg font-semibold text-zinc-950 mb-4">
+              <Coins size={18} className="text-indigo-600" />
+              {t('analysis.panel.institutional_consensus', 'Institutional Flow')}
+              {flowsLoading && <Loader2 className="w-4 h-4 animate-spin text-zinc-400 ml-2" />}
+            </h2>
+            
+            {northboundFlow && overviewMarket === 'A-Share' && (
+              <div className="mb-5 flex items-center justify-between p-3 bg-white rounded-xl border border-zinc-100">
+                <span className="text-xs font-medium text-zinc-500">{t('marketOverview.northbound', 'Northbound Flow')}</span>
+                <span className={cn("text-xs font-semibold px-2 py-1 rounded bg-zinc-50", 
+                  String(northboundFlow['净买额']).includes('-') ? "text-rose-500" : "text-emerald-500"
+                )}>
+                  {northboundFlow['净买额']} {t('marketOverview.unit_yi')}
+                </span>
               </div>
+            )}
+            
+            <div className="space-y-3">
+              <span className="text-[10px] uppercase font-bold tracking-widest text-zinc-400">Top Sectors (Inflow)</span>
+              {sectorFlow?.topInflows?.length > 0 ? sectorFlow.topInflows.slice(0, 5).map((sector: any, i: number) => (
+                <div key={`sector-flow-${sector['行业'] || 'unknown'}-${i}`} className="flex items-center justify-between">
+                  <span className="text-sm font-medium text-zinc-700">{sector['行业']}</span>
+                  <div className="flex flex-col items-end">
+                    <span className="text-xs font-bold text-rose-500">{sector['主力净流入-净额']}</span>
+                    <span className="text-[10px] text-zinc-400">{sector['涨跌幅']}%</span>
+                  </div>
+                </div>
+              )) : marketOverview?.sectorAnalysis?.slice(0, 5).map((sector: any, i: number) => (
+                <div key={`sector-flow-ai-${sector.name}-${i}`} className="flex items-center justify-between">
+                  <span className="text-sm font-medium text-zinc-700">{sector.name}</span>
+                  <div className="flex flex-col items-end text-right">
+                    <span className="text-[10px] font-bold text-rose-500">{sector.rotationStage}</span>
+                    <span className="text-[10px] text-zinc-400 max-w-[100px] truncate" title={sector.trend}>{sector.trend}</span>
+                  </div>
+                </div>
+              ))}
             </div>
-          )}
+          </div>
 
           <h2 className="flex items-center gap-2 text-xl font-medium text-zinc-950">
             <TrendingUp size={20} className="text-amber-500" />
             {t('market.trending_search')}
+            {flowsLoading && <Loader2 className="w-4 h-4 animate-spin text-zinc-400 ml-2" />}
           </h2>
           <div className="grid grid-cols-1 gap-3">
-            {[
-              { symbol: '600519', name: '贵州茅台', market: "A-Share" as Market },
-              { symbol: '300750', name: '宁德时代', market: "A-Share" as Market },
-              { symbol: '700', name: '腾讯控股', market: "HK-Share" as Market },
-              { symbol: 'NVDA', name: '英伟达', market: "US-Share" as Market },
-            ].map((stock) => (
-              <button key={stock.symbol} onClick={() => { setSymbol(stock.symbol); setMarket(stock.market); }} className="group flex items-center justify-between rounded-2xl border border-zinc-200 bg-white p-4 text-left transition-all hover:border-indigo-600/50 shadow-sm">
+            {trendingStocks?.length > 0 ? trendingStocks.map((stock: any) => (
+              <button key={`trending-${stock.symbol}`} onClick={() => { setSymbol(stock.symbol); setMarket(stock.market); }} className="group flex items-center justify-between rounded-2xl border border-zinc-200 bg-white p-4 text-left transition-all hover:border-indigo-600/50 shadow-sm">
                 <div>
                   <p className="mb-0.5 font-mono text-[10px] uppercase text-zinc-400">{stock.market}</p>
                   <p className="font-medium text-zinc-950 transition-colors group-hover:text-indigo-600">{stock.symbol}</p>
                 </div>
                 <div className="text-right">
                   <p className="text-xs text-zinc-400">{stock.name}</p>
-                  <Search size={14} className="ml-auto mt-1 text-zinc-400" />
+                  {stock.changePercent !== undefined && (
+                    <p className={cn("text-xs font-medium mt-1", stock.changePercent >= 0 ? "text-emerald-500" : "text-rose-500")}>
+                      {stock.changePercent > 0 ? '+' : ''}{stock.changePercent.toFixed(2)}%
+                    </p>
+                  )}
                 </div>
               </button>
+            )) : Array(4).fill(0).map((_, i) => (
+              <div key={`trending-skeleton-${i}`} className="h-[74px] skeleton rounded-2xl border border-zinc-200" />
             ))}
           </div>
         </div>
       </section>
 
       {/* Sector Scanner */}
-      {!isHistoryMode && overviewMarket === 'A-Share' && (
+      {!isHistoryMode && (
         <SectorScanner />
       )}
 
       {/* Serenity Alpha Analyst */}
-      {!isHistoryMode && overviewMarket === 'A-Share' && (
+      {!isHistoryMode && (
         <SerenityAlphaAnalyst />
       )}
     </motion.div>

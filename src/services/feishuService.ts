@@ -196,11 +196,38 @@ export async function sendAnalysisToFeishu(analysis: StockAnalysis, webhookUrl: 
     elements: elements
   };
 
+  const payloadObj = { msg_type: "interactive", card: card };
+  const payloadStr = JSON.stringify(payloadObj);
+
+  // Hermes HMAC Forwarding Support
+  const webhookSecret = "jR9oR2-DrTyHKLnwXB2mIPFK8mLlozbOL1IcsiLsbs0"; // User provided secret
+  let signature = "";
+  
+  try {
+    const enc = new TextEncoder();
+    const key = await crypto.subtle.importKey(
+      "raw",
+      enc.encode(webhookSecret),
+      { name: "HMAC", hash: "SHA-256" },
+      false,
+      ["sign"]
+    );
+    const sigBuffer = await crypto.subtle.sign("HMAC", key, enc.encode(payloadStr));
+    const hashArray = Array.from(new Uint8Array(sigBuffer));
+    const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+    signature = `sha256=${hashHex}`;
+  } catch (e) {
+    console.error("Failed to generate HMAC signature:", e);
+  }
+
   try {
     const response = await fetch(webhookUrl, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ msg_type: "interactive", card: card })
+      headers: { 
+        "Content-Type": "application/json",
+        ...(signature ? { "X-Hub-Signature-256": signature } : {})
+      },
+      body: payloadStr
     });
     return response.ok;
   } catch (error) {
@@ -208,3 +235,4 @@ export async function sendAnalysisToFeishu(analysis: StockAnalysis, webhookUrl: 
     return false;
   }
 }
+

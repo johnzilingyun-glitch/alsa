@@ -36,6 +36,11 @@ export interface GatewayResponse {
   text: string;
   model: string;
   provider: GatewayProvider;
+  usageMetadata?: {
+    promptTokenCount: number;
+    candidatesTokenCount: number;
+    totalTokenCount: number;
+  };
 }
 
 type LogFn = (event: string, data?: Record<string, unknown>) => void;
@@ -58,7 +63,7 @@ const GEMINI_MODELS = [
 
 // ── Gemini REST provider ───────────────────────────────────────────────────
 
-async function tryGemini(prompt: string, log: LogFn, requestedModel?: string, configApiKey?: string): Promise<string | null> {
+async function tryGemini(prompt: string, log: LogFn, requestedModel?: string, configApiKey?: string): Promise<{text: string, usageMetadata?: any} | null> {
   const apiKey = configApiKey || process.env.GEMINI_API_KEY;
   if (!apiKey) {
     log('gateway_gemini_unavailable', { reason: 'no_api_key' });
@@ -92,9 +97,17 @@ async function tryGemini(prompt: string, log: LogFn, requestedModel?: string, co
       if (res.ok) {
         const data = await res.json() as any;
         const text: string = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+        const usage = data?.usageMetadata;
         if (text) {
           log('gateway_gemini_ok', { model, length: text.length });
-          return text;
+          return {
+            text,
+            usageMetadata: usage ? {
+              promptTokenCount: usage.promptTokenCount,
+              candidatesTokenCount: usage.candidatesTokenCount,
+              totalTokenCount: usage.totalTokenCount
+            } : undefined
+          };
         }
         log('gateway_gemini_empty', { model });
         continue;
@@ -125,7 +138,7 @@ async function tryGemini(prompt: string, log: LogFn, requestedModel?: string, co
 
 // ── OpenAI-compatible REST provider ───────────────────────────────────────
 
-async function tryOpenAI(prompt: string, log: LogFn, requestedModel?: string): Promise<string | null> {
+async function tryOpenAI(prompt: string, log: LogFn, requestedModel?: string): Promise<{text: string, usageMetadata?: any} | null> {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
     log('gateway_openai_unavailable', { reason: 'no_api_key' });
@@ -164,9 +177,17 @@ async function tryOpenAI(prompt: string, log: LogFn, requestedModel?: string): P
     if (res.ok) {
       const data = await res.json() as any;
       const text: string = data?.choices?.[0]?.message?.content || '';
+      const usage = data?.usage;
       if (text) {
         log('gateway_openai_ok', { model, length: text.length });
-        return text;
+        return {
+          text,
+          usageMetadata: usage ? {
+            promptTokenCount: usage.prompt_tokens,
+            candidatesTokenCount: usage.completion_tokens,
+            totalTokenCount: usage.total_tokens
+          } : undefined
+        };
       }
     }
 
@@ -181,7 +202,7 @@ async function tryOpenAI(prompt: string, log: LogFn, requestedModel?: string): P
 
 // ── Anthropic REST provider ────────────────────────────────────────────────
 
-async function tryAnthropic(prompt: string, log: LogFn, requestedModel?: string): Promise<string | null> {
+async function tryAnthropic(prompt: string, log: LogFn, requestedModel?: string): Promise<{text: string, usageMetadata?: any} | null> {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
     log('gateway_anthropic_unavailable', { reason: 'no_api_key' });
@@ -227,9 +248,17 @@ async function tryAnthropic(prompt: string, log: LogFn, requestedModel?: string)
     if (res.ok) {
       const data = await res.json() as any;
       const text: string = data?.content?.[0]?.text || '';
+      const usage = data?.usage;
       if (text) {
         log('gateway_anthropic_ok', { model, length: text.length });
-        return text;
+        return {
+          text,
+          usageMetadata: usage ? {
+            promptTokenCount: usage.input_tokens,
+            candidatesTokenCount: usage.output_tokens,
+            totalTokenCount: usage.input_tokens + usage.output_tokens
+          } : undefined
+        };
       }
     }
 
@@ -242,7 +271,7 @@ async function tryAnthropic(prompt: string, log: LogFn, requestedModel?: string)
   return null;
 }
 
-async function tryDeepSeek(prompt: string, log: LogFn, requestedModel?: string, configApiKey?: string): Promise<string | null> {
+async function tryDeepSeek(prompt: string, log: LogFn, requestedModel?: string, configApiKey?: string): Promise<{text: string, usageMetadata?: any} | null> {
   const apiKey = configApiKey || process.env.DEEPSEEK_API_KEY;
   if (!apiKey) {
     log('gateway_deepseek_unavailable', { reason: 'no_api_key' });
@@ -254,41 +283,48 @@ async function tryDeepSeek(prompt: string, log: LogFn, requestedModel?: string, 
 
   try {
     log('gateway_deepseek_attempt', { model, isPro });
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), HTTP_TIMEOUT_MS);
-
-    const res = await fetch('https://api.deepseek.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
+    const axios = (await import('axios')).default;
+    
+    try {
+      const res = await axios.post('https://api.deepseek.com/chat/completions', {
         model: model,
         messages: [
           { role: 'system', content: '你是一位专业的金融分析师。请按要求返回结构化的分析内容。' },
           { role: 'user', content: prompt },
         ],
-        temperature: isPro ? 0.3 : 1.0, // Pro set to 0.3 for maximum rigor, Flash remains 1.0 for natural response
+        temperature: isPro ? 0.3 : 1.0,
         max_tokens: isPro ? 16384 : 8192,
-      }),
-      signal: controller.signal,
-    });
-    clearTimeout(timer);
+      }, {
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`,
+        },
+        timeout: HTTP_TIMEOUT_MS
+      });
 
-    if (res.ok) {
-      const data = await res.json() as any;
-      const text: string = data?.choices?.[0]?.message?.content || '';
+      const text: string = res.data?.choices?.[0]?.message?.content || '';
+      const usage = res.data?.usage;
       if (text) {
         log('gateway_deepseek_ok', { model, length: text.length });
-        return text;
+        return {
+          text,
+          usageMetadata: usage ? {
+            promptTokenCount: usage.prompt_tokens,
+            candidatesTokenCount: usage.completion_tokens,
+            totalTokenCount: usage.total_tokens
+          } : undefined
+        };
+      }
+    } catch (err: any) {
+      if (err.response) {
+        log('gateway_deepseek_http_error', { model, status: err.response.status, body: JSON.stringify(err.response.data).slice(0, 200) });
+      } else {
+        throw err; // Let outer catch block handle it
       }
     }
-
-    const errBody = await res.text().catch(() => '');
-    log('gateway_deepseek_http_error', { model, status: res.status, body: errBody.slice(0, 200) });
   } catch (err: any) {
-    log('gateway_deepseek_exception', { model, error: String(err?.message || err).slice(0, 200) });
+    console.error('[DeepSeek Error Details]:', err);
+    log('gateway_deepseek_exception', { model, error: String(err?.message || err) });
   }
 
   return null;
@@ -296,7 +332,7 @@ async function tryDeepSeek(prompt: string, log: LogFn, requestedModel?: string, 
 
 // ── Default Relay provider (中转站) ─────────────────────────────────────────
 
-async function tryDefault(prompt: string, log: LogFn, requestedModel?: string): Promise<string | null> {
+async function tryDefault(prompt: string, log: LogFn, requestedModel?: string): Promise<{text: string, usageMetadata?: any} | null> {
   const apiKey = process.env.DEFAULT_LLM_API_KEY;
   if (!apiKey) {
     log('gateway_default_unavailable', { reason: 'no_api_key' });
@@ -333,9 +369,17 @@ async function tryDefault(prompt: string, log: LogFn, requestedModel?: string): 
     if (res.ok) {
       const data = await res.json() as any;
       const text: string = data?.choices?.[0]?.message?.content || '';
+      const usage = data?.usage;
       if (text) {
         log('gateway_default_ok', { model, length: text.length });
-        return text;
+        return {
+          text,
+          usageMetadata: usage ? {
+            promptTokenCount: usage.prompt_tokens,
+            candidatesTokenCount: usage.completion_tokens,
+            totalTokenCount: usage.total_tokens
+          } : undefined
+        };
       }
     }
 
@@ -400,7 +444,7 @@ export async function gatewayGenerate(
   }
 
   // Build single-provider call (no chain, no degradation)
-  const providerFns: Record<GatewayProvider, () => Promise<string | null>> = {
+  const providerFns: Record<GatewayProvider, () => Promise<{text: string, usageMetadata?: any} | null>> = {
     default:    () => tryDefault(prompt, log, model),
     gemini:    () => tryGemini(prompt, log, model, config?.geminiApiKey),
     openai:    () => tryOpenAI(prompt, log, model),
@@ -412,9 +456,9 @@ export async function gatewayGenerate(
   log('gateway_call_strict', { provider, model });
 
   try {
-    const text = await fn();
-    if (text) {
-      return { text, model, provider };
+    const result = await fn();
+    if (result && result.text) {
+      return { text: result.text, model, provider, usageMetadata: result.usageMetadata };
     }
   } catch (err: any) {
     throw new Error(

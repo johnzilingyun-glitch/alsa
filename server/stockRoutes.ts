@@ -191,6 +191,19 @@ const PYTHON_SERVICE_URL = process.env.PYTHON_SERVICE_URL || 'http://127.0.0.1:8
 // -----------------------------
 
 // Market Indices
+const INDEX_NAME_MAP: Record<string, string> = {
+  '000001.SS': '上证指数',
+  '399001.SZ': '深证成指',
+  '399006.SZ': '创业板指',
+  '000300.SS': '沪深300',
+  '^HSI': '恒生指数',
+  '^HSTECH': '恒生科技',
+  '^HSCE': '恒生国企',
+  '^GSPC': '标普500',
+  '^IXIC': '纳斯达克',
+  '^DJI': '道琼斯',
+};
+
 router.get('/stock/indices', async (req, res) => {
   const { market } = req.query;
   const marketKey = (market as string) || 'A-Share';
@@ -204,7 +217,10 @@ router.get('/stock/indices', async (req, res) => {
     const pythonRes = await axios.get(`${PYTHON_SERVICE_URL}/api/market/indices?market=${marketKey}`, { timeout: 4000 });
     
     if (pythonRes.data.success && Array.isArray(pythonRes.data.data) && pythonRes.data.data.length > 0) {
-      const data = pythonRes.data.data;
+      const data = pythonRes.data.data.map((d: any) => ({
+        ...d,
+        name: INDEX_NAME_MAP[d.symbol] || d.name
+      }));
       setCache(cacheKey, data);
       monitor.recordSuccess('python_market', Date.now() - startTime);
       return res.json(data);
@@ -216,22 +232,35 @@ router.get('/stock/indices', async (req, res) => {
     
     // Legacy fallback (preserving minimal safety)
     try {
-        const symbols = marketKey === 'HK-Share' ? ['^HSI', '^HSTECH'] : ['000001.SS', '399001.SZ', '^HSI'];
+        const symbols = marketKey === 'HK-Share' ? ['^HSI', '^HSTECH'] : 
+                        marketKey === 'US-Share' ? ['^GSPC', '^IXIC', '^DJI'] : 
+                        ['000001.SS', '399001.SZ', '399006.SZ'];
         const results = await yf.quote(symbols as any);
         if (results && results.length > 0) {
-          return res.json(results);
+          const mappedResults = results.map(r => ({
+            symbol: r.symbol,
+            name: INDEX_NAME_MAP[r.symbol] || r.shortName || r.longName || r.symbol,
+            price: r.regularMarketPrice,
+            change: r.regularMarketChange,
+            changePercent: r.regularMarketChangePercent
+          }));
+          return res.json(mappedResults);
         }
         throw new Error('Local Yahoo Finance also failed');
     } catch (e) {
         // ULTIMATE FAIL-SAFE: Return hardcoded stale defaults to prevent UI crash
         console.error('CRITICAL: All indices sources failed. Returning stale defaults.');
         const defaults = marketKey === 'HK-Share' ? [
-          { symbol: '^HSI', shortName: '恒生指数', regularMarketPrice: 0, regularMarketChange: 0, regularMarketChangePercent: 0, status: 'stale' },
-          { symbol: '^HSTECH', shortName: '恒生科技', regularMarketPrice: 0, regularMarketChange: 0, regularMarketChangePercent: 0, status: 'stale' }
+          { symbol: '^HSI', name: '恒生指数', price: 0, change: 0, changePercent: 0, status: 'stale' },
+          { symbol: '^HSTECH', name: '恒生科技', price: 0, change: 0, changePercent: 0, status: 'stale' }
+        ] : marketKey === 'US-Share' ? [
+          { symbol: '^GSPC', name: '标普500', price: 0, change: 0, changePercent: 0, status: 'stale' },
+          { symbol: '^IXIC', name: '纳斯达克', price: 0, change: 0, changePercent: 0, status: 'stale' },
+          { symbol: '^DJI', name: '道琼斯', price: 0, change: 0, changePercent: 0, status: 'stale' }
         ] : [
-          { symbol: '000001.SS', shortName: '上证指数', regularMarketPrice: 0, regularMarketChange: 0, regularMarketChangePercent: 0, status: 'stale' },
-          { symbol: '399001.SZ', shortName: '深证成指', regularMarketPrice: 0, regularMarketChange: 0, regularMarketChangePercent: 0, status: 'stale' },
-          { symbol: '^HSI', shortName: '恒生指数', regularMarketPrice: 0, regularMarketChange: 0, regularMarketChangePercent: 0, status: 'stale' }
+          { symbol: '000001.SS', name: '上证指数', price: 0, change: 0, changePercent: 0, status: 'stale' },
+          { symbol: '399001.SZ', name: '深证成指', price: 0, change: 0, changePercent: 0, status: 'stale' },
+          { symbol: '399006.SZ', name: '创业板指', price: 0, change: 0, changePercent: 0, status: 'stale' }
         ];
         res.json(defaults);
     }
@@ -289,6 +318,7 @@ router.get('/stock/news', async (req, res) => {
             title: n.title,
             url: n.link,
             time: new Date(n.providerPublishTime).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' }),
+            timestamp: new Date(n.providerPublishTime).getTime(),
             source: n.publisher || 'Yahoo Finance'
           }));
           logDebug('performance', { source: 'yahoo_ticker', latency: Date.now() - start, count: items.length });
@@ -310,6 +340,10 @@ router.get('/stock/news', async (req, res) => {
         if (pythonRes.ok) {
           const pythonData = await pythonRes.json();
           const items = (pythonData.success && pythonData.data) ? pythonData.data : [];
+          // Python MS doesn't return timestamp, generate it from 'time'
+          items.forEach((item: any) => {
+             item.timestamp = new Date(item.time.replace(/\//g, '-')).getTime();
+          });
           logDebug('performance', { source: 'python_news', latency: Date.now() - start, count: items.length });
           return items;
         }
@@ -324,23 +358,25 @@ router.get('/stock/news', async (req, res) => {
       fetchTasks.push((async () => {
         const start = Date.now();
         try {
+          const axios = (await import('axios')).default;
           const sinaUrl = 'https://finance.sina.com.cn/rss/roll.xml';
-          const response = await fetch(sinaUrl, {
+          const response = await axios.get(sinaUrl, {
             headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' },
-            signal: AbortSignal.timeout(3000)
+            timeout: 3000,
+            responseType: 'arraybuffer'
           });
           
-          // Sina RSS rolls are typically GBK
-          const buffer = await response.arrayBuffer();
-          const text = new TextDecoder('gbk').decode(buffer);
+          const text = new TextDecoder('gbk').decode(response.data);
           const itemRegex = /<item>[\s\S]*?<title>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?<\/title>[\s\S]*?<link>(.*?)<\/link>[\s\S]*?<pubDate>(.*?)<\/pubDate>[\s\S]*?<\/item>/g;
           let match;
           const items = [];
           while ((match = itemRegex.exec(text)) !== null && items.length < 8) {
+            const pubDate = new Date(match[3]);
             items.push({
               title: match[1].replace(/<!\[CDATA\[|\]\]>/g, '').trim(),
               url: match[2].trim(),
-              time: new Date(match[3]).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' }),
+              time: pubDate.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' }),
+              timestamp: pubDate.getTime(),
               source: 'Sina Finance'
             });
           }
@@ -353,23 +389,33 @@ router.get('/stock/news', async (req, res) => {
       })());
     }
 
-    // 3. Global Yahoo Fallback (Parallel with others)
+    // 3. Global Google News Fallback (Parallel with others)
     fetchTasks.push((async () => {
       const start = Date.now();
       try {
-        const query = marketKey === 'A-Share' ? '000001.SS' : marketKey === 'HK-Share' ? '0700.HK' : 'SPY';
-        // [OPTIMIZATION]: Wrap global yf.search in a timeout
-        const searchPromise = yf.search(query, { newsCount: 5 });
-        const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Global Yahoo Search Timeout')), 3500));
-        const searchResult = await Promise.race([searchPromise, timeoutPromise]) as any;
+        const query = marketKey === 'A-Share' ? 'A股+股市' : marketKey === 'HK-Share' ? '港股+股市' : '美股+股市';
+        const axios = (await import('axios')).default;
+        const gnewsUrl = `https://news.google.com/rss/search?q=${encodeURIComponent(query)}&hl=zh-CN&gl=CN&ceid=CN:zh-Hans`;
+        const response = await axios.get(gnewsUrl, {
+          headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' },
+          timeout: 3500
+        });
         
-        const items = (searchResult?.news || []).map((n: any) => ({
-          title: n.title,
-          url: n.link,
-          time: new Date(n.providerPublishTime).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' }),
-          source: n.publisher || 'Yahoo Finance'
-        }));
-        logDebug('performance', { source: 'yahoo_global', latency: Date.now() - start, count: items.length });
+        const text = response.data;
+        const itemRegex = /<item>[\s\S]*?<title>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?<\/title>[\s\S]*?<link>(.*?)<\/link>[\s\S]*?<pubDate>(.*?)<\/pubDate>[\s\S]*?<source.*?>(.*?)<\/source>[\s\S]*?<\/item>/g;
+        let match;
+        const items = [];
+        while ((match = itemRegex.exec(text)) !== null && items.length < 5) {
+          const pubDate = new Date(match[3]);
+          items.push({
+            title: match[1].replace(/<!\[CDATA\[|\]\]>/g, '').trim(),
+            url: match[2].trim(),
+            time: pubDate.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' }),
+            timestamp: pubDate.getTime(),
+            source: match[4].trim() || 'Google News'
+          });
+        }
+        logDebug('performance', { source: 'google_news', latency: Date.now() - start, count: items.length });
         return items;
       } catch (e) {
         return [];
@@ -379,19 +425,97 @@ router.get('/stock/news', async (req, res) => {
     const results = await Promise.all(fetchTasks);
     results.forEach(batch => news.push(...batch));
 
+    // Sort by timestamp DESC (newest first)
+    news.sort((a, b) => b.timestamp - a.timestamp);
+
     // De-duplicate by title
     const uniqueNews = Array.from(new Map(news.map(item => [item.title, item])).values()).slice(0, 10);
     
-    logDebug('performance', { endpoint: '/stock/news', totalLatency: Date.now() - startTime, finalCount: uniqueNews.length });
+    // Clean up internal timestamp property before sending to client
+    const finalNews = uniqueNews.map(({ timestamp, ...rest }) => rest);
     
-    setCache(cacheKey, uniqueNews);
-    res.json(uniqueNews);
+    logDebug('performance', { endpoint: '/stock/news', totalLatency: Date.now() - startTime, finalCount: finalNews.length });
+    
+    setCache(cacheKey, finalNews);
+    res.json(finalNews);
   } catch (error) {
     console.error('News fetch error:', error);
     res.status(500).json({ error: 'Failed to fetch news data' });
   }
 });
 
+// Trending Search
+router.get('/stock/trending', async (req, res) => {
+  const market = req.query.market as string || 'A-Share';
+  const cacheKey = `trending_${market}`;
+  const cached = getCached(cacheKey);
+  if (cached) return res.json(cached);
+
+  try {
+    let symbols = [];
+    if (market === 'A-Share') {
+      // CSI 300 Components
+      symbols = ['600519', '300750', '601318', '600036', '000858', '601012', '002594', '600900', '601166', '000333', '601899', '600030', '000001', '600276', '601398', '601288', '600919', '002415', '000568', '601816', '601988', '600887', '600028', '601088', '002304', '601628', '601857', '601601', '600048', '300059', '601888', '300122', '000002', '002714', '603259', '601138', '002475', '601668', '601328', '601939', '600016', '000651', '603288', '002142', '002271', '600104', '601319', '001979', '300760', '002812'];
+    } else if (market === 'HK-Share') {
+      // Hang Seng Index Components
+      symbols = ['0700', '3690', '9988', '1299', '0941', '0883', '0005', '0388', '9618', '1810', '9999', '1024', '1211', '0857', '2015', '0011', '0002', '0016', '1928', '0027', '0823', '0001', '2318', '3968', '0939', '1398', '3988', '0267', '2388', '1109', '0003', '0006', '0836', '1038', '1044', '1113', '0012', '0017', '0066', '0101', '0288', '0386', '0688', '0762', '0868', '1088', '1093', '1177', '1997', '2007', '2269', '2313', '2319', '2382'];
+    } else {
+      // Nasdaq 100 Components
+      symbols = ['NVDA', 'TSLA', 'AAPL', 'MSFT', 'AMD', 'AMZN', 'META', 'GOOGL', 'GOOG', 'SMCI', 'COIN', 'PLTR', 'ARM', 'MU', 'AVGO', 'MSTR', 'NFLX', 'INTC', 'CSCO', 'CMCSA', 'PEP', 'ADBE', 'COST', 'TXN', 'AMGN', 'TMUS', 'QCOM', 'HON', 'INTU', 'ISRG', 'SBUX', 'GILD', 'MDLZ', 'AMAT', 'BKNG', 'ADI', 'ADP', 'VRTX', 'REGN', 'PANW', 'SNPS', 'KLAC', 'CDNS', 'CRWD', 'MAR', 'CTAS', 'LRCX', 'NXPI', 'CSX', 'ORLY', 'MELI', 'PCAR', 'MNST', 'FTNT', 'WDAY', 'KDP', 'ROST'];
+    }
+
+    const pythonRes = await fetch(`http://127.0.0.1:8001/api/market/quotes?symbols=${symbols.join(',')}`, { 
+      signal: AbortSignal.timeout(15000) 
+    });
+    
+    if (!pythonRes.ok) throw new Error('Failed to fetch quotes for trending');
+    
+    const pyData = await pythonRes.json();
+    const quotes = pyData.success && pyData.data ? pyData.data : [];
+    
+    // Calculate volume ratio (异常放量程度) or fallback to turnover/volume
+    quotes.forEach((q: any) => {
+      if (q.volume && q.averageVolume) {
+        q.volumeRatio = q.volume / q.averageVolume;
+      } else {
+        q.volumeRatio = q.volume ? q.volume / 1000000 : 0; // fallback arbitrary sorting
+      }
+    });
+
+    const sorted = quotes.sort((a: any, b: any) => (b.volumeRatio || 0) - (a.volumeRatio || 0)).slice(0, 4);
+    
+    const results = sorted.map((q: any) => ({
+      symbol: q.symbol,
+      name: q.name,
+      market: market,
+      changePercent: q.changePercent
+    }));
+    
+    setCache(cacheKey, results);
+    res.json(results);
+  } catch (error) {
+    console.error('Trending fetch error:', error);
+    // Fallback if failing
+    res.json(
+      market === 'A-Share' ? [
+        { symbol: '600519', name: '贵州茅台', market: 'A-Share', changePercent: 0 },
+        { symbol: '300750', name: '宁德时代', market: 'A-Share', changePercent: 0 },
+        { symbol: '601318', name: '中国平安', market: 'A-Share', changePercent: 0 },
+        { symbol: '002594', name: '比亚迪', market: 'A-Share', changePercent: 0 }
+      ] : market === 'HK-Share' ? [
+        { symbol: '0700', name: '腾讯控股', market: 'HK-Share', changePercent: 0 },
+        { symbol: '3690', name: '美团-W', market: 'HK-Share', changePercent: 0 },
+        { symbol: '9988', name: '阿里巴巴-SW', market: 'HK-Share', changePercent: 0 },
+        { symbol: '0883', name: '中国海洋石油', market: 'HK-Share', changePercent: 0 }
+      ] : [
+        { symbol: 'NVDA', name: '英伟达', market: 'US-Share', changePercent: 0 },
+        { symbol: 'TSLA', name: '特斯拉', market: 'US-Share', changePercent: 0 },
+        { symbol: 'AAPL', name: '苹果', market: 'US-Share', changePercent: 0 },
+        { symbol: 'MSFT', name: '微软', market: 'US-Share', changePercent: 0 }
+      ]
+    );
+  }
+});
 // Institutional Sector Flows (Python Microservice Proxy)
 router.get('/stock/sectors', async (req, res) => {
   const cacheKey = 'sector_flow';
@@ -405,6 +529,7 @@ router.get('/stock/sectors', async (req, res) => {
       setCache(cacheKey, data.data);
       return res.json(data.data);
     }
+    throw new Error('Python API returned success: false or empty data');
   } catch (error) {
     console.warn('Sector flow fetch error (is Python backend running?):', error);
     const fallback = await fetchSectorFlowFromEastMoneyFallback().catch(() => null);
@@ -429,6 +554,7 @@ router.get('/stock/northbound', async (req, res) => {
       setCache(cacheKey, data.data);
       return res.json(data.data);
     }
+    throw new Error('Python API returned success: false or empty data');
   } catch (error) {
     console.warn('Northbound flow fetch error (is Python backend running?):', error);
     const fallback = await fetchNorthboundFromEastMoneyFallback().catch(() => null);

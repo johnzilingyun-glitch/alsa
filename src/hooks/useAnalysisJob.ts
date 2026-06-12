@@ -189,6 +189,17 @@ export function useAnalysisJob() {
           const runData = await runRes.json();
           if (runData.success) {
             setResult(runData.data);
+            
+            // Record precise token usage from the Python deep research pipeline
+            const usageMetadata = runData.data?.usageMetadata;
+            if (usageMetadata) {
+              const { useConfigStore } = await import('../stores/useConfigStore');
+              useConfigStore.getState().addTokenUsage({
+                promptTokens: usageMetadata.promptTokens || 0,
+                candidatesTokens: usageMetadata.candidatesTokens || 0,
+                totalTokens: usageMetadata.totalTokens || 0
+              });
+            }
           } else {
             setError(runData.error?.message || 'Failed to fetch analysis result');
             setStatus('failed');

@@ -23,8 +23,8 @@ export function SidebarSummary({ analysis }: SidebarSummaryProps) {
   const [isEnablingMonitor, setIsEnablingMonitor] = useState(false);
   const showToast = useUIStore(s => s.showToast);
   const feishuWebhookUrl = useConfigStore(s => s.feishuWebhookUrl);
-  const isNotRecommended = analysis.tradingPlan?.entryPrice?.includes('不推荐') || 
-                          analysis.tradingPlan?.entryPrice?.includes('Not Recommended');
+  const isNotRecommended = String(analysis.tradingPlan?.entryPrice || '').includes('不推荐') || 
+                          String(analysis.tradingPlan?.entryPrice || '').includes('Not Recommended');
 
   const handleAddToSignalCenter = async () => {
     if (!analysis.tradingPlan || !analysis.stockInfo) return;
@@ -92,9 +92,9 @@ export function SidebarSummary({ analysis }: SidebarSummaryProps) {
         <h3 className="flex items-center gap-2 text-lg font-medium text-zinc-950">
           {t('analysis.info.summary')}
         </h3>
-        <p className="text-sm leading-relaxed text-zinc-500 font-medium prose prose-sm prose-zinc max-w-none prose-p:my-1 prose-strong:text-zinc-700">
+        <div className="text-sm leading-relaxed text-zinc-500 font-medium prose prose-sm prose-zinc max-w-none prose-p:my-1 prose-strong:text-zinc-700">
           <ReactMarkdown remarkPlugins={[remarkGfm]}>{analysis.summary || ''}</ReactMarkdown>
-        </p>
+        </div>
       </div>
 
       {analysis.tradingPlan && (
@@ -157,9 +157,9 @@ export function SidebarSummary({ analysis }: SidebarSummaryProps) {
               <p className="text-[10px] font-medium uppercase tracking-widest text-rose-400 mb-2 flex items-center gap-2">
                 {t('analysis.conference.risk_warning')}
               </p>
-              <p className="text-xs text-rose-200/80 leading-relaxed italic prose prose-sm max-w-none prose-p:my-0 prose-strong:text-rose-300 [&_*]:text-rose-200/80">
+              <div className="text-xs text-rose-200/80 leading-relaxed italic prose prose-sm max-w-none prose-p:my-0 prose-strong:text-rose-300 [&_*]:text-rose-200/80">
                 <ReactMarkdown remarkPlugins={[remarkGfm]}>{analysis.tradingPlan.strategyRisks || ''}</ReactMarkdown>
-              </p>
+              </div>
             </div>
           )}
 

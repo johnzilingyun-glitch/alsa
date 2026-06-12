@@ -223,20 +223,37 @@ class SignalMonitorService:
 
         try:
             import httpx
+            import json
+            import hmac
+            import hashlib
+
+            payload_dict = {
+                "msg_type": "interactive",
+                "card": card,
+            }
+            payload_bytes = json.dumps(payload_dict, ensure_ascii=False).encode("utf-8")
+            headers = {"Content-Type": "application/json"}
+
+            # Hermes HMAC Forwarding Support
+            webhook_secret = os.getenv("HERMES_WEBHOOK_SECRET", "jR9oR2-DrTyHKLnwXB2mIPFK8mLlozbOL1IcsiLsbs0")
+            if webhook_secret:
+                sig = "sha256=" + hmac.new(
+                    webhook_secret.encode(), payload_bytes, hashlib.sha256
+                ).hexdigest()
+                headers["X-Hub-Signature-256"] = sig
+
             async with httpx.AsyncClient(timeout=10.0) as client:
-                resp = await client.post(webhook_url, json={
-                    "msg_type": "interactive",
-                    "card": card,
-                })
+                resp = await client.post(webhook_url, content=payload_bytes, headers=headers)
                 if resp.status_code == 200:
                     data = resp.json()
-                    if data.get("code") == 0:
+                    # Hermes might return {"status": "delivered"} instead of Feishu's {"code": 0}
+                    if data.get("code") == 0 or data.get("status") == "delivered":
                         self.alert_repo.increment_notify_count(alert.alert_id)
                         print(f"[SignalMonitor] ✓ Feishu notification sent for {alert.symbol}: {[s['type'] for s in signals]}")
                     else:
-                        print(f"[SignalMonitor] Feishu API error: {data.get('msg')}")
+                        print(f"[SignalMonitor] Feishu/Hermes API error: {data.get('msg') or data}")
                 else:
-                    print(f"[SignalMonitor] Feishu HTTP error: {resp.status_code}")
+                    print(f"[SignalMonitor] Feishu/Hermes HTTP error: {resp.status_code} - {resp.text}")
         except Exception as e:
             print(f"[SignalMonitor] Notification send failed: {e}")
 

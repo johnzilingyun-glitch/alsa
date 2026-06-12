@@ -17,6 +17,13 @@ router.post('/llm/generate', async (req, res) => {
     const response = await gatewayGenerate(prompt, model, (event, data) => console.log(`[Gateway] ${event}`, data), config);
     const generatedText = response.text;
     
+    // Ensure we always have a fallback numeric structure, even if API returned empty
+    const usage = response.usageMetadata || {
+      promptTokenCount: 0,
+      candidatesTokenCount: 0,
+      totalTokenCount: 0
+    };
+    
     return res.json({
       success: true,
       via: 'server-llm-gateway',
@@ -25,6 +32,7 @@ router.post('/llm/generate', async (req, res) => {
       result: {
         text: generatedText,
         candidates: [{ content: { parts: [{ text: generatedText }] } }],
+        usageMetadata: usage
       },
     });
   } catch (error) {

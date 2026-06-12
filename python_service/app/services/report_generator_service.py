@@ -6,7 +6,7 @@ import asyncio
 import markdown2
 from datetime import datetime
 from typing import List, Any, Dict
-from .llm_gateway import llm_gateway
+from .llm_gateway import llm_gateway, current_token_usage
 
 class ReportGeneratorService:
     def generate_report(self, run, outputs: List) -> str:
@@ -38,8 +38,15 @@ class ReportGeneratorService:
         cleaned_msgs = [{"role": m.get("role", "分析师"), "content": self._strip_thinking_prefix(m.get("content", "")), "model": m.get("model", model)} for m in discussion_msgs]
         full_discussion = "\n".join([f"[{m['role']}]: {m['content']}" for m in cleaned_msgs])
         
-        # UI Data Expert Pass - REFINED CONTENT (RESTORING RAW LOGS)
-        ui_data = await self._run_ui_data_expert(symbol, market, snapshot, full_discussion, model=model, deepseek_api_key=deepseek_api_key, gemini_api_key=gemini_api_key)
+        # Initialize token tracking for the report generation phase
+        report_usage = {"promptTokens": 0, "candidatesTokens": 0, "totalTokens": 0}
+        token_ctx = current_token_usage.set(report_usage)
+        
+        try:
+            # UI Data Expert Pass - REFINED CONTENT (RESTORING RAW LOGS)
+            ui_data = await self._run_ui_data_expert(symbol, market, snapshot, full_discussion, model=model, deepseek_api_key=deepseek_api_key, gemini_api_key=gemini_api_key)
+        finally:
+            current_token_usage.reset(token_ctx)
         
         # If UI data expert failed (empty dict) OR critical fields are empty, build fallback
         if not ui_data:
@@ -71,6 +78,8 @@ class ReportGeneratorService:
         except Exception:
             # Fallback: convert raw markdown to HTML without LLM
             normalized_contents = [self._markdown_to_html_fallback(m["content"]) for m in cleaned_msgs]
+        finally:
+            current_token_usage.reset(token_ctx)
         
         data = {
             "info": {
@@ -118,6 +127,11 @@ class ReportGeneratorService:
         }
         
         html = self._render_html(data)
+        
+        # Inject precise token usage metadata as an HTML comment
+        usage_json = json.dumps(report_usage)
+        html += f"\n<!-- TOKEN_USAGE: {usage_json} -->\n"
+        
         with open(output_path, "w", encoding="utf-8") as f:
             f.write(html)
         return os.path.abspath(output_path)
@@ -273,34 +287,46 @@ Now extract from the following discussion:
         if search_ctx:
             prompt += f"\n\nFINANCIAL SEARCH CONTEXT (Use this to extract missing financial metrics):\n{search_ctx}"
 
-        try:
-            # Use passed model or fall back to env var default
-            if not model:
-                provider = os.getenv("DEFAULT_LLM_PROVIDER", "deepseek").lower()
-                model = os.getenv("DEEPSEEK_MODEL", "deepseek-v4-pro") if provider == "deepseek" else os.getenv("GEMINI_MODEL", "gemini-3.1-pro-preview")
-            res = await llm_gateway.generate_content(prompt + f"\n\nEXPERT DISCUSSION:\n{discussion}", model=model, deepseek_api_key=deepseek_api_key, gemini_api_key=gemini_api_key)
-            # Clean markdown code blocks and extract JSON
-            cleaned = re.sub(r'```(?:json)?\s*\n?', '', res)
-            cleaned = re.sub(r'\n?```\s*$', '', cleaned)
-            cleaned = cleaned.strip()
-            match = re.search(r'\{.*\}', cleaned, re.DOTALL)
-            if match:
-                json_str = match.group(0)
-                # Robust JSON parsing with repair for common LLM output issues
-                try:
-                    return json.loads(json_str)
-                except json.JSONDecodeError:
-                    # Fix common LLM JSON issues: trailing commas
-                    fixed = re.sub(r',(\s*[}\]])', r'\1', json_str)
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                # Use passed model or fall back to env var default
+                if not model:
+                    provider = os.getenv("DEFAULT_LLM_PROVIDER", "deepseek").lower()
+                    model = os.getenv("DEEPSEEK_MODEL", "deepseek-v4-pro") if provider == "deepseek" else os.getenv("GEMINI_MODEL", "gemini-3.1-pro-preview")
+                
+                # Truncate discussion if extremely long to avoid prompt explosions in extraction
+                # (Take the last 30,000 characters which usually contain the final conclusions)
+                discussion_safe = discussion[-30000:] if len(discussion) > 30000 else discussion
+                
+                res = await llm_gateway.generate_content(prompt + f"\n\nEXPERT DISCUSSION (Trailing context):\n{discussion_safe}", model=model, deepseek_api_key=deepseek_api_key, gemini_api_key=gemini_api_key)
+                
+                # Clean markdown code blocks and extract JSON
+                cleaned = re.sub(r'```(?:json)?\s*\n?', '', res)
+                cleaned = re.sub(r'\n?```\s*$', '', cleaned)
+                cleaned = cleaned.strip()
+                match = re.search(r'\{.*\}', cleaned, re.DOTALL)
+                if match:
+                    json_str = match.group(0)
+                    # Robust JSON parsing with repair for common LLM output issues
                     try:
-                        return json.loads(fixed)
+                        return json.loads(json_str)
                     except json.JSONDecodeError:
-                        # Try json5-style relaxed parsing with ast.literal_eval
-                        pass
-            return {}
-        except Exception as e:
-            print(f"UI Data Expert Pass Failed: {e}")
-            return {}
+                        # Fix common LLM JSON issues: trailing commas
+                        fixed = re.sub(r',(\s*[}\]])', r'\1', json_str)
+                        try:
+                            return json.loads(fixed)
+                        except json.JSONDecodeError:
+                            pass
+                
+                print(f"UI Data Expert Pass Attempt {attempt+1} Failed to parse JSON. Result: {res[:100]}...")
+            except Exception as e:
+                print(f"UI Data Expert Pass Attempt {attempt+1} Failed Exception: {e}")
+                
+            await asyncio.sleep(2) # short backoff before retry
+
+        print("UI Data Expert Pass exhausted all retries. Falling back...")
+        return {}
 
     # --- Thinking prefix patterns common in DeepSeek/LLM outputs ---
     _THINKING_PREFIXES = [
@@ -375,15 +401,15 @@ Now extract from the following discussion:
         if not ui_data.get("investment_thesis") or _is_thinking_text(ui_data.get("investment_thesis", "")):
             ui_data["investment_thesis"] = self._extract_first_substantive_sentence(discussion_msgs)
 
-        # Fix tagline if it's empty or default-like
         tagline = ui_data.get("tagline", "")
         if not tagline or _is_thinking_text(tagline):
             symbol = snapshot.get("quote", {}).get("symbol", "股票")
             first_sent = ui_data.get("investment_thesis", "").split("。")[0].split("！")[0].split("?")[0].strip()
-            if len(first_sent) > 10:
+            first_sent = first_sent.split("\n")[0].strip() # Avoid capturing multiline markdown
+            if 5 < len(first_sent) < 40:
                 ui_data["tagline"] = f"{symbol}: {first_sent}"
             else:
-                ui_data["tagline"] = f"{symbol} 投资分析报告"
+                ui_data["tagline"] = f"{symbol} 深度投资分析报告"
 
         # Ensure verdict exists — try to extract from discussion
         if not ui_data.get("verdict"):
@@ -430,10 +456,10 @@ Now extract from the following discussion:
             lines = content_normalized.split('\n')
             for line in lines:
                 line = line.strip().lstrip('- *#>')
-                if len(line) > 30 and any(kw in line for kw in ["核心", "投资", "估值", "盈利", "增长", "周期",
+                if 20 < len(line) < 150 and any(kw in line for kw in ["核心", "投资", "估值", "盈利", "增长", "周期",
                                                                   "thesis", "core", "valuation", "profit"]):
-                    return line[:200]
-        return "分析整理中..."
+                    return line
+        return "请参考下方详细深度研报..."
 
     def _extract_verdict_from_discussion(self, discussion_msgs: list) -> str:
         """Try to extract a verdict-like sentence from the discussion content."""
@@ -679,12 +705,14 @@ Now extract from the following discussion:
         
         if tagline:
             tagline = self._strip_thinking_prefix(tagline)
+            tagline = tagline.split('\n')[0].strip()[:50]
         else:
             first_sent = summary_text.split("。")[0].split("！")[0].split("?")[0].strip()
-            if len(first_sent) > 10:
+            first_sent = first_sent.split('\n')[0].strip()
+            if 5 < len(first_sent) < 50:
                 tagline = f"{symbol}: {first_sent}"
             else:
-                tagline = f"{symbol} 投资分析报告"
+                tagline = f"{symbol} 深度投资分析报告"
 
         # Extract verdict
         verdict = ""
@@ -694,8 +722,11 @@ Now extract from the following discussion:
                 if verdict: break
         if verdict:
             verdict = self._strip_thinking_prefix(verdict)
+            verdict = verdict.split('\n')[0].strip()[:60]
         else:
-            verdict = summary_text.split("。")[0][:40]
+            v_cand = summary_text.split("。")[0]
+            v_cand = v_cand.split('\n')[0].strip()[:60]
+            verdict = v_cand if v_cand else "分析完成，详细结论请查看报告正文"
 
         # Extract action_stance
         action_stance = ""

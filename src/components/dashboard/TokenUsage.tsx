@@ -15,7 +15,7 @@ export function TokenUsage() {
       <div className="premium-card p-8 group transition-all animate-premium overflow-hidden relative">
         <div 
           className="absolute bottom-0 left-0 h-1 bg-indigo-600/10 transition-all duration-1000 ease-out"
-          style={{ width: `${Math.min(100, (tokenUsage.totalTokens / 1000000) * 100)}%` }}
+          style={{ width: `${Math.min(100, ((tokenUsage?.totalTokens || 0) / 1000000) * 100)}%` }}
         />
         
         <div className="flex flex-col xl:flex-row items-center justify-between gap-10">
@@ -33,23 +33,23 @@ export function TokenUsage() {
 
           <div className="grid grid-cols-2 md:grid-cols-4 gap-x-12 gap-y-6 w-full xl:w-auto divide-x-0 md:divide-x divide-zinc-100">
             <div className="space-y-1">
-              <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-400">Tokens Input</p>
+              <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-400">Daily Usage</p>
               <p className="text-xl font-mono font-bold text-zinc-950 tabular-nums tracking-tighter">
-                {tokenUsage.promptTokens.toLocaleString()}
+                {(tokenUsage?.dailyTotal || 0).toLocaleString()}
               </p>
             </div>
             
             <div className="space-y-1 md:pl-10">
-              <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-400">Response Sync</p>
+              <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-400">Weekly Usage</p>
               <p className="text-xl font-mono font-bold text-zinc-950 tabular-nums tracking-tighter">
-                {tokenUsage.candidatesTokens.toLocaleString()}
+                {(tokenUsage?.weeklyTotal || 0).toLocaleString()}
               </p>
             </div>
             
             <div className="space-y-1 md:pl-10">
-              <p className="text-[10px] font-bold uppercase tracking-widest text-indigo-600">Total Usage</p>
+              <p className="text-[10px] font-bold uppercase tracking-widest text-indigo-600">Monthly Usage</p>
               <p className="text-xl font-mono font-bold text-indigo-600 tabular-nums tracking-tighter">
-                {tokenUsage.totalTokens.toLocaleString()}
+                {(tokenUsage?.monthlyTotal || 0).toLocaleString()}
               </p>
             </div>
 

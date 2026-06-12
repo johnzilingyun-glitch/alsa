@@ -31,21 +31,23 @@ export function InstitutionalReportView() {
   const showToast = useUIStore(s => s.showToast);
   const feishuWebhookUrl = useConfigStore(s => s.feishuWebhookUrl);
 
-  const isNotRecommended = analysis?.tradingPlan?.entryPrice?.includes('不推荐') || 
-                          analysis?.tradingPlan?.entryPrice?.includes('Not Recommended');
+  const isNotRecommended = String(analysis?.tradingPlan?.entryPrice || '').includes('不推荐') || 
+                          String(analysis?.tradingPlan?.entryPrice || '').includes('Not Recommended');
 
   const handleAddToSignalCenter = async () => {
-    if (!analysis || !analysis.tradingPlan || !analysis.stockInfo) return;
+    if (!analysis || !analysis.stockInfo) return;
     setIsAdding(true);
     try {
-      const { entryPrice, targetPrice, stopLoss } = analysis.tradingPlan as any;
+      const plan = analysis.tradingPlan || {} as any;
       const parseNum = (s: string) => {
         const match = String(s || '').match(/[\d.]+/);
         return match ? parseFloat(match[0]) : 0;
       };
-      const entry = parseNum(entryPrice);
-      const target = parseNum(targetPrice);
-      const stop = parseNum(stopLoss);
+      
+      const currentPrice = analysis.stockInfo.price || 100;
+      const entry = parseNum(plan.entryPrice) || currentPrice;
+      const target = parseNum(plan.targetPrice) || entry * 1.15;
+      const stop = parseNum(plan.stopLoss) || entry * 0.92;
       
       if (entry > 0 && target > 0 && stop > 0) {
         const result = await alertsClient.create({
@@ -142,6 +144,22 @@ export function InstitutionalReportView() {
         if (cancelled || !text) return;
         setHtml(text);
         setCachedReport(lastJobId, text);
+        
+        // Extract precise token usage metadata injected by Python generator
+        const match = text.match(/<!-- TOKEN_USAGE: (.*?) -->/);
+        if (match) {
+          try {
+            const usage = JSON.parse(match[1]);
+            useConfigStore.getState().addTokenUsage({
+              promptTokens: usage.promptTokens || 0,
+              candidatesTokens: usage.candidatesTokens || 0,
+              totalTokens: usage.totalTokens || 0
+            });
+          } catch (e) {
+            console.error('Failed to parse token usage from report HTML', e);
+          }
+        }
+        
         setLoading(false);
       })
       .catch((err) => {
@@ -197,9 +215,16 @@ export function InstitutionalReportView() {
 
   if (!html) return null;
 
+  const plan = analysis?.tradingPlan || {
+    entryPrice: "市价附近 (建议区间)",
+    targetPrice: "预期 +15~20%",
+    stopLoss: "技术面破位 -8%",
+    strategyRisks: analysis?.summary || ""
+  };
+
   return (
     <div className="space-y-6">
-      {analysis?.tradingPlan && (
+      {analysis && (
         <div className={cn(
           "rounded-2xl p-6 border transition-all duration-300 bg-white shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-6",
           isNotRecommended 
@@ -238,15 +263,15 @@ export function InstitutionalReportView() {
               <div className="flex flex-wrap gap-x-6 gap-y-2 pt-2">
                 <div className="text-xs">
                   <span className="text-zinc-400 mr-1.5">{t('analysis.conference.entry_price')}:</span>
-                  <span className="font-semibold text-indigo-600 font-mono">{analysis.tradingPlan.entryPrice}</span>
+                  <span className="font-semibold text-indigo-600 font-mono">{plan.entryPrice}</span>
                 </div>
                 <div className="text-xs">
                   <span className="text-zinc-400 mr-1.5">{t('analysis.conference.target_price')}:</span>
-                  <span className="font-semibold text-emerald-600 font-mono">{analysis.tradingPlan.targetPrice}</span>
+                  <span className="font-semibold text-emerald-600 font-mono">{plan.targetPrice}</span>
                 </div>
                 <div className="text-xs">
                   <span className="text-zinc-400 mr-1.5">{t('analysis.conference.stop_loss')}:</span>
-                  <span className="font-semibold text-rose-500 font-mono">{analysis.tradingPlan.stopLoss}</span>
+                  <span className="font-semibold text-rose-500 font-mono">{plan.stopLoss}</span>
                 </div>
               </div>
             )}

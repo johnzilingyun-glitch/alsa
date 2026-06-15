@@ -5,9 +5,24 @@ from typing import Optional
 
 import pandas as pd
 import yfinance as yf
-from vnpy.trader.database import get_database, BaseDatabase
-from vnpy.trader.object import BarData
-from vnpy.trader.constant import Exchange, Interval
+
+try:
+    from vnpy.trader.database import get_database, BaseDatabase
+    from vnpy.trader.object import BarData
+    from vnpy.trader.constant import Exchange, Interval
+except ImportError:
+    class BaseDatabase: pass
+    def get_database(): return None
+    class BarData: pass
+    class Exchange: 
+        SSE = "SSE"
+        SZSE = "SZSE"
+        HKFE = "HKFE"
+        SEHK = "SEHK"
+        SMART = "SMART"
+        value = "unknown"
+    class Interval: 
+        DAILY = "d"
 
 logger = logging.getLogger(__name__)
 

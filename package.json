@@ -11,7 +11,7 @@
     "ibkr:docker": "node scripts/start-ibkr-gateway.js --docker",
     "dev:api": "tsx server.ts",
     "dev:vite": "vite",
-    "dev:py": "node -e \"const { spawnSync } = require('child_process'); const fs = require('fs'); const path = require('path'); const py = fs.existsSync(path.join('.venv', 'bin', 'python')) ? path.join('.venv', 'bin', 'python') : fs.existsSync(path.join('.venv', 'Scripts', 'python.exe')) ? path.join('.venv', 'Scripts', 'python.exe') : 'python'; process.exit(spawnSync(py, ['-m', 'uvicorn', 'python_service.main:app', '--port', '8001', '--reload'], { stdio: 'inherit', shell: true }).status || 0);\"",
+    "dev:py": "node -e \"const { spawnSync } = require('child_process'); const fs = require('fs'); const path = require('path'); const py = fs.existsSync(path.join('python_service', '.venv', 'bin', 'python')) ? path.join('python_service', '.venv', 'bin', 'python') : fs.existsSync(path.join('python_service', '.venv', 'Scripts', 'python.exe')) ? path.join('python_service', '.venv', 'Scripts', 'python.exe') : 'python'; process.exit(spawnSync(py, ['-m', 'uvicorn', 'python_service.main:app', '--port', '8001', '--reload'], { stdio: 'inherit', shell: true }).status || 0);\"",
     "build": "vite build",
     "start": "cross-env NODE_ENV=production tsx server.ts",
     "preview": "vite preview",
@@ -19,7 +19,7 @@
     "lint": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:all": "npm test && node -e \"const { spawnSync } = require('child_process'); const fs = require('fs'); const path = require('path'); const py = fs.existsSync(path.join('.venv', 'bin', 'python')) ? path.join('.venv', 'bin', 'python') : fs.existsSync(path.join('.venv', 'Scripts', 'python.exe')) ? path.join('.venv', 'Scripts', 'python.exe') : 'python'; process.exit(spawnSync(py, ['-m', 'pytest', 'python_service/tests'], { stdio: 'inherit', shell: true }).status || 0);\"",
+    "test:all": "npm test && node -e \"const { spawnSync } = require('child_process'); const fs = require('fs'); const path = require('path'); const py = fs.existsSync(path.join('python_service', '.venv', 'bin', 'python')) ? path.join('python_service', '.venv', 'bin', 'python') : fs.existsSync(path.join('python_service', '.venv', 'Scripts', 'python.exe')) ? path.join('python_service', '.venv', 'Scripts', 'python.exe') : 'python'; process.exit(spawnSync(py, ['-m', 'pytest', 'python_service/tests'], { stdio: 'inherit', shell: true }).status || 0);\"",
     "audit:repo": "node scripts/audit-repo-hygiene.js"
   },
   "dependencies": {
@@ -37,7 +37,7 @@
     "http-proxy-middleware": "^3.0.5",
     "i18next": "^26.0.3",
     "i18next-browser-languagedetector": "^8.2.1",
-    "klinecharts": "^10.0.0-beta2",
+    "lightweight-charts": "^5.2.0",
     "lucide-react": "^0.546.0",
     "marked": "^18.0.5",
     "motion": "^12.23.24",

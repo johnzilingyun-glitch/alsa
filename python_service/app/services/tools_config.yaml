@@ -104,8 +104,8 @@ skills:
     enabled: true
     description: "Batch pre-search enrichment for expert roles"
   searxng_backend:
-    enabled: false
-    description: "Use SearXNG as primary search backend"
-  ddg_fallback:
     enabled: true
-    description: "DuckDuckGo as fallback search engine"
+    description: "Use SearXNG as primary search backend (via privoxy proxy)"
+  ddg_fallback:
+    enabled: false
+    description: "DuckDuckGo as fallback search engine (disabled on China servers — GFW blocked)"

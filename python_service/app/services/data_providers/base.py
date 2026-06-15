@@ -95,7 +95,10 @@ def normalize_ohlcv(df: pd.DataFrame) -> pd.DataFrame:
     # Convert date column to string if datetime
     if "date" in df.columns and df["date"].dtype != object:
         try:
-            df["date"] = pd.to_datetime(df["date"]).dt.strftime("%Y-%m-%d")
+            # Preserve time if it exists and is not midnight, otherwise just date
+            df["date"] = pd.to_datetime(df["date"]).apply(
+                lambda x: x.strftime("%Y-%m-%d %H:%M:%S") if x.hour > 0 or x.minute > 0 else x.strftime("%Y-%m-%d")
+            )
         except Exception:
             df["date"] = df["date"].astype(str)
 

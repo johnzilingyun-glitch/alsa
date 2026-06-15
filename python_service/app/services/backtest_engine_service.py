@@ -5,14 +5,27 @@ import numpy as np
 from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Any, Optional
 
-from vnpy.trader.object import BarData
-from vnpy.trader.constant import Exchange, Interval
-from vnpy_ctastrategy import CtaTemplate
-from vnpy_ctastrategy.backtesting import BacktestingEngine
+try:
+    from vnpy.trader.object import BarData
+    from vnpy.trader.constant import Exchange, Interval
+    from vnpy_ctastrategy import CtaTemplate
+    from vnpy_ctastrategy.backtesting import BacktestingEngine
+    from vnpy.trader.utility import ArrayManager
+except ImportError:
+    # Mock classes if vnpy is not installed to prevent server crash
+    class BarData: pass
+    class Exchange: 
+        SSE = "SSE"
+        SZSE = "SZSE"
+        SMART = "SMART"
+    class Interval: 
+        DAILY = "d"
+    class CtaTemplate: 
+        def __init__(self, *args, **kwargs): pass
+    class BacktestingEngine: pass
+    class ArrayManager: pass
 
-from vnpy.trader.utility import ArrayManager
 from datetime import datetime, timezone
-
 from .data_sync_service import data_sync_service
 
 class MockAgentCtaStrategy(CtaTemplate):

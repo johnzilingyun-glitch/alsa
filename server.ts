@@ -137,7 +137,9 @@ async function startServer() {
         '/api/v1/sector',
         '/api/v1/mock-trading',
         '/api/v1/trade-intents',
-        '/api/v1/backtest'
+        '/api/v1/backtest',
+        '/api/predictions',
+        '/api/v1/predictions'
       ];
       return targets.some(t => path.startsWith(t));
     },

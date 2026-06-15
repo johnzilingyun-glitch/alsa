@@ -4,6 +4,9 @@ import App from './App';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import './index.css';
 import './i18n';
+import { useUIStore } from './stores/useUIStore';
+
+(window as any).useUIStore = useUIStore;
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

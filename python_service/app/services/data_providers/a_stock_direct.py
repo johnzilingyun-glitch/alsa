@@ -157,8 +157,8 @@ class AStockDirectProvider(DataProvider):
 
         # Map interval to klt parameter
         interval_map = {
-            "1d": "101", "1wk": "102", "1mo": "103",
-            "5m": "5", "15m": "15", "30m": "30", "60m": "60",
+            "1d": "101", "1wk": "102", "1mo": "103", "1y": "106",
+            "5m": "5", "15m": "15", "30m": "30", "60m": "60", "1h": "60"
         }
         klt = interval_map.get(interval, "101")
 
@@ -238,22 +238,35 @@ class AStockDirectProvider(DataProvider):
         }
         days = period_days.get(period, 90)
 
-        # Tencent kline type: day/week/month
+        # Tencent kline type: day/week/month/m15/m60
         kline_type = "day"
         if interval == "1wk":
             kline_type = "week"
         elif interval == "1mo":
             kline_type = "month"
+        elif interval == "1y":
+            kline_type = "year"
+        elif interval == "15m":
+            kline_type = "m15"
+        elif interval == "1h" or interval == "60m":
+            kline_type = "m60"
 
         from datetime import datetime, timedelta
         end_date = datetime.now().strftime("%Y-%m-%d")
         start_date = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
 
-        url = f"https://web.ifzq.gtimg.cn/appstock/app/fqkline/get"
-        params = {
-            "_var": "kline_dayqfq",
-            "param": f"{qt_symbol},{kline_type},{start_date},{end_date},640,qfq",
-        }
+        is_min = interval in ("15m", "1h", "60m")
+        if is_min:
+            url = f"https://ifzq.gtimg.cn/appstock/app/kline/mkline"
+            params = {
+                "param": f"{qt_symbol},{kline_type},,640",
+            }
+        else:
+            url = f"https://web.ifzq.gtimg.cn/appstock/app/fqkline/get"
+            params = {
+                "_var": "kline_dayqfq",
+                "param": f"{qt_symbol},{kline_type},{start_date},{end_date},640,qfq",
+            }
 
         loop = asyncio.get_event_loop()
         try:
@@ -267,16 +280,25 @@ class AStockDirectProvider(DataProvider):
             d = await loop.run_in_executor(None, _fetch)
             stock_data = d.get("data", {}).get(qt_symbol, {})
 
-            # Try qfq (前复权) key first, then day/week/month
-            klines = stock_data.get(f"qfq{kline_type}", stock_data.get(kline_type, []))
+            if is_min:
+                klines = stock_data.get(kline_type, [])
+            else:
+                # Try qfq (前复权) key first, then day/week/month
+                klines = stock_data.get(f"qfq{kline_type}", stock_data.get(kline_type, []))
+            
             if not klines:
                 return pd.DataFrame()
 
             rows = []
             for k in klines:
                 if len(k) >= 6:
+                    # Minute dates are "YYYYMMDDHHMM"
+                    date_val = k[0]
+                    if is_min and len(date_val) == 12:
+                        date_val = f"{date_val[:4]}-{date_val[4:6]}-{date_val[6:8]} {date_val[8:10]}:{date_val[10:12]}:00"
+                    
                     rows.append({
-                        "date": k[0],
+                        "date": date_val,
                         "open": float(k[1]),
                         "close": float(k[2]),
                         "high": float(k[3]),

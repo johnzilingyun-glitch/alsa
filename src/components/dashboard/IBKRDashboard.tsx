@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { ArrowLeft, RefreshCw, TrendingUp, DollarSign, BarChart3, Wallet, X, Search, CandlestickChart, Link2 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, LineChart, Line } from 'recharts';
-import { init, dispose } from 'klinecharts';
+import { createChart, ColorType, CrosshairMode, CandlestickSeries, HistogramSeries } from 'lightweight-charts';
 import { useTranslation } from 'react-i18next';
+import { StockSearchInput } from '../shared/StockSearchInput';
 import { useUIStore } from '../../stores/useUIStore';
 import { 
   fetchIBKRStatus, 
@@ -141,7 +142,7 @@ export function IBKRDashboard() {
       </div>
 
       <div className="max-w-7xl mx-auto px-4 md:px-8 py-8">
-        {!connected && !loading && (
+        {activeTab === 'portfolio' && !connected && !loading && (
           <div className="flex items-center justify-center py-16">
             <div className="max-w-md w-full text-center">
               <div className="w-20 h-20 mx-auto mb-6 rounded-2xl bg-indigo-50 flex items-center justify-center">
@@ -305,121 +306,406 @@ function LocalChartTab({ symbol, onSymbolChange }: { symbol: string; onSymbolCha
   const { t } = useTranslation();
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<any>(null);
-  const [inputValue, setInputValue] = useState(symbol);
+  const chartDataRef = useRef<any[]>([]);
+  const legendRef = useRef<HTMLDivElement>(null);
   const [loading, setLoading] = useState(false);
+  const [chartError, setChartError] = useState<string | null>(null);
+  const [chartMarket, setChartMarket] = useState<string>('US-Share');
+  const [activeInterval, setActiveInterval] = useState<string>('1d');
+  const activeIntervalRef = useRef(activeInterval);
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (inputValue.trim()) onSymbolChange(inputValue.trim().toUpperCase());
-  };
+  useEffect(() => {
+    activeIntervalRef.current = activeInterval;
+  }, [activeInterval]);
 
+  // 1. Initialize Lightweight Chart once
   useEffect(() => {
     if (!containerRef.current) return;
     
-    // Initialize klinecharts
-    const chart = init(containerRef.current);
-    chartRef.current = chart;
+    console.log("[LightweightCharts] Initializing chart...");
+    const chart = createChart(containerRef.current, {
+      autoSize: true,
+      layout: {
+        background: { type: ColorType.Solid, color: 'white' },
+        textColor: '#333',
+      },
+      grid: {
+        vertLines: { color: '#f0f0f0' },
+        horzLines: { color: '#f0f0f0' },
+      },
+      crosshair: {
+        mode: CrosshairMode.Normal,
+      },
+      rightPriceScale: {
+        borderColor: '#dfdfdf',
+      },
+      timeScale: {
+        borderColor: '#dfdfdf',
+        timeVisible: true,
+      },
+    });
 
-    chart?.setStyles({
-      grid: { show: true, horizontal: { style: 'dashed', color: '#f0f0f0' }, vertical: { show: false } },
-      candle: {
-        bar: {
-          upColor: '#ef4444', // Red for up in China
-          downColor: '#10b981', // Green for down in China
-          noChangeColor: '#888888',
-          upBorderColor: '#ef4444',
-          downBorderColor: '#10b981',
-          noChangeBorderColor: '#888888',
-          upWickColor: '#ef4444',
-          downWickColor: '#10b981',
-          noChangeWickColor: '#888888'
+    const candleSeries = chart.addSeries(CandlestickSeries, {
+      upColor: '#ef4444',
+      downColor: '#10b981',
+      borderVisible: false,
+      wickUpColor: '#ef4444',
+      wickDownColor: '#10b981',
+    });
+
+    const volumeSeries = chart.addSeries(HistogramSeries, {
+      color: '#26a69a',
+      priceFormat: {
+        type: 'volume',
+      },
+      priceScaleId: 'volume', // Overlay using a new scale id
+    });
+
+    chart.priceScale('volume').applyOptions({
+      scaleMargins: {
+        top: 0.8, // volume covers bottom 20%
+        bottom: 0,
+      },
+    });
+
+    const formatLegendText = (data: any, prevData?: any) => {
+      const open = data.open.toFixed(2);
+      const high = data.high.toFixed(2);
+      const low = data.low.toFixed(2);
+      const close = data.close.toFixed(2);
+      let changeText = '';
+      let colorClass = 'text-zinc-600';
+      
+      let change = data.close - data.open;
+      let percent = ((change / data.open) * 100);
+      if (prevData && prevData.close) {
+        change = data.close - prevData.close;
+        percent = ((change / prevData.close) * 100);
+      }
+      
+      const sign = change > 0 ? '+' : '';
+      colorClass = change > 0 ? 'text-red-500' : (change < 0 ? 'text-emerald-500' : 'text-zinc-600');
+      changeText = `<span class="${colorClass} ml-2 font-semibold">${sign}${percent.toFixed(2)}%</span>`;
+
+      return `
+        <div class="flex items-center gap-3 bg-white/80 backdrop-blur-md px-3 py-1.5 rounded-lg border border-zinc-200 shadow-sm text-xs md:text-[13px] font-medium tracking-wide">
+          <span><span class="text-zinc-400 mr-1">开</span><span class="${colorClass}">${open}</span></span>
+          <span><span class="text-zinc-400 mr-1">高</span><span class="${colorClass}">${high}</span></span>
+          <span><span class="text-zinc-400 mr-1">低</span><span class="${colorClass}">${low}</span></span>
+          <span><span class="text-zinc-400 mr-1">收</span><span class="${colorClass} font-bold">${close}</span></span>
+          ${changeText}
+        </div>
+      `;
+    };
+
+    chart.subscribeCrosshairMove((param) => {
+      if (!legendRef.current) return;
+      
+      if (param.time && param.seriesData.has(candleSeries)) {
+        const data: any = param.seriesData.get(candleSeries);
+        const candleList = chartDataRef.current;
+        
+        let prevData = null;
+        if (candleList && candleList.length > 0) {
+           const idx = candleList.findIndex((c: any) => c.time === param.time);
+           if (idx > 0) prevData = candleList[idx - 1];
+        }
+        
+        legendRef.current.innerHTML = formatLegendText(data, prevData);
+        legendRef.current.style.opacity = '1';
+      } else {
+        // When mouse leaves, show the latest candle
+        const candleList = chartDataRef.current;
+        if (candleList && candleList.length > 0) {
+          const latest = candleList[candleList.length - 1];
+          const prev = candleList.length > 1 ? candleList[candleList.length - 2] : null;
+          legendRef.current.innerHTML = formatLegendText(latest, prev);
+          legendRef.current.style.opacity = '1';
+        } else {
+          legendRef.current.style.opacity = '0';
         }
       }
     });
 
-    try {
-      chart?.createIndicator('MA', { isStack: false, pane: { id: 'candle_pane' } });
-      chart?.createIndicator('VOL', { isStack: false });
-    } catch(e) {
-      console.warn("Failed to create indicators", e);
-    }
+    chartRef.current = { chart, candleSeries, volumeSeries, formatLegendText };
 
     return () => {
-      dispose(containerRef.current!);
+      console.log("[LightweightCharts] Disposing chart...");
+      chart.remove();
+      chartRef.current = null;
     };
   }, []);
 
+  // 2. Fetch and apply data
   useEffect(() => {
-    const fetchData = async () => {
-      if (!symbol || !chartRef.current) return;
-      setLoading(true);
+    if (!symbol || !chartRef.current) return;
+    
+    let isMounted = true;
+    let pollTimer: any = null;
+    
+    const loadData = async (isInitial = true) => {
       try {
-        const res = await fetch(`/api/market/history/${symbol}?period=1y&interval=1d`);
-        if (!res.ok) throw new Error("Failed to fetch");
+        if (isInitial) setLoading(true);
+        console.log(`[LightweightCharts] Loading data for ${symbol} @ ${activeInterval}`);
+        
+        const currentInterval = activeInterval;
+        let apiPeriod = '1y';
+        if (currentInterval === '1wk') apiPeriod = '5y';
+        if (currentInterval === '1mo' || currentInterval === '1y') apiPeriod = 'max';
+        if (currentInterval === '15m' || currentInterval === '1h') apiPeriod = '1mo'; // 1 month is enough for intraday
+
+        let reqInterval = currentInterval;
+        if (currentInterval === '1y') reqInterval = '1mo'; // Fetch monthly and aggregate
+
+        console.log(`[LightweightCharts] Fetching /api/market/history/${symbol}?period=${apiPeriod}&interval=${reqInterval}`);
+        const res = await fetch(`/api/market/history/${symbol}?period=${apiPeriod}&interval=${reqInterval}`);
+        if (!res.ok) throw new Error(`Fetch failed: ${res.status} ${res.statusText}`);
         const result = await res.json();
+        
+        if (!isMounted) return;
 
+        let chartData: any[] = [];
         if (result.success && result.data && Array.isArray(result.data)) {
-          const chartData = result.data.map((item: any) => ({
-            timestamp: new Date(item.date).getTime(),
-            open: Number(item.open),
-            high: Number(item.high),
-            low: Number(item.low),
-            close: Number(item.close),
-            volume: Number(item.volume || 0),
-            turnover: Number(item.amount || 0)
-          }));
-
-          // klinecharts v10 uses setDataLoader instead of deprecated applyNewData
-          chartRef.current.setDataLoader({
-            getBars: (params: any) => {
-              params.callback(chartData, { backward: false, forward: false });
+          chartData = result.data.map((item: any) => {
+            // Safely parse Beijing time to timestamp
+            let dateStr = item.date;
+            if (dateStr.includes(' ') && !dateStr.includes('+')) {
+              dateStr = dateStr.replace(' ', 'T') + '+08:00';
             }
+            return {
+              timestamp: new Date(dateStr).getTime(),
+              dateStr: item.date,
+              open: Number(item.open),
+              high: Number(item.high),
+              low: Number(item.low),
+              close: Number(item.close),
+              volume: Number(item.volume || 0),
+              turnover: Number(item.amount || 0)
+            };
           });
+
+          // Aggregate monthly data into yearly data
+          if (currentInterval === '1y') {
+            const yearlyMap = new Map();
+            for (const b of chartData) {
+              if (!b.dateStr) continue;
+              const year = b.dateStr.substring(0, 4);
+              if (!yearlyMap.has(year)) {
+                yearlyMap.set(year, {
+                  timestamp: new Date(`${year}-12-31`).getTime(),
+                  dateStr: `${year}-12-31`,
+                  open: b.open,
+                  high: b.high,
+                  low: b.low,
+                  close: b.close,
+                  volume: b.volume,
+                  turnover: b.turnover
+                });
+              } else {
+                const ex = yearlyMap.get(year);
+                ex.high = Math.max(ex.high, b.high);
+                ex.low = Math.min(ex.low, b.low);
+                ex.close = b.close;
+                ex.volume += b.volume;
+                ex.turnover += b.turnover;
+                ex.timestamp = Math.max(ex.timestamp, b.timestamp);
+                ex.dateStr = `${year}-12-31`;
+              }
+            }
+            chartData = Array.from(yearlyMap.values());
+          }
+          
+          // Ensure strictly monotonically increasing timestamps
+          chartData.sort((a: any, b: any) => a.timestamp - b.timestamp);
+        } else {
+          console.error("[LightweightCharts] Invalid data returned from API:", result);
+          if (isMounted) setChartError(t('ibkr.load_failed'));
         }
-      } catch (err) {
-        console.error("Failed to load chart data", err);
+        
+        if (isMounted) {
+          if (chartData.length === 0) {
+            setChartError("暂无K线数据");
+          } else {
+            setChartError(null);
+          }
+          console.log(`[LightweightCharts] Applying ${chartData.length} bars to chart...`);
+          if (chartRef.current) {
+            const { candleSeries, volumeSeries } = chartRef.current;
+            
+            const formatTime = (d: any) => {
+               if (currentInterval.includes('m') || currentInterval.includes('h')) {
+                 return Math.floor(d.timestamp / 1000); // Unix timestamp for intraday
+               }
+               // Lightweight charts prefers 'YYYY-MM-DD' for daily or higher resolution
+               if (d.dateStr && /^\d{4}-\d{2}-\d{2}/.test(d.dateStr)) {
+                 return d.dateStr.split(' ')[0]; // Extract just the date part if it contains time
+               }
+               return Math.floor(d.timestamp / 1000);
+            };
+
+            const candleData = [];
+            const volumeData = [];
+            let lastTime: string | number | null = null;
+
+            for (const d of chartData) {
+              const time = formatTime(d);
+              if (time === lastTime) continue; // Deduplicate by the exact time index expected by Lightweight Charts
+              lastTime = time;
+
+              candleData.push({
+                time: time as any,
+                open: d.open,
+                high: d.high,
+                low: d.low,
+                close: d.close,
+              });
+              
+              volumeData.push({
+                time: time as any,
+                value: d.volume,
+                color: d.close >= d.open ? '#ef444488' : '#10b98188',
+              });
+            }
+
+            try {
+              if (candleData.length > 0) {
+                chartDataRef.current = candleData;
+                candleSeries.setData(candleData);
+                volumeSeries.setData(volumeData);
+                if (isInitial) {
+                  chartRef.current.chart.timeScale().fitContent();
+                }
+                
+                // Show latest candle in legend immediately
+                if (legendRef.current) {
+                  const latest = candleData[candleData.length - 1];
+                  const prev = candleData.length > 1 ? candleData[candleData.length - 2] : null;
+                  legendRef.current.innerHTML = chartRef.current.formatLegendText(latest, prev);
+                  legendRef.current.style.opacity = '1';
+                }
+              }
+            } catch (err: any) {
+              console.error("[LightweightCharts] Error setting data:", err);
+              if (isInitial) setChartError(`渲染失败: ${err.message || '未知错误'}`);
+            }
+            
+            // Poll for real-time updates every 5 seconds if intraday or daily
+            if (['15m', '1h', '1d'].includes(currentInterval) && isMounted) {
+              pollTimer = setTimeout(() => loadData(false), 5000);
+            }
+          }
+        }
+      } catch (e: any) {
+        console.error("[LightweightCharts] Failed to load data:", e);
+        if (isMounted && isInitial) setChartError(`请求失败: ${e.message}`);
       } finally {
-        setLoading(false);
+        if (isMounted && isInitial) setLoading(false);
       }
     };
+    
+    loadData(true);
+    
+    return () => {
+      isMounted = false;
+      if (pollTimer) clearTimeout(pollTimer);
+    };
+  }, [symbol, activeInterval]);
 
-    fetchData();
-  }, [symbol]);
+  const handleSymbolSelect = (sym: string, market?: string) => {
+    if (market) setChartMarket(market);
+    onSymbolChange(sym);
+  };
+
+  const handleSubmit = (sym: string) => {
+    onSymbolChange(sym);
+  };
 
   return (
-    <div className="flex flex-col h-full">
-      <form onSubmit={handleSubmit} className="mb-6 flex items-center gap-3">
-        <div className="relative flex-1 max-w-md">
-          <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-400" />
-          <input type="text" value={inputValue} onChange={(e) => setInputValue(e.target.value)} placeholder={t('ibkr.chart_placeholder')} className="w-full h-12 pl-11 pr-4 rounded-xl border border-zinc-200 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-indigo-600/10 focus:border-indigo-600/40" />
+    <div className="flex flex-col h-full w-full">
+      <div className="mb-4 flex items-center justify-between">
+        <div className="flex items-center gap-3 w-full">
+          <div className="relative flex-shrink-0">
+            <select
+              value={chartMarket}
+              onChange={(e) => setChartMarket(e.target.value)}
+              className="h-10 w-28 cursor-pointer appearance-none rounded-xl border border-zinc-200 bg-white px-4 pr-10 text-sm font-semibold text-zinc-700 transition-all focus:outline-none focus:ring-2 focus:ring-indigo-600/10 focus:border-indigo-600/40 hover:bg-zinc-50"
+            >
+              <option value="A-Share">A 股</option>
+              <option value="HK-Share">港股</option>
+              <option value="US-Share">美股</option>
+            </select>
+            <div className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400">
+              <TrendingUp size={14} />
+            </div>
+          </div>
+          <StockSearchInput
+            value={symbol}
+            market={chartMarket}
+            placeholder={t('ibkr.chart_placeholder')}
+            className="flex-1 max-w-md h-10"
+            onSelect={handleSymbolSelect}
+            onSubmit={handleSubmit}
+          />
+          <button
+            type="button"
+            onClick={() => handleSubmit(symbol)}
+            className="h-10 px-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl flex items-center justify-center transition-colors"
+          >
+            <Search size={16} />
+          </button>
+          <div className="ml-auto flex items-center gap-2 bg-zinc-100 p-1 rounded-xl">
+            {[
+              { label: '15分', value: '15m' },
+              { label: '小时', value: '1h' },
+              { label: '日线', value: '1d' },
+              { label: '周线', value: '1wk' },
+              { label: '月线', value: '1mo' },
+              { label: '年线', value: '1y' }
+            ].map(int => (
+              <button
+                key={int.value}
+                onClick={() => setActiveInterval(int.value)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                  activeInterval === int.value
+                    ? 'bg-white text-zinc-900 shadow-sm'
+                    : 'text-zinc-500 hover:text-zinc-700'
+                }`}
+              >
+                {int.label}
+              </button>
+            ))}
+          </div>
         </div>
-        <button type="submit" disabled={loading} className="h-12 px-6 bg-indigo-600 text-white font-medium text-sm rounded-xl hover:bg-indigo-700 transition-colors disabled:opacity-50">
-          {loading ? <RefreshCw className="animate-spin" size={16} /> : t('ibkr.chart_view')}
-        </button>
-      </form>
-      <div className="border border-zinc-200 rounded-2xl overflow-hidden relative flex-1" style={{ height: 'calc(100vh - 340px)', minHeight: '450px' }}>
-        <div ref={containerRef} className="h-full w-full bg-white" />
+      </div>
+      <div className="border border-zinc-200 rounded-2xl overflow-hidden relative flex-1 min-h-[450px]">
+        {/* Floating Legend */}
+        <div 
+          ref={legendRef} 
+          className="absolute top-3 left-3 z-10 pointer-events-none transition-opacity duration-150"
+          style={{ opacity: 0 }}
+        />
+        {/* Explicit position absolute to guarantee full coverage and prevent 0-height rendering issues */}
+        <div ref={containerRef} className="absolute inset-0 bg-white" />
         {loading && (
-          <div className="absolute inset-0 bg-white/50 backdrop-blur-sm flex items-center justify-center">
+          <div className="absolute inset-0 bg-white/50 backdrop-blur-sm flex items-center justify-center z-10">
             <RefreshCw size={32} className="animate-spin text-indigo-600" />
           </div>
         )}
+        {chartError && (
+          <div className="absolute inset-0 bg-white/80 flex items-center justify-center z-20 text-red-500 font-medium">
+            {chartError}
+          </div>
+        )}
       </div>
-      <p className="mt-3 text-xs text-zinc-400 text-center">K线图表由 KLineChart 提供技术支持，本地化直连零延迟渲染</p>
+      <p className="mt-3 text-xs text-zinc-400 text-center">K线图表由 Lightweight Charts 提供极速渲染支持</p>
     </div>
   );
 }
-
 // ===== TradingView Chart Tab =====
 function TradingViewChartTab({ symbol, onSymbolChange }: { symbol: string; onSymbolChange: (s: string) => void }) {
   const { t } = useTranslation();
   const containerRef = useRef<HTMLDivElement>(null);
-  const [inputValue, setInputValue] = useState(symbol);
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (inputValue.trim()) onSymbolChange(inputValue.trim().toUpperCase());
-  };
+  const [tvMarket, setTvMarket] = useState<string>('US-Share');
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -451,17 +737,52 @@ function TradingViewChartTab({ symbol, onSymbolChange }: { symbol: string; onSym
     wrapper.style.width = '100%';
     containerRef.current.appendChild(wrapper);
     containerRef.current.appendChild(script);
+
+    return () => {
+      if (containerRef.current) {
+        containerRef.current.innerHTML = '';
+      }
+    };
   }, [symbol]);
+
+  const handleSymbolSelect = (sym: string, market?: string) => {
+    if (market) setTvMarket(market);
+    onSymbolChange(sym);
+  };
 
   return (
     <div className="flex flex-col h-full">
-      <form onSubmit={handleSubmit} className="mb-6 flex items-center gap-3">
-        <div className="relative flex-1 max-w-md">
-          <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-400" />
-          <input type="text" value={inputValue} onChange={(e) => setInputValue(e.target.value)} placeholder={t('ibkr.chart_placeholder')} className="w-full h-12 pl-11 pr-4 rounded-xl border border-zinc-200 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-indigo-600/10 focus:border-indigo-600/40" />
+      <div className="mb-6 flex items-center gap-3">
+        <div className="relative flex-shrink-0">
+          <select
+            value={tvMarket}
+            onChange={(e) => setTvMarket(e.target.value)}
+            className="h-12 w-36 cursor-pointer appearance-none rounded-xl border border-zinc-200 bg-white px-4 pr-10 text-sm font-semibold text-zinc-700 transition-all focus:outline-none focus:ring-2 focus:ring-indigo-600/10 focus:border-indigo-600/40 hover:bg-zinc-50"
+          >
+            <option value="A-Share">A 股</option>
+            <option value="HK-Share">港股</option>
+            <option value="US-Share">美股</option>
+          </select>
+          <div className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400">
+            <TrendingUp size={14} />
+          </div>
         </div>
-        <button type="submit" className="h-12 px-6 bg-indigo-600 text-white font-medium text-sm rounded-xl hover:bg-indigo-700 transition-colors">{t('ibkr.chart_view')}</button>
-      </form>
+        <StockSearchInput
+          value={symbol}
+          market={tvMarket}
+          placeholder={t('ibkr.chart_placeholder')}
+          className="flex-1 max-w-md"
+          onSelect={handleSymbolSelect}
+          onSubmit={(sym) => onSymbolChange(sym)}
+        />
+        <button
+          type="button"
+          onClick={() => onSymbolChange(symbol)}
+          className="h-12 px-6 bg-indigo-600 text-white font-medium text-sm rounded-xl hover:bg-indigo-700 transition-colors flex-shrink-0"
+        >
+          {t('ibkr.chart_view')}
+        </button>
+      </div>
       <div className="border border-zinc-200 rounded-2xl overflow-hidden" style={{ height: 'calc(100vh - 340px)', minHeight: '450px' }}>
         <div ref={containerRef} className="tradingview-widget-container h-full w-full" />
       </div>

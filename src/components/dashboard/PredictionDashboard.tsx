@@ -32,10 +32,16 @@ export const PredictionDashboard = ({ isOpen, onClose }: { isOpen: boolean; onCl
     try {
       setLoading(true);
       const res = await fetch('/api/predictions/');
+      if (!res.ok) {
+        console.error('Predictions API returned', res.status);
+        setPredictions([]);
+        return;
+      }
       const data = await res.json();
-      setPredictions(data);
+      setPredictions(Array.isArray(data) ? data : []);
     } catch (e) {
       console.error('Failed to fetch predictions:', e);
+      setPredictions([]);
     } finally {
       setLoading(false);
     }

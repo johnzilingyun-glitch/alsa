@@ -436,10 +436,18 @@ class DiscussionService:
                 "1. **最终输出要求**: 你的输出必须100%是面向投资者的专业分析内容。严禁包含工具调用计划（如'让我调用XX'）、内部推理过程、工具返回结果的元描述、或任何面向系统而非读者的过渡语。\n"
                 "2. **活泼的排版**: 强制使用标准 Markdown 语法排版。为了让报告看起来更生动，主标题推荐使用 Emoji 序号标号（如 1️⃣, 2️⃣ 等），增加活泼感。\n"
                 "3. **单次输出**: 在所有必要的工具调用结束后，只输出一次最终完整报告，删除任何中间草稿。\n"
+                "4. **结构化数据尾注 (CRITICAL)**: 在报告的最末尾，你必须附加一段包含 `<structured_data>` 标签的 JSON 数据，供系统提取交易计划。格式必须如下：\n"
+                "   <structured_data>\n"
+                "   {\"sentiment\": \"Bullish/Bearish/Neutral\", \"recommendation\": \"Strong Buy/Buy/Hold/Underweight/Sell\", \"targetPrice\": 123.45, \"stopLossPrice\": 110.0, \"confidence\": 85, \"keyRisks\": [\"risk1\", \"risk2\"]}\n"
+                "   </structured_data>\n"
                 if is_zh else
                 "1. **Final Output Rule**: Your output MUST be 100% professional analysis for investors. NO tool plans ('I will now call...'), internal reasoning, meta-descriptions of tool results, or transitional phrases.\n"
                 "2. **Lively Formatting**: Mandatory use of standard Markdown. To make the report more engaging, it is recommended to use Emoji numbers (e.g., 1️⃣, 2️⃣) for main section headers.\n"
                 "3. **Single Pass**: Output only the final comprehensive report after all necessary tools are used. Delete intermediate drafts.\n"
+                "4. **Structured Data Footer (CRITICAL)**: At the very end of your report, you MUST append a JSON object wrapped in `<structured_data>` tags for system parsing. Exact format:\n"
+                "   <structured_data>\n"
+                "   {\"sentiment\": \"Bullish/Bearish/Neutral\", \"recommendation\": \"Strong Buy/Buy/Hold/Underweight/Sell\", \"targetPrice\": 123.45, \"stopLossPrice\": 110.0, \"confidence\": 85, \"keyRisks\": [\"risk1\", \"risk2\"]}\n"
+                "   </structured_data>\n"
             )
         
         sections.append("\n--- [API] MACRO & COMMODITY DATA ---")

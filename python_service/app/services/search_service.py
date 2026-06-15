@@ -219,20 +219,7 @@ class SearchService:
                 except Exception as e:
                     print(f"AkShare notice error for {stock_code}: {e}")
 
-        if not results:
-            # General news fallback via akshare CCTV news
-            try:
-                df3 = await asyncio.to_thread(ak.news_cctv)
-                if df3 is not None and not df3.empty:
-                    for _, row in df3.head(max_results).iterrows():
-                        results.append({
-                            "title": str(row.get("标题", row.get("title", "")))[:200],
-                            "url": str(row.get("url", "")),
-                            "content": str(row.get("内容", row.get("content", "")))[:500],
-                            "source": "CCTV_News"
-                        })
-            except Exception as e:
-                print(f"AkShare CCTV news error: {e}")
+
 
         return results
 

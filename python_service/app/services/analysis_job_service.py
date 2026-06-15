@@ -151,209 +151,209 @@ class AnalysisJobService:
             self.job_repo.update_status(job_id, "running")
             self.update_job_progress(job_id, "snapshot", 10)
             try:
-            # 1. Create snapshot (saves to Parquet)
-            snapshot = await self.snapshot_service.create_snapshot(market, symbol)
-            if not snapshot:
-                raise ValueError("Failed to fetch market data")
-            snapshot["market"] = market
-            
-            self.update_job_progress(job_id, "quant", 30)
-            # 2. Compute quantitative factors using Polars
-            indicator_df = compute_indicator_frame(snapshot["history"])
-            indicators = indicator_df.tail(1).to_dicts()[0]
-            snapshot["indicators"] = indicators
-            
-            self.update_job_progress(job_id, "discussion", 50)
-            # 3. Determine which provider is needed from the model name
-            job = self.job_repo.get_by_id(job_id)
-            requested_model = job.requested_model if job else None
-            if not requested_model and config:
-                requested_model = config.get("model")
-            provider = "deepseek" if (requested_model or "").lower().startswith("deepseek") else "gemini"
-            api_key = await self._wait_for_api_key(job_id, provider)
-            if not api_key:
-                raise ValueError("未收到 API Key，研判任务取消")
-            # Inject key into config for the discussion service
-            safe_config = dict(config or {})
-            safe_config[f"{provider}ApiKey"] = api_key
-            
-            # 3b. Run Expert Discussion
-            level = job.analysis_level if job else "standard"
-            def report_discussion_progress(round, total, msg, count=None, error_type=None):
-                self.update_job_progress(job_id, "discussion", 50 + int((round/total) * 40), round=round, total_rounds=total, message=msg, count=count, error_type=error_type)
-
-            # Determine language: explicit config > market-based auto-detection
-            language = (config or {}).get("language") or ("en" if market == "us" else "zh-CN")
-
-            # Initialize ContextVar for precise token tracking during this job
-            job_usage = {"promptTokens": 0, "candidatesTokens": 0, "totalTokens": 0}
-            token_ctx = current_token_usage.set(job_usage)
-
-            try:
-                discussion_messages = await discussion_service.run_discussion(
-                    symbol, 
-                    snapshot.get("name", symbol), 
-                    snapshot, 
-                    level=level,
-                    language=language,
-                    model=requested_model,
-                    on_progress=report_discussion_progress,
-                    job_id=job_id,
-                    config=safe_config
-                )
-            finally:
-                current_token_usage.reset(token_ctx)
-            
-            self.update_job_progress(job_id, "finalizing", 90)
-            # Key used — refresh timestamp (keeps it alive while job is active)
-            self._refresh_key_timestamp(provider)
-            # 4. Final Payload — enrich stockInfo with quote data for Flash UI
-            quote = snapshot.get("quote", {})
-            snapshot_id = snapshot.get("snapshot_id")
-            result = {
-                "symbol": symbol,
-                "market": market,
-                "snapshot_id": snapshot_id,
-                "as_of_date": snapshot.get("as_of_date"),
-                "data_quality": snapshot.get("data_quality"),
-                "stockInfo": {
+                # 1. Create snapshot (saves to Parquet)
+                snapshot = await self.snapshot_service.create_snapshot(market, symbol)
+                if not snapshot:
+                    raise ValueError("Failed to fetch market data")
+                snapshot["market"] = market
+                
+                self.update_job_progress(job_id, "quant", 30)
+                # 2. Compute quantitative factors using Polars
+                indicator_df = compute_indicator_frame(snapshot["history"])
+                indicators = indicator_df.tail(1).to_dicts()[0]
+                snapshot["indicators"] = indicators
+                
+                self.update_job_progress(job_id, "discussion", 50)
+                # 3. Determine which provider is needed from the model name
+                job = self.job_repo.get_by_id(job_id)
+                requested_model = job.requested_model if job else None
+                if not requested_model and config:
+                    requested_model = config.get("model")
+                provider = "deepseek" if (requested_model or "").lower().startswith("deepseek") else "gemini"
+                api_key = await self._wait_for_api_key(job_id, provider)
+                if not api_key:
+                    raise ValueError("未收到 API Key，研判任务取消")
+                # Inject key into config for the discussion service
+                safe_config = dict(config or {})
+                safe_config[f"{provider}ApiKey"] = api_key
+                
+                # 3b. Run Expert Discussion
+                level = job.analysis_level if job else "standard"
+                def report_discussion_progress(round, total, msg, count=None, error_type=None):
+                    self.update_job_progress(job_id, "discussion", 50 + int((round/total) * 40), round=round, total_rounds=total, message=msg, count=count, error_type=error_type)
+    
+                # Determine language: explicit config > market-based auto-detection
+                language = (config or {}).get("language") or ("en" if market == "us" else "zh-CN")
+    
+                # Initialize ContextVar for precise token tracking during this job
+                job_usage = {"promptTokens": 0, "candidatesTokens": 0, "totalTokens": 0}
+                token_ctx = current_token_usage.set(job_usage)
+    
+                try:
+                    discussion_messages = await discussion_service.run_discussion(
+                        symbol, 
+                        snapshot.get("name", symbol), 
+                        snapshot, 
+                        level=level,
+                        language=language,
+                        model=requested_model,
+                        on_progress=report_discussion_progress,
+                        job_id=job_id,
+                        config=safe_config
+                    )
+                finally:
+                    current_token_usage.reset(token_ctx)
+                
+                self.update_job_progress(job_id, "finalizing", 90)
+                # Key used — refresh timestamp (keeps it alive while job is active)
+                self._refresh_key_timestamp(provider)
+                # 4. Final Payload — enrich stockInfo with quote data for Flash UI
+                quote = snapshot.get("quote", {})
+                snapshot_id = snapshot.get("snapshot_id")
+                result = {
                     "symbol": symbol,
                     "market": market,
-                    "name": snapshot.get("name", symbol),
-                    "price": quote.get("price") or snapshot.get("price"),
-                    "change": quote.get("change"),
-                    "changePercent": quote.get("changePercent") or snapshot.get("changePercent"),
-                    "currency": quote.get("currency") or snapshot.get("currency", "CNY" if market == "A-Share" else "USD"),
-                    "previousClose": quote.get("previousClose"),
-                    "marketCap": quote.get("marketCap"),
-                    "pe": quote.get("trailingPE"),
-                    "forwardPE": quote.get("forwardPE"),
-                    "pb": quote.get("priceToBook"),
-                    "dividendYield": quote.get("dividendYield"),
-                    "lastUpdated": utc_now().strftime("%Y/%m/%d %H:%M:%S") + " CST",
-                },
-                "technicals": indicators,
-            "indicators": indicators,
+                    "snapshot_id": snapshot_id,
+                    "as_of_date": snapshot.get("as_of_date"),
+                    "data_quality": snapshot.get("data_quality"),
+                    "stockInfo": {
+                        "symbol": symbol,
+                        "market": market,
+                        "name": snapshot.get("name", symbol),
+                        "price": quote.get("price") or snapshot.get("price"),
+                        "change": quote.get("change"),
+                        "changePercent": quote.get("changePercent") or snapshot.get("changePercent"),
+                        "currency": quote.get("currency") or snapshot.get("currency", "CNY" if market == "A-Share" else "USD"),
+                        "previousClose": quote.get("previousClose"),
+                        "marketCap": quote.get("marketCap"),
+                        "pe": quote.get("trailingPE"),
+                        "forwardPE": quote.get("forwardPE"),
+                        "pb": quote.get("priceToBook"),
+                        "dividendYield": quote.get("dividendYield"),
+                        "lastUpdated": utc_now().strftime("%Y/%m/%d %H:%M:%S") + " CST",
+                    },
+                    "technicals": indicators,
                 "indicators": indicators,
-                "valuation": snapshot.get("valuation"),
-                "financials": snapshot.get("financials"),
-                "snapshot": snapshot,
-                "discussion": discussion_messages,
-                "summary": self._extract_summary(discussion_messages),
-                "usageMetadata": job_usage,
-            }
-            
-            # Extract structured fields for Flash UI (sentiment, recommendation, risks, etc.)
-            structured = self._extract_structured_fields(discussion_messages)
-            result.update(structured)
-            
-            # Validate trading fields — reject garbage regex output, enforce numeric sanity
-            validation = TradingFieldsValidator.validate(structured)
-            result["_validation"] = {
-                "is_valid": validation.is_valid,
-                "signal_eligible": validation.signal_eligible,
-                "errors": validation.errors,
-            }
-            if not validation.is_valid and structured.get("tradingPlan"):
-                # Mark trading plan as unvalidated so downstream never treats it as a signal
-                structured["tradingPlan"]["_validated"] = False
-                structured["tradingPlan"]["_validation_errors"] = validation.errors
-            elif validation.signal_eligible:
-                structured["tradingPlan"]["_validated"] = True
-            
-            # 5. Create Analysis Run and Update Job
-            with self.job_repo.session_factory() as session:
-                # Derive verdict from structured extraction
-                rec = structured.get("recommendation", "Hold")
-                if rec in ("Buy",): verdict = "buy"
-                elif rec in ("Overweight",): verdict = "buy"
-                elif rec in ("Sell",): verdict = "sell"
-                elif rec in ("Underweight",): verdict = "sell"
-                else: verdict = "watch"
+                    "indicators": indicators,
+                    "valuation": snapshot.get("valuation"),
+                    "financials": snapshot.get("financials"),
+                    "snapshot": snapshot,
+                    "discussion": discussion_messages,
+                    "summary": self._extract_summary(discussion_messages),
+                    "usageMetadata": job_usage,
+                }
                 
-                run_score = float(structured.get("score", 70.0))
+                # Extract structured fields for Flash UI (sentiment, recommendation, risks, etc.)
+                structured = self._extract_structured_fields(discussion_messages)
+                result.update(structured)
                 
-                analysis_run = AnalysisRun(
-                    job_id=job_id,
-                    symbol=symbol,
-                    market=market,
-                    snapshot_id=snapshot_id,
-                    summary_verdict=verdict,
-                    score=run_score,
-                    risk_level="medium"
-                )
-                session.add(analysis_run)
-                session.commit()
-                session.refresh(analysis_run)
+                # Validate trading fields — reject garbage regex output, enforce numeric sanity
+                validation = TradingFieldsValidator.validate(structured)
+                result["_validation"] = {
+                    "is_valid": validation.is_valid,
+                    "signal_eligible": validation.signal_eligible,
+                    "errors": validation.errors,
+                }
+                if not validation.is_valid and structured.get("tradingPlan"):
+                    # Mark trading plan as unvalidated so downstream never treats it as a signal
+                    structured["tradingPlan"]["_validated"] = False
+                    structured["tradingPlan"]["_validation_errors"] = validation.errors
+                elif validation.signal_eligible:
+                    structured["tradingPlan"]["_validated"] = True
                 
-                # Extract and save PredictionRecord if target price exists
-                try:
-                    target_price_str = structured.get("tradingPlan", {}).get("targetPrice")
-                    if target_price_str:
-                        import re
-                        match = re.search(r"[\d.]+", str(target_price_str))
-                        if match:
-                            tp = float(match.group())
-                            cp = float(quote.get("price") or snapshot.get("price", 0.0))
-                            if tp > 0 and cp > 0:
-                                pred = PredictionRecord(
-                                    job_id=job_id,
-                                    symbol=symbol,
-                                    market=market,
-                                    target_price=tp,
-                                    current_price_at_prediction=cp
-                                )
-                                session.add(pred)
-                                session.commit()
-                except Exception as e:
-                    print(f"Failed to save PredictionRecord: {e}")
-                
-                # Update job
-                db_job = session.get(AnalysisJob, job_id)
-                if db_job:
-                    db_job.status = "completed"
-                    db_job.analysis_id = analysis_run.analysis_id
-                    db_job.snapshot_id = snapshot_id
+                # 5. Create Analysis Run and Update Job
+                with self.job_repo.session_factory() as session:
+                    # Derive verdict from structured extraction
+                    rec = structured.get("recommendation", "Hold")
+                    if rec in ("Buy",): verdict = "buy"
+                    elif rec in ("Overweight",): verdict = "buy"
+                    elif rec in ("Sell",): verdict = "sell"
+                    elif rec in ("Underweight",): verdict = "sell"
+                    else: verdict = "watch"
                     
-                    def json_serial(obj):
-                        if isinstance(obj, (datetime, date)):
-                            return obj.isoformat()
-                        raise TypeError(f"Type {type(obj)} not serializable")
+                    run_score = float(structured.get("score", 70.0))
                     
-                    db_job.result_payload = json.dumps(result, default=json_serial)
-                    db_job.finished_at = utc_now()
-                    session.add(db_job)
+                    analysis_run = AnalysisRun(
+                        job_id=job_id,
+                        symbol=symbol,
+                        market=market,
+                        snapshot_id=snapshot_id,
+                        summary_verdict=verdict,
+                        score=run_score,
+                        risk_level="medium"
+                    )
+                    session.add(analysis_run)
                     session.commit()
-
-        except asyncio.CancelledError:
-            self.job_repo.update_status(job_id, "cancelled")
-            raise
-        except Exception as e:
-            error_msg = str(e)
-            # Check if this is a user-initiated stop — still save partial results
-            if "stopped by user" in error_msg:
-                print(f"Analysis job {job_id} stopped by user, saving partial results")
-                try:
-                    _msgs = locals().get("discussion_messages", [])
-                    _snap = locals().get("snapshot", {})
-                    _inds = locals().get("indicators", {})
-                    if _snap:
-                        await self._save_partial_results(job_id, symbol, market, _snap, _inds, _msgs)
-                    else:
-                        self.job_repo.update_status(job_id, "failed", json.dumps({"error": "Stopped before data was ready"}))
-                except Exception as save_err:
-                    print(f"Failed to save partial results: {save_err}")
+                    session.refresh(analysis_run)
+                    
+                    # Extract and save PredictionRecord if target price exists
+                    try:
+                        target_price_str = structured.get("tradingPlan", {}).get("targetPrice")
+                        if target_price_str:
+                            import re
+                            match = re.search(r"[\d.]+", str(target_price_str))
+                            if match:
+                                tp = float(match.group())
+                                cp = float(quote.get("price") or snapshot.get("price", 0.0))
+                                if tp > 0 and cp > 0:
+                                    pred = PredictionRecord(
+                                        job_id=job_id,
+                                        symbol=symbol,
+                                        market=market,
+                                        target_price=tp,
+                                        current_price_at_prediction=cp
+                                    )
+                                    session.add(pred)
+                                    session.commit()
+                    except Exception as e:
+                        print(f"Failed to save PredictionRecord: {e}")
+                    
+                    # Update job
+                    db_job = session.get(AnalysisJob, job_id)
+                    if db_job:
+                        db_job.status = "completed"
+                        db_job.analysis_id = analysis_run.analysis_id
+                        db_job.snapshot_id = snapshot_id
+                        
+                        def json_serial(obj):
+                            if isinstance(obj, (datetime, date)):
+                                return obj.isoformat()
+                            raise TypeError(f"Type {type(obj)} not serializable")
+                        
+                        db_job.result_payload = json.dumps(result, default=json_serial)
+                        db_job.finished_at = utc_now()
+                        session.add(db_job)
+                        session.commit()
+    
+            except asyncio.CancelledError:
+                self.job_repo.update_status(job_id, "cancelled")
+                raise
+            except Exception as e:
+                error_msg = str(e)
+                # Check if this is a user-initiated stop — still save partial results
+                if "stopped by user" in error_msg:
+                    print(f"Analysis job {job_id} stopped by user, saving partial results")
+                    try:
+                        _msgs = locals().get("discussion_messages", [])
+                        _snap = locals().get("snapshot", {})
+                        _inds = locals().get("indicators", {})
+                        if _snap:
+                            await self._save_partial_results(job_id, symbol, market, _snap, _inds, _msgs)
+                        else:
+                            self.job_repo.update_status(job_id, "failed", json.dumps({"error": "Stopped before data was ready"}))
+                    except Exception as save_err:
+                        print(f"Failed to save partial results: {save_err}")
+                        self.job_repo.update_status(job_id, "failed", json.dumps({"error": error_msg}))
+                else:
+                    print(f"Analysis job {job_id} failed: {e}")
+                    import traceback
+                    traceback.print_exc()
                     self.job_repo.update_status(job_id, "failed", json.dumps({"error": error_msg}))
-            else:
-                print(f"Analysis job {job_id} failed: {e}")
-                import traceback
-                traceback.print_exc()
-                self.job_repo.update_status(job_id, "failed", json.dumps({"error": error_msg}))
-        
-        finally:
-            # Only clean up the event — the key stays cached globally for reuse
-            self._api_key_events.pop(job_id, None)
-
+            
+            finally:
+                # Only clean up the event — the key stays cached globally for reuse
+                self._api_key_events.pop(job_id, None)
+    
     async def _save_partial_results(self, job_id: str, symbol: str, market: str, snapshot: Dict[str, Any], indicators: Dict[str, Any], discussion_messages: List[Dict[str, Any]]):
         """Save partial results when analysis is interrupted (user abort or 402)."""
         from ..db.models import AnalysisRun, AnalysisJob, PredictionRecord
@@ -502,6 +502,40 @@ class AnalysisJobService:
         
         if not chief_content:
             return fields
+        
+        # --- Structured JSON parsing (CRITICAL) ---
+        json_match = re.search(r'<structured_data>\s*(\{.*?\})\s*</structured_data>', chief_content, re.DOTALL)
+        if json_match:
+            try:
+                import json
+                parsed = json.loads(json_match.group(1))
+                fields["sentiment"] = parsed.get("sentiment", "Neutral")
+                fields["recommendation"] = parsed.get("recommendation", "Hold")
+                
+                tp = parsed.get("targetPrice")
+                sl = parsed.get("stopLossPrice")
+                trading_plan = {}
+                if tp is not None:
+                    trading_plan["targetPrice"] = str(tp)
+                if sl is not None:
+                    trading_plan["stopLoss"] = str(sl)
+                
+                trading_plan["strategy"] = "基于多智能体决策"
+                if "confidence" in parsed:
+                    trading_plan["strategy"] += f" (信心指数: {parsed['confidence']}%)"
+                if trading_plan:
+                    fields["tradingPlan"] = trading_plan
+                    
+                fields["keyRisks"] = parsed.get("keyRisks", [])
+                if parsed.get("catalysts"):
+                    fields["keyOpportunities"] = parsed.get("catalysts")
+                    
+                # Return early to skip fragile regex if we got the core fields
+                if fields.get("sentiment") and fields.get("tradingPlan"):
+                    return fields
+            except Exception as e:
+                print(f"[AnalysisJobService] Failed to parse <structured_data> JSON: {e}")
+                # Fall through to Regex fallback
         
         # --- Sentiment & Recommendation ---
         # Extract from the verdict/final section table (most reliable)

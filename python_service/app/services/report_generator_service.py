@@ -45,39 +45,37 @@ class ReportGeneratorService:
         try:
             # UI Data Expert Pass - REFINED CONTENT (RESTORING RAW LOGS)
             ui_data = await self._run_ui_data_expert(symbol, market, snapshot, full_discussion, model=model, deepseek_api_key=deepseek_api_key, gemini_api_key=gemini_api_key)
-        finally:
-            current_token_usage.reset(token_ctx)
-        
-        # If UI data expert failed (empty dict) OR critical fields are empty, build fallback
-        if not ui_data:
-            ui_data = self._build_fallback_ui_data(symbol, cleaned_msgs, snapshot)
-        else:
-            # Validate critical fields — backfill from discussion if LLM returned empty/thinking text
-            self._validate_and_backfill_ui_data(ui_data, cleaned_msgs, snapshot)
-        
-        # Backfill empty upside/downside from discussion text
-        if not ui_data.get("upside") or not ui_data.get("downside"):
-            extracted = self._extract_thesis_from_discussion(cleaned_msgs)
-            if not ui_data.get("upside") and extracted.get("upside"):
-                ui_data["upside"] = extracted["upside"]
-            if not ui_data.get("downside") and extracted.get("downside"):
-                ui_data["downside"] = extracted["downside"]
-        
-        quote = snapshot.get("quote", {})
-        currency = quote.get("currency", "USD" if "US" in market else "CNY")
-        fundamentals = self._compile_fundamentals(snapshot, currency, ui_data, market=market)
-        
-        # Parallelize normalization for performance — fallback to markdown if LLM fails
-        try:
-            normalized_contents = await asyncio.gather(*[
-                self._normalize_log_style(m["content"], model=model, deepseek_api_key=deepseek_api_key, gemini_api_key=gemini_api_key) for m in cleaned_msgs
-            ])
-            # Check if all normalizations returned empty/error
-            if all(not c or c.strip() == "" for c in normalized_contents):
-                raise ValueError("All normalizations returned empty")
-        except Exception:
-            # Fallback: convert raw markdown to HTML without LLM
-            normalized_contents = [self._markdown_to_html_fallback(m["content"]) for m in cleaned_msgs]
+            
+            # If UI data expert failed (empty dict) OR critical fields are empty, build fallback
+            if not ui_data:
+                ui_data = self._build_fallback_ui_data(symbol, cleaned_msgs, snapshot)
+            else:
+                # Validate critical fields — backfill from discussion if LLM returned empty/thinking text
+                self._validate_and_backfill_ui_data(ui_data, cleaned_msgs, snapshot)
+            
+            # Backfill empty upside/downside from discussion text
+            if not ui_data.get("upside") or not ui_data.get("downside"):
+                extracted = self._extract_thesis_from_discussion(cleaned_msgs)
+                if not ui_data.get("upside") and extracted.get("upside"):
+                    ui_data["upside"] = extracted["upside"]
+                if not ui_data.get("downside") and extracted.get("downside"):
+                    ui_data["downside"] = extracted["downside"]
+            
+            quote = snapshot.get("quote", {})
+            currency = quote.get("currency", "USD" if "US" in market else "CNY")
+            fundamentals = self._compile_fundamentals(snapshot, currency, ui_data, market=market)
+            
+            # Parallelize normalization for performance — fallback to markdown if LLM fails
+            try:
+                normalized_contents = await asyncio.gather(*[
+                    self._normalize_log_style(m["content"], model=model, deepseek_api_key=deepseek_api_key, gemini_api_key=gemini_api_key) for m in cleaned_msgs
+                ])
+                # Check if all normalizations returned empty/error
+                if all(not c or c.strip() == "" for c in normalized_contents):
+                    raise ValueError("All normalizations returned empty")
+            except Exception:
+                # Fallback: convert raw markdown to HTML without LLM
+                normalized_contents = [self._markdown_to_html_fallback(m["content"]) for m in cleaned_msgs]
         finally:
             current_token_usage.reset(token_ctx)
         

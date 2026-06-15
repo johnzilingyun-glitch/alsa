@@ -149,7 +149,7 @@ TOOL_DEFINITIONS = [
     },
     {
         "name": "management_query",
-        "description": "Query company shareholder/management data: share capital structure, top 10 shareholders, shareholder count changes, controlling shareholder, equity pledges, institutional holdings, executive team. Source: 同花顺问财 (Iwencai). Use for ownership analysis and governance assessment.",
+        "description": "查询股本结构、股权结构、股东户数、前十大股东/流通股东、主要持有人、实控人等股权信息，支持自然语言问句输入，返回相关股东股本数据结果。当用户询问股本结构、股东户数、前十大股东、股权质押、实控人、主要持有人等股东股本数据查询问题时，必须使用此 hithink-management-query 技能。Source: 同花顺问财 (Iwencai).",
         "parameters": {
             "query": {
                 "type": "string",
@@ -1049,11 +1049,29 @@ class ToolExecutor:
                         lines.append(f"   {content}")
                     count += 1
                 if count == 0:
-                    lines.append("No results found in Iwencai comprehensive search.")
+                    raise Exception("Iwencai returned 0 items")
             else:
-                lines.append("No results found in Iwencai comprehensive search.")
+                raise Exception("Iwencai returned no data or error status")
         except Exception as e:
-            lines.append(f"Error querying Iwencai: {str(e)}")
+            # FALLBACK to SearchService
+            from .search_service import search_service
+            search_q = query
+            if "隆众" not in search_q and "百川" not in search_q:
+                search_q += " 隆众 百川 生意社"
+            try:
+                results = await search_service.search(search_q, max_results=8)
+                if results:
+                    for count, r in enumerate(results):
+                        title = r.get("title", "")[:MAX_TITLE]
+                        content = r.get("content", "")[:MAX_CONTENT]
+                        source = r.get("source", "")[:20]
+                        lines.append(f"{count+1}. {title} ({source})")
+                        if content:
+                            lines.append(f"   {content}")
+                else:
+                    lines.append(f"No results found in fallback web search (SearXNG/DDG). Previous error: {str(e)}")
+            except Exception as fe:
+                lines.append(f"Error querying fallback web search: {str(fe)}. Previous error: {str(e)}")
 
         lines.append("</tool_observation>")
         return "\n".join(lines)
@@ -1121,7 +1139,7 @@ class ToolExecutor:
                 text_resp = data.get("text_response", "")
                 if text_resp:
                     return f"<tool_observation>\n{label}: {query}\n{text_resp[:500]}\n</tool_observation>"
-                return f"<tool_observation>\nNo {label.lower()} found.\n</tool_observation>"
+                raise Exception(f"No {label.lower()} found.")
 
             lines = ["<tool_observation>"]
             lines.append(f"{label}: {query} ({len(datas)} items)")
@@ -1141,10 +1159,26 @@ class ToolExecutor:
                     lines.append(f"• {str(item)[:100]}")
             lines.append("</tool_observation>")
             return "\n".join(lines)
-        except httpx.HTTPStatusError as e:
-            return f"<tool_observation>\n{label} HTTP error: {e.response.status_code}\n</tool_observation>"
         except Exception as e:
-            return f"<tool_observation>\n{label} error: {str(e)}\n</tool_observation>"
+            # FALLBACK to SearchService for all iwencai queries
+            from .search_service import search_service
+            try:
+                results = await search_service.search(query, max_results=8)
+                if results:
+                    lines = ["<tool_observation>", f"{label} (Fallback Web Search): {query}", ""]
+                    for count, r in enumerate(results):
+                        title = str(r.get("title", ""))[:100]
+                        content = str(r.get("content", ""))[:200]
+                        source = str(r.get("source", ""))[:20]
+                        lines.append(f"{count+1}. {title} ({source})")
+                        if content:
+                            lines.append(f"   {content}")
+                    lines.append("</tool_observation>")
+                    return "\n".join(lines)
+                else:
+                    return f"<tool_observation>\n{label} error: {str(e)}. Fallback search returned no results.\n</tool_observation>"
+            except Exception as fe:
+                return f"<tool_observation>\n{label} error: {str(e)}. Fallback search failed: {str(fe)}\n</tool_observation>"
 
     async def _exec_knowledge_search(self, query: str) -> str:
         try:

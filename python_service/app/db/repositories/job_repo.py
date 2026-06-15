@@ -101,3 +101,10 @@ class JobRepository:
             )
             result = session.exec(statement).first()
             return result.job_id if result else None
+
+    def has_any_running(self) -> bool:
+        """Check if there are ANY running or queued jobs across the entire system."""
+        with self.session_factory() as session:
+            statement = select(AnalysisJob).where(AnalysisJob.status.in_(["queued", "running"])).limit(1)
+            result = session.exec(statement).first()
+            return result is not None

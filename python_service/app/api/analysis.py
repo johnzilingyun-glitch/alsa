@@ -33,6 +33,10 @@ def get_job_service():
 
 @router.post("/jobs", status_code=202)
 async def create_job(payload: AnalysisJobCreate, service: AnalysisJobService = Depends(get_job_service)):
+    # Check if there are any active jobs in the queue
+    if service.job_repo.has_any_running():
+        return error_response("QUEUE_FULL", "当前已有分析任务正在进行中，请等待其完成后再提交新任务。")
+
     job_id = await service.start_job(
         symbol=payload.symbol, 
         market=payload.market, 

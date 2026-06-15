@@ -9,9 +9,10 @@
     },
     "news-search": {
       "name": "news-search",
-      "zip_url": "http://ms.10jqka.com.cn/gateway/market/api/v1/skills/square/download?name=news-search",
-      "source": "skillhub",
-      "version": ""
+      "zip_url": "https://api.skillhub.cn/api/v1/download?slug=news-search",
+      "source": "community",
+      "version": "1.0.0",
+      "installedAt": "2026-06-15T08:55:35Z"
     },
     "announcement-search": {
       "name": "announcement-search",
@@ -21,9 +22,10 @@
     },
     "report-search": {
       "name": "report-search",
-      "zip_url": "http://ms.10jqka.com.cn/gateway/market/api/v1/skills/square/download?name=report-search",
-      "source": "skillhub",
-      "version": ""
+      "zip_url": "https://api.skillhub.cn/api/v1/download?slug=report-search",
+      "source": "community",
+      "version": "1.0.0",
+      "installedAt": "2026-06-15T09:10:33Z"
     },
     "hithink-business-query": {
       "name": "hithink-business-query",

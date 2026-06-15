@@ -389,10 +389,11 @@ function LocalChartTab({ symbol, onSymbolChange }: { symbol: string; onSymbolCha
 
       return `
         <div class="flex items-center gap-3 bg-white/80 backdrop-blur-md px-3 py-1.5 rounded-lg border border-zinc-200 shadow-sm text-xs md:text-[13px] font-medium tracking-wide">
-          <span><span class="text-zinc-400 mr-1">开</span><span class="${colorClass}">${open}</span></span>
           <span><span class="text-zinc-400 mr-1">高</span><span class="${colorClass}">${high}</span></span>
+          <span><span class="text-zinc-400 mr-1">开</span><span class="${colorClass}">${open}</span></span>
           <span><span class="text-zinc-400 mr-1">低</span><span class="${colorClass}">${low}</span></span>
           <span><span class="text-zinc-400 mr-1">收</span><span class="${colorClass} font-bold">${close}</span></span>
+          <span><span class="text-zinc-400 mr-1">当前价</span><span class="${colorClass}">${close}</span></span>
           ${changeText}
         </div>
       `;

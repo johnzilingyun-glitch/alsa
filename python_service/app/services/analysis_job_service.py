@@ -21,6 +21,7 @@ class AnalysisJobService:
         self._api_keys: Dict[str, str] = {}  # {provider: key} — global cache
         self._key_timestamps: Dict[str, float] = {}  # {provider: last_used_timestamp}
         self._KEY_TTL: int = 1800  # 30 minutes inactivity timeout before auto-clear
+        self._concurrency_limit = asyncio.Semaphore(1)
 
     async def start_job(self, symbol: str, market: str, level: str = "standard", model: Optional[str] = None, config: Optional[Dict[str, Any]] = None) -> str:
         # Deduplicate: if same symbol+market already has a running/queued job within 60s, reuse it
@@ -144,10 +145,12 @@ class AnalysisJobService:
         if config and config.get("tokenGuardLevel"):
             token_guard.set_level(config["tokenGuardLevel"])
         
-        # Mark job as running in the database immediately
-        self.job_repo.update_status(job_id, "running")
-        self.update_job_progress(job_id, "snapshot", 10)
-        try:
+        # Wait for our turn in the queue (only 1 job runs at a time)
+        async with self._concurrency_limit:
+            # Mark job as running in the database immediately
+            self.job_repo.update_status(job_id, "running")
+            self.update_job_progress(job_id, "snapshot", 10)
+            try:
             # 1. Create snapshot (saves to Parquet)
             snapshot = await self.snapshot_service.create_snapshot(market, symbol)
             if not snapshot:

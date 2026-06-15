@@ -52,11 +52,13 @@ class DataRouter:
             if self._akshare_enabled:
                 return [self._a_stock_primary, self._a_stock_fallback]
             return [self._a_stock_primary]
-        elif market in (MarketType.HK_SHARE, MarketType.US_SHARE):
+        elif market == MarketType.HK_SHARE:
+            return [self._a_stock_primary, self._yfinance]
+        elif market == MarketType.US_SHARE:
             return [self._yfinance]
         else:
-            # Unknown market — try yfinance first, then A-share
-            return [self._yfinance, self._a_stock_primary]
+            # Unknown market — try A-share first, then yfinance
+            return [self._a_stock_primary, self._yfinance]
 
     async def get_history(
         self, symbol: str, period: str = "3mo", interval: str = "1d"

@@ -31,7 +31,8 @@ def _normalize_yf_symbol(symbol: str) -> str:
     # Pure numeric → likely HK stock
     if s.isdigit():
         if len(s) <= 5:
-            return f"{s.zfill(4)}.HK"
+            clean_s = s.lstrip("0") or "0"
+            return f"{clean_s.zfill(4)}.HK"
         elif len(s) == 6:
             # A-share (shouldn't normally reach here via router)
             return f"{s}.SS" if s.startswith("6") else f"{s}.SZ"

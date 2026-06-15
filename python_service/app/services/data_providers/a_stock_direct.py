@@ -75,7 +75,9 @@ def _parse_ths_pct(val) -> Optional[float]:
 
 
 def _get_prefix(code: str) -> str:
-    """6-digit code → market prefix (sh/sz/bj)."""
+    """Code → market prefix (sh/sz/bj/hk)."""
+    if len(code) == 5:
+        return "hk"
     if code.startswith(("6", "9")):
         return "sh"
     elif code.startswith("8"):
@@ -85,8 +87,14 @@ def _get_prefix(code: str) -> str:
 
 
 def _clean_symbol(symbol: str) -> str:
-    """Normalize various symbol formats to pure 6-digit code."""
+    """Normalize various symbol formats to pure code."""
     s = symbol.strip().upper()
+    if s.endswith(".HK") or s.startswith("HK"):
+        s = s.replace(".HK", "").replace("HK", "")
+        # Remove any leading zeros then zero-pad to 5 for Tencent
+        s = s.lstrip("0") or "0"
+        return s.zfill(5)
+        
     for suffix in (".SH", ".SS", ".SZ", ".BJ"):
         s = s.replace(suffix, "")
     for prefix in ("SH", "SZ", "BJ"):
@@ -146,7 +154,7 @@ class AStockDirectProvider(DataProvider):
         falls back to EastMoney push2his (geo-blocked overseas) on failure.
         """
         code = _clean_symbol(symbol)
-        market_code = 1 if code.startswith(("6", "9")) else 0
+        market_code = 116 if len(code) == 5 else (1 if code.startswith(("6", "9")) else 0)
 
         # Map period string to number of bars
         period_bars = {

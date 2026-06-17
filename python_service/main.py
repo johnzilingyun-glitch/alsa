@@ -1,33 +1,33 @@
 import os
 
 # Apply AkShare requests.Session keep-alive patch BEFORE any other imports
-from .app.utils.akshare_patch import *  # noqa: F401, F403
+from app.utils.akshare_patch import *  # noqa: F401, F403
 
 import asyncio
 import time
 from contextlib import asynccontextmanager
 from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from .app.api.router import api_router
-from .app.security import get_allowed_origins, require_api_token
-from .app.api import backtest
-from .app.db.sqlite import init_db, build_session_factory, DATABASE_URL
-from .app.services.market_data_service import market_data_service
-from .app.db.repositories.watchlist_repo import WatchlistRepository
-from .app.db.repositories.alert_repo import AlertRepository
-from .app.db.repositories.journal_repo import JournalRepository
-from .app.services.analysis_job_service import AnalysisJobService
-from .app.db.repositories.job_repo import JobRepository
-from .app.services.market_snapshot_service import MarketSnapshotService
-from .app.lake.parquet_store import ParquetMarketStore
-from .app.services.signal_monitor_service import SignalMonitorService
+from app.api.router import api_router
+from app.security import get_allowed_origins, require_api_token
+from app.api import backtest
+from app.db.sqlite import init_db, build_session_factory, DATABASE_URL
+from app.services.market_data_service import market_data_service
+from app.db.repositories.watchlist_repo import WatchlistRepository
+from app.db.repositories.alert_repo import AlertRepository
+from app.db.repositories.journal_repo import JournalRepository
+from app.services.analysis_job_service import AnalysisJobService
+from app.db.repositories.job_repo import JobRepository
+from app.services.market_snapshot_service import MarketSnapshotService
+from app.lake.parquet_store import ParquetMarketStore
+from app.services.signal_monitor_service import SignalMonitorService
 
 # Institutional modules
-from .app.risk.kill_switch import KillSwitch
-from .app.risk.pre_trade import PreTradeRiskGateway
-from .app.observability.metrics import MetricsCollector
-from .app.observability.audit import AuditLogger, AuditAction
-from .app.prompting.version_registry import PromptVersionRegistry
+from app.risk.kill_switch import KillSwitch
+from app.risk.pre_trade import PreTradeRiskGateway
+from app.observability.metrics import MetricsCollector
+from app.observability.audit import AuditLogger, AuditAction
+from app.prompting.version_registry import PromptVersionRegistry
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -76,7 +76,20 @@ async def lifespan(app: FastAPI):
             pass
 
 
-app = FastAPI(title="ALSA Institutional Backend", version="1.0.0", lifespan=lifespan)
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from app.api.limiter import limiter
+
+app = FastAPI(
+    title="ALSA Institutional Backend", 
+    version="1.0.0", 
+    lifespan=lifespan,
+    description="Institutional-grade Quantitative Analysis API with Multi-User Support",
+    contact={"name": "Support", "email": "support@alsa.example.com"},
+)
+
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # Enable CORS
 app.add_middleware(

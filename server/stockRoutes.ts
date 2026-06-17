@@ -23,11 +23,17 @@ function setCache(key: string, data: any) {
   apiCache.set(key, { data, timestamp: Date.now() });
 }
 
-async function fetchJsonWithTimeout(url: string, timeoutMs = 8000): Promise<any> {
+import { getPythonAuthHeaders } from './securityConfig.js';
+
+async function fetchJsonWithTimeout(url: string, timeoutMs = 8000, options: RequestInit = {}): Promise<any> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const response = await fetch(url, { signal: controller.signal });
+    const response = await fetch(url, { 
+      ...options,
+      signal: controller.signal,
+      headers: { ...getPythonAuthHeaders(), ...options.headers }
+    });
     if (!response.ok) {
       throw new Error(`HTTP ${response.status} for ${url}`);
     }
@@ -288,7 +294,10 @@ router.get('/stock/indices', async (req, res) => {
   try {
     const startTime = Date.now();
     // Proxy to Python Microservice (4s timeout to avoid blocking UI)
-    const pythonRes = await axios.get(`${PYTHON_SERVICE_URL}/api/market/indices?market=${marketKey}`, { timeout: 4000 });
+    const pythonRes = await axios.get(`${PYTHON_SERVICE_URL}/api/market/indices?market=${marketKey}`, { 
+      timeout: 4000,
+      headers: getPythonAuthHeaders()
+    });
     
     if (pythonRes.data.success && Array.isArray(pythonRes.data.data) && pythonRes.data.data.length > 0) {
       const validData = pythonRes.data.data.filter((d: any) => !d.error && d.price != null && d.price !== 0);
@@ -359,7 +368,10 @@ router.get('/stock/commodities', async (req, res) => {
   if (cached) return res.json(cached);
 
   try {
-    const pythonRes = await axios.get(`http://127.0.0.1:8001/api/market/commodities`, { timeout: 5000 });
+    const pythonRes = await axios.get(`http://127.0.0.1:8001/api/market/commodities`, { 
+      timeout: 5000,
+      headers: getPythonAuthHeaders()
+    });
     if (pythonRes.data.success) {
       const data = pythonRes.data.data;
       setCache(cacheKey, data);
@@ -420,7 +432,8 @@ router.get('/stock/news', async (req, res) => {
       const start = Date.now();
       try {
         const pythonRes = await fetch(`http://127.0.0.1:8001/api/market/news?market=${marketKey}`, { 
-          signal: AbortSignal.timeout(4000) 
+          signal: AbortSignal.timeout(4000),
+          headers: getPythonAuthHeaders()
         });
         if (pythonRes.ok) {
           const pythonData = await pythonRes.json();
@@ -543,7 +556,8 @@ router.get('/stock/trending', async (req, res) => {
     }
 
     const pythonRes = await fetch(`http://127.0.0.1:8001/api/market/quotes?symbols=${symbols.join(',')}`, { 
-      signal: AbortSignal.timeout(15000) 
+      signal: AbortSignal.timeout(15000),
+      headers: getPythonAuthHeaders()
     });
     
     if (!pythonRes.ok) throw new Error('Failed to fetch quotes for trending');
@@ -1033,7 +1047,9 @@ router.get('/stock/realtime', async (req, res) => {
     if (!result || result.regularMarketPrice === 0 || result.regularMarketPrice === undefined) {
       const symWithSuffix = appendMarketSuffix(resolution.symbol, resolution.market);
       try {
-        const pythonQuote = await axios.get(`${PYTHON_SERVICE_URL}/api/market/quote/${symWithSuffix}`);
+        const pythonQuote = await axios.get(`${PYTHON_SERVICE_URL}/api/market/quote/${symWithSuffix}`, {
+          headers: getPythonAuthHeaders()
+        });
         if (pythonQuote.data.success && pythonQuote.data.data) {
            result = pythonQuote.data.data;
            source = 'Yahoo Finance (via Python MS)';
@@ -1068,7 +1084,9 @@ router.get('/stock/realtime', async (req, res) => {
            try {
               // Indicators still best fetched via Yahoo Chart or similar
               // Fetch technical indicators/history via Python Proxy
-              const pythonHist = await axios.get(`${PYTHON_SERVICE_URL}/api/market/history/${symWithSuffix}?period=120d&interval=1d`);
+              const pythonHist = await axios.get(`${PYTHON_SERVICE_URL}/api/market/history/${symWithSuffix}?period=120d&interval=1d`, {
+                headers: getPythonAuthHeaders()
+              });
               
               if (pythonHist.data.success && pythonHist.data.data.length > 0) {
                 const history = pythonHist.data.data;

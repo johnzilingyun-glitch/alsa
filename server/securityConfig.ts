@@ -77,3 +77,9 @@ export function validateApiToken(authHeader: string | undefined, env: ServerEnv 
   if (a.length !== b.length) return false;
   return crypto.timingSafeEqual(a, b);
 }
+
+export function getPythonAuthHeaders(env: ServerEnv = process.env): Record<string, string> {
+  const token = env.API_TOKEN;
+  if (!token) return {};
+  return { 'Authorization': `Bearer ${token}` };
+}

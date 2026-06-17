@@ -16,6 +16,8 @@ const axiosClient = axios.create({
 const router = Router();
 const repo = createAnalysisRepository();
 const PYTHON_SERVICE_URL = process.env.PYTHON_SERVICE_URL || 'http://127.0.0.1:8001';
+import { getPythonAuthHeaders } from '../securityConfig.js';
+
 
 // ── Sector/Stock Report Download API ─────────────────────────────
 // GET /reports/download?file=xxx_report.html  下载/alsa/reports下的HTML/PDF
@@ -93,7 +95,7 @@ router.post('/analysis/jobs', async (req, res) => {
     // 2. Trigger FastAPI job (without API keys — client sends key only when requested)
     const fastApiRes = await fetch(`${PYTHON_SERVICE_URL}/api/analysis/jobs`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...getPythonAuthHeaders() },
       body: JSON.stringify({ symbol, market, analysis_level: analysis_level || 'standard', requested_model: config?.model || model || null, config: safeConfig })
     });
 
@@ -143,7 +145,7 @@ router.post('/analysis/jobs/:jobId/apikey', async (req, res) => {
   try {
     const fastApiRes = await fetch(`${PYTHON_SERVICE_URL}/api/analysis/jobs/${jobId}/apikey`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...getPythonAuthHeaders() },
       body: JSON.stringify({ provider, apiKey })
     });
     const data = await fastApiRes.json();
@@ -160,7 +162,7 @@ router.post('/analysis/apikey', async (req, res) => {
   try {
     const fastApiRes = await fetch(`${PYTHON_SERVICE_URL}/api/analysis/apikey`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...getPythonAuthHeaders() },
       body: JSON.stringify({ provider, apiKey })
     });
     const data = await fastApiRes.json();
@@ -176,7 +178,9 @@ router.get('/analysis/jobs/:analysisId/:jobId', async (req, res) => {
 
   try {
     // 1. Poll FastAPI for status
-    const fastApiRes = await fetch(`${PYTHON_SERVICE_URL}/api/analysis/jobs/${jobId}`);
+    const fastApiRes = await fetch(`${PYTHON_SERVICE_URL}/api/analysis/jobs/${jobId}`, {
+      headers: getPythonAuthHeaders()
+    });
     if (!fastApiRes.ok) {
         throw new Error(`FastAPI status check failed: ${fastApiRes.status}`);
     }
@@ -195,7 +199,9 @@ router.get('/analysis/jobs/:analysisId/:jobId', async (req, res) => {
       let brainFacts: string[] = [];
       let evolvedInstructions = '';
       try {
-        const brainRes = await axiosClient.get(`${PYTHON_SERVICE_URL}/api/brain/context?user_id=default&query=${record.symbol}`);
+        const brainRes = await axiosClient.get(`${PYTHON_SERVICE_URL}/api/brain/context?user_id=default&query=${record.symbol}`, {
+          headers: getPythonAuthHeaders()
+        });
         if (brainRes.data.success) {
           brainFacts = brainRes.data.data.facts || [];
           evolvedInstructions = brainRes.data.data.instructions || '';
@@ -299,6 +305,8 @@ router.post('/analysis/feedback', async (req, res) => {
       user_id: userId || 'default',
       feedback,
       context: record ? `${record.symbol} (${record.market}) Analysis` : 'General'
+    }, {
+      headers: getPythonAuthHeaders()
     });
 
     res.json({ success: true, message: 'Feedback recorded and brain evolution triggered.' });
@@ -345,7 +353,9 @@ router.post('/analysis/cancel', async (req, res) => {
 
 router.get('/analysis/settings/token-guard', async (req, res) => {
   try {
-    const resp = await fetch(`${PYTHON_SERVICE_URL}/api/analysis/settings/token-guard`);
+    const resp = await fetch(`${PYTHON_SERVICE_URL}/api/analysis/settings/token-guard`, {
+      headers: getPythonAuthHeaders()
+    });
     const data = await resp.json();
     res.json(data);
   } catch (err: unknown) {
@@ -358,7 +368,7 @@ router.post('/analysis/settings/token-guard', async (req, res) => {
   try {
     const resp = await fetch(`${PYTHON_SERVICE_URL}/api/analysis/settings/token-guard`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...getPythonAuthHeaders() },
       body: JSON.stringify(req.body),
     });
     const data = await resp.json();

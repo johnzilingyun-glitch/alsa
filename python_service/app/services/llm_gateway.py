@@ -145,12 +145,28 @@ class LLMGateway:
                 raise ValueError("DEFAULT_LLM_API_KEY is missing.")
         return self._default_client
 
-    async def generate_content(self, prompt: str, model: str = None, temperature: float = 0.3, on_chunk: Optional[callable] = None, gemini_api_key: Optional[str] = None, deepseek_api_key: Optional[str] = None) -> str:
+    async def generate_content(self, prompt: str, model: str = None, temperature: float = 0.3, on_chunk: Optional[callable] = None, gemini_api_key: Optional[str] = None, deepseek_api_key: Optional[str] = None, cache_key: Optional[str] = None) -> str:
         """
         Generate content with built-in quality-gate retry.
         Retries up to 2 extra times if response is truncated or garbage.
         Routes through default provider unless model is explicitly gemini-*.
         """
+        if cache_key:
+            from datetime import datetime
+            today = datetime.now().strftime('%Y-%m-%d')
+            safe_key = "".join(c if c.isalnum() else "_" for c in cache_key)
+            cache_file = os.path.join(os.path.expanduser("~/.alsa_cache/llm"), f"{safe_key}_{today}.json")
+            if os.path.exists(cache_file):
+                try:
+                    with open(cache_file, "r") as f:
+                        cached_data = json.load(f)
+                    print(f"✅ Cache HIT for {cache_key}! Returning cached content.")
+                    if on_chunk:
+                        on_chunk(len(cached_data["content"]))
+                    return cached_data["content"]
+                except Exception as e:
+                    print(f"Failed to read cache {cache_file}: {e}")
+
         # Resolve model: use default from env if not specified
         if not model:
             model = self.default_model
@@ -167,7 +183,7 @@ class LLMGateway:
             else:
                 raise ValueError(f"No provider available for model: {model}. Set DEFAULT_LLM_API_KEY in .env.")
 
-            result_text = result[0] if return_usage and isinstance(result, tuple) else result
+
 
             # Quality gate: detect truncated responses
             if result_text and len(result_text) < 150:
@@ -189,6 +205,14 @@ class LLMGateway:
 
             if result_text and len(result_text) < 200:
                 print(f"WARNING: Short response ({len(result_text)} chars) — may be truncated")
+
+            if cache_key and result_text:
+                try:
+                    os.makedirs(os.path.dirname(cache_file), exist_ok=True)
+                    with open(cache_file, "w") as f:
+                        json.dump({"content": result_text}, f)
+                except Exception as e:
+                    print(f"Failed to write cache {cache_file}: {e}")
 
             return result_text
 
@@ -455,13 +479,29 @@ class LLMGateway:
                 
         raise Exception(f"Failed to generate content with {final_model} after {max_retries} attempts due to rate limits.")
 
-    async def generate_with_native_tools(self, prompt: str, model: str, role: str = None, temperature: float = 0.3, max_tool_rounds: int = 20, on_chunk: Optional[callable] = None, deepseek_api_key: Optional[str] = None) -> str:
+    async def generate_with_native_tools(self, prompt: str, model: str, role: str = None, temperature: float = 0.3, max_tool_rounds: int = 20, on_chunk: Optional[callable] = None, deepseek_api_key: Optional[str] = None, cache_key: Optional[str] = None) -> str:
         """
         Generate content using DeepSeek's native OpenAI-compatible function calling API.
         
         Instead of text-based <tool_call> parsing, uses the `tools` parameter
         for structured function calling with streaming progress output.
         """
+        if cache_key:
+            from datetime import datetime
+            today = datetime.now().strftime('%Y-%m-%d')
+            safe_key = "".join(c if c.isalnum() else "_" for c in cache_key)
+            cache_file = os.path.join(os.path.expanduser("~/.alsa_cache/llm"), f"{safe_key}_native_{today}.json")
+            if os.path.exists(cache_file):
+                try:
+                    with open(cache_file, "r") as f:
+                        cached_data = json.load(f)
+                    print(f"✅ Native Cache HIT for {cache_key}! Skipping all tools.")
+                    if on_chunk:
+                        on_chunk(len(cached_data["content"]))
+                    return cached_data["content"]
+                except Exception as e:
+                    print(f"Failed to read native cache {cache_file}: {e}")
+
         from .expert_tools import get_openai_tools, tool_executor, COMPUTATION_TOOL_NAMES
         
         model_map = {
@@ -938,13 +978,23 @@ class LLMGateway:
                 
                 if retry_content and _is_valid_analysis(retry_content):
                     result = retry_content
+                    final_response = retry_content
                 else:
                     # Retry still produced junk — force a tools-free synthesis from gathered data
                     recovered = await _recovery_synthesis()
-                    result = recovered or (retry_content if _is_valid_analysis(retry_content or "") else "")
+                    final_response = recovered or (retry_content if _is_valid_analysis(retry_content or "") else "")
             except Exception:
-                recovered = await _recovery_synthesis()
-                result = recovered or ""
+                final_response = await _recovery_synthesis()
+        
+            if cache_key and final_response:
+                try:
+                    os.makedirs(os.path.dirname(cache_file), exist_ok=True)
+                    with open(cache_file, "w") as f:
+                        json.dump({"content": final_response}, f)
+                except Exception as e:
+                    print(f"Failed to write native cache {cache_file}: {e}")
+            result = final_response or ""
+
         elif tool_round_text:
             # No final content at all — the final round failed or produced empty response
             print(f"  [ToolLoop] WARNING: No final analysis produced. Attempting recovery...")
@@ -981,7 +1031,7 @@ class LLMGateway:
             result = re.sub(r'\n{3,}', '\n\n', result).strip()
         return result
 
-    async def generate_with_tools(self, prompt: str, model: str = "gemini-3.1-pro-preview", role: str = None, temperature: float = 0.3, max_tool_rounds: int = 20, on_chunk: Optional[callable] = None, gemini_api_key: Optional[str] = None, deepseek_api_key: Optional[str] = None) -> str:
+    async def generate_with_tools(self, prompt: str, model: str = "gemini-3.1-pro-preview", role: str = None, temperature: float = 0.3, max_tool_rounds: int = 20, on_chunk: Optional[callable] = None, gemini_api_key: Optional[str] = None, deepseek_api_key: Optional[str] = None, cache_key: Optional[str] = None) -> str:
         """
         Generate content with tool-calling loop.
         
@@ -990,7 +1040,7 @@ class LLMGateway:
         """
         # For DeepSeek, use native OpenAI-compatible function calling
         if "deepseek" in model.lower():
-            return await self.generate_with_native_tools(prompt, model, role=role, temperature=temperature, max_tool_rounds=max_tool_rounds, on_chunk=on_chunk, deepseek_api_key=deepseek_api_key)
+            return await self.generate_with_native_tools(prompt, model, role=role, temperature=temperature, max_tool_rounds=max_tool_rounds, on_chunk=on_chunk, deepseek_api_key=deepseek_api_key, cache_key=cache_key)
         
         from .expert_tools import parse_tool_calls, has_tool_calls, tool_executor
         

@@ -33,7 +33,15 @@ export const useAnalysisStore = create<AnalysisState>((set) => ({
 
   setSymbol: (symbol) => set({ symbol }),
   setMarket: (market) => set({ market }),
-  setAnalysis: (updater) => set((state) => ({ analysis: typeof updater === 'function' ? updater(state.analysis) : updater })),
+  setAnalysis: (updater) => set((state) => {
+    const next = typeof updater === 'function' ? updater(state.analysis) : updater;
+    // Guard: reject analysis data where stockInfo is not a proper object
+    if (next && (!next.stockInfo || typeof next.stockInfo !== 'object' || next.stockInfo === null)) {
+      console.warn('[AnalysisStore] Rejected invalid analysis data (missing stockInfo)');
+      return {};
+    }
+    return { analysis: next };
+  }),
   setChatMessage: (chatMessage) => set({ chatMessage }),
   setChatHistory: (updater) => set((state) => ({ chatHistory: typeof updater === 'function' ? updater(state.chatHistory) : updater })),
   setLastJobId: (lastJobId) => set({ lastJobId }),

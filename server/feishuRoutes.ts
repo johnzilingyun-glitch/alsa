@@ -1,6 +1,16 @@
 import { Router } from 'express';
+import crypto from 'crypto';
 
 const router = Router();
+
+function isValidFeishuUrl(url: string): boolean {
+  try {
+    const urlObj = new URL(url);
+    return urlObj.hostname.endsWith('.feishu.cn') || urlObj.hostname === 'feishu.cn';
+  } catch (e) {
+    return false;
+  }
+}
 
 router.post('/feishu/send-report', async (req, res) => {
   const { content, feishuWebhookUrl } = req.body;
@@ -8,6 +18,10 @@ router.post('/feishu/send-report', async (req, res) => {
 
   if (!webhookUrl) {
     return res.status(500).json({ error: '飞书 Webhook 未配置。请在系统设置中填入 Webhook URL。' });
+  }
+
+  if (!isValidFeishuUrl(webhookUrl)) {
+    return res.status(403).json({ error: '非法的 Webhook URL 域名，仅允许飞书官方域名' });
   }
 
   if (!content?.trim()) {
@@ -78,16 +92,27 @@ router.post('/feishu/send-report', async (req, res) => {
       ],
     };
 
-    // If it's a stock report and we have structured data, we could build a richer card here.
-    // For now, the markdown content from the AI is already very rich.
+    const payloadObj = {
+      msg_type: 'interactive',
+      card: card,
+    };
+    const payloadStr = JSON.stringify(payloadObj);
+    const webhookSecret = process.env.FEISHU_WEBHOOK_SECRET;
+    let signature = '';
+
+    if (webhookSecret) {
+      const hmac = crypto.createHmac('sha256', webhookSecret);
+      hmac.update(payloadStr, 'utf8');
+      signature = `sha256=${hmac.digest('hex')}`;
+    }
 
     const response = await fetch(webhookUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        msg_type: 'interactive',
-        card: card,
-      }),
+      headers: { 
+        'Content-Type': 'application/json',
+        ...(signature ? { 'X-Hub-Signature-256': signature } : {})
+      },
+      body: payloadStr,
     });
 
     if (!response.ok) {
@@ -103,6 +128,57 @@ router.post('/feishu/send-report', async (req, res) => {
   } catch (error) {
     console.error('Feishu Webhook Error:', error);
     res.status(500).json({ error: '无法发送报告至飞书，请检查 Webhook URL 是否正确。' });
+  }
+});
+
+router.post('/feishu/proxy-card', async (req, res) => {
+  const { card, feishuWebhookUrl } = req.body;
+  const webhookUrl = feishuWebhookUrl || process.env.FEISHU_WEBHOOK_URL;
+
+  if (!webhookUrl) {
+    return res.status(500).json({ error: '飞书 Webhook 未配置。' });
+  }
+
+  if (!isValidFeishuUrl(webhookUrl)) {
+    return res.status(403).json({ error: '非法的 Webhook URL 域名，仅允许飞书官方域名' });
+  }
+
+  const payloadObj = { msg_type: 'interactive', card: card };
+  const payloadStr = JSON.stringify(payloadObj);
+  const webhookSecret = process.env.FEISHU_WEBHOOK_SECRET;
+  let signature = '';
+
+  if (webhookSecret) {
+    try {
+      const hmac = crypto.createHmac('sha256', webhookSecret);
+      hmac.update(payloadStr, 'utf8');
+      signature = `sha256=${hmac.digest('hex')}`;
+    } catch (e) {
+      console.error("Failed to generate HMAC signature:", e);
+    }
+  }
+
+  try {
+    const response = await fetch(webhookUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(signature ? { 'X-Hub-Signature-256': signature } : {})
+      },
+      body: payloadStr
+    });
+
+    if (!response.ok) {
+      throw new Error(`Feishu API HTTP ${response.status}`);
+    }
+    const data = await response.json();
+    if (data.code !== 0) {
+      throw new Error(data.msg || 'Feishu API 返回错误');
+    }
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Feishu Webhook Error:', error);
+    res.status(500).json({ error: '无法发送报告至飞书' });
   }
 });
 

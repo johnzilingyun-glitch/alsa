@@ -88,6 +88,12 @@ def _sanitize_for_json(obj):
     return obj
 
 
+def _escape_like(s: str) -> str:
+    """Escape special characters for SQL LIKE clause."""
+    if not s:
+        return s
+    return s.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
+
 # ---------- Scan ----------
 
 @router.post("/run")
@@ -345,7 +351,7 @@ async def start_sector_analysis(req: SectorAnalyzeRequest):
                 AnalysisJob.market == "sector",
                 AnalysisJob.status == "completed",
                 AnalysisJob.snapshot_id == target_date,
-                AnalysisJob.symbol.like(f"%{req.sector_name}%")
+                AnalysisJob.symbol.like(f"%{_escape_like(req.sector_name)}%")
             ).order_by(AnalysisJob.finished_at.desc())
             existing_job = session.exec(statement).first()
             if existing_job:
@@ -404,7 +410,7 @@ async def start_serenity_analysis(req: SerenityAnalyzeRequest):
                 AnalysisJob.analysis_level == "serenity_alpha",
                 AnalysisJob.status == "completed",
                 AnalysisJob.snapshot_id == target_date,
-                AnalysisJob.symbol.like(f"%{sector_name}%")
+                AnalysisJob.symbol.like(f"%{_escape_like(sector_name)}%")
             ).order_by(AnalysisJob.finished_at.desc())
             existing_job = session.exec(statement).first()
             if existing_job:
@@ -767,7 +773,7 @@ async def get_history_by_date(date: str, type: str, sector_name: Optional[str] =
                 AnalysisJob.market == "sector",
                 AnalysisJob.status == "completed",
                 AnalysisJob.snapshot_id == date,
-                AnalysisJob.symbol.like(f"%{symbol}%")
+                AnalysisJob.symbol.like(f"%{_escape_like(symbol)}%")
             ).order_by(AnalysisJob.finished_at.desc())
             
             job = session.exec(statement).first()

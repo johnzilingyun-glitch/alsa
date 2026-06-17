@@ -1,12 +1,7 @@
 import os
-# We must use the local proxy to bypass Eastmoney geo-blocking for overseas servers.
-os.environ["HTTP_PROXY"] = "http://127.0.0.1:8118"
-os.environ["HTTPS_PROXY"] = "http://127.0.0.1:8118"
-os.environ["http_proxy"] = "http://127.0.0.1:8118"
-os.environ["https_proxy"] = "http://127.0.0.1:8118"
-proxy_bypass = "localhost,127.0.0.1,::1"
-os.environ["NO_PROXY"] = proxy_bypass
-os.environ["no_proxy"] = proxy_bypass
+
+# Apply AkShare requests.Session keep-alive patch BEFORE any other imports
+from .app.utils.akshare_patch import *  # noqa: F401, F403
 
 import asyncio
 import time

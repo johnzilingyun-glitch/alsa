@@ -1,5 +1,5 @@
 import json
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import Response
 from pydantic import BaseModel
 from typing import Optional, Dict, Any
@@ -32,17 +32,23 @@ def get_job_service():
         return get_analysis_job_service()
 
 @router.post("/jobs", status_code=202)
-async def create_job(payload: AnalysisJobCreate, service: AnalysisJobService = Depends(get_job_service)):
-    # Check if there are any active jobs in the queue
-    if service.job_repo.has_any_running():
-        return error_response("QUEUE_FULL", "当前已有分析任务正在进行中，请等待其完成后再提交新任务。")
+async def create_job(payload: AnalysisJobCreate, request: Request, service: AnalysisJobService = Depends(get_job_service)):
+    # Use header X-User-Id if provided, otherwise fallback to IP address
+    user_id = request.headers.get("X-User-Id")
+    if not user_id:
+        user_id = request.client.host if request.client else "default_user"
+
+    # Check if this specific user has any active jobs in the queue
+    if service.job_repo.has_running_for_user(user_id):
+        return error_response("QUEUE_FULL", "您当前已有分析任务正在进行中，请等待其完成后再提交新任务。")
 
     job_id = await service.start_job(
         symbol=payload.symbol, 
         market=payload.market, 
         level=payload.analysis_level,
         model=payload.requested_model,
-        config=payload.config
+        config=payload.config,
+        user_id=user_id
     )
     return success_response({
         "job_id": job_id, 

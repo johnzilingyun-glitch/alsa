@@ -22,7 +22,7 @@ import { ConfirmDialog } from './components/shared/ConfirmDialog';
 import { Toast } from './components/shared/Toast';
 import { NotificationBubbles } from './components/shared/NotificationBubbles';
 
-if (typeof window !== 'undefined') {
+if (import.meta.env.DEV && typeof window !== 'undefined') {
   (window as any).useAnalysisStore = useAnalysisStore;
 }
 
@@ -260,8 +260,8 @@ export default function App() {
             </div>
           )}
 
-          {analysis ? (
-            <ErrorBoundary fallback="Analysis component encountered an error">
+          {analysis && analysis.stockInfo && typeof analysis.stockInfo === 'object' && !Array.isArray(analysis.stockInfo) ? (
+            <ErrorBoundary fallback="分析组件加载失败，请刷新页面重试" onError={() => { resetAnalysis(); }}>
             <Suspense fallback={
               <div className="space-y-6 stagger-children">
                 <div className="h-16 skeleton" />

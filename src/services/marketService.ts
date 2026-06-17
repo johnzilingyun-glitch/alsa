@@ -155,7 +155,16 @@ export async function getMarketOverview(config?: GeminiConfig, market: Market = 
         { type: 'Sector', name: '人工智能产业链', reason: '全球AI资本开支增加，算力需求旺盛', riskLevel: 'High' },
         { type: 'Sector', name: '高股息/红利', reason: '市场震荡环境下的防御性配置优选', riskLevel: 'Low' }
       ],
-      marketSummary: `[降级模式] AI分析暂时不可用。目前 ${market} 市场主要受全球宏观政策与近期重大新闻影响，建议投资者关注当前热点资讯并控制仓位风险。`,
+      marketSummary: (() => {
+        const upCount = (indicesData || []).filter((d: any) => (d.changePercent ?? 0) > 0).length;
+        const downCount = (indicesData || []).filter((d: any) => (d.changePercent ?? 0) < 0).length;
+        const totalCount = (indicesData || []).length;
+        const mainIndex = (indicesData || [])[0];
+        const trend = upCount > downCount ? '震荡走强' : downCount > upCount ? '承压回调' : '横盘整理';
+        const mainTrend = mainIndex ? `${mainIndex.name}${mainIndex.changePercent > 0 ? '上涨' : mainIndex.changePercent < 0 ? '下跌' : '持平'}${Math.abs(mainIndex.changePercent ?? 0)}%` : '';
+        const newsHint = (newsData || []).length > 0 ? `近期关注${(newsData as any[])[0]?.title?.slice(0, 20) || '热点资讯'}` : '';
+        return `[实时数据] ${market}市场今日${trend}，${totalCount}个核心指数中${upCount}个上涨、${downCount}个下跌。${mainTrend}。${newsHint}。建议投资者结合实时数据关注市场动向，控制仓位风险。`;
+      })(),
     } as MarketOverview;
   }
 

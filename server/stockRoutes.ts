@@ -146,6 +146,79 @@ async function fetchHKSpotFallbackFromSina(symbol: string): Promise<any | null> 
   }
 }
 
+async function fetchIndicesFromSinaFallback(market: string): Promise<any[] | null> {
+  const INDEX_SINA_MAP: Record<string, Array<{ sinaCode: string; name: string }> | null> = {
+    'A-Share': [
+      { sinaCode: 'sh000001', name: '上证指数' },
+      { sinaCode: 'sz399001', name: '深证成指' },
+      { sinaCode: 'sz399006', name: '创业板指' },
+    ],
+    'HK-Share': [
+      { sinaCode: 'hkHSI', name: '恒生指数' },
+      { sinaCode: 'hkHSTECH', name: '恒生科技' },
+      { sinaCode: 'hkHSCEI', name: '恒生国企' },
+      { sinaCode: 'hkHSCCI', name: '红筹指数' },
+    ],
+    'US-Share': null,
+  };
+
+  const indices = INDEX_SINA_MAP[market];
+  if (!indices) return null;
+
+  const sinaCodes = indices.map(i => i.sinaCode).join(',');
+  const url = `https://hq.sinajs.cn/list=${sinaCodes}`;
+
+  try {
+    const response = await fetch(url, {
+      headers: { Referer: 'https://finance.sina.com.cn' }
+    });
+    const buffer = await response.arrayBuffer();
+    const text = new TextDecoder('gbk').decode(buffer);
+
+    const results: any[] = [];
+    for (const idx of indices) {
+      const regex = new RegExp(`${idx.sinaCode}="([^"]*)"`);
+      const match = text.match(regex);
+      if (!match?.[1]) continue;
+
+      const parts = match[1].split(',');
+      if (parts.length < 10) continue;
+
+      if (market === 'HK-Share') {
+        const name = parts[1] || idx.name;
+        const price = Number(parts[6]);
+        const prevClose = Number(parts[3]);
+        const change = Number(parts[7]);
+        const changePercent = Number(parts[8]);
+        if (!price || price === 0) continue;
+        results.push({ symbol: idx.sinaCode.replace('hk', '^'), name, price, change, changePercent });
+      } else {
+        const name = parts[0] || idx.name;
+        const open = Number(parts[1]);
+        const prevClose = Number(parts[2]);
+        const price = Number(parts[3]);
+        const high = Number(parts[4]);
+        const low = Number(parts[5]);
+        if (!price || price === 0) continue;
+        const change = Number.isFinite(prevClose) ? price - prevClose : 0;
+        const changePercent = Number.isFinite(prevClose) && prevClose !== 0 ? (change / prevClose) * 100 : 0;
+        results.push({
+          symbol: idx.sinaCode.replace('sh', '').replace('sz', ''),
+          name,
+          price,
+          change: parseFloat(change.toFixed(2)),
+          changePercent: parseFloat(changePercent.toFixed(2))
+        });
+      }
+    }
+
+    return results.length > 0 ? results : null;
+  } catch (e) {
+    console.warn(`[SinaIndicesFallback] Failed for ${market}:`, e);
+    return null;
+  }
+}
+
 async function fetchSectorFlowFromEastMoneyFallback(): Promise<{ topInflows: any[]; topOutflows: any[] } | null> {
   const url = 'https://push2.eastmoney.com/api/qt/clist/get?pn=1&pz=10&po=1&np=1&ut=b2884a393a59ad64002292a3e90d46a5&fltt=2&invt=2&fid=f62&fs=m:90+t:2&fields=f12,f14,f2,f3,f62,f184';
   const data = await fetchJsonWithTimeout(url, 7000);
@@ -199,6 +272,7 @@ const INDEX_NAME_MAP: Record<string, string> = {
   '^HSI': '恒生指数',
   '^HSTECH': '恒生科技',
   '^HSCE': '恒生国企',
+  '^HSCCI': '红筹指数',
   '^GSPC': '标普500',
   '^IXIC': '纳斯达克',
   '^DJI': '道琼斯',
@@ -217,13 +291,16 @@ router.get('/stock/indices', async (req, res) => {
     const pythonRes = await axios.get(`${PYTHON_SERVICE_URL}/api/market/indices?market=${marketKey}`, { timeout: 4000 });
     
     if (pythonRes.data.success && Array.isArray(pythonRes.data.data) && pythonRes.data.data.length > 0) {
-      const data = pythonRes.data.data.map((d: any) => ({
-        ...d,
-        name: INDEX_NAME_MAP[d.symbol] || d.name
-      }));
-      setCache(cacheKey, data);
-      monitor.recordSuccess('python_market', Date.now() - startTime);
-      return res.json(data);
+      const validData = pythonRes.data.data.filter((d: any) => !d.error && d.price != null && d.price !== 0);
+      if (validData.length > 0) {
+        const data = validData.map((d: any) => ({
+          ...d,
+          name: INDEX_NAME_MAP[d.symbol] || d.name
+        }));
+        setCache(cacheKey, data);
+        monitor.recordSuccess('python_market', Date.now() - startTime);
+        return res.json(data);
+      }
     }
     throw new Error('Python indices fetch failed or empty');
   } catch (error) {
@@ -232,7 +309,7 @@ router.get('/stock/indices', async (req, res) => {
     
     // Legacy fallback (preserving minimal safety)
     try {
-        const symbols = marketKey === 'HK-Share' ? ['^HSI', '^HSTECH'] : 
+        const symbols = marketKey === 'HK-Share' ? ['^HSI', '^HSTECH', '^HSCE', '^HSCCI'] : 
                         marketKey === 'US-Share' ? ['^GSPC', '^IXIC', '^DJI'] : 
                         ['000001.SS', '399001.SZ', '399006.SZ'];
         const results = await yf.quote(symbols as any);
@@ -248,11 +325,19 @@ router.get('/stock/indices', async (req, res) => {
         }
         throw new Error('Local Yahoo Finance also failed');
     } catch (e) {
-        // ULTIMATE FAIL-SAFE: Return hardcoded stale defaults to prevent UI crash
+        console.warn('Yahoo Finance also failed, trying Sina fallback...');
+        const sinaFallback = await fetchIndicesFromSinaFallback(marketKey).catch(() => null);
+        if (sinaFallback) {
+          setCache(cacheKey, sinaFallback);
+          return res.json(sinaFallback);
+        }
+
         console.error('CRITICAL: All indices sources failed. Returning stale defaults.');
         const defaults = marketKey === 'HK-Share' ? [
           { symbol: '^HSI', name: '恒生指数', price: 0, change: 0, changePercent: 0, status: 'stale' },
-          { symbol: '^HSTECH', name: '恒生科技', price: 0, change: 0, changePercent: 0, status: 'stale' }
+          { symbol: '^HSTECH', name: '恒生科技', price: 0, change: 0, changePercent: 0, status: 'stale' },
+          { symbol: '^HSCE', name: '恒生国企', price: 0, change: 0, changePercent: 0, status: 'stale' },
+          { symbol: '^HSCCI', name: '红筹指数', price: 0, change: 0, changePercent: 0, status: 'stale' }
         ] : marketKey === 'US-Share' ? [
           { symbol: '^GSPC', name: '标普500', price: 0, change: 0, changePercent: 0, status: 'stale' },
           { symbol: '^IXIC', name: '纳斯达克', price: 0, change: 0, changePercent: 0, status: 'stale' },
@@ -353,37 +438,30 @@ router.get('/stock/news', async (req, res) => {
       return [];
     })());
 
-    // 2. Sina RSS Fallback
+    // 2. Sina News API (replaces deprecated RSS)
     if (marketKey === 'A-Share' || marketKey === 'HK-Share') {
       fetchTasks.push((async () => {
         const start = Date.now();
         try {
-          const axios = (await import('axios')).default;
-          const sinaUrl = 'https://finance.sina.com.cn/rss/roll.xml';
-          const response = await axios.get(sinaUrl, {
-            headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' },
-            timeout: 3000,
-            responseType: 'arraybuffer'
+          const lid = marketKey === 'HK-Share' ? '2517' : '2516';
+          const sinaUrl = `https://feed.mix.sina.com.cn/api/roll/get?pageid=153&lid=${lid}&num=10&page=1`;
+          const res = await fetch(sinaUrl, {
+            headers: { 'Referer': 'https://finance.sina.com.cn' },
+            signal: AbortSignal.timeout(4000)
           });
-          
-          const text = new TextDecoder('gbk').decode(response.data);
-          const itemRegex = /<item>[\s\S]*?<title>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?<\/title>[\s\S]*?<link>(.*?)<\/link>[\s\S]*?<pubDate>(.*?)<\/pubDate>[\s\S]*?<\/item>/g;
-          let match;
-          const items = [];
-          while ((match = itemRegex.exec(text)) !== null && items.length < 8) {
-            const pubDate = new Date(match[3]);
-            items.push({
-              title: match[1].replace(/<!\[CDATA\[|\]\]>/g, '').trim(),
-              url: match[2].trim(),
-              time: pubDate.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' }),
-              timestamp: pubDate.getTime(),
-              source: 'Sina Finance'
-            });
-          }
-          logDebug('performance', { source: 'sina_rss', latency: Date.now() - start, count: items.length });
+          const json = await res.json();
+          const data = json?.result?.data || [];
+          const items = data.slice(0, 8).map((item: any) => ({
+            title: item.title,
+            url: item.url,
+            time: item.ctime ? new Date(item.ctime * 1000).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' }) : '',
+            timestamp: item.ctime ? item.ctime * 1000 : 0,
+            source: 'Sina Finance'
+          }));
+          logDebug('performance', { source: 'sina_news_api', latency: Date.now() - start, count: items.length });
           return items;
         } catch (e) {
-          logError(e, 'Sina News Fetch Failed');
+          logError(e, 'Sina News API Failed');
           return [];
         }
       })());

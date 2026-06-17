@@ -1,5 +1,7 @@
 import asyncio
+import json
 import os
+import time
 import yfinance as yf
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
@@ -19,10 +21,36 @@ else:
     ak = DummyAkShare()
 from ..utils.network import safe_ak_call
 
+class _CircuitBreaker:
+    """Simple circuit breaker: after N failures, skip source for cooldown_seconds."""
+    def __init__(self, max_failures: int = 2, cooldown_seconds: int = 300):
+        self._failures: Dict[str, int] = {}
+        self._open_until: Dict[str, float] = {}
+        self._max_failures = max_failures
+        self._cooldown = cooldown_seconds
+
+    def record_failure(self, source: str):
+        self._failures[source] = self._failures.get(source, 0) + 1
+        if self._failures[source] >= self._max_failures:
+            self._open_until[source] = time.time() + self._cooldown
+            print(f"[CircuitBreaker] {source} OPEN for {self._cooldown}s after {self._failures[source]} failures")
+
+    def record_success(self, source: str):
+        self._failures[source] = 0
+        self._open_until.pop(source, None)
+
+    def is_open(self, source: str) -> bool:
+        until = self._open_until.get(source, 0)
+        if until and time.time() < until:
+            return True
+        return False
+
+
 class MarketDataService:
     def __init__(self):
         self._cache = {}
         self._cache_ttl = 300 # 5 minutes
+        self._breaker = _CircuitBreaker(max_failures=2, cooldown_seconds=300)
         self.GLOBAL_INDEX_NAMES = {
             "^HSI": "恒生指数",
             "^HSTECH": "恒生科技指数",
@@ -202,76 +230,113 @@ class MarketDataService:
         results = []
         try:
             loop = asyncio.get_event_loop()
-            
+            import urllib.request
+
+            def _fetch_tencent_quote(sym: str) -> Optional[Dict]:
+                """Fetch a single A-Share quote from Tencent Finance (fast, no rate limit)."""
+                prefix = "sh" if sym.startswith(('6', '9')) else "sz"
+                url = f"http://qt.gtimg.cn/q={prefix}{sym}"
+                req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+                resp = urllib.request.urlopen(req, timeout=5)
+                text = resp.read().decode("gbk")
+                if "~" not in text:
+                    return None
+                parts = text.split("~")
+                if len(parts) < 45:
+                    return None
+                price = float(parts[3]) if parts[3] else 0
+                if price <= 0:
+                    return None
+                prev_close = float(parts[4]) if parts[4] else 0
+                change = float(parts[31]) if parts[31] else 0
+                change_pct = float(parts[32]) if parts[32] else 0
+                return {
+                    "symbol": sym,
+                    "name": parts[1] or a_share_names.get(sym) or self.GLOBAL_INDEX_NAMES.get(sym, sym),
+                    "price": price,
+                    "change": round(change, 4),
+                    "changePercent": round(change_pct, 2),
+                    "previousClose": prev_close,
+                    "open": float(parts[5]) if parts[5] else 0,
+                    "dayHigh": float(parts[33]) if parts[33] else 0,
+                    "dayLow": float(parts[34]) if parts[34] else 0,
+                    "volume": float(parts[36]) if parts[36] else 0,
+                    "marketCap": float(parts[44]) * 1e8 if parts[44] else None,
+                    "trailingPE": float(parts[39]) if parts[39] else None,
+                    "priceToBook": float(parts[46]) if parts[46] else None,
+                    "turnoverRate": float(parts[38]) if parts[38] else None,
+                    "currency": "CNY",
+                    "lastUpdated": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                }
+
             def fetch_single(ps):
-                try:
-                    ticker = yf.Ticker(ps)
-                    info = ticker.info
-                    
-                    price = info.get("currentPrice") or info.get("regularMarketPrice")
-                    prev_close = info.get("regularMarketPreviousClose")
-                    
-                    change = 0
-                    change_percent = 0
-                    if price and prev_close:
-                        change = price - prev_close
-                        change_percent = (change / prev_close) * 100
-                    
-                    orig_symbol = symbol_map[ps]
-                    cn_name = a_share_names.get(orig_symbol) or self.GLOBAL_INDEX_NAMES.get(orig_symbol)
-                    return {
-                        "symbol": orig_symbol,
-                        "name": cn_name or info.get("shortName") or info.get("longName") or orig_symbol,
-                        "price": price,
-                        "change": round(change, 4) if change else 0,
-                        "changePercent": round(change_percent, 2) if change_percent else 0,
-                        "previousClose": prev_close,
-                        "marketCap": info.get("marketCap"),
-                        "dividendYield": info.get("dividendYield"),
-                        "dividendRate": info.get("dividendRate"),
-                        "trailingPE": info.get("trailingPE"),
-                        "forwardPE": info.get("forwardPE"),
-                        "priceToBook": info.get("priceToBook"),
-                        "pegRatio": info.get("pegRatio"),
-                        "priceToSales": info.get("priceToSalesTrailing12Months"),
-                        "enterpriseToEbitda": info.get("enterpriseToEbitda"),
-                        "enterpriseValue": self._compute_ev_with_fx(info),
-                        "returnOnEquity": info.get("returnOnEquity"),
-                        "returnOnAssets": info.get("returnOnAssets"),
-                        "grossMargins": info.get("grossMargins"),
-                        "operatingMargins": info.get("operatingMargins"),
-                        "profitMargins": info.get("profitMargins"),
-                        "totalRevenue": info.get("totalRevenue"),
-                        "revenueGrowth": info.get("revenueGrowth"),
-                        "earningsGrowth": info.get("earningsGrowth"),
-                        "eps": info.get("trailingEps"),
-                        "freeCashflow": info.get("freeCashflow"),
-                        "operatingCashflow": info.get("operatingCashflow"),
-                        "debtToEquity": info.get("debtToEquity"),
-                        "currentRatio": info.get("currentRatio"),
-                        "quickRatio": info.get("quickRatio"),
-                        "payoutRatio": info.get("payoutRatio"),
-                        "heldPercentInsiders": info.get("heldPercentInsiders"),
-                        "heldPercentInstitutions": info.get("heldPercentInstitutions"),
-                        "currency": info.get("currency"),
-                        "marketState": info.get("marketState"),
-                        "volume": info.get("volume") or info.get("regularMarketVolume"),
-                        "averageVolume": info.get("averageVolume"),
-                        "lastUpdated": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    }
-                except Exception as e:
-                    print(f"Error fetching quote for {ps}: {e}")
-                    return {"symbol": symbol_map[ps], "error": str(e)}
+                orig = symbol_map[ps]
+                # A-Share: use Tencent (fast, reliable, no rate limit)
+                if ps.endswith(".SS") or ps.endswith(".SZ"):
+                    if not self._breaker.is_open("yfinance"):
+                        try:
+                            result = _fetch_tencent_quote(orig)
+                            if result:
+                                self._breaker.record_success("yfinance")
+                                return result
+                        except Exception as e:
+                            self._breaker.record_failure("yfinance")
+                            print(f"Tencent quote failed for {orig}: {e}")
+                    # Fallback to yfinance if Tencent fails and breaker is open
+                    try:
+                        ticker = yf.Ticker(ps)
+                        info = ticker.info
+                        price = info.get("currentPrice") or info.get("regularMarketPrice")
+                        prev_close = info.get("regularMarketPreviousClose")
+                        change = price - prev_close if price and prev_close else 0
+                        change_pct = (change / prev_close * 100) if prev_close else 0
+                        cn_name = a_share_names.get(orig) or self.GLOBAL_INDEX_NAMES.get(orig)
+                        return {
+                            "symbol": orig,
+                            "name": cn_name or info.get("shortName") or orig,
+                            "price": price,
+                            "change": round(change, 4) if change else 0,
+                            "changePercent": round(change_pct, 2) if change_pct else 0,
+                            "previousClose": prev_close,
+                            "currency": info.get("currency", "CNY"),
+                            "lastUpdated": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        }
+                    except Exception as e:
+                        self._breaker.record_failure("yfinance")
+                        print(f"Error fetching quote for {ps}: {e}")
+                        return {"symbol": orig, "error": str(e)}
+                else:
+                    # US/HK: use yfinance
+                    try:
+                        ticker = yf.Ticker(ps)
+                        info = ticker.info
+                        price = info.get("currentPrice") or info.get("regularMarketPrice")
+                        prev_close = info.get("regularMarketPreviousClose")
+                        change = price - prev_close if price and prev_close else 0
+                        change_pct = (change / prev_close * 100) if prev_close else 0
+                        cn_name = a_share_names.get(orig) or self.GLOBAL_INDEX_NAMES.get(orig)
+                        return {
+                            "symbol": orig,
+                            "name": cn_name or info.get("shortName") or info.get("longName") or orig,
+                            "price": price,
+                            "change": round(change, 4) if change else 0,
+                            "changePercent": round(change_pct, 2) if change_pct else 0,
+                            "previousClose": prev_close,
+                            "marketCap": info.get("marketCap"),
+                            "trailingPE": info.get("trailingPE"),
+                            "priceToBook": info.get("priceToBook"),
+                            "currency": info.get("currency"),
+                            "lastUpdated": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        }
+                    except Exception as e:
+                        print(f"Error fetching quote for {ps}: {e}")
+                        return {"symbol": orig, "error": str(e)}
 
             from concurrent.futures import ThreadPoolExecutor
-            # Run blocking fetches in a thread pool so 100 symbols take ~1-2 seconds
             with ThreadPoolExecutor(max_workers=30) as executor:
-                # Use executor.map to preserve order (though order doesn't strictly matter for API)
-                # But we have to await the executor to finish in the asyncio event loop
                 blocking_tasks = [loop.run_in_executor(executor, fetch_single, ps) for ps in processed_symbols]
                 results = await asyncio.gather(*blocking_tasks)
 
-                    
         except Exception as e:
             print(f"Batch fetch failed: {e}")
             
@@ -280,20 +345,25 @@ class MarketDataService:
     async def get_indices(self, market: str = "A-Share") -> List[Dict[str, Any]]:
         """
         Fetch major indices for a given market with specific source optimization.
+        Uses circuit breaker to skip known-failing sources (AkShare/yfinance).
         """
         try:
             loop = asyncio.get_event_loop()
             if market == "A-Share":
-                # For A-Shares, AkShare (EastMoney) is far more reliable than yfinance
-                try:
-                    df = await safe_ak_call(ak.stock_zh_index_spot_em)
-                except Exception as e:
-                    print(f"AkShare index fetch failed: {e}")
-                    df = None
+                # Try AkShare only if circuit breaker is closed
+                df = None
+                if not self._breaker.is_open("akshare_indices"):
+                    try:
+                        df = await safe_ak_call(ak.stock_zh_index_spot_em)
+                        self._breaker.record_success("akshare_indices")
+                    except Exception as e:
+                        print(f"AkShare index fetch failed: {e}")
+                        self._breaker.record_failure("akshare_indices")
+                        df = None
 
                 if not validate_ak_data(df, min_rows=1):
-                    # Fallback to yfinance if AkShare fails
-                    return await self.get_quotes(["000001.SS", "399001.SZ", "399006.SZ"])
+                    # Direct Tencent Finance fallback (fast, no rate limit)
+                    return await self._fetch_indices_tencent(["000001", "399001", "399006"])
                 
                 # Filter for core indices
                 targets = {
@@ -301,12 +371,11 @@ class MarketDataService:
                     "深证成指": "399001.SZ",
                     "创业板指": "399006.SZ",
                     "沪深300": "000300.SS",
-                    "中证500": "000905.SS", # Added CSI 500
+                    "中证500": "000905.SS",
                     "上证50": "000016.SS"
                 }
                 
                 results = []
-                # Use standard column mappings in case they vary
                 col_name = "名称" if "名称" in df.columns else "name"
                 col_price = "最新价" if "最新价" in df.columns else "last"
                 col_change = "涨跌额" if "涨跌额" in df.columns else "change"
@@ -318,11 +387,6 @@ class MarketDataService:
                         price = float(row.get(col_price) or 0)
                         change = float(row.get(col_change) or 0)
                         pct = float(row.get(col_pct) or 0)
-                        
-                        # In some AkShare versions, pct is already in % (e.g. 1.5), 
-                        # but we should ensure it's handled consistently.
-                        # Usually EM spot returns % values.
-                        
                         results.append({
                             "symbol": targets[name],
                             "name": name,
@@ -333,33 +397,68 @@ class MarketDataService:
                             "lastUpdated": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                         })
                 
-                # Sort according to targets order
                 sorted_results = []
-                target_symbols = list(targets.values())
-                for sym in target_symbols:
+                for sym in list(targets.values()):
                     match = next((r for r in results if r["symbol"] == sym), None)
                     if match:
                         sorted_results.append(match)
-                
-                # Ensure we also include HSI for context in A-Share view if missing
-                if not any(r["symbol"] == "^HSI" for r in sorted_results):
-                    hsi = await self.get_quotes(["^HSI"])
-                    if hsi and "error" not in hsi[0]:
-                        sorted_results.append(hsi[0])
-                        
                 return sorted_results
             else:
-                # For US and HK, yfinance is generally stable
                 symbols = {
                     "HK-Share": ["^HSI", "^HSTECH", "^HSCE", "^HSCCI"],
-                    "US-Share": ["^GSPC", "^IXIC", "^DJI", "^RUT", "^SOX"]
+                    "US-Share": ["^GSPC", "^IXIC", "^DJI"]
                 }.get(market, ["^GSPC"])
-                
-                return await self.get_quotes(symbols)
+                return await self._fetch_indices_tencent(symbols)
                 
         except Exception as e:
             print(f"Indices fetch failed for {market}: {e}")
             return []
+
+    async def _fetch_indices_tencent(self, symbols: List[str]) -> List[Dict[str, Any]]:
+        """Fetch index quotes from Tencent Finance API (fast, no rate limit)."""
+        import urllib.request
+        results = []
+        for sym in symbols:
+            # Determine prefix
+            if sym.startswith("^"):
+                prefix_map = {"^HSI": "hkHSI", "^HSTECH": "hkHSTECH", "^HSCE": "hkHSCEI", "^HSCCI": "hkHSCCI"}
+                qt = prefix_map.get(sym, f"hk{sym[1:]}")
+            elif sym.startswith("0") or sym.startswith("3"):
+                prefix = "sh" if sym.startswith("0") else "sz"
+                qt = f"{prefix}{sym}"
+            elif sym.startswith("6"):
+                qt = f"sh{sym}"
+            else:
+                qt = f"hk{sym}"
+
+            try:
+                url = f"http://qt.gtimg.cn/q={qt}"
+                req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+                resp = urllib.request.urlopen(req, timeout=5)
+                text = resp.read().decode("gbk")
+                if "~" not in text:
+                    continue
+                parts = text.split("~")
+                if len(parts) < 45:
+                    continue
+                name = parts[1]
+                price = float(parts[3]) if parts[3] else 0
+                prev_close = float(parts[4]) if parts[4] else 0
+                change = float(parts[31]) if parts[31] else 0
+                change_pct = float(parts[32]) if parts[32] else 0
+                if price > 0:
+                    results.append({
+                        "symbol": sym,
+                        "name": name,
+                        "price": price,
+                        "change": round(change, 4),
+                        "changePercent": round(change_pct, 2),
+                        "previousClose": prev_close,
+                        "lastUpdated": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    })
+            except Exception as e:
+                print(f"Tencent index fetch failed for {sym}: {e}")
+        return results
 
     async def get_history(self, symbol: str, period: str = "1mo", interval: str = "1d") -> List[Dict[str, Any]]:
         """
@@ -380,23 +479,34 @@ class MarketDataService:
         Fetch general market news.
         """
         try:
+            loop = asyncio.get_event_loop()
             if market in ["A-Share", "HK-Share"]:
-                loop = asyncio.get_event_loop()
                 symbol = "深证成指" if market == "A-Share" else "恒生指数"
-                df = await loop.run_in_executor(None, lambda: ak.stock_news_em(symbol=symbol))
+                # Direct EastMoney API call to bypass AkShare regex bug (\u3000)
+                import requests as _req
+                url = "https://search-api-web.eastmoney.com/search/jsonp"
+                inner_param = {
+                    "uid": "", "keyword": symbol,
+                    "type": ["cmsArticleWebOld"], "client": "web",
+                    "clientType": "web", "clientVersion": "curr",
+                    "param": {"cmsArticleWebOld": {"searchScope": "default", "sort": "default", "pageIndex": 1, "pageSize": 10, "preTag": "", "postTag": ""}}
+                }
+                params = {"cb": "cb", "param": json.dumps(inner_param, ensure_ascii=False), "_": str(int(time.time()*1000))}
+                headers = {"user-agent": "Mozilla/5.0", "referer": "https://so.eastmoney.com/"}
+                r = await loop.run_in_executor(None, lambda: _req.get(url, params=params, headers=headers, timeout=8))
+                text = r.text.strip("cb(")[:-1]
+                data = json.loads(text)
+                articles = data.get("result", {}).get("cmsArticleWebOld", [])
                 items = []
-                if df is not None and not df.empty:
-                    for _, row in df.head(8).iterrows():
-                        items.append({
-                            "title": row.get("新闻标题"),
-                            "url": row.get("新闻链接"),
-                            "time": row.get("发布时间"),
-                            "source": "东方财富"
-                        })
+                for a in articles[:8]:
+                    items.append({
+                        "title": a.get("title", "").replace("<em>", "").replace("</em>", ""),
+                        "url": f"http://finance.eastmoney.com/a/{a.get('code','')}.html",
+                        "time": a.get("date", ""),
+                        "source": a.get("mediaName", "东方财富")
+                    })
                 return items
             else:
-                # Use yfinance for others
-                loop = asyncio.get_event_loop()
                 search = await loop.run_in_executor(None, lambda: yf.search("SPY", newsCount=8))
                 items = []
                 for n in search.get("news", []):

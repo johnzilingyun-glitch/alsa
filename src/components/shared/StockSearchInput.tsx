@@ -75,7 +75,7 @@ export function StockSearchInput({
       }
     };
 
-    const timeout = setTimeout(fetchSuggestions, 300);
+    const timeout = setTimeout(fetchSuggestions, 150);
     return () => {
       clearTimeout(timeout);
       controller.abort();

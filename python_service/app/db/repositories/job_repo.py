@@ -6,10 +6,11 @@ class JobRepository:
     def __init__(self, session_factory: Callable[[], Session]):
         self.session_factory = session_factory
 
-    def create(self, job_id: str, symbol: str, market: str, level: str = "standard", model: Optional[str] = None, snapshot_id: Optional[str] = None) -> AnalysisJob:
+    def create(self, job_id: str, symbol: str, market: str, level: str = "standard", model: Optional[str] = None, snapshot_id: Optional[str] = None, user_id: str = "default_user") -> AnalysisJob:
         with self.session_factory() as session:
             job = AnalysisJob(
                 job_id=job_id, 
+                user_id=user_id,
                 symbol=symbol, 
                 market=market, 
                 analysis_level=level,
@@ -108,3 +109,32 @@ class JobRepository:
             statement = select(AnalysisJob).where(AnalysisJob.status.in_(["queued", "running"])).limit(1)
             result = session.exec(statement).first()
             return result is not None
+
+    def has_running_for_user(self, user_id: str) -> bool:
+        """Check if a specific user already has a running or queued job.
+           Jobs older than 60s that are still 'running' are considered stale
+           (e.g., stuck waiting for API key) and don't block new submissions."""
+        from datetime import datetime, timedelta
+        stale_cutoff = datetime.now() - timedelta(seconds=60)
+        with self.session_factory() as session:
+            statement = select(AnalysisJob).where(
+                AnalysisJob.user_id == user_id,
+                AnalysisJob.status.in_(["queued", "running"]),
+                AnalysisJob.created_at >= stale_cutoff  # Only recent jobs block
+            ).limit(1)
+            result = session.exec(statement).first()
+            if result:
+                return True
+            # Also check for any very old running jobs and auto-fail them
+            old_statement = select(AnalysisJob).where(
+                AnalysisJob.user_id == user_id,
+                AnalysisJob.status.in_(["queued", "running"]),
+                AnalysisJob.created_at < stale_cutoff
+            )
+            for old_job in session.exec(old_statement).all():
+                old_job.status = "failed"
+                old_job.error_message = "任务超时（等待 API Key 超过 60 秒），请重新提交。"
+                session.add(old_job)
+            if session.dirty:
+                session.commit()
+            return False

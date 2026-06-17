@@ -1,4 +1,6 @@
-﻿export type ServerEnv = Partial<Record<string, string | undefined>>;
+import crypto from 'crypto';
+
+export type ServerEnv = Partial<Record<string, string | undefined>>;
 
 function parseBoolean(value: string | undefined): boolean {
   return value === 'true' || value === '1' || value === 'yes';
@@ -41,5 +43,9 @@ export function validateApiToken(authHeader: string | undefined, env: ServerEnv 
   const token = authHeader.startsWith('Bearer ')
     ? authHeader.slice('Bearer '.length)
     : authHeader;
-  return token === expected;
+  if (!token || !expected) return false;
+  const a = Buffer.from(token);
+  const b = Buffer.from(expected);
+  if (a.length !== b.length) return false;
+  return crypto.timingSafeEqual(a, b);
 }

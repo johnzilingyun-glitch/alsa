@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { ArrowLeft, RefreshCw, TrendingUp, DollarSign, BarChart3, Wallet, X, Search, CandlestickChart, Link2 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, LineChart, Line } from 'recharts';
-import { createChart, ColorType, CrosshairMode, CandlestickSeries, HistogramSeries } from 'lightweight-charts';
+import { createChart, ColorType, CrosshairMode, CandlestickSeries, HistogramSeries, LineSeries } from 'lightweight-charts';
 import { useTranslation } from 'react-i18next';
 import { StockSearchInput } from '../shared/StockSearchInput';
 import { useUIStore } from '../../stores/useUIStore';
@@ -39,7 +39,7 @@ export function IBKRDashboard() {
   const [dailyLoading, setDailyLoading] = useState(false);
   const [sortField, setSortField] = useState<'unrealizedPnl' | 'pnlPercent' | 'mktValue'>('unrealizedPnl');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
-  const [chartSymbol, setChartSymbol] = useState('AAPL');
+  const [chartSymbol, setChartSymbol] = useState('');
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -307,6 +307,7 @@ function LocalChartTab({ symbol, onSymbolChange }: { symbol: string; onSymbolCha
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<any>(null);
   const chartDataRef = useRef<any[]>([]);
+  const maDataRef = useRef<{ma5: any[], ma20: any[], ma100: any[]}>({ma5: [], ma20: [], ma100: []});
   const legendRef = useRef<HTMLDivElement>(null);
   const [loading, setLoading] = useState(false);
   const [chartError, setChartError] = useState<string | null>(null);
@@ -368,7 +369,11 @@ function LocalChartTab({ symbol, onSymbolChange }: { symbol: string; onSymbolCha
       },
     });
 
-    const formatLegendText = (data: any, prevData?: any) => {
+    const ma5Series = chart.addSeries(LineSeries, { color: '#f59e0b', lineWidth: 1.5, crosshairMarkerVisible: false });
+    const ma20Series = chart.addSeries(LineSeries, { color: '#8b5cf6', lineWidth: 1.5, crosshairMarkerVisible: false });
+    const ma100Series = chart.addSeries(LineSeries, { color: '#ec4899', lineWidth: 1.5, crosshairMarkerVisible: false });
+
+    const formatLegendText = (data: any, prevData?: any, maData?: {ma5: any, ma20: any, ma100: any}) => {
       const open = data.open.toFixed(2);
       const high = data.high.toFixed(2);
       const low = data.low.toFixed(2);
@@ -387,14 +392,20 @@ function LocalChartTab({ symbol, onSymbolChange }: { symbol: string; onSymbolCha
       colorClass = change > 0 ? 'text-red-500' : (change < 0 ? 'text-emerald-500' : 'text-zinc-600');
       changeText = `<span class="${colorClass} ml-2 font-semibold">${sign}${percent.toFixed(2)}%</span>`;
 
+      let maHtml = '';
+      if (maData?.ma5) maHtml += `<span class="text-[#f59e0b] ml-2">MA5: ${maData.ma5.value.toFixed(2)}</span>`;
+      if (maData?.ma20) maHtml += `<span class="text-[#8b5cf6] ml-2">MA20: ${maData.ma20.value.toFixed(2)}</span>`;
+      if (maData?.ma100) maHtml += `<span class="text-[#ec4899] ml-2">MA100: ${maData.ma100.value.toFixed(2)}</span>`;
+
       return `
-        <div class="flex items-center gap-3 bg-white/80 backdrop-blur-md px-3 py-1.5 rounded-lg border border-zinc-200 shadow-sm text-xs md:text-[13px] font-medium tracking-wide">
+        <div class="flex items-center gap-3 bg-white/80 backdrop-blur-md px-3 py-1.5 rounded-lg border border-zinc-200 shadow-sm text-[11px] md:text-[13px] font-medium tracking-wide flex-wrap">
           <span><span class="text-zinc-400 mr-1">高</span><span class="${colorClass}">${high}</span></span>
           <span><span class="text-zinc-400 mr-1">开</span><span class="${colorClass}">${open}</span></span>
           <span><span class="text-zinc-400 mr-1">低</span><span class="${colorClass}">${low}</span></span>
           <span><span class="text-zinc-400 mr-1">收</span><span class="${colorClass} font-bold">${close}</span></span>
           <span><span class="text-zinc-400 mr-1">当前价</span><span class="${colorClass}">${close}</span></span>
           ${changeText}
+          ${maHtml}
         </div>
       `;
     };
@@ -412,7 +423,12 @@ function LocalChartTab({ symbol, onSymbolChange }: { symbol: string; onSymbolCha
            if (idx > 0) prevData = candleList[idx - 1];
         }
         
-        legendRef.current.innerHTML = formatLegendText(data, prevData);
+        const maData = {
+          ma5: param.seriesData.get(ma5Series),
+          ma20: param.seriesData.get(ma20Series),
+          ma100: param.seriesData.get(ma100Series)
+        };
+        legendRef.current.innerHTML = formatLegendText(data, prevData, maData);
         legendRef.current.style.opacity = '1';
       } else {
         // When mouse leaves, show the latest candle
@@ -420,7 +436,13 @@ function LocalChartTab({ symbol, onSymbolChange }: { symbol: string; onSymbolCha
         if (candleList && candleList.length > 0) {
           const latest = candleList[candleList.length - 1];
           const prev = candleList.length > 1 ? candleList[candleList.length - 2] : null;
-          legendRef.current.innerHTML = formatLegendText(latest, prev);
+          const { ma5, ma20, ma100 } = maDataRef.current;
+          const latestMaData = {
+            ma5: ma5 && ma5.length > 0 ? ma5[ma5.length - 1] : undefined,
+            ma20: ma20 && ma20.length > 0 ? ma20[ma20.length - 1] : undefined,
+            ma100: ma100 && ma100.length > 0 ? ma100[ma100.length - 1] : undefined
+          };
+          legendRef.current.innerHTML = formatLegendText(latest, prev, latestMaData);
           legendRef.current.style.opacity = '1';
         } else {
           legendRef.current.style.opacity = '0';
@@ -428,7 +450,7 @@ function LocalChartTab({ symbol, onSymbolChange }: { symbol: string; onSymbolCha
       }
     });
 
-    chartRef.current = { chart, candleSeries, volumeSeries, formatLegendText };
+    chartRef.current = { chart, candleSeries, volumeSeries, ma5Series, ma20Series, ma100Series, formatLegendText };
 
     return () => {
       console.log("[LightweightCharts] Disposing chart...");
@@ -531,7 +553,7 @@ function LocalChartTab({ symbol, onSymbolChange }: { symbol: string; onSymbolCha
           }
           console.log(`[LightweightCharts] Applying ${chartData.length} bars to chart...`);
           if (chartRef.current) {
-            const { candleSeries, volumeSeries } = chartRef.current;
+            const { candleSeries, volumeSeries, ma5Series, ma20Series, ma100Series } = chartRef.current;
             
             const formatTime = (d: any) => {
                if (currentInterval.includes('m') || currentInterval.includes('h')) {
@@ -573,6 +595,30 @@ function LocalChartTab({ symbol, onSymbolChange }: { symbol: string; onSymbolCha
                 chartDataRef.current = candleData;
                 candleSeries.setData(candleData);
                 volumeSeries.setData(volumeData);
+                
+                // Calculate MA
+                const calcMA = (data: any[], period: number) => {
+                  const result = [];
+                  for (let i = 0; i < data.length; i++) {
+                    if (i < period - 1) continue;
+                    let sum = 0;
+                    for (let j = 0; j < period; j++) {
+                      sum += data[i - j].close;
+                    }
+                    result.push({ time: data[i].time, value: sum / period });
+                  }
+                  return result;
+                };
+                const ma5Data = calcMA(candleData, 5);
+                const ma20Data = calcMA(candleData, 20);
+                const ma100Data = calcMA(candleData, 100);
+                
+                maDataRef.current = { ma5: ma5Data, ma20: ma20Data, ma100: ma100Data };
+
+                ma5Series.setData(ma5Data);
+                ma20Series.setData(ma20Data);
+                ma100Series.setData(ma100Data);
+
                 if (isInitial) {
                   chartRef.current.chart.timeScale().fitContent();
                 }
@@ -695,6 +741,11 @@ function LocalChartTab({ symbol, onSymbolChange }: { symbol: string; onSymbolCha
         {chartError && (
           <div className="absolute inset-0 bg-white/80 flex items-center justify-center z-20 text-red-500 font-medium">
             {chartError}
+          </div>
+        )}
+        {!symbol && !loading && (
+          <div className="absolute inset-0 bg-white/80 flex items-center justify-center z-20 text-zinc-500 font-medium">
+            <Search size={20} className="mr-2 text-zinc-400" /> 请在上方输入框搜索股票代码以查看行情
           </div>
         )}
       </div>

@@ -21,7 +21,7 @@ const PYTHON_SERVICE_URL = process.env.PYTHON_SERVICE_URL || 'http://127.0.0.1:8
 // GET /reports/download?file=xxx_report.html  下载/alsa/reports下的HTML/PDF
 router.get('/reports/download', async (req, res) => {
   const file = req.query.file as string;
-  if (!file || !/^[\w.-]+\\.(html|pdf)$/i.test(file)) {
+  if (!file || !/^[\w.-]+\.(html|pdf)$/i.test(file)) {
     return res.status(400).json({ error: 'Invalid file name.' });
   }
   const reportsDir = path.resolve(__dirname, '../../reports');
@@ -97,12 +97,19 @@ router.post('/analysis/jobs', async (req, res) => {
       body: JSON.stringify({ symbol, market, analysis_level: analysis_level || 'standard', requested_model: config?.model || model || null, config: safeConfig })
     });
 
-    if (!fastApiRes.ok) {
-      const errorText = await fastApiRes.text();
-      throw new Error(`FastAPI returned ${fastApiRes.status}: ${errorText}`);
+    const fastApiBody = await fastApiRes.text();
+    let fastApiData: any;
+    try {
+      fastApiData = JSON.parse(fastApiBody);
+    } catch {
+      throw new Error(`FastAPI returned non-JSON response (${fastApiRes.status}): ${fastApiBody}`);
     }
 
-    const fastApiData = await fastApiRes.json();
+    // Check Python API's own success field first
+    if (!fastApiData.success) {
+      const pyError = fastApiData.error?.message || fastApiData.error?.code || 'Unknown error';
+      throw new Error(pyError);
+    }
 
     // Handle nested success_response format: { success: true, data: { job_id: '...' } }
     const jobId = fastApiData.data?.job_id;

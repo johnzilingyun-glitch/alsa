@@ -90,38 +90,45 @@ class SignalMonitorService:
         """Evaluate whether the current price triggers any signal for this alert."""
         triggered_signals = []
 
+        is_short = alert.target_price < alert.entry_price if alert.target_price and alert.entry_price else False
+
         # Check stop loss (highest priority)
-        if current_price <= alert.stop_loss:
-            triggered_signals.append({
-                "type": "stop_loss",
-                "emoji": "🚨",
-                "title": "止损触发",
-                "detail": f"当前价 {current_price:.2f} 已跌破止损位 {alert.stop_loss:.2f}",
-                "action": "建议立即执行止损清仓",
-                "urgency": "CRITICAL"
-            })
+        if alert.stop_loss and alert.stop_loss > 0:
+            stop_loss_hit = (current_price >= alert.stop_loss) if is_short else (current_price <= alert.stop_loss)
+            if stop_loss_hit:
+                triggered_signals.append({
+                    "type": "stop_loss",
+                    "emoji": "🚨",
+                    "title": "止损触发",
+                    "detail": f"当前价 {current_price:.2f} 已{'涨' if is_short else '跌'}破止损位 {alert.stop_loss:.2f}",
+                    "action": "建议立即执行止损清仓",
+                    "urgency": "CRITICAL"
+                })
 
         # Check target reached
-        if current_price >= alert.target_price:
-            triggered_signals.append({
-                "type": "target",
-                "emoji": "🎯",
-                "title": "目标价达成",
-                "detail": f"当前价 {current_price:.2f} 已达目标价 {alert.target_price:.2f}",
-                "action": "建议分批止盈退出",
-                "urgency": "HIGH"
-            })
+        if alert.target_price and alert.target_price > 0:
+            target_hit = (current_price <= alert.target_price) if is_short else (current_price >= alert.target_price)
+            if target_hit:
+                triggered_signals.append({
+                    "type": "target",
+                    "emoji": "🎯",
+                    "title": "目标价达成",
+                    "detail": f"当前价 {current_price:.2f} 已达目标价 {alert.target_price:.2f}",
+                    "action": "建议分批止盈退出",
+                    "urgency": "HIGH"
+                })
 
         # Check entry zone (price enters the buy zone)
-        if alert.entry_price * 0.99 <= current_price <= alert.entry_price * 1.01:
-            triggered_signals.append({
-                "type": "entry",
-                "emoji": "📍",
-                "title": "入场信号",
-                "detail": f"当前价 {current_price:.2f} 进入买点区间 (锚定 {alert.entry_price:.2f})",
-                "action": "可考虑按计划分批建仓",
-                "urgency": "MEDIUM"
-            })
+        if alert.entry_price and alert.entry_price > 0:
+            if alert.entry_price * 0.99 <= current_price <= alert.entry_price * 1.01:
+                triggered_signals.append({
+                    "type": "entry",
+                    "emoji": "📍",
+                    "title": "入场信号",
+                    "detail": f"当前价 {current_price:.2f} 进入买点区间 (锚定 {alert.entry_price:.2f})",
+                    "action": "可考虑按计划分批建仓",
+                    "urgency": "MEDIUM"
+                })
 
         # Check step-in plan triggers (分步建仓)
         if alert.step_in_plan:
@@ -178,9 +185,14 @@ class SignalMonitorService:
             signal_elements.append({"tag": "hr"})
 
         # Price context
-        change_from_entry = ((price - alert.entry_price) / alert.entry_price * 100)
+        is_short = alert.target_price < alert.entry_price if alert.target_price and alert.entry_price else False
+        if alert.entry_price and alert.entry_price > 0:
+            change_from_entry = ((alert.entry_price - price) if is_short else (price - alert.entry_price)) / alert.entry_price * 100
+        else:
+            change_from_entry = 0.0
+
         risk_reward_info = (
-            f"**入场价**: {alert.entry_price:.2f} | **目标价**: {alert.target_price:.2f} | **止损价**: {alert.stop_loss:.2f}\n"
+            f"**入场价**: {alert.entry_price:.2f} | **目标价**: {alert.target_price:.2f} | **止损价**: {alert.stop_loss:.2f} {'(空头)' if is_short else '(多头)'}\n"
             f"**当前偏离入场价**: {change_from_entry:+.2f}%"
         )
 
@@ -235,7 +247,9 @@ class SignalMonitorService:
             headers = {"Content-Type": "application/json"}
 
             # Hermes HMAC Forwarding Support
-            webhook_secret = os.getenv("HERMES_WEBHOOK_SECRET", "jR9oR2-DrTyHKLnwXB2mIPFK8mLlozbOL1IcsiLsbs0")
+            webhook_secret = os.getenv("HERMES_WEBHOOK_SECRET")
+            if not webhook_secret:
+                print("WARNING: HERMES_WEBHOOK_SECRET not set, webhook signing disabled")
             if webhook_secret:
                 sig = "sha256=" + hmac.new(
                     webhook_secret.encode(), payload_bytes, hashlib.sha256

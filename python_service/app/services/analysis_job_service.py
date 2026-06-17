@@ -21,9 +21,11 @@ class AnalysisJobService:
         self._api_keys: Dict[str, str] = {}  # {provider: key} — global cache
         self._key_timestamps: Dict[str, float] = {}  # {provider: last_used_timestamp}
         self._KEY_TTL: int = 1800  # 30 minutes inactivity timeout before auto-clear
-        self._concurrency_limit = asyncio.Semaphore(1)
+        # Allow multiple concurrent analysis jobs (default 5). The LLM gateway has its own rate limiter.
+        import os
+        self._concurrency_limit = asyncio.Semaphore(int(os.getenv("MAX_CONCURRENT_JOBS", "5")))
 
-    async def start_job(self, symbol: str, market: str, level: str = "standard", model: Optional[str] = None, config: Optional[Dict[str, Any]] = None) -> str:
+    async def start_job(self, symbol: str, market: str, level: str = "standard", model: Optional[str] = None, config: Optional[Dict[str, Any]] = None, user_id: str = "default_user") -> str:
         # Deduplicate: if same symbol+market already has a running/queued job within 60s, reuse it
         existing = self.job_repo.find_recent_running(symbol, market, within_seconds=60)
         if existing:
@@ -31,7 +33,7 @@ class AnalysisJobService:
             return existing
         
         job_id = f"job_{uuid.uuid4().hex[:8]}"
-        self.job_repo.create(job_id, symbol, market, level=level, model=model)
+        self.job_repo.create(job_id, symbol, market, level=level, model=model, user_id=user_id)
         
         if os.getenv("ALSA_DISABLE_BACKGROUND_JOBS") == "true" or os.getenv("PYTEST_CURRENT_TEST"):
             return job_id

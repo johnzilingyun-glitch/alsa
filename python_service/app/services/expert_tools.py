@@ -630,7 +630,19 @@ def get_openai_tools(role: str = None) -> list:
 
     allowed_tools = ROLE_TOOLS_MAP.get(role) if role else None
     tools = []
-    for tool_def in TOOL_DEFINITIONS:
+    
+    from .tools import tool_registry
+    all_defs = TOOL_DEFINITIONS + tool_registry.get_all_schemas()
+    
+    # Deduplicate by name
+    seen_names = set()
+    unique_defs = []
+    for td in all_defs:
+        if td["name"] not in seen_names:
+            seen_names.add(td["name"])
+            unique_defs.append(td)
+
+    for tool_def in unique_defs:
         # Removed allowed_tools filtering to allow LLM to use any tool when data is missing
         properties = {}
         required = []
@@ -776,6 +788,7 @@ class ToolExecutor:
         All outputs pass through TokenGuard for defensive size enforcement."""
         from .tools_config import is_tool_enabled
         from .token_guard import token_guard
+        from .tools import tool_registry
 
         tool_name = tool_call.get("tool", "")
         query = tool_call.get("query", "")
@@ -785,6 +798,19 @@ class ToolExecutor:
         if not is_tool_enabled(tool_name):
             return f"<tool_observation>\nTool '{tool_name}' is currently disabled. Check tools_config.yaml to re-enable it.\n</tool_observation>"
 
+        # --- 1. Dynamic Tool Registry Lookup ---
+        func = tool_registry.get_tool(tool_name)
+        if func:
+            try:
+                if tool_registry.is_computation_tool(tool_name):
+                    raw = func(tool_call)
+                else:
+                    raw = await func(tool_call)
+                return token_guard.enforce(tool_name, raw)
+            except Exception as e:
+                return f"<tool_observation>\nError executing {tool_name}: {str(e)}\n</tool_observation>"
+
+        # --- 2. Fallback to Legacy Internal Implementations ---
         # Computation tools (deterministic, no async needed)
         if tool_name in COMPUTATION_TOOL_NAMES:
             return self._exec_computation(tool_name, tool_call)
@@ -1056,8 +1082,6 @@ class ToolExecutor:
             # FALLBACK to SearchService
             from .search_service import search_service
             search_q = query
-            if "隆众" not in search_q and "百川" not in search_q:
-                search_q += " 隆众 百川 生意社"
             try:
                 results = await search_service.search(search_q, max_results=8)
                 if results:

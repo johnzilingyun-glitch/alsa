@@ -110,10 +110,9 @@ async function startServer() {
   app.use('/api/v1', stockRoutes);
   app.use('/api/v1', llmRoutes);
 
-  // Proxy to FastAPI (Port 8001) for paths not handled by Node
-  // We use a non-stripping proxy to ensure /api prefix is preserved for FastAPI
+  // Proxy to FastAPI (Port 8001 or PYTHON_BACKEND_URL) for paths not handled by Node
   app.use(createProxyMiddleware({ 
-    target: 'http://127.0.0.1:8001', 
+    target: process.env.PYTHON_BACKEND_URL || 'http://127.0.0.1:8001', 
     changeOrigin: true,
     pathFilter: (path) => {
       const targets = [

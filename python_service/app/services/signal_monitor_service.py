@@ -3,6 +3,8 @@ Signal Monitor Service — Background loop that checks active alerts against rea
 and sends Feishu notifications when signals are triggered.
 """
 import os
+import logging
+logger = logging.getLogger(__name__)
 import json
 import asyncio
 from datetime import datetime
@@ -55,7 +57,7 @@ class SignalMonitorService:
                     continue
                 await self._evaluate_alert(alert, price)
         except Exception as e:
-            print(f"[SignalMonitor] A-Share batch check error: {e}")
+            logger.error(f"[SignalMonitor] A-Share batch check error: {e}")
 
     async def _check_hk_batch(self, alerts: List[SearchAlert]):
         """Check HK-Share alerts using yfinance."""
@@ -89,7 +91,7 @@ class SignalMonitorService:
                 except Exception:
                     continue
         except Exception as e:
-            print(f"[SignalMonitor] HK batch check error: {e}")
+            logger.error(f"[SignalMonitor] HK batch check error: {e}")
 
     async def _check_us_batch(self, alerts: List[SearchAlert]):
         """Check US-Share alerts using yfinance."""
@@ -115,7 +117,7 @@ class SignalMonitorService:
                 except Exception:
                     continue
         except Exception as e:
-            print(f"[SignalMonitor] US batch check error: {e}")
+            logger.error(f"[SignalMonitor] US batch check error: {e}")
 
     async def _evaluate_alert(self, alert: SearchAlert, current_price: float):
         """Evaluate whether the current price triggers any signal for this alert."""
@@ -196,7 +198,7 @@ class SignalMonitorService:
         """Send Feishu notification for triggered signals."""
         webhook_url = alert.feishu_webhook_url or os.getenv("FEISHU_WEBHOOK_URL")
         if not webhook_url:
-            print(f"[SignalMonitor] No webhook URL for alert {alert.alert_id} ({alert.symbol})")
+            logger.info(f"[SignalMonitor] No webhook URL for alert {alert.alert_id} ({alert.symbol})")
             return
 
         # Build Feishu interactive card
@@ -280,7 +282,7 @@ class SignalMonitorService:
             # Hermes HMAC Forwarding Support
             webhook_secret = os.getenv("HERMES_WEBHOOK_SECRET")
             if not webhook_secret:
-                print("WARNING: HERMES_WEBHOOK_SECRET not set, webhook signing disabled")
+                logger.warning("WARNING: HERMES_WEBHOOK_SECRET not set, webhook signing disabled")
             if webhook_secret:
                 sig = "sha256=" + hmac.new(
                     webhook_secret.encode(), payload_bytes, hashlib.sha256
@@ -294,23 +296,23 @@ class SignalMonitorService:
                     # Hermes might return {"status": "delivered"} instead of Feishu's {"code": 0}
                     if data.get("code") == 0 or data.get("status") == "delivered":
                         self.alert_repo.increment_notify_count(alert.alert_id)
-                        print(f"[SignalMonitor] ✓ Feishu notification sent for {alert.symbol}: {[s['type'] for s in signals]}")
+                        logger.info(f"[SignalMonitor] ✓ Feishu notification sent for {alert.symbol}: {[s['type'] for s in signals]}")
                     else:
-                        print(f"[SignalMonitor] Feishu/Hermes API error: {data.get('msg') or data}")
+                        logger.error(f"[SignalMonitor] Feishu/Hermes API error: {data.get('msg') or data}")
                 else:
-                    print(f"[SignalMonitor] Feishu/Hermes HTTP error: {resp.status_code} - {resp.text}")
+                    logger.error(f"[SignalMonitor] Feishu/Hermes HTTP error: {resp.status_code} - {resp.text}")
         except Exception as e:
-            print(f"[SignalMonitor] Notification send failed: {e}")
+            logger.info(f"[SignalMonitor] Notification send failed: {e}")
 
     async def monitor_loop(self, interval_seconds: int = 60):
         """Main monitoring loop — runs continuously."""
         self._running = True
-        print(f"[SignalMonitor] Started. Checking every {interval_seconds}s.")
+        logger.info(f"[SignalMonitor] Started. Checking every {interval_seconds}s.")
         while self._running:
             try:
                 await self.check_all_alerts()
             except Exception as e:
-                print(f"[SignalMonitor] Loop error: {e}")
+                logger.error(f"[SignalMonitor] Loop error: {e}")
             await asyncio.sleep(interval_seconds)
 
     def stop(self):

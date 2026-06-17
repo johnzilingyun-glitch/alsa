@@ -159,6 +159,27 @@ async def health_check():
         "service": "ALSA Institutional Backend"
     }
 
+@app.get("/api/health/ready")
+async def readiness_check():
+    # Simple checks
+    db_ok = True
+    try:
+        from sqlalchemy import text
+        with session_factory() as session:
+            session.execute(text("SELECT 1"))
+    except Exception as e:
+        logger.error(f"Health check DB failed: {e}")
+        db_ok = False
+
+    checks = {
+        "database": db_ok,
+        "llm_provider": True, # Placeholder
+        "data_source": True,  # Placeholder
+    }
+    all_ok = all(checks.values())
+    return {"status": "ready" if all_ok else "degraded", "checks": checks}
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("python_service.main:app", host="127.0.0.1", port=8001, reload=True)

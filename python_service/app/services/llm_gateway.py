@@ -1,4 +1,6 @@
 import os
+import logging
+logger = logging.getLogger(__name__)
 import json
 import asyncio
 import time
@@ -80,7 +82,7 @@ class LLMGateway:
         # Check initially
         init_gemini_key = gemini_api_key or os.getenv("GEMINI_API_KEY")
         if not self.default_api_key and not init_gemini_key:
-            print("WARNING: Neither DEFAULT_LLM_API_KEY nor GEMINI_API_KEY found in LLMGateway.")
+            logger.warning("WARNING: Neither DEFAULT_LLM_API_KEY nor GEMINI_API_KEY found in LLMGateway.")
 
     def get_gemini_api_key(self, api_key=None):
         if api_key:
@@ -111,7 +113,7 @@ class LLMGateway:
                     self._gemini_client = genai.Client(api_key=target_key)
                     self._last_gemini_key = target_key
                 except Exception as e:
-                    print(f"Failed to initialize Gemini Client: {e}")
+                    logger.info(f"Failed to initialize Gemini Client: {e}")
                     return None
             else:
                 return None
@@ -160,12 +162,12 @@ class LLMGateway:
                 try:
                     with open(cache_file, "r") as f:
                         cached_data = json.load(f)
-                    print(f"✅ Cache HIT for {cache_key}! Returning cached content.")
+                    logger.info(f"✅ Cache HIT for {cache_key}! Returning cached content.")
                     if on_chunk:
                         on_chunk(len(cached_data["content"]))
                     return cached_data["content"]
                 except Exception as e:
-                    print(f"Failed to read cache {cache_file}: {e}")
+                    logger.info(f"Failed to read cache {cache_file}: {e}")
 
         # Resolve model: use default from env if not specified
         if not model:
@@ -208,9 +210,9 @@ class LLMGateway:
                 except Exception as e:
                     error_msg = str(e)
                     if any(code in error_msg for code in ["429", "quota", "503", "524", "500", "502", "timeout", "connection", "RateLimit"]):
-                        print(f"[{provider_name}] failed ({error_msg}), falling back to next provider...")
+                        logger.error(f"[{provider_name}] failed ({error_msg}), falling back to next provider...")
                         continue
-                    print(f"[{provider_name}] non-retryable error ({error_msg}), falling back...")
+                    logger.error(f"[{provider_name}] non-retryable error ({error_msg}), falling back...")
                     continue
             
             if not result_text:
@@ -221,23 +223,23 @@ class LLMGateway:
             # Quality gate: detect truncated responses
             if result_text and len(result_text) < 150:
                 if quality_attempt < max_quality_retries:
-                    print(f"WARNING: Very short response ({len(result_text)} chars) — quality retry {quality_attempt+1}/{max_quality_retries}")
+                    logger.warning(f"WARNING: Very short response ({len(result_text)} chars) — quality retry {quality_attempt+1}/{max_quality_retries}")
                     continue
                 else:
-                    print(f"WARNING: Very short response ({len(result_text)} chars) after {max_quality_retries} retries — using anyway")
+                    logger.warning(f"WARNING: Very short response ({len(result_text)} chars) after {max_quality_retries} retries — using anyway")
 
             # Quality gate: detect off-topic garbage
             garbage_keywords_str = os.getenv("LLM_GARBAGE_KEYWORDS", "h2020,erasmus,empowering women,stem education")
             garbage_keywords = [k.strip().lower() for k in garbage_keywords_str.split(",") if k.strip()]
             if result_text and any(keyword in result_text[:200].lower() for keyword in garbage_keywords):
                 if quality_attempt < max_quality_retries:
-                    print(f"WARNING: Off-topic response — quality retry {quality_attempt+1}/{max_quality_retries}")
+                    logger.warning(f"WARNING: Off-topic response — quality retry {quality_attempt+1}/{max_quality_retries}")
                     continue
                 else:
-                    print(f"WARNING: Off-topic response persists after retries — using anyway")
+                    logger.warning(f"WARNING: Off-topic response persists after retries — using anyway")
 
             if result_text and len(result_text) < 200:
-                print(f"WARNING: Short response ({len(result_text)} chars) — may be truncated")
+                logger.warning(f"WARNING: Short response ({len(result_text)} chars) — may be truncated")
 
             if cache_key and result_text:
                 try:
@@ -245,7 +247,7 @@ class LLMGateway:
                     with open(cache_file, "w") as f:
                         json.dump({"content": result_text}, f)
                 except Exception as e:
-                    print(f"Failed to write cache {cache_file}: {e}")
+                    logger.info(f"Failed to write cache {cache_file}: {e}")
 
             return result_text
 
@@ -312,7 +314,7 @@ class LLMGateway:
                 return result
             except Exception as e:
                 error_msg = str(e)
-                print(f"Default LLM Error ({model}) on attempt {attempt + 1}/{max_retries}: {error_msg}")
+                logger.error(f"Default LLM Error ({model}) on attempt {attempt + 1}/{max_retries}: {error_msg}")
                 if any(code in error_msg for code in ["429", "503", "524", "500", "502"]) or "timeout" in error_msg.lower() or "connection" in error_msg.lower():
                     if attempt < max_retries - 1:
                         # Adaptive backoff: increase rate limiter interval on repeated failures
@@ -320,8 +322,8 @@ class LLMGateway:
                             self._default_rate_limiter._min_interval = min(
                                 self._default_rate_limiter._min_interval * 1.5, 30.0
                             )
-                            print(f"  [Rate Limiter] Increased min_interval to {self._default_rate_limiter._min_interval:.1f}s")
-                        print(f"Waiting {retry_delay}s before retry {attempt + 2}/{max_retries} (no model downgrade)...")
+                            logger.info(f"  [Rate Limiter] Increased min_interval to {self._default_rate_limiter._min_interval:.1f}s")
+                        logger.info(f"Waiting {retry_delay}s before retry {attempt + 2}/{max_retries} (no model downgrade)...")
                         for _ in range(int(retry_delay)):
                             await asyncio.sleep(1)
                             if os.path.exists(".stop"):
@@ -346,7 +348,7 @@ class LLMGateway:
         for attempt in range(max_retries):
             # CHECK FOR USER STOP SIGNAL
             if os.path.exists(".stop"):
-                print("User stop signal detected (.stop file). Aborting analysis...")
+                logger.info("User stop signal detected (.stop file). Aborting analysis...")
                 raise Exception("Analysis stopped by user.")
 
             try:
@@ -408,26 +410,26 @@ class LLMGateway:
                     raise ValueError(f"Gemini streaming returned empty response")
             except Exception as e:
                 error_msg = str(e)
-                print(f"Gemini Error ({model}) on attempt {attempt + 1}/{max_retries}: {error_msg}")
+                logger.error(f"Gemini Error ({model}) on attempt {attempt + 1}/{max_retries}: {error_msg}")
                 
                 # Retry on 429 Quota Exceeded or 503 Service Unavailable — extend wait, never degrade
                 if "429" in error_msg or "quota" in error_msg.lower() or "503" in error_msg:
                     if attempt < max_retries - 1:
-                        print(f"Rate limit hit. Waiting {retry_delay}s before retry {attempt + 2}/{max_retries} (no model downgrade)...")
+                        logger.info(f"Rate limit hit. Waiting {retry_delay}s before retry {attempt + 2}/{max_retries} (no model downgrade)...")
                         if on_chunk:
                             on_chunk(0, f"API 触发限流，等待 {retry_delay} 秒重试... (第 {attempt + 1} 次)")
                         # Interruptible sleep
                         for _ in range(int(retry_delay)):
                             await asyncio.sleep(1)
                             if os.path.exists(".stop"):
-                                print("User stop signal detected during wait. Aborting...")
+                                logger.info("User stop signal detected during wait. Aborting...")
                                 raise Exception("Analysis stopped by user.")
                         
                         retry_delay = min(retry_delay * 2, max_delay)
                         continue
                 
                 # Non-retryable error: raise immediately, no fallback
-                print(f"Non-retryable error with {model}. Strict mode: no model downgrade.")
+                logger.error(f"Non-retryable error with {model}. Strict mode: no model downgrade.")
                 raise e
                 
         raise Exception(f"Failed to generate content with {model} after {max_retries} attempts due to rate limits. No model downgrade allowed.")
@@ -489,25 +491,25 @@ class LLMGateway:
                 return result
             except Exception as e:
                 error_msg = str(e)
-                print(f"DeepSeek Error ({final_model}) on attempt {attempt + 1}/{max_retries}: {error_msg}")
+                logger.error(f"DeepSeek Error ({final_model}) on attempt {attempt + 1}/{max_retries}: {error_msg}")
                 
                 # Retry on transient errors: 429 Quota, 503/524 Server, empty response, connection errors
                 if "429" in error_msg or "quota" in error_msg.lower() or "503" in error_msg or "524" in error_msg or "500" in error_msg or "502" in error_msg or "empty response" in error_msg.lower() or "connection" in error_msg.lower() or "timeout" in error_msg.lower():
                     if attempt < max_retries - 1:
-                        print(f"Rate limit hit. Waiting {retry_delay}s before retry {attempt + 2}/{max_retries} (no model downgrade)...")
+                        logger.info(f"Rate limit hit. Waiting {retry_delay}s before retry {attempt + 2}/{max_retries} (no model downgrade)...")
                         if on_chunk:
                             on_chunk(0, f"API 触发限流/网络错误，等待 {retry_delay} 秒重试... (第 {attempt + 1} 次)")
                         # Interruptible sleep
                         for _ in range(int(retry_delay)):
                             await asyncio.sleep(1)
                             if os.path.exists(".stop"):
-                                print("User stop signal detected during wait. Aborting...")
+                                logger.info("User stop signal detected during wait. Aborting...")
                                 raise Exception("Analysis stopped by user.")
                         retry_delay = min(retry_delay * 2, 3600)
                         continue
                 
                 # Strict mode: Do not fallback or downgrade
-                print(f"Strict model mode enforced. Failed to generate with {final_model}. Raising error without fallback.")
+                logger.error(f"Strict model mode enforced. Failed to generate with {final_model}. Raising error without fallback.")
                 raise e
                 
         raise Exception(f"Failed to generate content with {final_model} after {max_retries} attempts due to rate limits.")
@@ -528,12 +530,12 @@ class LLMGateway:
                 try:
                     with open(cache_file, "r") as f:
                         cached_data = json.load(f)
-                    print(f"✅ Native Cache HIT for {cache_key}! Skipping all tools.")
+                    logger.info(f"✅ Native Cache HIT for {cache_key}! Skipping all tools.")
                     if on_chunk:
                         on_chunk(len(cached_data["content"]))
                     return cached_data["content"]
                 except Exception as e:
-                    print(f"Failed to read native cache {cache_file}: {e}")
+                    logger.info(f"Failed to read native cache {cache_file}: {e}")
 
         from .expert_tools import get_openai_tools, tool_executor, COMPUTATION_TOOL_NAMES
         
@@ -553,7 +555,7 @@ class LLMGateway:
         prompt_chars = len(prompt)
         prompt_tokens_est = prompt_chars // 4
         if prompt_tokens_est > 60000:
-            print(f"  [ToolLoop] WARNING: Prompt exceeds 60k tokens, truncating search enrichment...")
+            logger.warning(f"  [ToolLoop] WARNING: Prompt exceeds 60k tokens, truncating search enrichment...")
             enrichment_start = prompt.find("[SEARCH ENRICHMENT]")
             enrichment_end = prompt.find("[MANDATORY] GROUND TRUTH")
             if enrichment_start > 0 and enrichment_end > enrichment_start:
@@ -568,12 +570,12 @@ class LLMGateway:
         for round_num in range(max_tool_rounds + 1):
             # CHECK FOR USER STOP SIGNAL
             if os.path.exists(".stop"):
-                print("User stop signal detected (.stop file). Aborting tool loop...")
+                logger.info("User stop signal detected (.stop file). Aborting tool loop...")
                 raise Exception("Analysis stopped by user.")
             
             total_chars = sum(len(m.get("content") or "") for m in messages)
             total_tokens_est = total_chars // 4
-            print(f"  [ToolLoop] Prompt size: ~{total_tokens_est} tokens ({total_chars} chars)")
+            logger.info(f"  [ToolLoop] Prompt size: ~{total_tokens_est} tokens ({total_chars} chars)")
             
             # Last round: force completion without tools
             use_tools = round_num < max_tool_rounds
@@ -681,14 +683,14 @@ class LLMGateway:
                     timeout=_round_timeout
                 )
             except asyncio.TimeoutError:
-                print(f"  [ToolLoop] ⚠️ Round {round_num} TIMED OUT after {_round_timeout}s!")
+                logger.info(f"  [ToolLoop] ⚠️ Round {round_num} TIMED OUT after {_round_timeout}s!")
                 if on_chunk:
                     on_chunk(0, message=f"第 {round_num+1} 轮 API 请求超时({_round_timeout}s)，正在重试...")
                 if use_tools:
-                    print(f"  [ToolLoop] Tool round {round_num} timed out, continuing...")
+                    logger.info(f"  [ToolLoop] Tool round {round_num} timed out, continuing...")
                     continue
                 # Final round timed out — try with truncated context
-                print(f"  [ToolLoop] Final round timed out. Retrying with truncated context...")
+                logger.info(f"  [ToolLoop] Final round timed out. Retrying with truncated context...")
                 for i, msg in enumerate(messages):
                     if msg.get("role") == "tool" and len(msg.get("content", "")) > 1000:
                         messages[i]["content"] = msg["content"][:1000] + "\n[truncated]"
@@ -700,17 +702,17 @@ class LLMGateway:
                     if content:
                         final_content = content
                 except Exception as e2:
-                    print(f"  [ToolLoop] Retry also failed: {e2}")
+                    logger.info(f"  [ToolLoop] Retry also failed: {e2}")
                 break
             except Exception as e:
                 error_msg = str(e)
-                print(f"DeepSeek Native Tool Error (round {round_num}): {error_msg}")
+                logger.error(f"DeepSeek Native Tool Error (round {round_num}): {error_msg}")
                 if use_tools:
                     # Error in tool round — continue to next round (may reach final round)
-                    print(f"  [ToolLoop] Tool round {round_num} failed, continuing...")
+                    logger.info(f"  [ToolLoop] Tool round {round_num} failed, continuing...")
                     continue
                 # Error in final (no-tools) round — try with aggressively truncated context
-                print(f"  [ToolLoop] Final round failed. Retrying with truncated context...")
+                logger.info(f"  [ToolLoop] Final round failed. Retrying with truncated context...")
                 for i, msg in enumerate(messages):
                     if msg.get("role") == "tool" and len(msg.get("content", "")) > 1000:
                         messages[i]["content"] = msg["content"][:1000] + "\n[truncated]"
@@ -722,7 +724,7 @@ class LLMGateway:
                     if content:
                         final_content = content
                 except Exception as e2:
-                    print(f"  [ToolLoop] Retry also failed: {e2}")
+                    logger.info(f"  [ToolLoop] Retry also failed: {e2}")
                 break
             
             # No tool calls — final response
@@ -730,11 +732,11 @@ class LLMGateway:
                 if content:
                     final_content = content
                 else:
-                    print(f"  [ToolLoop] WARNING: Final round produced empty content")
+                    logger.warning(f"  [ToolLoop] WARNING: Final round produced empty content")
                 break
             
             had_tool_rounds = True
-            print(f"  [ToolLoop] Round {round_num + 1}: {len(tool_calls_data)} native tool call(s)")
+            logger.info(f"  [ToolLoop] Round {round_num + 1}: {len(tool_calls_data)} native tool call(s)")
             
             # Reset TokenGuard round budget for this batch of tool calls
             from .token_guard import token_guard
@@ -785,7 +787,7 @@ class LLMGateway:
                     tool_call["query"] = args.get("query", "")
                 
                 label = tool_call.get('url', tool_call.get('symbol', tool_call.get('query', '')))[:60]
-                print(f"  [ToolExecutor] {func_name}: {label}...")
+                logger.info(f"  [ToolExecutor] {func_name}: {label}...")
                 
                 obs = await tool_executor.execute(tool_call)
                 obs_clean = obs.replace("<tool_observation>", "").replace("</tool_observation>", "").strip()
@@ -911,10 +913,10 @@ class LLMGateway:
             try:
                 rc = await asyncio.to_thread(_recovery_call)
                 if rc and _is_valid_analysis(rc):
-                    print(f"  [ToolLoop] Recovery synthesis successful: {len(rc)} chars")
+                    logger.info(f"  [ToolLoop] Recovery synthesis successful: {len(rc)} chars")
                     return rc
             except Exception as e:
-                print(f"  [ToolLoop] Recovery synthesis error: {e}")
+                logger.error(f"  [ToolLoop] Recovery synthesis error: {e}")
             return ""
 
         if final_content and _is_valid_analysis(final_content):
@@ -926,13 +928,13 @@ class LLMGateway:
                 analysis_fragments = _dedup_fragments(analysis_fragments, final_content)
             if analysis_fragments:
                 combined = "\n\n".join(analysis_fragments) + "\n\n" + final_content
-                print(f"  [ToolLoop] Merged {len(analysis_fragments)} deduped fragment(s) ({sum(len(f) for f in analysis_fragments)} chars) with final content ({len(final_content)} chars)")
+                logger.info(f"  [ToolLoop] Merged {len(analysis_fragments)} deduped fragment(s) ({sum(len(f) for f in analysis_fragments)} chars) with final content ({len(final_content)} chars)")
                 result = combined
             else:
                 result = final_content
         elif final_content:
             # Final round produced short/invalid content — likely raw computation tool params
-            print(f"  [ToolLoop] WARNING: Final round produced only {len(final_content)} chars or invalid content. Retrying with tools...")
+            logger.warning(f"  [ToolLoop] WARNING: Final round produced only {len(final_content)} chars or invalid content. Retrying with tools...")
             # Retry with tools enabled so computation tools can be called
             messages.append({"role": "assistant", "content": final_content})
             messages.append({
@@ -984,7 +986,7 @@ class LLMGateway:
                 
                 # If model made tool calls in retry, execute them and do one more final round
                 if retry_tool_calls:
-                    print(f"  [ToolLoop] Retry: {len(retry_tool_calls)} computation tool call(s)")
+                    logger.info(f"  [ToolLoop] Retry: {len(retry_tool_calls)} computation tool call(s)")
                     assistant_msg = {"role": "assistant", "content": retry_content or None, "tool_calls": [
                         {"id": tc["id"], "type": "function", "function": {"name": tc["function"]["name"], "arguments": tc["function"]["arguments"]}}
                         for tc in retry_tool_calls
@@ -1001,7 +1003,7 @@ class LLMGateway:
                             tool_call["params_json"] = json.dumps(args)
                         else:
                             tool_call["query"] = args.get("query", "")
-                        print(f"  [ToolExecutor] {func_name}: ...")
+                        logger.info(f"  [ToolExecutor] {func_name}: ...")
                         obs = await tool_executor.execute(tool_call)
                         obs_clean = obs.replace("<tool_observation>", "").replace("</tool_observation>", "").strip()
                         messages.append({"role": "tool", "tool_call_id": tc_data["id"], "content": obs_clean})
@@ -1025,12 +1027,12 @@ class LLMGateway:
                     with open(cache_file, "w") as f:
                         json.dump({"content": final_response}, f)
                 except Exception as e:
-                    print(f"Failed to write native cache {cache_file}: {e}")
+                    logger.info(f"Failed to write native cache {cache_file}: {e}")
             result = final_response or ""
 
         elif tool_round_text:
             # No final content at all — the final round failed or produced empty response
-            print(f"  [ToolLoop] WARNING: No final analysis produced. Attempting recovery...")
+            logger.warning(f"  [ToolLoop] WARNING: No final analysis produced. Attempting recovery...")
             recovered = await _recovery_synthesis()
             if recovered:
                 result = recovered
@@ -1044,7 +1046,7 @@ class LLMGateway:
         # Final guard: never emit raw tool params / junk as an expert's analysis.
         # If everything failed, run a last-resort synthesis; if that also fails, use an honest note.
         if not _is_valid_analysis(result):
-            print(f"  [ToolLoop] WARNING: Assembled result invalid ({len(result or '')} chars). Last-resort synthesis...")
+            logger.warning(f"  [ToolLoop] WARNING: Assembled result invalid ({len(result or '')} chars). Last-resort synthesis...")
             recovered = await _recovery_synthesis()
             if recovered:
                 result = recovered
@@ -1084,9 +1086,9 @@ class LLMGateway:
             # Guard against prompt size explosion
             prompt_chars = len(current_prompt)
             prompt_tokens_est = prompt_chars // 4
-            print(f"  [ToolLoop] Prompt size: ~{prompt_tokens_est} tokens ({prompt_chars} chars)")
+            logger.info(f"  [ToolLoop] Prompt size: ~{prompt_tokens_est} tokens ({prompt_chars} chars)")
             if prompt_tokens_est > 60000:
-                print(f"  [ToolLoop] WARNING: Prompt exceeds 60k tokens, truncating search enrichment...")
+                logger.warning(f"  [ToolLoop] WARNING: Prompt exceeds 60k tokens, truncating search enrichment...")
                 # Truncate the enrichment section if present
                 enrichment_start = current_prompt.find("[SEARCH ENRICHMENT]")
                 enrichment_end = current_prompt.find("[MANDATORY] GROUND TRUTH")
@@ -1112,7 +1114,7 @@ class LLMGateway:
                 all_content_parts.append(result)
                 break
             
-            print(f"  [ToolLoop] Round {round_num + 1}: {len(tool_calls)} tool call(s)")
+            logger.info(f"  [ToolLoop] Round {round_num + 1}: {len(tool_calls)} tool call(s)")
             
             # Reset TokenGuard round budget for this batch
             from .token_guard import token_guard as _tg

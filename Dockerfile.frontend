@@ -1,0 +1,35 @@
+# Build stage for React App
+FROM node:20-alpine AS builder
+
+WORKDIR /app
+COPY package*.json ./
+# Install all dependencies including dev to build the vite app
+RUN npm ci
+
+COPY . .
+# Build the React application
+RUN npm run build
+
+# Production stage
+FROM node:20-alpine
+
+WORKDIR /app
+# We need tsx to run server.ts, so we'll install production dependencies and tsx
+COPY package*.json ./
+RUN npm ci --omit=dev
+RUN npm install tsx cross-env -g
+
+# Copy server files
+COPY --from=builder /app/server ./server
+COPY --from=builder /app/server.ts ./server.ts
+COPY --from=builder /app/scripts ./scripts
+
+# Copy built frontend assets
+COPY --from=builder /app/dist ./dist
+
+ENV NODE_ENV=production
+ENV PORT=3000
+
+EXPOSE 3000
+
+CMD ["cross-env", "NODE_ENV=production", "tsx", "server.ts"]

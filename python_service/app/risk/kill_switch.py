@@ -38,14 +38,29 @@ class KillSwitchEvent:
 class KillSwitch:
     """Global system circuit breaker."""
 
-    def __init__(self):
-        self.state: KillSwitchState = KillSwitchState.ACTIVE
-        self.events: List[KillSwitchEvent] = []
+    def __init__(self, db_path="kill_switch_state.json"):
+        import json, os
+        self.db_path = db_path
+        self.state, self.events = self._load_state()
+
+    def _load_state(self):
+        import json, os
+        if os.path.exists(self.db_path):
+            with open(self.db_path) as f:
+                data = json.load(f)
+                return KillSwitchState(data.get("state", "ACTIVE")), []
+        return KillSwitchState.ACTIVE, []
+
+    def _save_state(self):
+        import json
+        with open(self.db_path, 'w') as f:
+            json.dump({"state": self.state.value}, f)
 
     def trigger(self, trigger: KillSwitchTrigger, reason: str) -> None:
         """Activate the kill switch. System enters read-only mode."""
         self.state = KillSwitchState.KILLED
         self.events.append(KillSwitchEvent(trigger=trigger, reason=reason))
+        self._save_state()
 
     def can_submit_order(self) -> bool:
         """New orders are blocked when killed."""
@@ -64,3 +79,4 @@ class KillSwitch:
         if not approval_id:
             raise ValueError("Kill switch reset requires human approval_id")
         self.state = KillSwitchState.ACTIVE
+        self._save_state()

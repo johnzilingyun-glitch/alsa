@@ -173,15 +173,48 @@ class LLMGateway:
         
         max_quality_retries = 2
         for quality_attempt in range(max_quality_retries + 1):
+            providers = []
             if model.lower().startswith("gemini"):
-                result_text = await self._generate_gemini(prompt, model, temperature, on_chunk=on_chunk, api_key=gemini_api_key)
-            elif self.default_api_key:
-                # Route through default provider (中转站) for all non-gemini models
-                result_text = await self._generate_default(prompt, model, temperature, on_chunk=on_chunk)
-            elif "deepseek" in model.lower():
-                result_text = await self._generate_deepseek(prompt, model, temperature, on_chunk=on_chunk, api_key=deepseek_api_key)
+                providers = [
+                    ("gemini", self._generate_gemini),
+                    ("default", self._generate_default)
+                ]
             else:
-                raise ValueError(f"No provider available for model: {model}. Set DEFAULT_LLM_API_KEY in .env.")
+                providers = [
+                    ("deepseek", self._generate_deepseek),
+                    ("default", self._generate_default),
+                    ("gemini", self._generate_gemini)
+                ]
+            
+            result_text = None
+            for provider_name, generate_func in providers:
+                try:
+                    kwargs = {"temperature": temperature, "on_chunk": on_chunk}
+                    if provider_name == "gemini":
+                        kwargs["api_key"] = gemini_api_key
+                        if not self.get_gemini_api_key(gemini_api_key):
+                            continue
+                    elif provider_name == "deepseek":
+                        kwargs["api_key"] = deepseek_api_key
+                        if not self.get_deepseek_api_key(deepseek_api_key):
+                            continue
+                    elif provider_name == "default":
+                        if not self.default_api_key:
+                            continue
+                        
+                    result_text = await generate_func(prompt, model, **kwargs)
+                    if result_text:
+                        break
+                except Exception as e:
+                    error_msg = str(e)
+                    if any(code in error_msg for code in ["429", "quota", "503", "524", "500", "502", "timeout", "connection", "RateLimit"]):
+                        print(f"[{provider_name}] failed ({error_msg}), falling back to next provider...")
+                        continue
+                    print(f"[{provider_name}] non-retryable error ({error_msg}), falling back...")
+                    continue
+            
+            if not result_text:
+                raise ValueError(f"All providers failed for model: {model}.")
 
 
 

@@ -6,10 +6,29 @@ import logging
 import sys
 import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
-try:
-    from paper_trading_system.execution_layer.market_configs import get_exchange_kwargs
-except ImportError:
-    def get_exchange_kwargs(market): return {"trade_unit": 1}
+def get_exchange_kwargs(market):
+    if market == "A-Share":
+        return {
+            "trade_unit": 100,
+            "open_cost": 0.00026,
+            "close_cost": 0.00076,
+            "min_cost": 5.0
+        }
+    elif market == "HK-Share":
+        return {
+            "trade_unit": 100,
+            "open_cost": 0.001,
+            "close_cost": 0.001,
+            "min_cost": 50.0
+        }
+    elif market == "US-Share":
+        return {
+            "trade_unit": 1,
+            "open_cost": 0.0,
+            "close_cost": 0.0,
+            "min_cost": 1.0
+        }
+    return {"trade_unit": 1, "open_cost": 0.0, "close_cost": 0.0, "min_cost": 0.0}
 
 logger = logging.getLogger(__name__)
 
@@ -174,7 +193,7 @@ class MockTradingService:
             else:
                 # Buy to open/add long
                 new_shares = current_shares + shares
-                new_cost = ((current_shares * average_cost) + total_required) / new_shares
+                new_cost = ((current_shares * average_cost) + (shares * execution_price)) / new_shares
                 self.repo.upsert_position(account_id, symbol, market, new_shares, new_cost)
                 
             execution_price = actual_price

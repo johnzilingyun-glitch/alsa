@@ -56,8 +56,9 @@ def compute_indicator_frame(rows: List[Dict[str, Any]]) -> pl.DataFrame:
     gain = pl.when(diff > 0).then(diff).otherwise(0)
     loss = pl.when(diff < 0).then(-diff).otherwise(0)
     
-    avg_gain = gain.rolling_mean(14)
-    avg_loss = loss.rolling_mean(14)
+    alpha = 1.0 / 14
+    avg_gain = gain.ewm_mean(alpha=alpha, adjust=False)
+    avg_loss = loss.ewm_mean(alpha=alpha, adjust=False)
     
     rs = avg_gain / avg_loss
     df = df.with_columns([

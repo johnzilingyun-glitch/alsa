@@ -61,16 +61,33 @@ class SignalMonitorService:
         """Check HK-Share alerts using yfinance."""
         try:
             import yfinance as yf
+            symbols = []
             for alert in alerts:
                 symbol = alert.symbol
                 if not symbol.endswith(".HK"):
-                    # Normalize: 0700 -> 0700.HK
                     clean = symbol.replace(".HK", "").lstrip("0") or "0"
                     symbol = f"{clean.zfill(4)}.HK"
-                ticker = yf.Ticker(symbol)
-                price = ticker.info.get("currentPrice") or ticker.info.get("regularMarketPrice")
-                if price and price > 0:
-                    await self._evaluate_alert(alert, float(price))
+                symbols.append(symbol)
+                
+            if not symbols:
+                return
+
+            # batch download last 1d data
+            data = await asyncio.to_thread(yf.download, symbols, period="1d", progress=False)
+            if data.empty:
+                return
+                
+            for i, alert in enumerate(alerts):
+                symbol = symbols[i]
+                try:
+                    if len(symbols) > 1:
+                        price = data['Close'][symbol].dropna().iloc[-1]
+                    else:
+                        price = data['Close'].dropna().iloc[-1]
+                    if price and price > 0:
+                        await self._evaluate_alert(alert, float(price))
+                except Exception:
+                    continue
         except Exception as e:
             print(f"[SignalMonitor] HK batch check error: {e}")
 
@@ -78,11 +95,25 @@ class SignalMonitorService:
         """Check US-Share alerts using yfinance."""
         try:
             import yfinance as yf
+            symbols = [alert.symbol for alert in alerts]
+            if not symbols:
+                return
+                
+            data = await asyncio.to_thread(yf.download, symbols, period="1d", progress=False)
+            if data.empty:
+                return
+
             for alert in alerts:
-                ticker = yf.Ticker(alert.symbol)
-                price = ticker.info.get("currentPrice") or ticker.info.get("regularMarketPrice")
-                if price and price > 0:
-                    await self._evaluate_alert(alert, float(price))
+                symbol = alert.symbol
+                try:
+                    if len(symbols) > 1:
+                        price = data['Close'][symbol].dropna().iloc[-1]
+                    else:
+                        price = data['Close'].dropna().iloc[-1]
+                    if price and price > 0:
+                        await self._evaluate_alert(alert, float(price))
+                except Exception:
+                    continue
         except Exception as e:
             print(f"[SignalMonitor] US batch check error: {e}")
 

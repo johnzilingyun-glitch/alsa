@@ -322,8 +322,12 @@ def _screen_ashare_sync(screen_type: str, criteria: Dict, sector: Optional[str],
             df = df[(df["pe"] > 0) & (df["pe"] < criteria.get("pe_max", 15))]
             df = df[(df["pb"] > 0) & (df["pb"] < criteria.get("pb_max", 2.0))]
         elif screen_type == "growth":
-            # For A-shares, use PE < 50 as growth at reasonable price
-            df = df[(df["pe"] > 0) & (df["pe"] < 50)]
+            # For A-shares, use multi-dimensional growth criteria
+            df = df[
+                (df["pe"] > 0) & (df["pe"] < 50) &
+                (df.get("revenue_growth", 0) > 15) &
+                (df.get("earnings_growth", 0) > 20)
+            ]
         elif screen_type == "momentum":
             df = df[df["change_pct"] > 0]
             df = df.sort_values("change_pct", ascending=False)

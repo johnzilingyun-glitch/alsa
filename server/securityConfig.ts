@@ -1,4 +1,32 @@
 import crypto from 'crypto';
+import fs from 'fs';
+import path from 'path';
+
+function _ensureApiToken() {
+  let token = process.env.API_TOKEN;
+  if (!token) {
+    const runtimeEnvPath = path.resolve(process.cwd(), '.env.runtime');
+    if (fs.existsSync(runtimeEnvPath)) {
+      const content = fs.readFileSync(runtimeEnvPath, 'utf8');
+      const match = content.match(/^API_TOKEN=(.*)$/m);
+      if (match) {
+        token = match[1].trim();
+        process.env.API_TOKEN = token;
+      }
+    }
+
+    if (!token) {
+      token = crypto.randomBytes(32).toString('base64url');
+      process.env.API_TOKEN = token;
+      fs.appendFileSync(runtimeEnvPath, `\nAPI_TOKEN=${token}\n`);
+      console.log('\n' + '='.repeat(50));
+      console.log(`🔒 Generated secure API_TOKEN: ${token}`);
+      console.log(`   (Saved to ${runtimeEnvPath})`);
+      console.log('='.repeat(50) + '\n');
+    }
+  }
+}
+_ensureApiToken();
 
 export type ServerEnv = Partial<Record<string, string | undefined>>;
 
@@ -37,7 +65,7 @@ export function shouldRequireApiToken(env: ServerEnv = process.env): boolean {
 
 export function validateApiToken(authHeader: string | undefined, env: ServerEnv = process.env): boolean {
   const expected = env.API_TOKEN;
-  if (!expected) return true;
+  if (!expected) return false;
   if (!authHeader) return false;
 
   const token = authHeader.startsWith('Bearer ')

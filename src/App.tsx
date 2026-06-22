@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef, lazy, Suspense } from 'react';
 import { AnimatePresence } from 'motion/react';
+import { Loader2 } from 'lucide-react';
+
 import { useTranslation } from 'react-i18next';
 import { useStockAnalysis } from './hooks/useStockAnalysis';
 import { useDiscussion } from './hooks/useDiscussion';
@@ -21,6 +23,7 @@ import { Header } from './components/layout/Header';
 import { ConfirmDialog } from './components/shared/ConfirmDialog';
 import { Toast } from './components/shared/Toast';
 import { NotificationBubbles } from './components/shared/NotificationBubbles';
+import { AuthGuard } from './components/auth/AuthGuard';
 
 if (import.meta.env.DEV && typeof window !== 'undefined') {
   (window as any).useAnalysisStore = useAnalysisStore;
@@ -31,6 +34,8 @@ const SettingsModal = lazy(() => import('./components/SettingsModal').then(m => 
 const HistoryModal = lazy(() => import('./components/HistoryModal').then(m => ({ default: m.HistoryModal })));
 const AnalysisResult = lazy(() => import('./components/analysis/AnalysisResult').then(m => ({ default: m.AnalysisResult })));
 const AdminPanel = lazy(() => import('./components/admin/AdminPanel').then(m => ({ default: m.AdminPanel })));
+const SystemMonitor = lazy(() => import('./components/admin/SystemMonitor').then(m => ({ default: m.SystemMonitor })));
+
 const AnalysisLoadingPulse = lazy(() => import('./components/analysis/AnalysisLoadingPulse').then(m => ({ default: m.AnalysisLoadingPulse })));
 const SignalCenter = lazy(() => import('./components/dashboard/SignalCenter').then(m => ({ default: m.SignalCenter })));
 const HistorySelectionDialog = lazy(() => import('./components/analysis/HistorySelectionDialog').then(m => ({ default: m.HistorySelectionDialog })));
@@ -169,7 +174,16 @@ export default function App() {
     i18n.changeLanguage(language);
   }, [language, i18n]);
 
+  // Hash-based routing for admin page
+  const [hashRoute, setHashRoute] = useState(window.location.hash.slice(1) || '/');
+  useEffect(() => {
+    const onHashChange = () => setHashRoute(window.location.hash.slice(1) || '/');
+    window.addEventListener('hashchange', onHashChange);
+    return () => window.removeEventListener('hashchange', onHashChange);
+  }, []);
+
   return (
+    <AuthGuard>
     <div className="min-h-screen bg-zinc-50 text-zinc-600 font-sans selection:bg-indigo-600/10 transition-colors duration-500">
       {/* Subtle Background Decoration */}
       <div className="fixed inset-0 overflow-hidden pointer-events-none">
@@ -178,6 +192,24 @@ export default function App() {
       </div>
 
       <div className="relative z-10 mx-auto max-w-7xl px-6 py-12 md:px-12">
+        {/* Admin management page (hash route) */}
+        {hashRoute === '/admin' ? (
+          <div className="space-y-8">
+            <div className="flex items-center gap-4 mb-4">
+              <button onClick={() => { window.location.hash = '#/'; }} className="text-sm text-indigo-600 hover:text-indigo-700 font-medium">
+                ← 返回首页
+              </button>
+              <h1 className="text-xl font-bold text-zinc-900">后台管理</h1>
+            </div>
+            <Suspense fallback={<div className="flex items-center justify-center py-12"><Loader2 size={24} className="animate-spin text-indigo-500" /></div>}>
+              <SystemMonitor />
+            </Suspense>
+            <Suspense fallback={null}>
+              <AdminPanel />
+            </Suspense>
+          </div>
+        ) : (
+        <>
         {isHistoryOpen && (
           <Suspense fallback={null}>
           <HistoryModal 
@@ -318,6 +350,8 @@ export default function App() {
         {showPredictionDashboard && <Suspense fallback={null}><PredictionDashboard isOpen={showPredictionDashboard} onClose={() => useUIStore.getState().setShowPredictionDashboard(false)} /></Suspense>}
         
         <Suspense fallback={null}><AnalysisLoadingPulse /></Suspense>
+        </>
+        )}
       </div>
 
       <Suspense fallback={null}><DetailModal onSendHistoryToFeishu={handleSendHistoryToFeishu} /></Suspense>
@@ -350,5 +384,6 @@ export default function App() {
         </Suspense>
       )}
     </div>
+    </AuthGuard>
   );
 }

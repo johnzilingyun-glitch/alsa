@@ -26,6 +26,7 @@ class PromptVersion:
     template_hash: str
     status: PromptStatus = PromptStatus.DRAFT
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    template: str = ""
 
 
 @dataclass
@@ -59,6 +60,7 @@ class PromptVersionRegistry:
             role_scope=role_scope,
             template_hash=template_hash,
             status=PromptStatus.DRAFT,
+            template=template,
         )
         self._versions[version_id] = version
         return version
@@ -148,3 +150,8 @@ class PromptVersionRegistry:
             "total_output_tokens": sum(r.output_tokens for r in runs),
             "avg_tool_calls": sum(r.tool_calls for r in runs) / total,
         }
+
+
+# Global singleton instance
+prompt_version_registry = PromptVersionRegistry()
+

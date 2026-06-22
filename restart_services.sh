@@ -6,8 +6,7 @@ sleep 2
 
 # Start Python service
 cd /home/ubuntu/work/alsa
-source python_service/.venv/bin/activate
-nohup python -m uvicorn python_service.main:app --host 0.0.0.0 --port 8001 > python_service.log 2>&1 &
+AKSHARE_ENABLED=true nohup /home/ubuntu/work/alsa/run_py_service_with_env.sh > /home/ubuntu/work/alsa/logs/py_api.log 2>&1 &
 echo "Python service started (PID: $!)"
 
 sleep 3

@@ -1,5 +1,6 @@
 import asyncio
 from datetime import datetime, timezone
+import json
 from python_service.app.services.backtest_engine_service import BacktestEngine
 
 async def main():
@@ -14,8 +15,11 @@ async def main():
         )
         print("\n=== Backtest Result Summary ===")
         if res:
-            for k in ["total_return", "annual_return", "max_drawdown", "sharpe_ratio", "total_trade_count"]:
-                print(f"  {k}: {res.get(k)}")
+            print("Keys in response:", res.keys())
+            if "metrics" in res:
+                print("Metrics:", json.dumps(res["metrics"], indent=2))
+            if "trades" in res:
+                print("Total Trades:", len(res["trades"]))
         else:
             print("Backtest returned empty result!")
     except Exception as e:

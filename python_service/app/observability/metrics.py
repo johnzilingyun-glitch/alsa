@@ -24,14 +24,48 @@ class MetricPoint:
 
 
 class MetricsCollector:
-    """In-memory metrics collector with tag-based filtering."""
+    """Metrics collector with tag-based filtering and SQLite persistence."""
 
-    def __init__(self):
+    def __init__(self, db_path="metrics.db"):
         self._points: List[MetricPoint] = []
+        self._db_path = db_path
 
     def record(self, name: str, value: float, tags: Optional[Dict[str, str]] = None) -> None:
         """Record a metric data point."""
         self._points.append(MetricPoint(name=name, value=value, tags=tags or {}))
+
+    def flush(self) -> None:
+        """Write all pending in-memory points to the SQLite database."""
+        if not self._points:
+            return
+            
+        import sqlite3, json
+        conn = sqlite3.connect(self._db_path)
+        cursor = conn.cursor()
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS metrics_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT,
+                value REAL,
+                tags TEXT,
+                timestamp TEXT
+            )
+        """)
+        
+        # Insert all points
+        for p in self._points:
+            tags_json = json.dumps(p.tags)
+            ts_str = p.timestamp.isoformat()
+            cursor.execute("""
+                INSERT INTO metrics_log (name, value, tags, timestamp)
+                VALUES (?, ?, ?, ?)
+            """, (p.name, p.value, tags_json, ts_str))
+            
+        conn.commit()
+        conn.close()
+        
+        # Clear points in memory
+        self._points.clear()
 
     def get_stats(self, name: str, filter_tags: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
         """Get aggregated stats (count, avg, min, max) for a metric."""

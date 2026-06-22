@@ -5,12 +5,15 @@ import json
 import math
 import asyncio
 import uuid
+import logging
 from datetime import datetime, date
 from typing import Optional, Dict, Any
 from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from ..utils.responses import success_response, error_response
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/sector", tags=["sector"])
 
@@ -99,7 +102,7 @@ def _escape_like(s: str) -> str:
 @router.post("/run")
 async def start_scan(req: SectorScanRequest):
     """Start an async market sector scan."""
-    from ..db.sqlite import build_session_factory, DATABASE_URL
+    from ..db.database import session_factory
     from ..db.models import AnalysisJob
     from sqlmodel import select
 
@@ -107,11 +110,10 @@ async def start_scan(req: SectorScanRequest):
     try:
         model = _resolve_model(req.model)
     except ValueError as e:
-        return error_response(str(e))
+        return error_response("INVALID_PARAM", str(e))
 
     # Cache check
     if not req.force:
-        session_factory = build_session_factory(DATABASE_URL)
         with session_factory() as session:
             statement = select(AnalysisJob).where(
                 AnalysisJob.symbol == "market_sector_scan",
@@ -124,7 +126,7 @@ async def start_scan(req: SectorScanRequest):
                 result_data = None
                 if existing_job.result_payload:
                     try:
-                        result_data = json.loads(existing_job.result_payload)
+                        result_data = existing_job.result_payload if isinstance(existing_job.result_payload, dict) else (json.loads(existing_job.result_payload) if existing_job.result_payload else None)
                     except Exception:
                         pass
                 
@@ -162,7 +164,7 @@ async def start_scan(req: SectorScanRequest):
     _scan_tasks[job_id] = task
     task.add_done_callback(lambda t: _scan_tasks.pop(job_id, None))
 
-    print(f"[SectorScan] Started {job_id} with model={model}, date={target_date}")
+    logger.info(f"[SectorScan] Started {job_id} with model={model}, date={target_date}")
     return success_response({"job_id": job_id, "status": "running"})
 
 
@@ -253,10 +255,9 @@ Market: A-Share (中国A股)
         _scan_jobs[job_id]["progress"] = "扫描完成"
 
         # Save to SQLite database
-        from ..db.sqlite import build_session_factory, DATABASE_URL
+        from ..db.database import session_factory
         from ..db.models import AnalysisJob
         from sqlmodel import select
-        session_factory = build_session_factory(DATABASE_URL)
         with session_factory() as session:
             statement = select(AnalysisJob).where(
                 AnalysisJob.symbol == "market_sector_scan",
@@ -328,13 +329,12 @@ def _extract_sectors(scan_result: str) -> list:
 @router.post("/analyze")
 async def start_sector_analysis(req: SectorAnalyzeRequest):
     """Start a sector deep analysis job (snapshot → expert discussion → report)."""
-    from ..db.sqlite import build_session_factory, DATABASE_URL
+    from ..db.database import session_factory
     from ..db.repositories.job_repo import JobRepository
     from ..services.sector_analysis_service import SectorAnalysisService
     from ..db.models import AnalysisJob
     from sqlmodel import select
 
-    session_factory = build_session_factory(DATABASE_URL)
     job_repo = JobRepository(session_factory)
     service = SectorAnalysisService(job_repo)
 
@@ -342,7 +342,7 @@ async def start_sector_analysis(req: SectorAnalyzeRequest):
     try:
         model = _resolve_model(req.model)
     except ValueError as e:
-        return error_response(str(e))
+        return error_response("INVALID_PARAM", str(e))
 
     # Cache check
     if not req.force:
@@ -385,13 +385,12 @@ async def start_sector_analysis(req: SectorAnalyzeRequest):
 @router.post("/serenity-analyze")
 async def start_serenity_analysis(req: SerenityAnalyzeRequest):
     """Start a sector analysis job using Serenity Alpha Analyst only."""
-    from ..db.sqlite import build_session_factory, DATABASE_URL
+    from ..db.database import session_factory
     from ..db.repositories.job_repo import JobRepository
     from ..services.sector_analysis_service import SectorAnalysisService
     from ..db.models import AnalysisJob
     from sqlmodel import select
 
-    session_factory = build_session_factory(DATABASE_URL)
     job_repo = JobRepository(session_factory)
     service = SectorAnalysisService(job_repo)
 
@@ -400,7 +399,7 @@ async def start_serenity_analysis(req: SerenityAnalyzeRequest):
     try:
         model = _resolve_model(req.model)
     except ValueError as e:
-        return error_response(str(e))
+        return error_response("INVALID_PARAM", str(e))
 
     # Cache check
     if not req.force:
@@ -448,11 +447,10 @@ async def get_sector_analysis_status(job_id: str):
 
     # If in-memory reference lost (e.g. after hot-reload), recreate from DB
     if not meta:
-        from ..db.sqlite import build_session_factory, DATABASE_URL
+        from ..db.database import session_factory
         from ..db.repositories.job_repo import JobRepository
         from ..services.sector_analysis_service import SectorAnalysisService
 
-        session_factory = build_session_factory(DATABASE_URL)
         job_repo = JobRepository(session_factory)
         service = SectorAnalysisService(job_repo)
         meta = {"service": service, "job_repo": job_repo}
@@ -473,7 +471,7 @@ async def get_sector_analysis_status(job_id: str):
         if not result_data and db_job.result_payload:
             import json
             try:
-                result_data = json.loads(db_job.result_payload)
+                result_data = db_job.result_payload if isinstance(db_job.result_payload, dict) else (json.loads(db_job.result_payload) if db_job.result_payload else None)
             except Exception:
                 pass
 
@@ -511,11 +509,10 @@ async def get_sector_report(job_id: str):
 
     meta = _scan_jobs.get(f"analyze_{job_id}")
     if not meta:
-        from ..db.sqlite import build_session_factory, DATABASE_URL
+        from ..db.database import session_factory
         from ..db.repositories.job_repo import JobRepository
         from ..services.sector_analysis_service import SectorAnalysisService
 
-        session_factory = build_session_factory(DATABASE_URL)
         job_repo = JobRepository(session_factory)
         service = SectorAnalysisService(job_repo)
         meta = {"service": service, "job_repo": job_repo}
@@ -530,7 +527,7 @@ async def get_sector_report(job_id: str):
         if db_job and db_job.result_payload:
             import json
             try:
-                result = json.loads(db_job.result_payload)
+                result = db_job.result_payload if isinstance(db_job.result_payload, dict) else (json.loads(db_job.result_payload) if db_job.result_payload else None)
             except Exception:
                 pass
 
@@ -558,11 +555,10 @@ def _get_sector_result(job_id: str):
     """Helper: retrieve sector analysis result from memory or DB."""
     meta = _scan_jobs.get(f"analyze_{job_id}")
     if not meta:
-        from ..db.sqlite import build_session_factory, DATABASE_URL
+        from ..db.database import session_factory
         from ..db.repositories.job_repo import JobRepository
         from ..services.sector_analysis_service import SectorAnalysisService
 
-        session_factory = build_session_factory(DATABASE_URL)
         job_repo = JobRepository(session_factory)
         service = SectorAnalysisService(job_repo)
         meta = {"service": service, "job_repo": job_repo}
@@ -575,7 +571,7 @@ def _get_sector_result(job_id: str):
         db_job = job_repo.get_by_id(job_id)
         if db_job and db_job.result_payload:
             try:
-                result = json.loads(db_job.result_payload)
+                result = db_job.result_payload if isinstance(db_job.result_payload, dict) else (json.loads(db_job.result_payload) if db_job.result_payload else None)
             except Exception:
                 pass
     return result
@@ -684,11 +680,10 @@ async def export_sector_share_card(job_id: str):
 @router.get("/history/dates")
 async def get_history_dates():
     """Retrieve all dates (snapshot_ids) that have completed scans or analyses."""
-    from ..db.sqlite import build_session_factory, DATABASE_URL
+    from ..db.database import session_factory
     from ..db.models import AnalysisJob
     from sqlmodel import select
 
-    session_factory = build_session_factory(DATABASE_URL)
     with session_factory() as session:
         statement = select(AnalysisJob.snapshot_id).where(
             AnalysisJob.market == "sector",
@@ -704,7 +699,7 @@ async def get_history_dates():
 @router.get("/history")
 async def get_history_by_date(date: str, type: str, sector_name: Optional[str] = None):
     """Retrieve historical scan or analysis result for a given date."""
-    from ..db.sqlite import build_session_factory, DATABASE_URL
+    from ..db.database import session_factory
     from ..db.models import AnalysisJob
     from sqlmodel import select
 
@@ -715,7 +710,6 @@ async def get_history_by_date(date: str, type: str, sector_name: Optional[str] =
     if not symbol:
         return error_response("INVALID_PARAM", "sector_name is required for analysis type")
 
-    session_factory = build_session_factory(DATABASE_URL)
     with session_factory() as session:
         if type == "scan":
             # Fetch the main scan job if it exists
@@ -745,7 +739,7 @@ async def get_history_by_date(date: str, type: str, sector_name: Optional[str] =
             
             if job and job.result_payload:
                 try:
-                    result_data = json.loads(job.result_payload)
+                    result_data = job.result_payload if isinstance(job.result_payload, dict) else (json.loads(job.result_payload) if job.result_payload else None)
                     sectors_set.update(result_data.get("sectors", []))
                 except Exception:
                     pass
@@ -783,7 +777,7 @@ async def get_history_by_date(date: str, type: str, sector_name: Optional[str] =
             result_data = None
             if job.result_payload:
                 try:
-                    result_data = json.loads(job.result_payload)
+                    result_data = job.result_payload if isinstance(job.result_payload, dict) else (json.loads(job.result_payload) if job.result_payload else None)
                 except Exception:
                     pass
 

@@ -2,6 +2,7 @@ import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import Optional
+from enum import Enum
 
 import pandas as pd
 import yfinance as yf
@@ -10,18 +11,19 @@ try:
     from vnpy.trader.database import get_database, BaseDatabase
     from vnpy.trader.object import BarData
     from vnpy.trader.constant import Exchange, Interval
+    _has_vnpy = True
 except ImportError:
+    _has_vnpy = False
     class BaseDatabase: pass
     def get_database(): return None
     class BarData: pass
-    class Exchange: 
+    class Exchange(Enum):
         SSE = "SSE"
         SZSE = "SZSE"
         HKFE = "HKFE"
         SEHK = "SEHK"
         SMART = "SMART"
-        value = "unknown"
-    class Interval: 
+    class Interval(Enum):
         DAILY = "d"
 
 logger = logging.getLogger(__name__)
@@ -51,6 +53,11 @@ class DataSyncService:
         Downloads from yfinance if missing.
         """
         vt_symbol = f"{symbol}.{exchange.value}"
+        
+        # If vnpy database is unavailable, skip local check and go to yfinance
+        if self.database is None:
+            logger.info(f"[{vt_symbol}] No vnpy database available. Will use yfinance directly.")
+            return await self._download_from_yfinance(symbol, exchange, start_date, end_date)
         
         # 1. Check local database
         overviews = self.database.get_bar_overview()

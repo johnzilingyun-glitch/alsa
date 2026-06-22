@@ -4,7 +4,7 @@ from typing import List, Optional
 from ..db.repositories.alert_repo import AlertRepository
 from ..db.models import Catalyst
 from sqlmodel import Session, select
-from ..db.sqlite import session_factory
+from ..db.database import session_factory
 
 class AlertCreate(BaseModel):
     symbol: str
@@ -18,7 +18,10 @@ class AlertCreate(BaseModel):
 router = APIRouter(prefix="/alerts", tags=["alerts"])
 
 def get_repo():
-    from ...main import get_alert_repo
+    try:
+        from python_service.main import get_alert_repo
+    except ImportError:
+        from main import get_alert_repo
     return get_alert_repo()
 
 @router.post("/", status_code=201)

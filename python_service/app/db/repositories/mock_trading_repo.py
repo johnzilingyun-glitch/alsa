@@ -236,6 +236,20 @@ class MockTradingRepo:
         stmt = stmt.order_by(MockTrade.timestamp.desc())  # type: ignore[union-attr]
         return list(self.session.exec(stmt).all())
 
+    def get_today_bought_shares(self, account_id: str, symbol: str, market: str) -> int:
+        from datetime import datetime, time
+        from ...time_utils import utc_now
+        today_start = datetime.combine(utc_now().date(), time.min)
+        stmt = select(MockTrade).where(
+            MockTrade.account_id == account_id,
+            MockTrade.symbol == symbol,
+            MockTrade.market == market,
+            MockTrade.action == "BUY",
+            MockTrade.timestamp >= today_start
+        )
+        trades = self.session.exec(stmt).all()
+        return sum(t.shares for t in trades)
+
     # ── Snapshot ──────────────────────────────────────────────────
 
     def save_snapshot(self, account_id: str, snapshot_date: str, total_equity: float, cash_balance: float, positions_market_value: float) -> MockAccountSnapshot:

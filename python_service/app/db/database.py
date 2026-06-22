@@ -1,26 +1,55 @@
 import os
 from sqlmodel import SQLModel, create_engine, Session
+from sqlalchemy import event
+import sqlite3
 
-# Import table models once so SQLModel.metadata is populated for every init path.
+# Import table models once so SQLModel.metadata is populated
 from . import models as _models  # noqa: F401
 
 # Unified Institutional Database Path
 current_dir = os.path.dirname(os.path.abspath(__file__))
-# Navigate up to the project root (python_service/app/db -> python_service/app -> python_service -> root)
 root_dir = os.path.dirname(os.path.dirname(os.path.dirname(current_dir)))
 DEFAULT_DB_PATH = os.path.join(root_dir, "data", "app.db")
 
-DATABASE_URL = os.getenv("SQLITE_PATH", DEFAULT_DB_PATH)
-# Ensure directory exists
-os.makedirs(os.path.dirname(DATABASE_URL), exist_ok=True)
+DATABASE_URL = os.getenv("DATABASE_URL")
+if not DATABASE_URL:
+    # Fallback to SQLite if no DB URL is provided
+    sqlite_path = os.getenv("SQLITE_PATH", DEFAULT_DB_PATH)
+    os.makedirs(os.path.dirname(sqlite_path), exist_ok=True)
+    DATABASE_URL = f"sqlite:///{sqlite_path}"
 
-engine = create_engine(f"sqlite:///{DATABASE_URL}", connect_args={"check_same_thread": False})
+# For PostgreSQL, we might need pool configurations
+is_sqlite = DATABASE_URL.startswith("sqlite")
+
+if is_sqlite:
+    engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+    
+    def _set_sqlite_pragma(dbapi_connection, connection_record):
+        if isinstance(dbapi_connection, sqlite3.Connection):
+            cursor = dbapi_connection.cursor()
+            cursor.execute("PRAGMA journal_mode=WAL")
+            cursor.execute("PRAGMA synchronous=NORMAL")
+            cursor.execute("PRAGMA busy_timeout=5000")
+            cursor.close()
+
+    event.listen(engine, "connect", _set_sqlite_pragma)
+else:
+    # PostgreSQL settings
+    engine = create_engine(
+        DATABASE_URL,
+        pool_size=10,
+        max_overflow=20,
+        pool_pre_ping=True
+    )
 
 def init_db():
     SQLModel.metadata.create_all(engine)
-    _migrate_alert_postmortem(engine)
-    _migrate_alert_monitoring(engine)
-    _migrate_analysis_lineage(engine)
+    # Legacy migration scripts logic (if needed, though SQLModel creates all columns)
+    if is_sqlite:
+        _migrate_alert_postmortem(engine)
+        _migrate_alert_monitoring(engine)
+        _migrate_analysis_lineage(engine)
+        _migrate_mocktrade(engine)
 
 def get_session():
     with Session(engine) as session:
@@ -29,14 +58,20 @@ def get_session():
 def build_session_factory(db_path: str):
     """Used for testing and initialization"""
     test_engine = create_engine(f"sqlite:///{db_path}", connect_args={"check_same_thread": False})
+    
+    def _test_set_sqlite_pragma(dbapi_connection, connection_record):
+        if isinstance(dbapi_connection, sqlite3.Connection):
+            cursor = dbapi_connection.cursor()
+            cursor.execute("PRAGMA journal_mode=WAL")
+            cursor.close()
+            
+    event.listen(test_engine, "connect", _test_set_sqlite_pragma)
     SQLModel.metadata.create_all(test_engine)
     return lambda: Session(test_engine)
 
 session_factory = lambda: Session(engine)
 
-
 def _migrate_alert_postmortem(eng):
-    """Add postmortem columns to searchalert table if they don't exist."""
     import sqlite3
     db_path = str(eng.url).replace("sqlite:///", "")
     conn = sqlite3.connect(db_path)
@@ -63,7 +98,6 @@ def _migrate_alert_postmortem(eng):
     conn.commit()
     conn.close()
 
-
 def _migrate_analysis_lineage(eng):
     import sqlite3
     db_path = str(eng.url).replace("sqlite:///", "")
@@ -86,9 +120,45 @@ def _migrate_analysis_lineage(eng):
     conn.commit()
     conn.close()
 
+def _migrate_mocktrade(eng):
+    import sqlite3
+    db_path = str(eng.url).replace("sqlite:///", "")
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    
+    # Check MockTrade
+    cursor.execute("PRAGMA table_info(mocktrade)")
+    existing = {row[1] for row in cursor.fetchall()}
+    new_cols = [
+        ("commission", "REAL"),
+        ("position_size_pct", "REAL"),
+        ("realized_pnl", "REAL"),
+    ]
+    for col_name, col_type in new_cols:
+        if col_name not in existing:
+            try:
+                cursor.execute(f"ALTER TABLE mocktrade ADD COLUMN {col_name} {col_type}")
+            except sqlite3.OperationalError:
+                pass
+                
+    # Check MockAccount
+    cursor.execute("PRAGMA table_info(mockaccount)")
+    existing_acc = {row[1] for row in cursor.fetchall()}
+    new_cols_acc = [
+        ("purchasing_power", "REAL DEFAULT 1000000.0"),
+        ("maintenance_margin", "REAL DEFAULT 0.0"),
+    ]
+    for col_name, col_type in new_cols_acc:
+        if col_name not in existing_acc:
+            try:
+                cursor.execute(f"ALTER TABLE mockaccount ADD COLUMN {col_name} {col_type}")
+            except sqlite3.OperationalError:
+                pass
+
+    conn.commit()
+    conn.close()
 
 def _migrate_alert_monitoring(eng):
-    """Add signal monitoring columns to searchalert table if they don't exist."""
     import sqlite3
     db_path = str(eng.url).replace("sqlite:///", "")
     conn = sqlite3.connect(db_path)

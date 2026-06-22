@@ -105,6 +105,14 @@ class DiscussionService:
         from .expert_tools import tool_executor
         tool_executor.clear_cache()
         
+        # Initialize helper variables for sliding context window
+        self._expert_round_map = {}
+        for r_info in topology:
+            r_val = r_info["round"]
+            for exp in r_info["experts"]:
+                self._expert_round_map[exp] = r_val
+        self._summaries_cache = {}
+        
         # Pre-search enrichment: batch search ONCE before all experts
         # Report progress during search phase (stays between 30-35%)
         search_results = {}
@@ -152,17 +160,49 @@ class DiscussionService:
                 new_state = {}
                 is_final = expert_role in ("Chief Strategist", "Sector Chief Strategist")
                 if not is_final:
+                    content = msg.get("content", "")
+                    confidence = self._extract_confidence(content)
+                    # If confidence is lower than 0.6, trigger self-reflection
+                    if confidence < 0.6:
+                        try:
+                            from .self_reflection_agent import self_reflection_agent
+                            ref_config = config or {}
+                            reflection_res = await self_reflection_agent.reflect(
+                                expert_role=expert_role,
+                                analysis=content,
+                                context=state.get("history_states", {}),
+                                round_num=r_num,
+                                total_rounds=total_rounds,
+                                gemini_api_key=ref_config.get("geminiApiKey"),
+                                deepseek_api_key=ref_config.get("deepseekApiKey"),
+                                model=model
+                            )
+                            # Attach reflection to the message
+                            if "reflection" in reflection_res:
+                                msg["reflection"] = reflection_res["reflection"]
+                        except Exception as e:
+                            print(f"[DiscussionService] Self-reflection failed for {expert_role}: {e}")
+                    
                     try:
                         import json, re
-                        content = msg["content"]
-                        json_match = re.search(r'\{.*\}', content, re.DOTALL)
+                        # Summarize long text to prevent context bloat (Phase 4 Fix)
+                        content_to_save = content
+                        if len(content_to_save) > 2000:
+                            print(f"[DiscussionService] Expert '{expert_role}' output exceeds 2000 chars, triggering summarizer...")
+                            try:
+                                content_to_save = await self._summarize_expert_output(expert_role, content_to_save, model, config)
+                            except Exception as sum_e:
+                                print(f"[DiscussionService] Summarization failed, truncating manually: {sum_e}")
+                                content_to_save = content_to_save[:2000] + "\n...[Auto-Truncated]"
+
+                        json_match = re.search(r'\{.*\}', content_to_save, re.DOTALL)
                         if json_match:
                             parsed = json.loads(json_match.group(0))
                             new_state = {expert_role: parsed}
                         else:
-                            new_state = {expert_role: content}
+                            new_state = {expert_role: content_to_save}
                     except Exception as e:
-                        new_state = {expert_role: msg["content"]}
+                        new_state = {expert_role: content_to_save}
                 
                 return {"messages": [msg], "history_states": new_state}
             return node_func
@@ -203,9 +243,11 @@ class DiscussionService:
         try:
             prompt_data = prompt_runtime.get_prompt(prompt_name, version="v1", language=language)
             template = prompt_data["template"]
+            pv_id = prompt_data.get("version", "v1")
         except:
             # Fallback to simple instruction if prompt not found in DB
             template = f"You are a {role}. Provide professional institutional research analysis for {symbol}."
+            pv_id = "v1"
 
         # Replace template variables (e.g. {sector_name} in sector prompts)
         template = template.replace("{sector_name}", name)
@@ -294,8 +336,36 @@ class DiscussionService:
         if search_results:
             search_enrichment = search_toolkit.get_enrichment_for_role(role, search_results, market=market)
         
+        # Slide context window: keep last 3 rounds fully intact, summarize older rounds
+        processed_history = {}
+        for agent_role, state_data in history.items():
+            agent_round = getattr(self, "_expert_round_map", {}).get(agent_role, 1)
+            # If the expert is from an older round (current round_num - 3), we summarize it
+            if agent_round < round_num - 3:
+                if agent_role not in getattr(self, "_summaries_cache", {}):
+                    if isinstance(state_data, dict):
+                        text_to_summarize = json.dumps(state_data, ensure_ascii=False)
+                    else:
+                        text_to_summarize = str(state_data)
+                    summary = await self._summarize_expert_output(agent_role, text_to_summarize, model, config)
+                    self._summaries_cache[agent_role] = summary
+                processed_history[agent_role] = f"[Summary of Y{agent_round} {agent_role}]: {self._summaries_cache[agent_role]}"
+            else:
+                processed_history[agent_role] = state_data
+
+        # Enforce strict ceiling to prevent context explosion
+        total_len = sum(len(str(v)) for v in processed_history.values())
+        if total_len > 60000:
+            sorted_keys = sorted(processed_history.keys(), key=lambda k: getattr(self, "_expert_round_map", {}).get(k, 1))
+            for k in sorted_keys:
+                if total_len <= 60000:
+                    break
+                old_len = len(str(processed_history[k]))
+                processed_history[k] = "[Truncated due to context limit]"
+                total_len = total_len - old_len + len(processed_history[k])
+
         # 6. Assemble Prompt (with search capability flag)
-        prompt = self._assemble_prompt(role, symbol, name, snapshot, history, template, brain_context, language, macro_data, commodity_data, peer_data, has_search_tools=has_search_tools, search_enrichment=search_enrichment, use_native_tools=use_native_tools, macro_indicators=macro_indicators, sentiment_data=sentiment_data, market=market, macro_regime_text=macro_regime_text)
+        prompt = self._assemble_prompt(role, symbol, name, snapshot, processed_history, template, brain_context, language, macro_data, commodity_data, peer_data, has_search_tools=has_search_tools, search_enrichment=search_enrichment, use_native_tools=use_native_tools, macro_indicators=macro_indicators, sentiment_data=sentiment_data, market=market, macro_regime_text=macro_regime_text)
         
         # 7. Call LLM (with tool-calling loop for models without native search)
         start_time = datetime.now()
@@ -312,13 +382,13 @@ class DiscussionService:
 
         if has_search_tools:
             # Gemini has native Google Search — use standard call (tools handled by model)
-            content = await llm_gateway.generate_content(prompt, model=model, on_chunk=_on_chunk, gemini_api_key=config.get("geminiApiKey") if config else None, deepseek_api_key=config.get("deepseekApiKey") if config else None, cache_key=cache_key)
+            content = await llm_gateway.generate_content(prompt, model=model, on_chunk=_on_chunk, gemini_api_key=config.get("geminiApiKey") if config else None, deepseek_api_key=config.get("deepseekApiKey") if config else None, cache_key=cache_key, prompt_version_id=pv_id)
         else:
             # No artificial limit on tool rounds — let the model decide when it has enough data
             effective_max_rounds = 20
             # Other models — use tool-calling loop (web_search, news_search, knowledge_search)
             try:
-                content = await llm_gateway.generate_with_tools(prompt, model=model, role=role, max_tool_rounds=effective_max_rounds, on_chunk=_on_chunk, gemini_api_key=config.get("geminiApiKey") if config else None, deepseek_api_key=config.get("deepseekApiKey") if config else None, cache_key=cache_key)
+                content = await llm_gateway.generate_with_tools(prompt, model=model, role=role, max_tool_rounds=effective_max_rounds, on_chunk=_on_chunk, gemini_api_key=config.get("geminiApiKey") if config else None, deepseek_api_key=config.get("deepseekApiKey") if config else None, cache_key=cache_key, prompt_version_id=pv_id)
             except Exception as e:
                 error_msg = str(e)
                 if "402" in error_msg or "Insufficient Balance" in error_msg:
@@ -329,23 +399,29 @@ class DiscussionService:
                     raise
         latency = (datetime.now() - start_time).total_seconds() * 1000
 
-        # 8. Record Metrics
-        prompt_runtime.record_run({
-            "job_id": "temp_job_id", # 需要从 snapshot 或其他上下文获取
-            "prompt_version_id": "v1", # 需要从 registry 获取
-            "model": model,
-            "provider": "gemini" if "gemini" in model else "deepseek",
-            "input_tokens": len(prompt) // 4,
-            "output_tokens": len(content) // 4,
-            "latency_ms": int(latency)
-        })
-
         return {
             "role": role,
             "content": content,
             "model": model,
             "timestamp": datetime.now().isoformat()
         }
+
+    async def _summarize_expert_output(self, role: str, text: str, model: str, config: Optional[Dict[str, Any]]) -> str:
+        summary_prompt = (
+            f"You are a professional financial editor. Please summarize the following analysis from the '{role}' expert into a concise, high-density summary under 400 characters, retaining all key financial numbers, metrics, and conclusions.\n\n"
+            f"Analysis to summarize:\n{text}"
+        )
+        try:
+            summary = await llm_gateway.generate_content(
+                summary_prompt,
+                model=model,
+                gemini_api_key=config.get("geminiApiKey") if config else None,
+                deepseek_api_key=config.get("deepseekApiKey") if config else None
+            )
+            return summary.strip()
+        except Exception as e:
+            print(f"Failed to summarize expert {role}: {e}")
+            return text[:800] + "... [truncated]"
 
     def _assemble_prompt(self, role: str, symbol: str, name: str, snapshot: Dict[str, Any], history: Dict[str, Any], template: str, brain_ctx: Dict[str, Any], language: str, macro_data: Dict[str, Any] = None, commodity_data: Dict[str, Any] = None, peer_data: Dict[str, Any] = None, has_search_tools: bool = False, search_enrichment: Dict[str, Any] = None, use_native_tools: bool = False, macro_indicators: Dict[str, Any] = None, sentiment_data: Dict[str, Any] = None, market: str = "us", macro_regime_text: str = "") -> str:
         import os
@@ -497,6 +573,54 @@ class DiscussionService:
         jinja_template = env.get_template("base_prompt.jinja")
         
         return jinja_template.render(**context)
+
+    def _extract_confidence(self, analysis: str) -> float:
+        import re
+        import json
+        
+        # Match patterns like: 置信度[：:]\s*(0\.\d+|\d+%)
+        match_zh = re.search(r'(?:置信度|可信度)[：:\s]*([0-9]+(?:\.[0-9]+)?)(%)?', analysis)
+        if match_zh:
+            val = match_zh.group(1)
+            is_pct = match_zh.group(2) is not None
+            try:
+                val_f = float(val)
+                if is_pct:
+                    return val_f / 100.0
+                if val_f > 1.0:
+                    return val_f / 100.0 if val_f <= 100 else 0.5
+                return val_f
+            except ValueError:
+                pass
+                
+        match_en = re.search(r'(?:confidence score|confidence)[：:\s]*([0-9]+(?:\.[0-9]+)?)(%)?', analysis, re.IGNORECASE)
+        if match_en:
+            val = match_en.group(1)
+            is_pct = match_en.group(2) is not None
+            try:
+                val_f = float(val)
+                if is_pct:
+                    return val_f / 100.0
+                if val_f > 1.0:
+                    return val_f / 100.0 if val_f <= 100 else 0.5
+                return val_f
+            except ValueError:
+                pass
+                
+        try:
+            json_match = re.search(r'\{.*\}', analysis, re.DOTALL)
+            if json_match:
+                data = json.loads(json_match.group(0))
+                if "confidence_score" in data:
+                    return float(data["confidence_score"])
+                if "confidence" in data:
+                    val = data["confidence"]
+                    if isinstance(val, (int, float)):
+                        return float(val) / 100.0 if val > 1.0 else float(val)
+        except Exception:
+            pass
+            
+        return 0.75  # Default confidence
 
 import json
 discussion_service = DiscussionService()

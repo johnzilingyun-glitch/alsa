@@ -45,6 +45,9 @@ def compute_indicator_frame(rows: List[Dict[str, Any]]) -> pl.DataFrame:
         (pl.col("close").ewm_mean(span=12, adjust=False) - pl.col("close").ewm_mean(span=26, adjust=False)).alias("macd_line")
     ])
     df = df.with_columns([
+        pl.col("macd_line").alias("macd")
+    ])
+    df = df.with_columns([
         pl.col("macd_line").ewm_mean(span=9, adjust=False).alias("macd_signal")
     ])
     df = df.with_columns([

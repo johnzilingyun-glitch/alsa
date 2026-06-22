@@ -45,8 +45,9 @@ def calculate_rsi(close: pd.Series, period: int = 14) -> pd.Series:
     delta = close.diff()
     gain = delta.where(delta > 0, 0.0).fillna(0.0)
     loss = (-delta.where(delta < 0, 0.0)).fillna(0.0)
-    avg_gain = gain.rolling(window=period).mean()
-    avg_loss = loss.rolling(window=period).mean()
+    alpha = 1.0 / period
+    avg_gain = gain.ewm(alpha=alpha, adjust=False).mean()
+    avg_loss = loss.ewm(alpha=alpha, adjust=False).mean()
     rs = avg_gain / avg_loss.replace(0, np.nan)
     return 100 - (100 / (1 + rs))
 
@@ -92,7 +93,9 @@ def calculate_atr(df: pd.DataFrame, period: int = 14) -> pd.Series:
     high_close = (df["high"] - df["close"].shift()).abs()
     low_close = (df["low"] - df["close"].shift()).abs()
     ranges = pd.concat([high_low, high_close, low_close], axis=1)
-    return ranges.max(axis=1).rolling(period).mean()
+    tr = ranges.max(axis=1)
+    alpha = 1.0 / period
+    return tr.ewm(alpha=alpha, adjust=False).mean()
 
 
 def calculate_hurst_exponent(price_series: pd.Series, max_lag: int = 20) -> float:

@@ -1,4 +1,4 @@
-from python_service.app.db.sqlite import build_session_factory, DATABASE_URL
+from python_service.app.db.database import build_session_factory, DATABASE_URL
 from python_service.app.db.repositories.job_repo import JobRepository
 from sqlmodel import Session, select
 from python_service.app.models import AnalysisJob

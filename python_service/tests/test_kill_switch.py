@@ -19,6 +19,24 @@ from python_service.app.risk.kill_switch import (
 )
 
 
+@pytest.fixture(autouse=True)
+def cleanup_kill_switch_db():
+    import os
+    for db in ["kill_switch_state.db", "python_service/kill_switch_state.db"]:
+        if os.path.exists(db):
+            try:
+                os.remove(db)
+            except Exception:
+                pass
+    yield
+    for db in ["kill_switch_state.db", "python_service/kill_switch_state.db"]:
+        if os.path.exists(db):
+            try:
+                os.remove(db)
+            except Exception:
+                pass
+
+
 class TestKillSwitch:
     """Verify kill switch behavior."""
 

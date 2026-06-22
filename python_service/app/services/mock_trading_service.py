@@ -184,7 +184,8 @@ class MockTradingService:
                 new_shares = current_shares + shares
                 # If we fully covered and went long
                 if new_shares > 0:
-                    new_cost = actual_price
+                    long_fraction = new_shares / shares
+                    new_cost = actual_price + (cost * long_fraction) / new_shares
                     self.repo.upsert_position(account_id, symbol, market, new_shares, new_cost)
                 elif new_shares == 0:
                     self.repo.upsert_position(account_id, symbol, market, 0, 0.0)
@@ -193,7 +194,7 @@ class MockTradingService:
             else:
                 # Buy to open/add long
                 new_shares = current_shares + shares
-                new_cost = ((current_shares * average_cost) + (shares * execution_price)) / new_shares
+                new_cost = ((current_shares * average_cost) + (shares * actual_price) + cost) / new_shares
                 self.repo.upsert_position(account_id, symbol, market, new_shares, new_cost)
                 
             execution_price = actual_price
@@ -229,7 +230,8 @@ class MockTradingService:
                 new_shares = current_shares - shares
                 if new_shares < 0:
                     # Went short
-                    new_cost = actual_price
+                    short_fraction = abs(new_shares) / shares
+                    new_cost = actual_price + (cost * short_fraction) / abs(new_shares)
                     self.repo.upsert_position(account_id, symbol, market, new_shares, new_cost)
                 elif new_shares == 0:
                     self.repo.upsert_position(account_id, symbol, market, 0, 0.0)
@@ -241,10 +243,10 @@ class MockTradingService:
                 # When shorting, "average cost" is the average price we sold at
                 # Since shares is negative, we track positive cost per share
                 if current_shares == 0:
-                    new_cost = actual_price
+                    new_cost = actual_price + cost / shares
                 else:
                     # Weighted average of short entry prices
-                    new_cost = ((abs(current_shares) * average_cost) + actual_trade_value) / abs(new_shares)
+                    new_cost = ((abs(current_shares) * average_cost) + (shares * actual_price) + cost) / abs(new_shares)
                 self.repo.upsert_position(account_id, symbol, market, new_shares, new_cost)
                 
             execution_price = actual_price

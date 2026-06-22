@@ -36,31 +36,83 @@ class KillSwitchEvent:
 
 
 class KillSwitch:
-    """Global system circuit breaker."""
+    """Global system circuit breaker with SQLite persistence and HMAC validation."""
 
-    def __init__(self, db_path="kill_switch_state.json"):
-        import json, os
+    def __init__(self, db_path="kill_switch_state.db"):
         self.db_path = db_path
-        self.state, self.events = self._load_state()
+        self.events = []
+        self.state = self._load_state()
 
-    def _load_state(self):
-        import json, os
-        if os.path.exists(self.db_path):
-            with open(self.db_path) as f:
-                data = json.load(f)
-                return KillSwitchState(data.get("state", "ACTIVE")), []
-        return KillSwitchState.ACTIVE, []
+    def _compute_signature(self, state: str, reason: str) -> str:
+        import hmac, hashlib, os
+        key = os.getenv("API_TOKEN", "fallback_secret_key").encode()
+        message = f"{state}:{reason}".encode()
+        return hmac.new(key, message, hashlib.sha256).hexdigest()
 
-    def _save_state(self):
-        import json
-        with open(self.db_path, 'w') as f:
-            json.dump({"state": self.state.value}, f)
+    def _load_state(self) -> KillSwitchState:
+        import sqlite3, os
+        
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS kill_switch_state (
+                id INTEGER PRIMARY KEY,
+                state TEXT,
+                reason TEXT,
+                signature TEXT,
+                triggered_at TEXT,
+                reset_at TEXT
+            )
+        """)
+        
+        cursor.execute("SELECT state, reason, signature FROM kill_switch_state WHERE id = 1")
+        row = cursor.fetchone()
+        
+        if not row:
+            state = "ACTIVE"
+            reason = "Initial state"
+            signature = self._compute_signature(state, reason)
+            cursor.execute("""
+                INSERT INTO kill_switch_state (id, state, reason, signature, triggered_at, reset_at)
+                VALUES (1, ?, ?, ?, NULL, NULL)
+            """, (state, reason, signature))
+            conn.commit()
+            conn.close()
+            return KillSwitchState.ACTIVE
+            
+        state_str, reason, signature = row
+        conn.close()
+        
+        # Verify signature
+        expected_signature = self._compute_signature(state_str, reason)
+        if signature != expected_signature:
+            print("WARNING: Kill switch state signature verification failed! Forcing KILLED state.")
+            return KillSwitchState.KILLED
+            
+        return KillSwitchState(state_str)
 
     def trigger(self, trigger: KillSwitchTrigger, reason: str) -> None:
         """Activate the kill switch. System enters read-only mode."""
         self.state = KillSwitchState.KILLED
         self.events.append(KillSwitchEvent(trigger=trigger, reason=reason))
-        self._save_state()
+        
+        import sqlite3
+        from datetime import datetime, timezone
+        
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        signature = self._compute_signature(self.state.value, reason)
+        triggered_at = datetime.now(timezone.utc).isoformat()
+        
+        cursor.execute("""
+            UPDATE kill_switch_state
+            SET state = ?, reason = ?, signature = ?, triggered_at = ?
+            WHERE id = 1
+        """, (self.state.value, reason, signature, triggered_at))
+        conn.commit()
+        conn.close()
 
     def can_submit_order(self) -> bool:
         """New orders are blocked when killed."""
@@ -79,4 +131,21 @@ class KillSwitch:
         if not approval_id:
             raise ValueError("Kill switch reset requires human approval_id")
         self.state = KillSwitchState.ACTIVE
-        self._save_state()
+        
+        import sqlite3
+        from datetime import datetime, timezone
+        
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        reason = f"Reset by {approval_id}"
+        signature = self._compute_signature(self.state.value, reason)
+        reset_at = datetime.now(timezone.utc).isoformat()
+        
+        cursor.execute("""
+            UPDATE kill_switch_state
+            SET state = ?, reason = ?, signature = ?, reset_at = ?
+            WHERE id = 1
+        """, (self.state.value, reason, signature, reset_at))
+        conn.commit()
+        conn.close()

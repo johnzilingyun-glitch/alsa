@@ -1,11 +1,14 @@
-from typing import Optional, List
-from sqlmodel import SQLModel, Field, Relationship
+from typing import Optional, List, Dict, Any
+from sqlmodel import SQLModel, Field, Relationship, Column
+from sqlalchemy import JSON
 from datetime import datetime
 from ..time_utils import utc_now
 import uuid
 
 class User(SQLModel, table=True):
     user_id: str = Field(primary_key=True, default_factory=lambda: f"user_{uuid.uuid4().hex[:8]}")
+    username: str = Field(index=True, unique=True)
+    hashed_password: str
     display_name: str
     role: str = "viewer"  # admin/researcher/viewer
     status: str = "active"
@@ -44,7 +47,7 @@ class AnalysisJob(SQLModel, table=True):
     created_at: datetime = Field(default_factory=utc_now)
     started_at: Optional[datetime] = None
     finished_at: Optional[datetime] = None
-    result_payload: Optional[str] = None  # Legacy JSON string support
+    result_payload: Optional[Dict[str, Any]] = Field(default=None, sa_column=Column(JSON))
 
 class DataSnapshot(SQLModel, table=True):
     snapshot_id: str = Field(primary_key=True, default_factory=lambda: f"snap_{uuid.uuid4().hex[:8]}")

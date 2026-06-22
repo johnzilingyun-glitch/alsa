@@ -18,7 +18,7 @@ os.makedirs(REPORTS_DIR, exist_ok=True)
 load_dotenv(os.path.join(root_dir, ".env"), override=True)
 load_dotenv(os.path.join(root_dir, ".env.runtime"), override=True)
 
-from python_service.app.db.sqlite import init_db, build_session_factory
+from python_service.app.db.database import init_db, build_session_factory
 from python_service.app.db.repositories.job_repo import JobRepository
 from python_service.app.services.market_snapshot_service import MarketSnapshotService
 from python_service.app.services.analysis_job_service import AnalysisJobService
@@ -118,7 +118,7 @@ async def run_analysis_flow(query, market, level, output_path, model, guard="hig
     token_guard.set_level(guard)
     
     # 1. Initialize dependencies
-    from python_service.app.db.sqlite import DATABASE_URL
+    from python_service.app.db.database import DATABASE_URL
     session_factory = build_session_factory(DATABASE_URL)
     job_repo = JobRepository(session_factory)
     parquet_store = ParquetMarketStore()
@@ -207,7 +207,7 @@ async def run_analysis_flow(query, market, level, output_path, model, guard="hig
 
 async def run_sector_flow(sector_name, output_path, model):
     """Run sector analysis flow: snapshot → expert discussion → report."""
-    from python_service.app.db.sqlite import DATABASE_URL
+    from python_service.app.db.database import DATABASE_URL
     session_factory = build_session_factory(DATABASE_URL)
     job_repo = JobRepository(session_factory)
     from python_service.app.services.sector_analysis_service import SectorAnalysisService

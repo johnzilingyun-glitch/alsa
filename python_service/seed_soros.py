@@ -1,5 +1,5 @@
 from app.db.models import PromptVersion
-from app.db.sqlite import build_session_factory, DATABASE_URL
+from app.db.database import build_session_factory, DATABASE_URL
 from sqlmodel import Session
 
 def seed_soros():

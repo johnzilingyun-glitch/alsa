@@ -3,7 +3,7 @@ Idea Screening Engine — Multi-factor stock screening inspired by Anthropic FSI
 Supports Value, Growth, Quality, Short, and Thematic screens.
 """
 import asyncio
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Tuple, Optional
 from concurrent.futures import ThreadPoolExecutor
 import logging
 
@@ -74,125 +74,107 @@ async def run_screen(
 
 
 async def _screen_us(screen_type: str, criteria: Dict, sector: Optional[str], limit: int) -> List[Dict]:
-    """Screen US stocks using yfinance."""
-    loop = asyncio.get_event_loop()
-    return await loop.run_in_executor(_executor, _screen_us_sync, screen_type, criteria, sector, limit)
-
-
-def _screen_us_sync(screen_type: str, criteria: Dict, sector: Optional[str], limit: int) -> List[Dict]:
-    """Synchronous US screening via yfinance screener."""
+    """Screen US stocks asynchronously using yfinance."""
     try:
-        import yfinance as yf
-
-        # Use yfinance's built-in screeners where possible
-        if screen_type == "value":
-            # Screen S&P 500 for value characteristics
-            tickers_list = _get_sp500_tickers()
-            return _filter_tickers_by_criteria(tickers_list[:100], criteria, limit)
-        elif screen_type == "growth":
-            tickers_list = _get_sp500_tickers()
-            return _filter_tickers_by_criteria(tickers_list[:100], criteria, limit)
-        elif screen_type == "quality":
-            tickers_list = _get_sp500_tickers()
-            return _filter_tickers_by_criteria(tickers_list[:100], criteria, limit)
-        elif screen_type == "momentum":
-            tickers_list = _get_sp500_tickers()
-            return _filter_by_momentum(tickers_list[:100], criteria, limit)
+        tickers_list = _get_sp500_tickers()
+        # Expanded coverage: Full S&P 500 (removed arbitrary [:100] slice constraint)
+        if screen_type == "momentum":
+            return await _filter_by_momentum_async(tickers_list, criteria, limit)
         else:
-            tickers_list = _get_sp500_tickers()
-            return _filter_tickers_by_criteria(tickers_list[:80], criteria, limit)
+            return await _filter_tickers_by_criteria_async(tickers_list, criteria, limit)
     except Exception as e:
         logger.error(f"US screening error: {e}")
         return []
 
-
-def _get_sp500_tickers() -> List[str]:
-    """Get S&P 500 ticker list."""
-    try:
-        import pandas as pd
-        table = pd.read_html('https://en.wikipedia.org/wiki/List_of_S%26P_500_companies')
-        return table[0]['Symbol'].tolist()
-    except Exception:
-        # Fallback: common large-cap tickers
-        return [
-            "AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "META", "TSLA", "BRK-B",
-            "UNH", "JNJ", "V", "XOM", "JPM", "PG", "MA", "HD", "CVX", "MRK",
-            "ABBV", "LLY", "PEP", "KO", "COST", "AVGO", "TMO", "WMT", "MCD",
-            "CSCO", "ACN", "ABT", "DHR", "NEE", "LIN", "TXN", "PM", "UNP",
-            "ADBE", "NKE", "CRM", "ORCL", "AMD", "INTC", "QCOM", "AMAT"
-        ]
-
-
-def _filter_tickers_by_criteria(tickers: List[str], criteria: Dict, limit: int) -> List[Dict]:
-    """Filter tickers by fundamental criteria using yfinance."""
+def _fetch_batch_info(batch: List[str]) -> List[Tuple[str, Dict]]:
     import yfinance as yf
-    results = []
+    res = []
+    try:
+        tickers_obj = yf.Tickers(" ".join(batch))
+        for sym in batch:
+            try:
+                res.append((sym, tickers_obj.tickers[sym].info))
+            except Exception:
+                pass
+    except Exception:
+        pass
+    return res
 
-    # Process in batches for efficiency
-    batch_size = 10
-    for i in range(0, len(tickers), batch_size):
+async def _filter_tickers_by_criteria_async(tickers: List[str], criteria: Dict, limit: int) -> List[Dict]:
+    """Filter tickers by fundamental criteria asynchronously."""
+    results = []
+    batch_size = 20
+    batches = [tickers[i:i+batch_size] for i in range(0, len(tickers), batch_size)]
+    chunk_size = 5 # 5 batches concurrently = 100 tickers per wave
+    
+    for i in range(0, len(batches), chunk_size):
         if len(results) >= limit:
             break
-        batch = tickers[i:i+batch_size]
-        try:
-            tickers_obj = yf.Tickers(" ".join(batch))
-            for symbol in batch:
+        current_batches = batches[i:i+chunk_size]
+        import asyncio
+        tasks = [asyncio.to_thread(_fetch_batch_info, b) for b in current_batches]
+        batch_results = await asyncio.gather(*tasks)
+        for b_res in batch_results:
+            for sym, info in b_res:
                 if len(results) >= limit:
                     break
-                try:
-                    info = tickers_obj.tickers[symbol].info
-                    if _matches_criteria(info, criteria):
-                        results.append(_extract_screen_metrics(symbol, info))
-                except Exception:
-                    continue
-        except Exception:
-            continue
-
-    # Sort by relevance score
+                if _matches_criteria(info, criteria):
+                    results.append(_extract_screen_metrics(sym, info))
     results.sort(key=lambda x: x.get("score", 0), reverse=True)
     return results[:limit]
 
-
-def _filter_by_momentum(tickers: List[str], criteria: Dict, limit: int) -> List[Dict]:
-    """Filter by price momentum."""
+def _fetch_batch_momentum(batch: List[str]) -> List[Dict]:
     import yfinance as yf
-    results = []
+    res = []
+    try:
+        data = yf.download(batch, period="1y", progress=False)
+        if data.empty:
+            return res
+        for symbol in batch:
+            try:
+                if len(batch) == 1:
+                    close = data['Close'].dropna()
+                else:
+                    close = data['Close'][symbol].dropna()
+                if len(close) < 200:
+                    continue
+                current = close.iloc[-1]
+                ma200 = close.rolling(200).mean().iloc[-1]
+                ma50 = close.rolling(50).mean().iloc[-1]
+                pct_6m = (current / close.iloc[-126] - 1) * 100
 
-    batch_size = 10
-    for i in range(0, len(tickers), batch_size):
+                if current > ma200 and current > ma50 and pct_6m > 10:
+                    res.append({
+                        "symbol": symbol,
+                        "price": round(float(current), 2),
+                        "pct_above_200ma": round(float((current/ma200 - 1) * 100), 1),
+                        "6m_return": round(float(pct_6m), 1),
+                        "ma50_above_ma200": bool(ma50 > ma200),
+                        "score": round(float(pct_6m + (current/ma200 - 1) * 50), 1)
+                    })
+            except Exception:
+                continue
+    except Exception:
+        pass
+    return res
+
+async def _filter_by_momentum_async(tickers: List[str], criteria: Dict, limit: int) -> List[Dict]:
+    """Filter by price momentum asynchronously."""
+    results = []
+    batch_size = 20
+    batches = [tickers[i:i+batch_size] for i in range(0, len(tickers), batch_size)]
+    chunk_size = 5
+    
+    for i in range(0, len(batches), chunk_size):
         if len(results) >= limit:
             break
-        batch = tickers[i:i+batch_size]
-        try:
-            data = yf.download(batch, period="1y", progress=False)
-            if data.empty:
-                continue
-            for symbol in batch:
-                if len(results) >= limit:
-                    break
-                try:
-                    close = data['Close'][symbol].dropna()
-                    if len(close) < 200:
-                        continue
-                    current = close.iloc[-1]
-                    ma200 = close.rolling(200).mean().iloc[-1]
-                    ma50 = close.rolling(50).mean().iloc[-1]
-                    pct_6m = (current / close.iloc[-126] - 1) * 100
-
-                    if current > ma200 and current > ma50 and pct_6m > 10:
-                        results.append({
-                            "symbol": symbol,
-                            "price": round(float(current), 2),
-                            "pct_above_200ma": round(float((current/ma200 - 1) * 100), 1),
-                            "6m_return": round(float(pct_6m), 1),
-                            "ma50_above_ma200": bool(ma50 > ma200),
-                            "score": round(float(pct_6m + (current/ma200 - 1) * 50), 1)
-                        })
-                except Exception:
-                    continue
-        except Exception:
-            continue
-
+        current_batches = batches[i:i+chunk_size]
+        import asyncio
+        tasks = [asyncio.to_thread(_fetch_batch_momentum, b) for b in current_batches]
+        batch_results = await asyncio.gather(*tasks)
+        for b_res in batch_results:
+            results.extend(b_res)
+            
     results.sort(key=lambda x: x.get("score", 0), reverse=True)
     return results[:limit]
 
@@ -250,16 +232,44 @@ def _extract_screen_metrics(symbol: str, info: Dict) -> Dict:
     fcf = info.get("freeCashflow", 0)
     fcf_yield = (fcf / market_cap * 100) if market_cap > 0 and fcf else 0
 
-    # Composite score based on quality + value + growth
-    score = 0
-    if pe and 0 < pe < 50:
-        score += max(0, 50 - pe)  # lower PE = higher score
-    if roe > 10:
-        score += roe * 0.5
-    if revenue_growth > 0:
-        score += revenue_growth * 0.3
-    if fcf_yield > 0:
-        score += fcf_yield * 2
+    # Composite score based on quality + value + growth (Addressing Audit S3)
+    # Using a simple pseudo-z-score approach relative to typical market averages
+    # Note: Full industry neutralization requires cross-sectional data, here we do basic standardization
+    score = 50  # Base score
+    
+    # Value factor (PE)
+    if pe and pe > 0:
+        if pe < 15:
+            score += 15
+        elif pe < 25:
+            score += 5
+        elif pe > 40:
+            score -= 10
+            
+    # Quality factor (ROE & FCF Yield)
+    if roe > 15:
+        score += 10
+    elif roe < 5:
+        score -= 5
+        
+    if fcf_yield > 5:
+        score += 10
+    elif fcf_yield < 0:
+        score -= 10
+        
+    # Growth factor (Revenue & Earnings Growth)
+    if earnings_growth > 20:
+        score += 10
+    elif earnings_growth < 0:
+        score -= 5
+        
+    if revenue_growth > 15:
+        score += 5
+    elif revenue_growth < 0:
+        score -= 5
+        
+    # Cap score between 0 and 100
+    score = max(0, min(100, score))
 
     return {
         "symbol": symbol,
@@ -285,10 +295,11 @@ async def _screen_ashare(screen_type: str, criteria: Dict, sector: Optional[str]
 
 
 def _screen_ashare_sync(screen_type: str, criteria: Dict, sector: Optional[str], limit: int) -> List[Dict]:
-    """Synchronous A-Share screening via AkShare."""
+    """Synchronous A-Share screening via AkShare & yfinance."""
     try:
         import akshare as ak
         import pandas as pd
+        import yfinance as yf
 
         # Get real-time A-share market data
         df = ak.stock_zh_a_spot_em()
@@ -317,38 +328,50 @@ def _screen_ashare_sync(screen_type: str, criteria: Dict, sector: Optional[str],
             if col in df.columns:
                 df[col] = pd.to_numeric(df[col], errors='coerce')
 
-        # Apply screen-type specific filters
+        # Apply screen-type specific rough filters
         if screen_type == "value":
-            df = df[(df["pe"] > 0) & (df["pe"] < criteria.get("pe_max", 15))]
-            df = df[(df["pb"] > 0) & (df["pb"] < criteria.get("pb_max", 2.0))]
+            df = df[(df["pe"] > 0) & (df["pe"] < 35)]
+            df = df[(df["pb"] > 0) & (df["pb"] < 3.5)]
         elif screen_type == "growth":
-            # For A-shares, use multi-dimensional growth criteria
-            df = df[
-                (df["pe"] > 0) & (df["pe"] < 50) &
-                (df.get("revenue_growth", 0) > 15) &
-                (df.get("earnings_growth", 0) > 20)
-            ]
+            df = df[(df["pe"] > 0) & (df["pe"] < 70)]
+        elif screen_type == "quality":
+            df = df[(df["pe"] > 0) & (df["pe"] < 60)]
+        elif screen_type == "short":
+            df = df[(df["pe"] < 0) | (df["pe"] > 80)]
         elif screen_type == "momentum":
             df = df[df["change_pct"] > 0]
-            df = df.sort_values("change_pct", ascending=False)
-        elif screen_type == "short":
-            df = df[(df["pe"] < 0) | (df["pe"] > 100)]
 
         # Sort by market cap descending (prefer larger companies)
         if "market_cap" in df.columns:
             df = df.sort_values("market_cap", ascending=False)
 
-        results = []
-        for _, row in df.head(limit).iterrows():
-            results.append({
-                "symbol": row.get("symbol", ""),
-                "name": row.get("name", ""),
-                "price": round(float(row.get("price", 0)), 2) if pd.notna(row.get("price")) else None,
-                "pe": round(float(row.get("pe", 0)), 1) if pd.notna(row.get("pe")) else None,
-                "pb": round(float(row.get("pb", 0)), 2) if pd.notna(row.get("pb")) else None,
-                "market_cap_b": round(float(row.get("market_cap", 0)) / 1e8, 1) if pd.notna(row.get("market_cap")) else None,
-                "change_pct": round(float(row.get("change_pct", 0)), 2) if pd.notna(row.get("change_pct")) else None,
-            })
+        candidates = df.head(40)
+        if candidates.empty:
+            return []
+
+        # Map A-share symbols to yfinance format
+        yf_tickers = []
+        symbol_to_name = {}
+        for _, row in candidates.iterrows():
+            code = str(row["symbol"]).strip()
+            if len(code) < 6:
+                code = code.zfill(6)
+            yf_sym = f"{code}.SS" if code.startswith(("6", "900")) else f"{code}.SZ"
+            yf_tickers.append(yf_sym)
+            symbol_to_name[yf_sym] = row["name"]
+
+        # Run deep yfinance criteria screening
+        import asyncio
+        if screen_type == "momentum":
+            results = asyncio.run(_filter_by_momentum_async(yf_tickers, criteria, limit))
+        else:
+            results = asyncio.run(_filter_tickers_by_criteria_async(yf_tickers, criteria, limit))
+
+        # Restore original A-share name for output
+        for r in results:
+            yf_sym = r["symbol"]
+            if yf_sym in symbol_to_name:
+                r["name"] = symbol_to_name[yf_sym]
 
         return results
     except Exception as e:

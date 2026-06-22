@@ -18,6 +18,7 @@ interface UIState {
   showDiscussion: boolean;
   isSettingsOpen: boolean;
   showAdminPanel: boolean;
+  showAdminManagement: boolean;
   showIBKRDashboard: boolean;
   showMockTradingDashboard: boolean;
   showBacktestPanel: boolean;
@@ -81,6 +82,7 @@ interface UIState {
   setShowDiscussion: (show: boolean) => void;
   setIsSettingsOpen: (open: boolean) => void;
   setShowAdminPanel: (show: boolean) => void;
+  setShowAdminManagement: (show: boolean) => void;
   setShowIBKRDashboard: (show: boolean) => void;
   setShowMockTradingDashboard: (show: boolean) => void;
   setShowBacktestPanel: (show: boolean) => void;
@@ -108,6 +110,7 @@ export const useUIStore = create<UIState>()(
       showDiscussion: false,
       isSettingsOpen: false,
       showAdminPanel: false,
+      showAdminManagement: false,
       showIBKRDashboard: false,
       showMockTradingDashboard: false,
       showBacktestPanel: false,
@@ -174,6 +177,7 @@ export const useUIStore = create<UIState>()(
       setShowDiscussion: (showDiscussion) => set({ showDiscussion }),
       setIsSettingsOpen: (isSettingsOpen) => set({ isSettingsOpen }),
       setShowAdminPanel: (showAdminPanel) => set({ showAdminPanel }),
+      setShowAdminManagement: (showAdminManagement) => set({ showAdminManagement }),
       setShowIBKRDashboard: (showIBKRDashboard) => set({ showIBKRDashboard }),
       setShowMockTradingDashboard: (showMockTradingDashboard) => set({ showMockTradingDashboard }),
       setShowBacktestPanel: (showBacktestPanel) => set({ showBacktestPanel }),

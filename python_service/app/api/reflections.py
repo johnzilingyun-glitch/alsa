@@ -5,7 +5,7 @@ from sqlmodel import select, Session
 from datetime import datetime
 import json
 
-from ..db.sqlite import get_session
+from ..db.database import get_session
 from ..db.models import ReflectionMemory
 
 router = APIRouter(prefix="/reflections", tags=["reflections"])

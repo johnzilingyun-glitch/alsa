@@ -1,0 +1,8 @@
+Gym has been unmaintained since 2022 and does not support NumPy 2.0 amongst other critical functionality.
+Please upgrade to Gymnasium, the maintained drop-in replacement of Gym, or contact the authors of your software and request that they upgrade.
+Users of this version of Gym should be able to simply replace 'import gym' with 'import gymnasium as gym' in the vast majority of cases.
+See the migration guide at https://gymnasium.farama.org/introduction/migration_guide/ for additional information.
+Traceback (most recent call last):
+  File "/home/ubuntu/work/alsa/python_service/paper_trading_system/execution_layer/run_qlib_bridge.py", line 15, in <module>
+    from paper_trading_system.decision_layer.qlib_custom_strategy import CustomRuleQlibStrategy
+ModuleNotFoundError: No module named 'paper_trading_system'

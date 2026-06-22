@@ -14,7 +14,7 @@ def test_admin_requires_token():
 
 def test_admin_passes_with_correct_token():
     client = TestClient(app)
-    # Default is "change-me"
-    resp = client.get("/api/admin/stack-status", headers={"x-admin-token": "change-me"})
+    from python_service.app.api.admin import ADMIN_TOKEN
+    resp = client.get("/api/admin/stack-status", headers={"x-admin-token": ADMIN_TOKEN})
     assert resp.status_code == 200
     assert resp.json()["fastapi"] == "active"

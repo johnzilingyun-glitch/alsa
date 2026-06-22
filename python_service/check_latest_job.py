@@ -6,7 +6,7 @@ import json
 root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(root_dir)
 
-from python_service.app.db.sqlite import session_factory
+from python_service.app.db.database import session_factory
 from python_service.app.db.models import AnalysisJob
 from sqlmodel import select
 

@@ -28,6 +28,7 @@ class RateLimiter:
 
     def __init__(self, min_interval: float = 3.0, max_concurrent: int = 2):
         self._min_interval = min_interval
+        self._default_min_interval = min_interval
         self._semaphore = asyncio.Semaphore(max_concurrent)
         self._last_request_time: float = 0.0
         self._lock = asyncio.Lock()
@@ -43,16 +44,18 @@ class RateLimiter:
                 await asyncio.sleep(wait_time)
             self._last_request_time = time.monotonic()
 
-    def release(self):
+    def release(self, success: bool = True):
         """Release the semaphore after request completes."""
+        if success:
+            self._min_interval = self._default_min_interval
         self._semaphore.release()
 
     async def __aenter__(self):
         await self.acquire()
         return self
 
-    async def __aexit__(self, *args):
-        self.release()
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        self.release(success=(exc_type is None))
 
 
 class LLMGateway:
@@ -147,7 +150,80 @@ class LLMGateway:
                 raise ValueError("DEFAULT_LLM_API_KEY is missing.")
         return self._default_client
 
-    async def generate_content(self, prompt: str, model: str = None, temperature: float = 0.3, on_chunk: Optional[callable] = None, gemini_api_key: Optional[str] = None, deepseek_api_key: Optional[str] = None, cache_key: Optional[str] = None) -> str:
+    async def generate_content(self, prompt: str, model: str = None, temperature: float = 0.3, on_chunk: Optional[callable] = None, gemini_api_key: Optional[str] = None, deepseek_api_key: Optional[str] = None, cache_key: Optional[str] = None, prompt_version_id: Optional[str] = None) -> str:
+        import time
+        start_time = time.perf_counter()
+        
+        # Get token usage diff
+        usage_ctx = current_token_usage.get()
+        created_ctx = False
+        if usage_ctx is None:
+            usage_ctx = {"promptTokens": 0, "candidatesTokens": 0, "totalTokens": 0}
+            token = current_token_usage.set(usage_ctx)
+            created_ctx = True
+            
+        start_prompt = usage_ctx.get("promptTokens", 0)
+        start_cand = usage_ctx.get("candidatesTokens", 0)
+        
+        result_text = None
+        try:
+            result_text = await self._generate_content_inner(prompt, model, temperature, on_chunk, gemini_api_key, deepseek_api_key, cache_key)
+            return result_text
+        finally:
+            latency_ms = int((time.perf_counter() - start_time) * 1000)
+            if prompt_version_id:
+                try:
+                    # Determine provider
+                    provider = "unknown"
+                    res_model = model or self.default_model
+                    if res_model:
+                        if res_model.lower().startswith("gemini"):
+                            provider = "gemini"
+                        elif "deepseek" in res_model.lower():
+                            provider = "deepseek"
+                        else:
+                            provider = "default"
+                            
+                    prompt_tokens = usage_ctx.get("promptTokens", 0) - start_prompt
+                    cand_tokens = usage_ctx.get("candidatesTokens", 0) - start_cand
+                    
+                    if prompt_tokens == 0:
+                        prompt_tokens = len(str(prompt).encode('utf-8')) // 3
+                    if cand_tokens == 0 and result_text:
+                        cand_tokens = len(str(result_text).encode('utf-8')) // 3
+                        
+                    # Schema validation
+                    schema_passed = True
+                    if result_text and ("json" in prompt.lower() or (res_model and "json" in res_model.lower())):
+                        try:
+                            import json, re
+                            json_match = re.search(r'\{.*\}', result_text, re.DOTALL)
+                            if json_match:
+                                json.loads(json_match.group(0))
+                            else:
+                                schema_passed = False
+                        except:
+                            schema_passed = False
+                    elif not result_text:
+                        schema_passed = False
+                        
+                    from ..prompting.runtime import prompt_runtime
+                    prompt_runtime.record_run({
+                        "prompt_version_id": prompt_version_id,
+                        "model": res_model,
+                        "provider": provider,
+                        "input_tokens": prompt_tokens,
+                        "output_tokens": cand_tokens,
+                        "latency_ms": latency_ms,
+                        "tool_calls": 0,
+                        "schema_validation_passed": schema_passed
+                    })
+                except Exception as ex:
+                    logger.error(f"Error recording prompt run metrics: {ex}")
+            if created_ctx:
+                current_token_usage.reset(token)
+
+    async def _generate_content_inner(self, prompt: str, model: str = None, temperature: float = 0.3, on_chunk: Optional[callable] = None, gemini_api_key: Optional[str] = None, deepseek_api_key: Optional[str] = None, cache_key: Optional[str] = None) -> str:
         """
         Generate content with built-in quality-gate retry.
         Retries up to 2 extra times if response is truncated or garbage.
@@ -228,6 +304,16 @@ class LLMGateway:
                 else:
                     logger.warning(f"WARNING: Very short response ({len(result_text)} chars) after {max_quality_retries} retries — using anyway")
 
+            # Quality gate: enforce <structured_data> if prompt explicitly requires it
+            if result_text and "structured_data" in prompt.lower():
+                import re
+                if not re.search(r'<structured_data>\s*(\{.*?\})\s*</structured_data>', result_text, re.DOTALL):
+                    if quality_attempt < max_quality_retries:
+                        logger.warning(f"WARNING: Missing <structured_data> JSON block in output — quality retry {quality_attempt+1}/{max_quality_retries}")
+                        continue
+                    else:
+                        logger.warning(f"WARNING: Missing <structured_data> persists after retries — using anyway")
+
             # Quality gate: detect off-topic garbage
             garbage_keywords_str = os.getenv("LLM_GARBAGE_KEYWORDS", "h2020,erasmus,empowering women,stem education")
             garbage_keywords = [k.strip().lower() for k in garbage_keywords_str.split(",") if k.strip()]
@@ -290,11 +376,9 @@ class LLMGateway:
                         "candidatesTokens": getattr(chunk.usage, 'completion_tokens', 0),
                         "totalTokens": getattr(chunk.usage, 'total_tokens', 0)
                     }
-            print(flush=True)
             text_res = "".join(content_parts)
             
             usage_ctx = current_token_usage.get()
-            print(f"DEBUG: usage_ctx retrieved: {usage_ctx}", flush=True)
             if usage_ctx is not None:
                 usage_ctx["promptTokens"] += usage_dict["promptTokens"]
                 usage_ctx["candidatesTokens"] += usage_dict["candidatesTokens"]
@@ -328,7 +412,7 @@ class LLMGateway:
                             await asyncio.sleep(1)
                             if os.path.exists(".stop"):
                                 raise Exception("Analysis stopped by user.")
-                        retry_delay = min(retry_delay * 2, 3600)
+                        retry_delay = min(retry_delay * 2, 120)
                         continue
                 raise e
 
@@ -341,7 +425,7 @@ class LLMGateway:
             
         max_retries = 20
         retry_delay = 15 # Initial delay in seconds
-        max_delay = 3600 # 1 hour
+        max_delay = 120 # 2 minutes cap
         
         # Strict mode: NO model degradation. Only use the user-selected model.
         # Rate limits are handled by exponential backoff with extended wait times.
@@ -472,7 +556,6 @@ class LLMGateway:
                         "candidatesTokens": getattr(chunk.usage, 'completion_tokens', 0),
                         "totalTokens": getattr(chunk.usage, 'total_tokens', 0)
                     }
-            print(flush=True)  # newline after streaming dots
             text_res = "".join(content_parts)
             
             usage_ctx = current_token_usage.get()
@@ -505,7 +588,7 @@ class LLMGateway:
                             if os.path.exists(".stop"):
                                 logger.info("User stop signal detected during wait. Aborting...")
                                 raise Exception("Analysis stopped by user.")
-                        retry_delay = min(retry_delay * 2, 3600)
+                        retry_delay = min(retry_delay * 2, 120)
                         continue
                 
                 # Strict mode: Do not fallback or downgrade
@@ -514,7 +597,72 @@ class LLMGateway:
                 
         raise Exception(f"Failed to generate content with {final_model} after {max_retries} attempts due to rate limits.")
 
-    async def generate_with_native_tools(self, prompt: str, model: str, role: str = None, temperature: float = 0.3, max_tool_rounds: int = 20, on_chunk: Optional[callable] = None, deepseek_api_key: Optional[str] = None, cache_key: Optional[str] = None) -> str:
+    async def generate_with_native_tools(self, prompt: str, model: str, role: str = None, temperature: float = 0.3, max_tool_rounds: int = 20, on_chunk: Optional[callable] = None, deepseek_api_key: Optional[str] = None, cache_key: Optional[str] = None, prompt_version_id: Optional[str] = None) -> str:
+        import time
+        start_time = time.perf_counter()
+        
+        # Get token usage diff
+        usage_ctx = current_token_usage.get()
+        created_ctx = False
+        if usage_ctx is None:
+            usage_ctx = {"promptTokens": 0, "candidatesTokens": 0, "totalTokens": 0}
+            token = current_token_usage.set(usage_ctx)
+            created_ctx = True
+            
+        start_prompt = usage_ctx.get("promptTokens", 0)
+        start_cand = usage_ctx.get("candidatesTokens", 0)
+        
+        result_text = None
+        try:
+            result_text = await self._generate_with_native_tools_inner(prompt, model, role, temperature, max_tool_rounds, on_chunk, deepseek_api_key, cache_key)
+            return result_text
+        finally:
+            latency_ms = int((time.perf_counter() - start_time) * 1000)
+            if prompt_version_id:
+                try:
+                    # Determine provider
+                    provider = "deepseek" if "deepseek" in model.lower() else "default"
+                    
+                    prompt_tokens = usage_ctx.get("promptTokens", 0) - start_prompt
+                    cand_tokens = usage_ctx.get("candidatesTokens", 0) - start_cand
+                    
+                    if prompt_tokens == 0:
+                        prompt_tokens = len(str(prompt).encode('utf-8')) // 3
+                    if cand_tokens == 0 and result_text:
+                        cand_tokens = len(str(result_text).encode('utf-8')) // 3
+                        
+                    # Schema validation
+                    schema_passed = True
+                    if result_text and ("json" in prompt.lower() or (model and "json" in model.lower())):
+                        try:
+                            import json, re
+                            json_match = re.search(r'\{.*\}', result_text, re.DOTALL)
+                            if json_match:
+                                json.loads(json_match.group(0))
+                            else:
+                                schema_passed = False
+                        except:
+                            schema_passed = False
+                    elif not result_text:
+                        schema_passed = False
+                        
+                    from ..prompting.runtime import prompt_runtime
+                    prompt_runtime.record_run({
+                        "prompt_version_id": prompt_version_id,
+                        "model": model,
+                        "provider": provider,
+                        "input_tokens": prompt_tokens,
+                        "output_tokens": cand_tokens,
+                        "latency_ms": latency_ms,
+                        "tool_calls": 0,
+                        "schema_validation_passed": schema_passed
+                    })
+                except Exception as ex:
+                    logger.error(f"Error recording prompt run metrics: {ex}")
+            if created_ctx:
+                current_token_usage.reset(token)
+
+    async def _generate_with_native_tools_inner(self, prompt: str, model: str, role: str = None, temperature: float = 0.3, max_tool_rounds: int = 20, on_chunk: Optional[callable] = None, deepseek_api_key: Optional[str] = None, cache_key: Optional[str] = None) -> str:
         """
         Generate content using DeepSeek's native OpenAI-compatible function calling API.
         
@@ -553,7 +701,7 @@ class LLMGateway:
         
         # Guard against prompt size explosion
         prompt_chars = len(prompt)
-        prompt_tokens_est = prompt_chars // 4
+        prompt_tokens_est = len(str(prompt).encode('utf-8')) // 3
         if prompt_tokens_est > 60000:
             logger.warning(f"  [ToolLoop] WARNING: Prompt exceeds 60k tokens, truncating search enrichment...")
             enrichment_start = prompt.find("[SEARCH ENRICHMENT]")
@@ -574,7 +722,7 @@ class LLMGateway:
                 raise Exception("Analysis stopped by user.")
             
             total_chars = sum(len(m.get("content") or "") for m in messages)
-            total_tokens_est = total_chars // 4
+            total_tokens_est = len(str(total_chars).encode('utf-8')) // 3 # roughly
             logger.info(f"  [ToolLoop] Prompt size: ~{total_tokens_est} tokens ({total_chars} chars)")
             
             # Last round: force completion without tools
@@ -651,8 +799,6 @@ class LLMGateway:
                     if delta.content:
                         content_parts.append(delta.content)
                         char_count += len(delta.content)
-                        if char_count % 200 < len(delta.content):
-                            print(".", end="", flush=True)
                         if on_chunk:
                             on_chunk(char_count)
                     
@@ -671,7 +817,6 @@ class LLMGateway:
                                     tool_calls_acc[idx]["function"]["arguments"] += tc_delta.function.arguments
 
                 
-                print(flush=True)
                 reasoning_content = "".join(reasoning_parts) if reasoning_parts else None
                 return "".join(content_parts), tool_calls_acc, reasoning_content
             
@@ -905,9 +1050,6 @@ class LLMGateway:
                 for chunk in resp:
                     if chunk.choices and chunk.choices[0].delta.content:
                         parts.append(chunk.choices[0].delta.content)
-                        if len(parts) % 50 == 0:
-                            print(".", end="", flush=True)
-                print(flush=True)
                 return "".join(parts)
 
             try:
@@ -965,21 +1107,6 @@ class LLMGateway:
                         delta = chunk.choices[0].delta
                         if delta.content:
                             content_parts.append(delta.content)
-                            if len(content_parts) % 50 == 0:
-                                print(".", end="", flush=True)
-                        if delta.tool_calls:
-                            for tc_delta in delta.tool_calls:
-                                idx = tc_delta.index
-                                while len(tool_calls_acc) <= idx:
-                                    tool_calls_acc.append({"id": "", "function": {"name": "", "arguments": ""}})
-                                if tc_delta.id:
-                                    tool_calls_acc[idx]["id"] = tc_delta.id
-                                if tc_delta.function:
-                                    if tc_delta.function.name:
-                                        tool_calls_acc[idx]["function"]["name"] += tc_delta.function.name
-                                    if tc_delta.function.arguments:
-                                        tool_calls_acc[idx]["function"]["arguments"] += tc_delta.function.arguments
-                    print(flush=True)
                     return "".join(content_parts), tool_calls_acc
                 
                 retry_content, retry_tool_calls = await asyncio.to_thread(_retry_with_tools)
@@ -1066,7 +1193,7 @@ class LLMGateway:
             result = re.sub(r'\n{3,}', '\n\n', result).strip()
         return result
 
-    async def generate_with_tools(self, prompt: str, model: str = "gemini-3.1-pro-preview", role: str = None, temperature: float = 0.3, max_tool_rounds: int = 20, on_chunk: Optional[callable] = None, gemini_api_key: Optional[str] = None, deepseek_api_key: Optional[str] = None, cache_key: Optional[str] = None) -> str:
+    async def generate_with_tools(self, prompt: str, model: str = "gemini-3.1-pro-preview", role: str = None, temperature: float = 0.3, max_tool_rounds: int = 20, on_chunk: Optional[callable] = None, gemini_api_key: Optional[str] = None, deepseek_api_key: Optional[str] = None, cache_key: Optional[str] = None, prompt_version_id: Optional[str] = None) -> str:
         """
         Generate content with tool-calling loop.
         
@@ -1075,7 +1202,7 @@ class LLMGateway:
         """
         # For DeepSeek, use native OpenAI-compatible function calling
         if "deepseek" in model.lower():
-            return await self.generate_with_native_tools(prompt, model, role=role, temperature=temperature, max_tool_rounds=max_tool_rounds, on_chunk=on_chunk, deepseek_api_key=deepseek_api_key, cache_key=cache_key)
+            return await self.generate_with_native_tools(prompt, model, role=role, temperature=temperature, max_tool_rounds=max_tool_rounds, on_chunk=on_chunk, deepseek_api_key=deepseek_api_key, cache_key=cache_key, prompt_version_id=prompt_version_id)
         
         from .expert_tools import parse_tool_calls, has_tool_calls, tool_executor
         
@@ -1085,7 +1212,7 @@ class LLMGateway:
         for round_num in range(max_tool_rounds + 1):
             # Guard against prompt size explosion
             prompt_chars = len(current_prompt)
-            prompt_tokens_est = prompt_chars // 4
+            prompt_tokens_est = len(str(current_prompt).encode('utf-8')) // 3
             logger.info(f"  [ToolLoop] Prompt size: ~{prompt_tokens_est} tokens ({prompt_chars} chars)")
             if prompt_tokens_est > 60000:
                 logger.warning(f"  [ToolLoop] WARNING: Prompt exceeds 60k tokens, truncating search enrichment...")
@@ -1096,7 +1223,7 @@ class LLMGateway:
                     current_prompt = current_prompt[:enrichment_start] + "[SEARCH ENRICHMENT - truncated due to prompt size]\n" + current_prompt[enrichment_end:]
 
             # Generate
-            result = await self.generate_content(current_prompt, model=model, temperature=temperature, on_chunk=on_chunk, gemini_api_key=gemini_api_key, deepseek_api_key=deepseek_api_key)
+            result = await self.generate_content(current_prompt, model=model, temperature=temperature, on_chunk=on_chunk, gemini_api_key=gemini_api_key, deepseek_api_key=deepseek_api_key, prompt_version_id=prompt_version_id)
             
             if not result:
                 break

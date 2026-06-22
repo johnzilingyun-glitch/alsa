@@ -7,7 +7,7 @@ from sqlmodel import SQLModel, Session, create_engine
 # Add project root to path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
 
-from python_service.app.db.sqlite import build_session_factory
+from python_service.app.db.database import build_session_factory
 from python_service.app.db.repositories.watchlist_repo import WatchlistRepository
 
 def test_build_session_factory_registers_core_tables_without_model_side_effects(tmp_path):

@@ -8,7 +8,7 @@ logger = logging.getLogger(__name__)
 from pydantic import BaseModel
 from typing import Optional, List
 from sqlmodel import Session
-from ..db.sqlite import session_factory
+from ..db.database import session_factory
 from ..services.mock_trading_service import MockTradingService
 
 router = APIRouter(prefix="/mock-trading", tags=["mock-trading"])
@@ -161,6 +161,9 @@ async def execute_trade(payload: TradeExecute):
             "shares": result.shares,
             "execution_price": result.execution_price,
             "realized_pnl": result.realized_pnl,
+            "commission": result.commission,
+            "position_size_pct": result.position_size_pct,
+            "related_alert_id": result.related_alert_id,
             "timestamp": str(result.timestamp),
         }}
 
@@ -193,7 +196,12 @@ async def process_pending_orders(payload: ProcessOrders):
         "trade_id": t.trade_id,
         "symbol": t.symbol,
         "action": t.action,
+        "shares": t.shares,
         "execution_price": t.execution_price,
+        "realized_pnl": t.realized_pnl,
+        "commission": t.commission,
+        "position_size_pct": t.position_size_pct,
+        "related_alert_id": t.related_alert_id,
     } for t in trades]}
 
 @router.get("/trades/{account_id}")
@@ -208,6 +216,9 @@ async def list_trades(account_id: str, symbol: Optional[str] = None):
         "shares": t.shares,
         "execution_price": t.execution_price,
         "realized_pnl": t.realized_pnl,
+        "commission": t.commission,
+        "position_size_pct": t.position_size_pct,
+        "related_alert_id": t.related_alert_id,
         "trigger_source": t.trigger_source,
         "timestamp": str(t.timestamp),
     } for t in trades]}
@@ -239,6 +250,9 @@ async def check_signal(payload: SignalCheck):
         "shares": trade.shares,
         "execution_price": trade.execution_price,
         "realized_pnl": trade.realized_pnl,
+        "commission": trade.commission,
+        "position_size_pct": trade.position_size_pct,
+        "related_alert_id": trade.related_alert_id,
     }}
 
 

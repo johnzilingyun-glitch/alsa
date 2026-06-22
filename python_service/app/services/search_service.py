@@ -1,4 +1,7 @@
 import os
+import logging
+
+logger = logging.getLogger(__name__)
 import re
 import aiohttp
 from typing import List, Dict, Any
@@ -50,11 +53,11 @@ class SearchService:
                     timeout=aiohttp.ClientTimeout(total=self._searxng_timeout)
                 ) as resp:
                     if resp.status != 200:
-                        print(f"SearXNG returned status {resp.status}")
+                        logger.warning(f"SearXNG returned status {resp.status}")
                         return []
                     data = await resp.json()
         except Exception as e:
-            print(f"SearXNG Search Error for '{query}': {e}")
+            logger.error(f"SearXNG Search Error for '{query}': {e}")
             return []
 
         formatted = []
@@ -89,7 +92,7 @@ class SearchService:
                         import time
                         time.sleep(1 * (attempt + 1))
                         continue
-                    print(f"DDG search failed after {max_attempts} attempts: {e}")
+                    logger.warning(f"DDG search failed after {max_attempts} attempts: {e}")
                     return []
             return []
 
@@ -99,7 +102,7 @@ class SearchService:
                 timeout=self._ddg_timeout
             )
         except (asyncio.TimeoutError, asyncio.CancelledError, Exception) as e:
-            print(f"DDG Search Error for '{query}': {e}")
+            logger.warning(f"DDG Search Error for '{query}': {e}")
             return []
         formatted = []
         for r in (ddg_results or []):
@@ -167,7 +170,7 @@ class SearchService:
                         "source": f"Iwencai_{source}"
                     })
         except Exception as e:
-            print(f"Iwencai search error: {e}")
+            logger.warning(f"Iwencai search error: {e}")
 
         return results
 
@@ -203,7 +206,7 @@ class SearchService:
                             "source": "EastMoney"
                         })
             except Exception as e:
-                print(f"AkShare news error for {stock_code}: {e}")
+                logger.warning(f"AkShare news error for {stock_code}: {e}")
 
             if len(results) < max_results:
                 try:
@@ -217,7 +220,7 @@ class SearchService:
                                 "source": "EastMoney_Announcement"
                             })
                 except Exception as e:
-                    print(f"AkShare notice error for {stock_code}: {e}")
+                    logger.warning(f"AkShare notice error for {stock_code}: {e}")
 
 
 

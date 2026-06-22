@@ -3,6 +3,10 @@ import os
 # Apply AkShare requests.Session keep-alive patch BEFORE any other imports
 from app.utils.akshare_patch import *  # noqa: F401, F403
 
+# Initialize structured logging first
+from app.logging import setup_logging
+setup_logging()
+
 import asyncio
 import time
 from contextlib import asynccontextmanager
@@ -11,7 +15,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.router import api_router
 from app.security import get_allowed_origins, require_api_token
 from app.api import backtest
-from app.db.sqlite import init_db, build_session_factory, DATABASE_URL
+from app.api.auth import router as auth_router
+from app.api.admin import router as admin_router
+from app.api.health import router as health_router
+from app.db.database import init_db, session_factory
 from app.services.market_data_service import market_data_service
 from app.db.repositories.watchlist_repo import WatchlistRepository
 from app.db.repositories.alert_repo import AlertRepository
@@ -21,13 +28,14 @@ from app.db.repositories.job_repo import JobRepository
 from app.services.market_snapshot_service import MarketSnapshotService
 from app.lake.parquet_store import ParquetMarketStore
 from app.services.signal_monitor_service import SignalMonitorService
+from app.services.prediction_service import PredictionService
 
 # Institutional modules
 from app.risk.kill_switch import KillSwitch
 from app.risk.pre_trade import PreTradeRiskGateway
 from app.observability.metrics import MetricsCollector
 from app.observability.audit import AuditLogger, AuditAction
-from app.prompting.version_registry import PromptVersionRegistry
+from app.prompting.version_registry import prompt_version_registry
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -42,7 +50,7 @@ async def lifespan(app: FastAPI):
                     await market_data_service.precompute_financial_summary(item.symbol, item.market)
                 await asyncio.sleep(300)
             except Exception as e:
-                print(f"Precompute loop error: {e}")
+                logger.error(f"Precompute loop error: {e}")
                 await asyncio.sleep(60)
 
     # Signal monitoring loop — checks prices every 60s during market hours
@@ -59,6 +67,7 @@ async def lifespan(app: FastAPI):
     task = asyncio.create_task(precompute_loop())
     monitor_task = asyncio.create_task(signal_monitor_loop())
     cleanup_task = asyncio.create_task(api_key_cleanup_loop())
+    prediction_task = asyncio.create_task(PredictionService.run_accuracy_loop(interval_seconds=3600))
     try:
         yield
     finally:
@@ -66,12 +75,17 @@ async def lifespan(app: FastAPI):
         task.cancel()
         monitor_task.cancel()
         cleanup_task.cancel()
+        prediction_task.cancel()
         try:
             await task
         except asyncio.CancelledError:
             pass
         try:
             await monitor_task
+        except asyncio.CancelledError:
+            pass
+        try:
+            await prediction_task
         except asyncio.CancelledError:
             pass
 
@@ -114,7 +128,7 @@ async def record_api_metrics(request: Request, call_next):
     return response
 
 # Initialize Singletons
-session_factory = build_session_factory(DATABASE_URL)
+# session_factory is imported from database.py
 parquet_store = ParquetMarketStore()
 job_repo = JobRepository(session_factory)
 watchlist_repo = WatchlistRepository(session_factory)
@@ -129,7 +143,7 @@ kill_switch = KillSwitch()
 risk_gateway = PreTradeRiskGateway()
 metrics_collector = MetricsCollector()
 audit_logger = AuditLogger()
-prompt_registry = PromptVersionRegistry()
+prompt_registry = prompt_version_registry
 
 # Dependency helpers
 def get_analysis_job_service():
@@ -160,37 +174,16 @@ def get_prompt_registry():
     return prompt_registry
 
 
+# Auth router (no API_TOKEN required — users authenticate via JWT)
+app.include_router(auth_router, prefix="/api/auth", tags=["auth"])
+
+# Admin router (no API_TOKEN required — protected by x-admin-token)
+app.include_router(admin_router, prefix="/api")
+
 # Include the unified API router
 app.include_router(api_router, prefix="/api", dependencies=[Depends(require_api_token)])
 app.include_router(backtest.router, prefix="/api/backtest", tags=["backtest"], dependencies=[Depends(require_api_token)])
-
-@app.get("/api/health")
-async def health_check():
-    return {
-        "success": True,
-        "status": "ok",
-        "service": "ALSA Institutional Backend"
-    }
-
-@app.get("/api/health/ready")
-async def readiness_check():
-    # Simple checks
-    db_ok = True
-    try:
-        from sqlalchemy import text
-        with session_factory() as session:
-            session.execute(text("SELECT 1"))
-    except Exception as e:
-        logger.error(f"Health check DB failed: {e}")
-        db_ok = False
-
-    checks = {
-        "database": db_ok,
-        "llm_provider": True, # Placeholder
-        "data_source": True,  # Placeholder
-    }
-    all_ok = all(checks.values())
-    return {"status": "ready" if all_ok else "degraded", "checks": checks}
+app.include_router(health_router, prefix="/api")
 
 
 if __name__ == "__main__":

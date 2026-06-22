@@ -5,7 +5,7 @@ from pydantic import BaseModel
 from typing import Optional, Dict, Any
 from ..services.analysis_job_service import AnalysisJobService
 from ..utils.responses import success_response, error_response
-from ..db.sqlite import session_factory
+from ..db.database import session_factory
 from ..services.lineage_service import build_analysis_lineage
 
 class AnalysisJobCreate(BaseModel):
@@ -27,9 +27,13 @@ def get_job_service():
         from python_service.main import get_analysis_job_service
         return get_analysis_job_service()
     except ImportError:
-        # Fallback for different environments
-        from ...main import get_analysis_job_service
-        return get_analysis_job_service()
+        try:
+            from main import get_analysis_job_service
+            return get_analysis_job_service()
+        except ImportError:
+            # Fallback for different environments
+            from ...main import get_analysis_job_service
+            return get_analysis_job_service()
 
 @router.post("/jobs", status_code=202)
 async def create_job(payload: AnalysisJobCreate, request: Request, service: AnalysisJobService = Depends(get_job_service)):
@@ -65,7 +69,7 @@ async def get_job(job_id: str, service: AnalysisJobService = Depends(get_job_ser
     if job.status == "completed" and job.result_payload:
         import json
         try:
-            result = json.loads(job.result_payload)
+            result = job.result_payload if isinstance(job.result_payload, dict) else (json.loads(job.result_payload) if job.result_payload else None)
         except:
             result = job.result_payload
 
@@ -195,7 +199,7 @@ async def generate_report(job_id: str, body: ReportRequest = None, service: Anal
     if job.status != "completed" or not job.result_payload:
         return error_response("JOB_NOT_READY", "Job is not completed or has no results")
 
-    result = json.loads(job.result_payload)
+    result = job.result_payload if isinstance(job.result_payload, dict) else (json.loads(job.result_payload) if job.result_payload else None)
     report_service = ReportGeneratorService()
 
     # Generate into a temp file, then read and return HTML
@@ -234,7 +238,7 @@ async def export_pdf(job_id: str, body: ReportRequest = None, service: AnalysisJ
     if job.status != "completed" or not job.result_payload:
         return error_response("JOB_NOT_READY", "Job is not completed or has no results")
 
-    result = json.loads(job.result_payload)
+    result = job.result_payload if isinstance(job.result_payload, dict) else (json.loads(job.result_payload) if job.result_payload else None)
     report_service = ReportGeneratorService()
 
     tmp_path = os.path.join(tempfile.gettempdir(), f"{job.symbol}_{job_id}_report.html")
@@ -274,7 +278,7 @@ async def export_share_card(job_id: str, service: AnalysisJobService = Depends(g
     if job.status != "completed" or not job.result_payload:
         return error_response("JOB_NOT_READY", "Job is not completed or has no results")
 
-    result = json.loads(job.result_payload)
+    result = job.result_payload if isinstance(job.result_payload, dict) else (json.loads(job.result_payload) if job.result_payload else None)
     stock_info = result.get("stockInfo", {})
     summary = result.get("summary", {})
 

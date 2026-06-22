@@ -669,7 +669,27 @@ class MarketDataService:
                     try:
                         hist = await loop.run_in_executor(None, lambda: ticker.history(period="2y"))
                         if hist is not None and len(hist) > 60:
-                            hist_pe = hist['Close'] / trailing_eps
+                            hist_pe = None
+                            try:
+                                dates = await loop.run_in_executor(None, lambda: ticker.earnings_dates)
+                                if dates is not None and not dates.empty and 'Reported EPS' in dates.columns:
+                                    eps_series = dates['Reported EPS'].dropna().sort_index()
+                                    if len(eps_series) >= 4:
+                                        ttm_eps = eps_series.rolling(4).sum().dropna()
+                                        if not ttm_eps.empty:
+                                            hist_df = pd.DataFrame({'Close': hist['Close']}).sort_index()
+                                            ttm_df = pd.DataFrame({'TTM_EPS': ttm_eps}).sort_index()
+                                            hist_df.index = hist_df.index.tz_localize(None).astype('datetime64[ns]')
+                                            ttm_df.index = ttm_df.index.tz_localize(None).astype('datetime64[ns]')
+                                            merged = pd.merge_asof(hist_df, ttm_df, left_index=True, right_index=True, direction='backward')
+                                            if not merged['TTM_EPS'].isna().all():
+                                                hist_pe = merged['Close'] / merged['TTM_EPS']
+                            except Exception as pe_err:
+                                logger.debug(f"Failed to calculate rolling PE for {symbol}: {pe_err}")
+
+                            if hist_pe is None:
+                                hist_pe = hist['Close'] / trailing_eps
+
                             # Filter out negative/extreme PEs
                             hist_pe = hist_pe[(hist_pe > 0) & (hist_pe < 1000)]
                             if len(hist_pe) > 30:
@@ -994,7 +1014,27 @@ class MarketDataService:
                     try:
                         a_hist = await loop.run_in_executor(None, lambda: ticker.history(period="2y"))
                         if a_hist is not None and len(a_hist) > 60:
-                            a_hist_pe = a_hist['Close'] / a_trailing_eps
+                            a_hist_pe = None
+                            try:
+                                dates = await loop.run_in_executor(None, lambda: ticker.earnings_dates)
+                                if dates is not None and not dates.empty and 'Reported EPS' in dates.columns:
+                                    eps_series = dates['Reported EPS'].dropna().sort_index()
+                                    if len(eps_series) >= 4:
+                                        ttm_eps = eps_series.rolling(4).sum().dropna()
+                                        if not ttm_eps.empty:
+                                            hist_df = pd.DataFrame({'Close': a_hist['Close']}).sort_index()
+                                            ttm_df = pd.DataFrame({'TTM_EPS': ttm_eps}).sort_index()
+                                            hist_df.index = hist_df.index.tz_localize(None).astype('datetime64[ns]')
+                                            ttm_df.index = ttm_df.index.tz_localize(None).astype('datetime64[ns]')
+                                            merged = pd.merge_asof(hist_df, ttm_df, left_index=True, right_index=True, direction='backward')
+                                            if not merged['TTM_EPS'].isna().all():
+                                                a_hist_pe = merged['Close'] / merged['TTM_EPS']
+                            except Exception as pe_err:
+                                logger.debug(f"Failed to calculate rolling PE for {symbol}: {pe_err}")
+
+                            if a_hist_pe is None:
+                                a_hist_pe = a_hist['Close'] / a_trailing_eps
+
                             a_hist_pe = a_hist_pe[(a_hist_pe > 0) & (a_hist_pe < 1000)]
                             if len(a_hist_pe) > 30:
                                 a_pe_percentile = float((a_hist_pe < a_trailing_pe).sum()) / len(a_hist_pe)

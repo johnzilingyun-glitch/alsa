@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, memo, lazy, Suspense } from 'react';
-import { Download, Bell, History, Clock, Settings, Loader2, Search, TrendingUp, Zap, BarChart3, Microscope, Languages, Menu, X, Target, Activity, BrainCircuit, Wrench, BarChart2 } from 'lucide-react';
+import { Download, Bell, History, Clock, Settings, Loader2, Search, TrendingUp, Zap, BarChart3, Microscope, Languages, Menu, X, Target, Activity, BrainCircuit, Wrench, BarChart2, Users, LogOut } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useTranslation } from 'react-i18next';
 import { Market, AnalysisLevel } from '../../types';
@@ -7,6 +7,7 @@ import { useUIStore, selectLoading } from '../../stores/useUIStore';
 import { useMarketStore } from '../../stores/useMarketStore';
 import { useAnalysisStore } from '../../stores/useAnalysisStore';
 import { useConfigStore } from '../../stores/useConfigStore';
+import { useAuthStore } from '../../stores/useAuthStore';
 import { StockSearchInput } from '../shared/StockSearchInput';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -31,15 +32,19 @@ export const Header = memo(function Header({
 }: HeaderProps) {
   const { t, i18n } = useTranslation();
   const loading = useUIStore(selectLoading);
-  const { isTriggeringReport, showAdminPanel, setShowAdminPanel, setIsSettingsOpen, analysisLevel, setAnalysisLevel, serviceStatus, setShowIBKRDashboard, setShowMockTradingDashboard, setShowBacktestPanel } = useUIStore();
+  const { isTriggeringReport, showAdminPanel, setShowAdminPanel, showAdminManagement, setShowAdminManagement, setIsSettingsOpen, analysisLevel, setAnalysisLevel, serviceStatus, setShowIBKRDashboard, setShowMockTradingDashboard, setShowBacktestPanel } = useUIStore();
   const { dailyReport, activeAlertStatus } = useMarketStore();
   const { symbol, setSymbol, market, setMarket } = useAnalysisStore();
   const { language, setLanguage } = useConfigStore();
+  const { user, logout } = useAuthStore();
+  const isAdmin = user?.role === 'admin';
 
   const [showMobileMenu, setShowMobileMenu] = useState(false);
   const [showBrainEvolution, setShowBrainEvolution] = useState(false);
   const [showToolbox, setShowToolbox] = useState(false);
+  const [showUserMenu, setShowUserMenu] = useState(false);
   const toolboxRef = useRef<HTMLDivElement>(null);
+  const userMenuRef = useRef<HTMLDivElement>(null);
 
   const toggleLanguage = () => {
     const newLang = language === 'en' ? 'zh-CN' : 'en';
@@ -52,6 +57,9 @@ export const Header = memo(function Header({
     const handleClickOutside = (e: MouseEvent) => {
       if (toolboxRef.current && !toolboxRef.current.contains(e.target as Node)) {
         setShowToolbox(false);
+      }
+      if (userMenuRef.current && !userMenuRef.current.contains(e.target as Node)) {
+        setShowUserMenu(false);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
@@ -241,12 +249,42 @@ export const Header = memo(function Header({
                     <button onClick={() => { setShowAdminPanel(!showAdminPanel); if (!showAdminPanel) onFetchAdminData(); setShowToolbox(false); }} className="flex w-full items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-zinc-600 hover:bg-zinc-50 transition-colors">
                       <Activity size={18} /> {t('header.sysLogs')}
                     </button>
+                    {isAdmin && (
+                      <button onClick={() => { window.location.hash = '#/admin'; setShowToolbox(false); }} className="flex w-full items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-rose-600 hover:bg-rose-50 transition-colors">
+                        <Users size={18} /> 后台管理
+                      </button>
+                    )}
                     <button onClick={() => { setShowBrainEvolution(true); setShowToolbox(false); }} className="flex w-full items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-purple-600 hover:bg-purple-50 transition-colors">
                       <BrainCircuit size={18} /> 🧠 进化 AI
                     </button>
                   </div>
                 )}
               </div>
+
+              {/* User dropdown */}
+              {user && (
+                <div className="relative" ref={userMenuRef}>
+                  <button
+                    onClick={() => setShowUserMenu(!showUserMenu)}
+                    className="w-10 h-10 rounded-full bg-indigo-600 text-white flex items-center justify-center text-sm font-bold hover:bg-indigo-700 transition-colors"
+                    title={user.display_name || user.username}
+                  >
+                    {(user.display_name || user.username || '?')[0].toUpperCase()}
+                  </button>
+                  {showUserMenu && (
+                    <div className="absolute top-14 right-0 z-50 bg-white rounded-2xl shadow-2xl border border-zinc-200 p-3 min-w-[180px] space-y-1 animate-in fade-in slide-in-from-top-2">
+                      <div className="px-3 py-2">
+                        <p className="text-sm font-semibold text-zinc-900">{user.display_name || user.username}</p>
+                        <p className="text-xs text-zinc-400 mt-0.5">@{user.username} · {user.role}</p>
+                      </div>
+                      <div className="border-t border-zinc-100" />
+                      <button onClick={() => { logout(); setShowUserMenu(false); }} className="flex w-full items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium text-rose-600 hover:bg-rose-50 transition-colors">
+                        <LogOut size={16} /> 登出
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Mobile: hamburger menu */}
@@ -273,6 +311,11 @@ export const Header = memo(function Header({
                   <button onClick={() => { setShowAdminPanel(!showAdminPanel); if (!showAdminPanel) onFetchAdminData(); setShowMobileMenu(false); }} className="flex w-full items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-zinc-600 hover:bg-zinc-50 transition-colors">
                     <Activity size={18} /> {t('header.sysLogs')}
                   </button>
+                  {isAdmin && (
+                    <button onClick={() => { window.location.hash = '#/admin'; setShowMobileMenu(false); }} className="flex w-full items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-rose-600 hover:bg-rose-50 transition-colors">
+                      <Users size={18} /> 后台管理
+                    </button>
+                  )}
                   <button onClick={() => { setShowIBKRDashboard(true); setShowMobileMenu(false); }} className="flex w-full items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-zinc-600 hover:bg-zinc-50 transition-colors">
                     <BarChart3 size={18} /> IBKR 实盘
                   </button>
@@ -292,6 +335,11 @@ export const Header = memo(function Header({
                   <button onClick={() => { setShowBrainEvolution(true); setShowMobileMenu(false); }} className="flex w-full items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-purple-600 hover:bg-purple-50 transition-colors">
                     <BrainCircuit size={18} /> 🧠 进化 AI
                   </button>
+                  {user && (
+                    <button onClick={() => { logout(); setShowMobileMenu(false); }} className="flex w-full items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-rose-600 hover:bg-rose-50 transition-colors">
+                      <LogOut size={18} /> 登出
+                    </button>
+                  )}
                 </div>
               )}
             </div>

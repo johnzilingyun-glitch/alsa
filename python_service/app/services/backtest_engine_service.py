@@ -1,32 +1,64 @@
 import asyncio
+import os
+import json
+import logging
+
+logger = logging.getLogger(__name__)
 import pandas as pd
 import yfinance as yf
 import numpy as np
 from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Any, Optional
+from enum import Enum
 
+from .data_sync_service import data_sync_service
+from ..quant.risk_metrics import RiskMetrics
+
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+
+_has_vnpy = False
 try:
     from vnpy.trader.object import BarData
     from vnpy.trader.constant import Exchange, Interval
     from vnpy_ctastrategy import CtaTemplate
     from vnpy_ctastrategy.backtesting import BacktestingEngine
     from vnpy.trader.utility import ArrayManager
+    _has_vnpy = True
 except ImportError:
-    # Mock classes if vnpy is not installed to prevent server crash
     class BarData: pass
-    class Exchange: 
+    class Exchange(Enum):
         SSE = "SSE"
         SZSE = "SZSE"
         SMART = "SMART"
-    class Interval: 
+    class Interval(Enum):
         DAILY = "d"
-    class CtaTemplate: 
+    class CtaTemplate:
         def __init__(self, *args, **kwargs): pass
     class BacktestingEngine: pass
     class ArrayManager: pass
 
-from datetime import datetime, timezone
-from .data_sync_service import data_sync_service
+_has_vnpy = False
+try:
+    from vnpy.trader.object import BarData
+    from vnpy.trader.constant import Exchange, Interval
+    from vnpy_ctastrategy import CtaTemplate
+    from vnpy_ctastrategy.backtesting import BacktestingEngine
+    from vnpy.trader.utility import ArrayManager
+    _has_vnpy = True
+except ImportError:
+    from enum import Enum
+
+    class BarData: pass
+    class Exchange(Enum):
+        SSE = "SSE"
+        SZSE = "SZSE"
+        SMART = "SMART"
+    class Interval(Enum):
+        DAILY = "d"
+    class CtaTemplate:
+        def __init__(self, *args, **kwargs): pass
+    class BacktestingEngine: pass
+    class ArrayManager: pass
 
 class MockAgentCtaStrategy(CtaTemplate):
     author = "AI Agent"
@@ -202,10 +234,304 @@ def calculate_round_trip_trades(trades, commission_rate=0.0003):
     return round_trips
 
 
+async def _fill_missing_prices_in_snapshots(snapshots, target_symbol, market, start_date, end_date):
+    zeros = [snap for snap in snapshots if snap.get("close_price") == 0.0]
+    if not zeros:
+        return
+        
+    try:
+        import yfinance as yf
+        if market == "CN":
+            code = target_symbol.lower().replace("sh", "").replace("sz", "")
+            yf_symbol = f"{code}.SS" if code.startswith("6") else f"{code}.SZ"
+        elif market == "HK":
+            code = target_symbol.lower().replace(".hk", "")
+            yf_symbol = f"{code.zfill(4)}.HK"
+        else:
+            yf_symbol = target_symbol
+            
+        yf_df = yf.download(yf_symbol, start=start_date, end=end_date, progress=False)
+        if not yf_df.empty:
+            yf_close = yf_df['Adj Close'] if 'Adj Close' in yf_df else yf_df['Close']
+            if isinstance(yf_close, pd.DataFrame):
+                yf_close = yf_close.iloc[:, 0]
+            yf_high = yf_df['High']
+            if isinstance(yf_high, pd.DataFrame):
+                yf_high = yf_high.iloc[:, 0]
+            yf_low = yf_df['Low']
+            if isinstance(yf_low, pd.DataFrame):
+                yf_low = yf_low.iloc[:, 0]
+                
+            bench_close_dict = {}
+            bench_high_dict = {}
+            bench_low_dict = {}
+            for dt_idx in yf_df.index:
+                d_key = dt_idx.strftime("%Y-%m-%d")
+                bench_close_dict[d_key] = float(yf_close.loc[dt_idx])
+                bench_high_dict[d_key] = float(yf_high.loc[dt_idx])
+                bench_low_dict[d_key] = float(yf_low.loc[dt_idx])
+                
+            for snap in snapshots:
+                d_str = snap["date"]
+                if snap.get("close_price") == 0.0 and d_str in bench_close_dict:
+                    snap["close_price"] = bench_close_dict[d_str]
+                    snap["high_price"] = bench_high_dict.get(d_str, bench_close_dict[d_str])
+                    snap["low_price"] = bench_low_dict.get(d_str, bench_close_dict[d_str])
+    except Exception as e:
+        logger.warning(f"Failed to fill missing prices via yfinance: {e}")
+
+
 class BacktestEngine:
     def __init__(self, init_cash: float = 100000.0, commission: float = 0.0003):
         self.init_cash = init_cash
         self.commission = commission
+
+    async def _run_qlib_backtest(
+        self, start_date: str, end_date: str, strategy: str, market: str,
+        params: Optional[Dict[str, Any]] = None
+    ):
+        """Run backtest via Qlib bridge subprocess (CN market)."""
+        import subprocess
+        qlib_venv = os.path.join(PROJECT_ROOT, ".venv_qlib", "bin", "python")
+        bridge_script = os.path.join(
+            PROJECT_ROOT, "python_service", "paper_trading_system",
+            "execution_layer", "run_qlib_bridge.py"
+        )
+
+        if not os.path.exists(qlib_venv):
+            raise ValueError("Qlib venv not found at .venv_qlib/. Please set up the Qlib environment.")
+        if not os.path.exists(bridge_script):
+            raise ValueError(f"Qlib bridge script not found: {bridge_script}")
+
+        target_symbol = (params or {}).get("target_symbol", "")
+
+        cmd = [
+            qlib_venv, bridge_script,
+            "--start_date", start_date,
+            "--end_date", end_date,
+            "--model", strategy,
+            "--market", market,
+            "--initial_cash", str(self.init_cash),
+            "--commission", str(self.commission),
+            "--target_symbol", target_symbol,
+            "--params", json.dumps(params or {}),
+        ]
+
+        env = os.environ.copy()
+        env["PYTHONPATH"] = os.path.join(PROJECT_ROOT, "python_service")
+
+        loop = asyncio.get_event_loop()
+        proc = await loop.run_in_executor(
+            None,
+            lambda: subprocess.run(
+                cmd, capture_output=True, text=True, timeout=300,
+                cwd=PROJECT_ROOT, env=env
+            )
+        )
+
+        if proc.returncode != 0:
+            stderr = proc.stderr.strip()
+            try:
+                err_data = json.loads(proc.stdout.strip())
+                raise ValueError(err_data.get("message", stderr or "Qlib backtest failed"))
+            except (json.JSONDecodeError, ValueError):
+                raise ValueError(f"Qlib backtest failed (exit {proc.returncode}): {stderr or proc.stdout}")
+
+        if proc.stderr:
+            logger.warning(f"SUBPROCESS STDERR: {proc.stderr}")
+
+        result = json.loads(proc.stdout.strip())
+        if result.get("status") == "error":
+            raise ValueError(result.get("message", "Qlib backtest returned error"))
+        data = result.get("data", result)
+        if "snapshots" in data:
+            await _fill_missing_prices_in_snapshots(data["snapshots"], target_symbol, market, start_date, end_date)
+        return data
+
+    async def _run_pandas_fallback(
+        self, start_date: str, end_date: str, strategy: str, market: str,
+        params: Optional[Dict[str, Any]] = None
+    ):
+        """Lightweight pandas-based backtest when vnpy is unavailable."""
+        target_symbol = (params.get("target_symbol") if params else None) or ("600519" if market == "CN" else "AAPL")
+        target_symbol = target_symbol.strip()
+
+        if market == "CN":
+            yf_symbol = f"{target_symbol}.SS" if target_symbol.startswith("6") else f"{target_symbol}.SZ"
+        else:
+            yf_symbol = target_symbol
+
+        fast_win = int((params or {}).get("fast_window", 5))
+        slow_win = int((params or {}).get("slow_window", 20))
+        size = 100
+
+        loop = asyncio.get_event_loop()
+        df = await loop.run_in_executor(
+            None, lambda: yf.download(yf_symbol, start=start_date, end=end_date, progress=False)
+        )
+        if df.empty:
+            raise ValueError(f"回测失败：未能下载 {yf_symbol} 在 {start_date} 至 {end_date} 的数据。")
+
+        if isinstance(df.columns, pd.MultiIndex):
+            close_col = ('Close', yf_symbol)
+            if close_col not in df.columns:
+                close_col = df.columns[df.columns.get_level_values(0) == 'Close'][0]
+        else:
+            close_col = 'Close'
+
+        df = df.copy()
+        df['close'] = df[close_col].astype(float)
+        df['fast_ma'] = df['close'].rolling(fast_win).mean()
+        df['slow_ma'] = df['close'].rolling(slow_win).mean()
+        df = df.dropna()
+
+        if len(df) < 2:
+            raise ValueError(f"回测失败：{yf_symbol} 数据不足（需要至少 {slow_win+1} 根K线）。")
+
+        cash = self.init_cash
+        pos = 0
+        avg_cost = 0.0
+        trades = []
+        snapshots = []
+
+        for i in range(1, len(df)):
+            dt = df.index[i]
+            price = float(df['close'].iloc[i])
+            fast_now = float(df['fast_ma'].iloc[i])
+            slow_now = float(df['slow_ma'].iloc[i])
+            fast_prev = float(df['fast_ma'].iloc[i - 1])
+            slow_prev = float(df['slow_ma'].iloc[i - 1])
+            d_str = dt.strftime("%Y-%m-%d")
+
+            cross_over = fast_now > slow_now and fast_prev <= slow_prev
+            cross_below = fast_now < slow_now and fast_prev >= slow_prev
+
+            if cross_over and pos == 0:
+                shares = min(size, int(cash / price)) if price > 0 else 0
+                if shares > 0:
+                    cost = price * shares * self.commission
+                    cash -= price * shares + cost
+                    avg_cost = price
+                    pos = shares
+                    trades.append({"date": d_str, "symbol": target_symbol, "action": "BUY",
+                                   "shares": shares, "price": price, "fee": cost, "realized_pnl": 0})
+
+            elif cross_below and pos > 0:
+                cost = price * pos * self.commission
+                pnl = (price - avg_cost) * pos - cost
+                cash += price * pos - cost
+                trades.append({"date": d_str, "symbol": target_symbol, "action": "SELL",
+                               "shares": pos, "price": price, "fee": cost, "realized_pnl": pnl})
+                pos = 0
+
+            equity = cash + pos * price
+            snapshots.append({"date": d_str, "total_equity": equity, "close_price": price, "cash": cash})
+
+        final_equity = cash + pos * float(df['close'].iloc[-1])
+        total_ret = (final_equity - self.init_cash) / self.init_cash
+        days = (pd.Timestamp(end_date) - pd.Timestamp(start_date)).days
+        ann_ret = ((1 + total_ret) ** (365.25 / max(days, 1)) - 1) if days > 0 else 0.0
+
+        eq_series = pd.Series([s["total_equity"] for s in snapshots])
+        running_max = eq_series.cummax()
+        drawdown = (eq_series - running_max) / running_max
+        max_dd = float(drawdown.min()) if len(drawdown) > 0 else 0.0
+
+        daily_returns = eq_series.pct_change().dropna()
+        sharpe = RiskMetrics.compute_sharpe(daily_returns)
+
+        round_trips = calculate_round_trip_trades(trades, self.commission)
+        wins = [t["pnl"] for t in round_trips if t["pnl"] > 0]
+        losses = [t["pnl"] for t in round_trips if t["pnl"] < 0]
+        win_rate = len(wins) / len(round_trips) if round_trips else 0.0
+
+        avg_win = float(np.mean(wins)) if wins else 0.0
+        avg_loss = abs(float(np.mean(losses))) if losses else 1e-10
+        profit_loss_ratio = avg_win / avg_loss if avg_loss > 1e-10 else 0.0
+        gross_profit = sum(wins) if wins else 0.0
+        gross_loss = abs(sum(losses)) if losses else 1e-10
+        profit_factor = gross_profit / gross_loss if gross_loss > 1e-10 else 0.0
+
+        max_consec_loss = cur = 0
+        for t in round_trips:
+            if t["pnl"] < 0:
+                cur += 1
+                max_consec_loss = max(max_consec_loss, cur)
+            else:
+                cur = 0
+
+        hold_days = []
+        for t in round_trips:
+            if isinstance(t.get("entry_time"), datetime) and isinstance(t.get("exit_time"), datetime):
+                hold_days.append((t["exit_time"] - t["entry_time"]).days)
+        avg_holding_days = float(np.mean(hold_days)) if hold_days else 0.0
+
+        downside = daily_returns[daily_returns < 0]
+        downside_std_ann = float(downside.std() * np.sqrt(252)) if len(downside) > 1 else 1e-10
+        sortino = float((ann_ret - 0.02) / downside_std_ann) if downside_std_ann > 1e-10 else 0.0
+        calmar = ann_ret / abs(max_dd) if abs(max_dd) > 1e-10 else 0.0
+
+        # Calculate alpha, beta, treynor, info_ratio against benchmark ^GSPC
+        alpha = 0.0
+        beta = 1.0
+        treynor = 0.0
+        info_ratio = 0.0
+        try:
+            bench_ticker = yf.Ticker("^GSPC")
+            bench_hist = await loop.run_in_executor(
+                None,
+                lambda: bench_ticker.history(start=start_date, end=end_date)
+            )
+            if not bench_hist.empty:
+                bench_close = bench_hist['Close'].reindex(df.index).ffill().bfill()
+                bench_returns = bench_close.pct_change().dropna()
+
+                # Align return series
+                common_idx = daily_returns.index.intersection(bench_returns.index)
+                if len(common_idx) > 10:
+                    strat_ret_aligned = daily_returns.loc[common_idx]
+                    bench_ret_aligned = bench_returns.loc[common_idx]
+
+                    cov = np.cov(strat_ret_aligned, bench_ret_aligned)
+                    bench_var = np.var(bench_ret_aligned)
+                    if bench_var > 0:
+                        beta = float(cov[0, 1] / bench_var)
+
+                    rf = 0.02
+                    # Benchmark annualized return
+                    bench_total_ret = (bench_close.iloc[-1] - bench_close.iloc[0]) / bench_close.iloc[0] if len(bench_close) > 0 else 0.0
+                    bench_ann_ret = ((1 + bench_total_ret) ** (365.25 / max(days, 1)) - 1) if days > 0 else 0.0
+
+                    alpha = float(ann_ret - (rf + beta * (bench_ann_ret - rf)))
+                    treynor = float((ann_ret - rf) / beta) if beta != 0 else 0.0
+
+                    tracking_diff = strat_ret_aligned - bench_ret_aligned
+                    tracking_error = tracking_diff.std() * np.sqrt(252)
+                    info_ratio = float((ann_ret - bench_ann_ret) / tracking_error) if tracking_error > 0 else 0.0
+        except Exception as e:
+            logger.error(f"Failed to calculate benchmark metrics for backtest: {e}")
+
+        def _clean(v):
+            if isinstance(v, float) and (np.isnan(v) or np.isinf(v)):
+                return None
+            return v
+
+        return _clean({
+            "start_date": start_date, "end_date": end_date, "model": strategy, "market": market,
+            "final_account": float(final_equity),
+            "snapshots": snapshots, "trades": trades,
+            "metrics": {
+                "annualized_return": {"risk": float(ann_ret)},
+                "max_drawdown": {"risk": float(max_dd)},
+                "sharpe_ratio": float(sharpe), "win_rate": float(win_rate),
+                "mean": {"risk": float(daily_returns.mean()) if len(daily_returns) > 0 else 0.0},
+                "std": {"risk": float(daily_returns.std()) if len(daily_returns) > 0 else 0.0},
+                "alpha": float(alpha), "beta": float(beta), "treynor_ratio": float(treynor), "information_ratio": float(info_ratio),
+                "calmar_ratio": float(calmar), "sortino_ratio": float(sortino),
+                "profit_factor": float(profit_factor), "profit_loss_ratio": float(profit_loss_ratio),
+                "max_consecutive_loss": int(max_consec_loss), "avg_holding_days": float(avg_holding_days),
+            },
+        })
 
     async def run(self, start_date: str, end_date: str, strategy: str, market: str, params: Optional[Dict[str, Any]] = None):
         if strategy == "portfolio_cross_sectional":
@@ -224,6 +550,14 @@ class BacktestEngine:
                 commission=self.commission,
                 symbols=custom_symbols
             )
+            
+        # CN/HK market: use Qlib backtest (local data, full features)
+        if market in ("CN", "HK"):
+            return await self._run_qlib_backtest(start_date, end_date, strategy, market, params)
+            
+        # US: use lightweight pandas fallback (yfinance download)
+        if not _has_vnpy:
+            return await self._run_pandas_fallback(start_date, end_date, strategy, market, params)
             
         # Extract target symbol dynamically from params
         target_symbol = params.get("target_symbol") if params else None
@@ -255,7 +589,7 @@ class BacktestEngine:
             target_symbol, exchange, start_dt, end_dt
         )
         if not success:
-            print("Data sync failed or no data available. Proceeding might result in empty backtest.")
+            logger.warning("Data sync failed or no data available. Proceeding might result in empty backtest.")
 
         # 2. Setup vn.py BacktestingEngine
         engine = BacktestingEngine()
@@ -416,7 +750,7 @@ class BacktestEngine:
                     else:
                         info_ratio = 0.0
         except Exception as e:
-            print(f"Failed to calculate risk attribution: {e}")
+            logger.warning(f"Failed to calculate risk attribution: {e}")
 
         # Compute new Vibe-Trading metrics
         calmar = ann_ret / abs(max_dd) if abs(max_dd) > 1e-10 else 0.0

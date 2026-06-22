@@ -5,6 +5,8 @@ import os
 import json
 import logging
 from ..services.backtest_engine_service import BacktestEngine
+import yfinance as yf
+import pandas as pd
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -131,7 +133,7 @@ async def convert_to_mock(req: ConvertToMockRequest):
         held = {sym: info for sym, info in positions.items() if info["shares"] > 0}
         
         # Create mock account and seed positions
-        from ..db.sqlite import session_factory
+        from ..db.database import session_factory
         from ..services.mock_trading_service import MockTradingService
         
         session = session_factory()
@@ -174,4 +176,85 @@ async def convert_to_mock(req: ConvertToMockRequest):
         import traceback
         traceback.print_exc()
         return {"success": False, "message": str(e)}
+
+
+class MonteCarloRequest(BaseModel):
+    start_date: str
+    end_date: str
+    model: str = "portfolio_cross_sectional"
+    market: str = "CN"
+    config: Optional[Dict[str, Any]] = None
+    n_simulations: int = 100
+    slippage_range: float = 0.05
+    timing_range: int = 1
+    confidence_level: float = 0.95
+
+
+@router.post("/monte-carlo")
+async def run_monte_carlo(req: MonteCarloRequest):
+    """
+    Run a Monte Carlo simulation backtest.
+    """
+    if req.model != "portfolio_cross_sectional":
+        raise HTTPException(status_code=400, detail="Monte Carlo backtest is currently only supported for 'portfolio_cross_sectional' model.")
+        
+    cfg = req.config or {}
+    symbols = cfg.get("custom_symbols")
+    if not symbols:
+        from ..services.portfolio_real_backtest import SYMBOLS
+        symbols = SYMBOLS
+    else:
+        symbols = [s.strip().replace(".SSE", ".SS").replace(".SZSE", ".SZ") for s in symbols if s.strip()]
+        
+    # Download baseline closes
+    try:
+        df = yf.download(symbols, start=req.start_date, end=req.end_date, progress=False)
+        closes = df['Close'] if 'Close' in df else df
+        if not isinstance(closes, pd.DataFrame):
+            closes = pd.DataFrame(closes, columns=[symbols[0]])
+        closes = closes.ffill().bfill()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch market data for Monte Carlo simulation: {e}")
+        
+    from ..services.portfolio_real_backtest import PortfolioBacktester
+    from ..services.monte_carlo_backtest import MonteCarloBacktester
+    
+    pb = PortfolioBacktester()
+    init_cash = float(cfg.get("initial_capital") if cfg.get("initial_capital") is not None else cfg.get("initial_cash", 1000000.0))
+    commission = float(cfg.get("commission") if cfg.get("commission") is not None else cfg.get("rate", 0.0003))
+    
+    def strategy_func(perturbed_closes: pd.DataFrame) -> Dict[str, float]:
+        res = pb.run_pandas_portfolio_backtest(
+            start_date=req.start_date,
+            end_date=req.end_date,
+            rebalance_interval=int(cfg.get("rebalance_interval", 63)),
+            initial_capital=init_cash,
+            commission=commission,
+            symbols=symbols,
+            closes=perturbed_closes
+        )
+        return {
+            "total_return": res["metrics"]["annualized_return"]["risk"],
+            "sharpe": res["metrics"]["sharpe_ratio"],
+            "max_drawdown": res["metrics"]["max_drawdown"]["risk"]
+        }
+        
+    tester = MonteCarloBacktester(n_simulations=req.n_simulations)
+    try:
+        mc_results = await tester.run_backtest(
+            price_data=closes,
+            strategy_func=strategy_func,
+            slippage_range=req.slippage_range,
+            timing_range=req.timing_range,
+            confidence_level=req.confidence_level
+        )
+        report = tester.generate_report(mc_results)
+        return {
+            "status": "completed",
+            "results": mc_results,
+            "report": report
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Monte Carlo simulation failed: {e}")
+
 

@@ -1,4 +1,7 @@
 import os
+import logging
+
+logger = logging.getLogger(__name__)
 import re
 import pandas as pd
 import aiohttp
@@ -92,7 +95,7 @@ class MacroService:
                         except (ValueError, IndexError):
                             continue
         except Exception as e:
-            print(f"FX CFETS Spot failed: {e}")
+            logger.warning(f"FX CFETS Spot failed: {e}")
 
         # 备选: CFETS 中间价
         try:
@@ -108,7 +111,7 @@ class MacroService:
                     self._cache["fx_rate"] = res
                     return res
         except Exception as e:
-            print(f"FX CFETS Fix failed: {e}")
+            logger.warning(f"FX CFETS Fix failed: {e}")
 
         # 数据源全部失败，使用 yfinance 作为最终回退
         try:
@@ -125,7 +128,7 @@ class MacroService:
                 self._cache["fx_rate"] = res
                 return res
         except Exception as e:
-            print(f"FX yfinance fallback failed: {e}")
+            logger.warning(f"FX yfinance fallback failed: {e}")
 
         # 所有数据源全部失败，返回 None
         res = {
@@ -172,7 +175,7 @@ class MacroService:
                     # Sina returns GBK-encoded data
                     text = raw.decode("gbk", errors="replace")
         except Exception as e:
-            print(f"Sina futures API failed for {symbol}: {e}")
+            logger.warning(f"Sina futures API failed for {symbol}: {e}")
             return None
 
         # Parse: var hq_str_nf_XX0="名称,?,开盘,最高,最低,昨收,买价,卖价,最新价,结算价,昨结算,...,日期,...";
@@ -228,7 +231,7 @@ class MacroService:
                             "date": str(r.get("date", today)),
                         }
         except Exception as e:
-            print(f"AkShare futures_spot_price failed for {symbol}: {e}")
+            logger.warning(f"AkShare futures_spot_price failed for {symbol}: {e}")
 
         # 方案2: AkShare 备选日期 (非交易日回退至多 10 天)
         import datetime as dt
@@ -288,7 +291,7 @@ class MacroService:
                 self._cache["brent"] = result
                 return result
         except Exception as e:
-            print(f"Brent oil AkShare failed: {e}")
+            logger.warning(f"Brent oil AkShare failed: {e}")
 
         # Plan B: AkShare 国际原油 WTI (对照参考)
         try:
@@ -308,7 +311,7 @@ class MacroService:
                 self._cache["brent"] = result
                 return result
         except Exception as e:
-            print(f"WTI oil AkShare failed: {e}")
+            logger.warning(f"WTI oil AkShare failed: {e}")
 
         # Plan C: yfinance fallback (Brent BZ=F, WTI CL=F)
         try:
@@ -326,7 +329,7 @@ class MacroService:
                 self._cache["brent"] = result
                 return result
         except Exception as e:
-            print(f"Brent yfinance fallback failed: {e}")
+            logger.warning(f"Brent yfinance fallback failed: {e}")
 
         try:
             import yfinance as yf
@@ -344,7 +347,7 @@ class MacroService:
                 self._cache["brent"] = result
                 return result
         except Exception as e:
-            print(f"WTI yfinance fallback failed: {e}")
+            logger.warning(f"WTI yfinance fallback failed: {e}")
 
         result = {
             "symbol": "Brent Crude Oil",
@@ -377,7 +380,7 @@ class MacroService:
                     "date": date_val
                 }
         except Exception as e:
-            print(f"M2 data fetch failed: {e}")
+            logger.warning(f"M2 data fetch failed: {e}")
             indicators["M2"] = {"value": None, "error": "数据暂不可用"}
 
         # 2. LPR 利率 (AkShare)
@@ -392,7 +395,7 @@ class MacroService:
                     "date": str(last.get("TRADE_DATE", "") or last.get("日期", ""))
                 }
         except Exception as e:
-            print(f"LPR data fetch failed: {e}")
+            logger.warning(f"LPR data fetch failed: {e}")
             indicators["LPR"] = {"1y": None, "5y": None, "error": "数据暂不可用"}
 
         # 3. 美联储联邦基金利率 (AkShare)
@@ -406,7 +409,7 @@ class MacroService:
                     "date": str(last.get("日期", ""))
                 }
         except Exception as e:
-            print(f"Fed rate fetch failed: {e}")
+            logger.warning(f"Fed rate fetch failed: {e}")
             indicators["FedRate"] = {"rate": None, "error": "数据暂不可用"}
 
         self._cache["macro_indicators"] = indicators

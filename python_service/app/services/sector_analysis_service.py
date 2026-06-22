@@ -88,6 +88,22 @@ class SectorAnalysisService:
                 config=config
             )
 
+            # Run Critic Agent on the discussion messages
+            critique_res = None
+            try:
+                from app.services.critic_agent import critic_agent
+                critique_res = await critic_agent.critique(
+                    analyses=discussion_messages,
+                    symbol=sector_name,
+                    name=f"{sector_name}板块",
+                    context=snapshot,
+                    gemini_api_key=config.get("geminiApiKey") if config else None,
+                    deepseek_api_key=config.get("deepseekApiKey") if config else None,
+                    model=requested_model
+                )
+            except Exception as e:
+                print(f"Critic Agent critique failed for sector {sector_name}: {e}")
+
             self.update_progress(job_id, "finalizing", 90)
 
             # 3. Build result payload
@@ -103,6 +119,7 @@ class SectorAnalysisService:
                 },
                 "snapshot": snapshot,
                 "discussion": discussion_messages,
+                "critique": critique_res,
                 "summary": self._extract_summary(discussion_messages),
             }
 
@@ -140,7 +157,7 @@ class SectorAnalysisService:
                             return obj.isoformat()
                         raise TypeError(f"Type {type(obj)} not serializable")
 
-                    db_job.result_payload = json.dumps(result, default=json_serial)
+                    db_job.result_payload = result
                     db_job.finished_at = datetime.now()
                     session.add(db_job)
                     session.commit()

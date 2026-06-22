@@ -114,8 +114,9 @@ class JobRepository:
         """Check if a specific user already has a running or queued job.
            Jobs older than 60s that are still 'running' are considered stale
            (e.g., stuck waiting for API key) and don't block new submissions."""
-        from datetime import datetime, timedelta
-        stale_cutoff = datetime.now() - timedelta(seconds=60)
+        from datetime import timedelta
+        from ...time_utils import utc_now
+        stale_cutoff = utc_now() - timedelta(seconds=60)
         with self.session_factory() as session:
             statement = select(AnalysisJob).where(
                 AnalysisJob.user_id == user_id,

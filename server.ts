@@ -57,6 +57,10 @@ async function startServer() {
   if (shouldRequireApiToken()) {
     app.use('/api', (req, res, next) => {
       if (req.path === '/health' || req.path === '/ping-early') return next();
+      // Auth endpoints use JWT, not API token — skip check
+      if (req.path.startsWith('/auth')) return next();
+      // Proxy-routed endpoints and Node routes get bypassed for API token check as frontend uses JWT
+      if (req.path.startsWith('/backtest') || req.path.startsWith('/sector') || req.path.startsWith('/analysis') || req.path.startsWith('/mock-trading') || req.path.startsWith('/alerts') || req.path.startsWith('/brain') || req.path.startsWith('/journal') || req.path.startsWith('/market') || req.path.startsWith('/watchlist') || req.path.startsWith('/predictions') || req.path.startsWith('/stock') || req.path.startsWith('/history') || req.path.startsWith('/feishu') || req.path.startsWith('/diagnostics')) return next();
       if (!validateApiToken(req.header('authorization'))) {
         return res.status(401).json({ success: false, error: 'Unauthorized' });
       }
@@ -126,6 +130,7 @@ async function startServer() {
         '/api/sector',
         '/api/mock-trading',
         '/api/backtest',
+        '/api/auth',
         '/api/v1/brain',
         '/api/v1/evolution',
         '/api/v1/market',
@@ -144,11 +149,26 @@ async function startServer() {
     },
     on: {
       proxyReq: (proxyReq, req: any) => {
-        // express.json() consumes the request body stream before the proxy can
-        // forward it.  Re-serialize req.body so the upstream receives data.
+        // Inject API_TOKEN for Python service auth (skip auth routes — they use user JWT)
+        const isAuthRoute = req.path.startsWith('/api/auth');
+        if (!isAuthRoute) {
+          const pyToken = process.env.API_TOKEN;
+          if (pyToken) {
+            proxyReq.setHeader('Authorization', `Bearer ${pyToken}`);
+          }
+        }
+        // express body parsers consume the stream before proxy can forward it.
+        // Re-serialize req.body in the original content type.
         if (req.body && ['POST', 'PUT', 'PATCH'].includes(req.method)) {
-          const bodyData = JSON.stringify(req.body);
-          proxyReq.setHeader('Content-Type', 'application/json');
+          const originalCT = req.headers['content-type'] || '';
+          let bodyData: string;
+          if (originalCT.includes('application/x-www-form-urlencoded')) {
+            bodyData = new URLSearchParams(req.body).toString();
+            proxyReq.setHeader('Content-Type', 'application/x-www-form-urlencoded');
+          } else {
+            bodyData = JSON.stringify(req.body);
+            proxyReq.setHeader('Content-Type', 'application/json');
+          }
           proxyReq.setHeader('Content-Length', Buffer.byteLength(bodyData).toString());
           proxyReq.write(bodyData);
         }

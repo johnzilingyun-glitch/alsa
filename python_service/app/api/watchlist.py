@@ -11,7 +11,10 @@ class WatchlistItemCreate(BaseModel):
 router = APIRouter(prefix="/watchlist", tags=["watchlist"])
 
 def get_repo():
-    from ...main import get_watchlist_repo
+    try:
+        from python_service.main import get_watchlist_repo
+    except ImportError:
+        from main import get_watchlist_repo
     return get_watchlist_repo()
 
 @router.post("/", status_code=201)

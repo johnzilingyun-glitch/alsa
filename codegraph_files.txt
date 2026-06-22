@@ -1,0 +1,715 @@
+[1m
+Project Structure (617 files):
+[0m
+├── .github
+│   └── workflows
+│       └── ci.yml[2m (yaml, 0 symbols)[0m
+├── public
+│   └── sw.js[2m (javascript, 3 symbols)[0m
+├── python_service
+│   ├── app
+│   │   ├── api
+│   │   │   ├── __init__.py[2m (python, 1 symbols)[0m
+│   │   │   ├── admin.py[2m (python, 9 symbols)[0m
+│   │   │   ├── alerts.py[2m (python, 28 symbols)[0m
+│   │   │   ├── analysis.py[2m (python, 33 symbols)[0m
+│   │   │   ├── api_keys.py[2m (python, 18 symbols)[0m
+│   │   │   ├── auth.py[2m (python, 39 symbols)[0m
+│   │   │   ├── backtest.py[2m (python, 24 symbols)[0m
+│   │   │   ├── brain.py[2m (python, 13 symbols)[0m
+│   │   │   ├── docs.py[2m (python, 4 symbols)[0m
+│   │   │   ├── health.py[2m (python, 14 symbols)[0m
+│   │   │   ├── institutional.py[2m (python, 14 symbols)[0m
+│   │   │   ├── journal.py[2m (python, 11 symbols)[0m
+│   │   │   ├── limiter.py[2m (python, 10 symbols)[0m
+│   │   │   ├── market.py[2m (python, 22 symbols)[0m
+│   │   │   ├── mock_trading.py[2m (python, 32 symbols)[0m
+│   │   │   ├── predictions.py[2m (python, 11 symbols)[0m
+│   │   │   ├── rate_limits.py[2m (python, 8 symbols)[0m
+│   │   │   ├── reflections.py[2m (python, 13 symbols)[0m
+│   │   │   ├── router.py[2m (python, 18 symbols)[0m
+│   │   │   ├── screening.py[2m (python, 9 symbols)[0m
+│   │   │   ├── sector.py[2m (python, 43 symbols)[0m
+│   │   │   ├── stock.py[2m (python, 5 symbols)[0m
+│   │   │   ├── technicals.py[2m (python, 13 symbols)[0m
+│   │   │   ├── trade_intents.py[2m (python, 18 symbols)[0m
+│   │   │   └── watchlist.py[2m (python, 11 symbols)[0m
+│   │   ├── backtest
+│   │   │   ├── __init__.py[2m (python, 1 symbols)[0m
+│   │   │   ├── costs.py[2m (python, 9 symbols)[0m
+│   │   │   ├── engine.py[2m (python, 18 symbols)[0m
+│   │   │   └── simulator.py[2m (python, 7 symbols)[0m
+│   │   ├── db
+│   │   │   ├── repositories
+│   │   │   │   ├── __init__.py[2m (python, 1 symbols)[0m
+│   │   │   │   ├── alert_repo.py[2m (python, 21 symbols)[0m
+│   │   │   │   ├── api_key_repo.py[2m (python, 17 symbols)[0m
+│   │   │   │   ├── job_repo.py[2m (python, 16 symbols)[0m
+│   │   │   │   ├── journal_repo.py[2m (python, 9 symbols)[0m
+│   │   │   │   ├── mock_trading_repo.py[2m (python, 28 symbols)[0m
+│   │   │   │   └── watchlist_repo.py[2m (python, 9 symbols)[0m
+│   │   │   ├── __init__.py[2m (python, 1 symbols)[0m
+│   │   │   ├── database.py[2m (python, 25 symbols)[0m
+│   │   │   └── models.py[2m (python, 31 symbols)[0m
+│   │   ├── decision
+│   │   │   ├── __init__.py[2m (python, 1 symbols)[0m
+│   │   │   ├── court.py[2m (python, 16 symbols)[0m
+│   │   │   ├── schemas.py[2m (python, 10 symbols)[0m
+│   │   │   └── trading_fields_validator.py[2m (python, 9 symbols)[0m
+│   │   ├── evaluation
+│   │   │   ├── __init__.py[2m (python, 1 symbols)[0m
+│   │   │   └── model_eval.py[2m (python, 13 symbols)[0m
+│   │   ├── lake
+│   │   │   ├── __init__.py[2m (python, 1 symbols)[0m
+│   │   │   ├── duckdb_engine.py[2m (python, 13 symbols)[0m
+│   │   │   └── parquet_store.py[2m (python, 15 symbols)[0m
+│   │   ├── observability
+│   │   │   ├── __init__.py[2m (python, 1 symbols)[0m
+│   │   │   ├── audit.py[2m (python, 11 symbols)[0m
+│   │   │   └── metrics.py[2m (python, 13 symbols)[0m
+│   │   ├── prompting
+│   │   │   ├── registry.py[2m (python, 9 symbols)[0m
+│   │   │   ├── runtime.py[2m (python, 17 symbols)[0m
+│   │   │   └── version_registry.py[2m (python, 22 symbols)[0m
+│   │   ├── quant
+│   │   │   ├── __init__.py[2m (python, 1 symbols)[0m
+│   │   │   ├── polars_indicators.py[2m (python, 4 symbols)[0m
+│   │   │   └── risk_metrics.py[2m (python, 12 symbols)[0m
+│   │   ├── reconciliation
+│   │   │   ├── __init__.py[2m (python, 1 symbols)[0m
+│   │   │   └── engine.py[2m (python, 10 symbols)[0m
+│   │   ├── risk
+│   │   │   ├── __init__.py[2m (python, 1 symbols)[0m
+│   │   │   ├── kill_switch.py[2m (python, 17 symbols)[0m
+│   │   │   └── pre_trade.py[2m (python, 11 symbols)[0m
+│   │   ├── services
+│   │   │   ├── data_providers
+│   │   │   │   ├── __init__.py[2m (python, 5 symbols)[0m
+│   │   │   │   ├── a_stock_direct.py[2m (python, 48 symbols)[0m
+│   │   │   │   ├── akshare_fallback.py[2m (python, 13 symbols)[0m
+│   │   │   │   ├── base.py[2m (python, 19 symbols)[0m
+│   │   │   │   ├── iwencai_news.py[2m (python, 18 symbols)[0m
+│   │   │   │   ├── router.py[2m (python, 18 symbols)[0m
+│   │   │   │   └── yfinance_provider.py[2m (python, 17 symbols)[0m
+│   │   │   ├── tools
+│   │   │   │   ├── __init__.py[2m (python, 4 symbols)[0m
+│   │   │   │   ├── iwencai.py[2m (python, 27 symbols)[0m
+│   │   │   │   ├── registry.py[2m (python, 11 symbols)[0m
+│   │   │   │   └── search.py[2m (python, 15 symbols)[0m
+│   │   │   ├── __init__.py[2m (python, 1 symbols)[0m
+│   │   │   ├── analysis_job_service.py[2m (python, 37 symbols)[0m
+│   │   │   ├── backtest_engine_service.py[2m (python, 59 symbols)[0m
+│   │   │   ├── brain_manager.py[2m (python, 33 symbols)[0m
+│   │   │   ├── chart_service.py[2m (python, 13 symbols)[0m
+│   │   │   ├── computation_tools.py[2m (python, 20 symbols)[0m
+│   │   │   ├── critic_agent.py[2m (python, 11 symbols)[0m
+│   │   │   ├── custom_rule_strategy.py[2m (python, 24 symbols)[0m
+│   │   │   ├── data_sync_service.py[2m (python, 24 symbols)[0m
+│   │   │   ├── discussion_service.py[2m (python, 32 symbols)[0m
+│   │   │   ├── expert_tools.py[2m (python, 48 symbols)[0m
+│   │   │   ├── export_service.py[2m (python, 10 symbols)[0m
+│   │   │   ├── gep_models.py[2m (python, 9 symbols)[0m
+│   │   │   ├── lineage_service.py[2m (python, 8 symbols)[0m
+│   │   │   ├── llm_gateway.py[2m (python, 47 symbols)[0m
+│   │   │   ├── macro_regime_service.py[2m (python, 9 symbols)[0m
+│   │   │   ├── macro_service.py[2m (python, 25 symbols)[0m
+│   │   │   ├── market_data_service.py[2m (python, 40 symbols)[0m
+│   │   │   ├── market_snapshot_service.py[2m (python, 26 symbols)[0m
+│   │   │   ├── mock_trading_service.py[2m (python, 26 symbols)[0m
+│   │   │   ├── monte_carlo_backtest.py[2m (python, 11 symbols)[0m
+│   │   │   ├── openbb_service.py[2m (python, 17 symbols)[0m
+│   │   │   ├── output_validator.py[2m (python, 15 symbols)[0m
+│   │   │   ├── portfolio_real_backtest.py[2m (python, 43 symbols)[0m
+│   │   │   ├── prediction_service.py[2m (python, 15 symbols)[0m
+│   │   │   ├── prompt_version_manager.py[2m (python, 21 symbols)[0m
+│   │   │   ├── qlib_data_updater.py[2m (python, 11 symbols)[0m
+│   │   │   ├── report_generator_service.py[2m (python, 61 symbols)[0m
+│   │   │   ├── screening_service.py[2m (python, 19 symbols)[0m
+│   │   │   ├── search_service.py[2m (python, 22 symbols)[0m
+│   │   │   ├── search_toolkit.py[2m (python, 19 symbols)[0m
+│   │   │   ├── sector_analysis_service.py[2m (python, 23 symbols)[0m
+│   │   │   ├── sector_report_service.py[2m (python, 15 symbols)[0m
+│   │   │   ├── self_reflection_agent.py[2m (python, 10 symbols)[0m
+│   │   │   ├── sentiment_data_service.py[2m (python, 17 symbols)[0m
+│   │   │   ├── signal_monitor_service.py[2m (python, 20 symbols)[0m
+│   │   │   ├── token_guard.py[2m (python, 25 symbols)[0m
+│   │   │   ├── tools_config.py[2m (python, 12 symbols)[0m
+│   │   │   ├── tools_config.yaml[2m (yaml, 0 symbols)[0m
+│   │   │   └── tushare_provider.py[2m (python, 10 symbols)[0m
+│   │   ├── utils
+│   │   │   ├── akshare_patch.py[2m (python, 5 symbols)[0m
+│   │   │   ├── data_validation.py[2m (python, 3 symbols)[0m
+│   │   │   ├── network.py[2m (python, 12 symbols)[0m
+│   │   │   └── responses.py[2m (python, 6 symbols)[0m
+│   │   ├── vector
+│   │   │   ├── __init__.py[2m (python, 1 symbols)[0m
+│   │   │   └── lancedb_store.py[2m (python, 18 symbols)[0m
+│   │   ├── __init__.py[2m (python, 1 symbols)[0m
+│   │   ├── logging.py[2m (python, 9 symbols)[0m
+│   │   ├── security.py[2m (python, 11 symbols)[0m
+│   │   ├── time_utils.py[2m (python, 3 symbols)[0m
+│   │   └── worker.py[2m (python, 9 symbols)[0m
+│   ├── paper_trading_system
+│   │   ├── decision_layer
+│   │   │   ├── agent_models.py[2m (python, 10 symbols)[0m
+│   │   │   ├── qlib_custom_strategy.py[2m (python, 15 symbols)[0m
+│   │   │   └── strategy_bridge.py[2m (python, 23 symbols)[0m
+│   │   ├── execution_layer
+│   │   │   ├── market_configs.py[2m (python, 5 symbols)[0m
+│   │   │   ├── run_backtest.py[2m (python, 15 symbols)[0m
+│   │   │   ├── run_paper_trading.py[2m (python, 20 symbols)[0m
+│   │   │   └── run_qlib_bridge.py[2m (python, 20 symbols)[0m
+│   │   ├── tests
+│   │   │   └── test_strategy.py[2m (python, 13 symbols)[0m
+│   │   └── strategy_protocol.py[2m (python, 20 symbols)[0m
+│   ├── scratch
+│   │   ├── check_ak_cols_sync.py[2m (python, 4 symbols)[0m
+│   │   ├── check_ak_cols.py[2m (python, 5 symbols)[0m
+│   │   ├── check_ak_indicators.py[2m (python, 4 symbols)[0m
+│   │   ├── check_app_db.py[2m (python, 7 symbols)[0m
+│   │   ├── check_config.py[2m (python, 8 symbols)[0m
+│   │   ├── check_db.py[2m (python, 7 symbols)[0m
+│   │   ├── check_job_status.py[2m (python, 9 symbols)[0m
+│   │   ├── check_root_db.py[2m (python, 7 symbols)[0m
+│   │   ├── debug_fx_raw.py[2m (python, 5 symbols)[0m
+│   │   ├── debug_fx_search.py[2m (python, 7 symbols)[0m
+│   │   ├── debug_fx_v2.py[2m (python, 8 symbols)[0m
+│   │   ├── debug_fx.py[2m (python, 7 symbols)[0m
+│   │   ├── find_ak_funcs.py[2m (python, 4 symbols)[0m
+│   │   ├── find_ak_report_funcs.py[2m (python, 4 symbols)[0m
+│   │   ├── find_indicator_funcs.py[2m (python, 3 symbols)[0m
+│   │   ├── find_main_financial.py[2m (python, 3 symbols)[0m
+│   │   ├── find_profit_funcs.py[2m (python, 3 symbols)[0m
+│   │   ├── fix_encoding.cjs[2m (javascript, 4 symbols)[0m
+│   │   ├── list_cols_app.py[2m (python, 7 symbols)[0m
+│   │   ├── list_cols_watchlist.py[2m (python, 7 symbols)[0m
+│   │   ├── list_cols.py[2m (python, 7 symbols)[0m
+│   │   ├── list_gemini_models.py[2m (python, 6 symbols)[0m
+│   │   ├── list_jobs.py[2m (python, 7 symbols)[0m
+│   │   ├── list_symbols.py[2m (python, 7 symbols)[0m
+│   │   ├── list_tables.py[2m (python, 7 symbols)[0m
+│   │   ├── refactor_json.py[2m (python, 5 symbols)[0m
+│   │   ├── searxng_verify.py[2m (python, 8 symbols)[0m
+│   │   ├── test_ak_endpoints.py[2m (python, 6 symbols)[0m
+│   │   ├── test_ak_financials.py[2m (python, 4 symbols)[0m
+│   │   ├── test_ak_indicator_sina.py[2m (python, 4 symbols)[0m
+│   │   ├── test_ak_indicator.py[2m (python, 4 symbols)[0m
+│   │   ├── test_ak_profit_sheet.py[2m (python, 4 symbols)[0m
+│   │   ├── test_ak_spot_single.py[2m (python, 4 symbols)[0m
+│   │   ├── test_ak_spot.py[2m (python, 4 symbols)[0m
+│   │   ├── test_ak.py[2m (python, 4 symbols)[0m
+│   │   ├── test_akshare.py[2m (python, 4 symbols)[0m
+│   │   ├── test_backend_speed.py[2m (python, 4 symbols)[0m
+│   │   ├── test_ddgs_simple.py[2m (python, 6 symbols)[0m
+│   │   ├── test_deep_scrape.py[2m (python, 5 symbols)[0m
+│   │   ├── test_financials.py[2m (python, 6 symbols)[0m
+│   │   ├── test_fundamentals.py[2m (python, 8 symbols)[0m
+│   │   ├── test_fx_fix.py[2m (python, 4 symbols)[0m
+│   │   ├── test_gemini_call.py[2m (python, 6 symbols)[0m
+│   │   ├── test_gemini_key.py[2m (python, 7 symbols)[0m
+│   │   ├── test_lithium_search.py[2m (python, 6 symbols)[0m
+│   │   ├── test_macro_search.py[2m (python, 9 symbols)[0m
+│   │   ├── test_rolling_pe.py[2m (python, 6 symbols)[0m
+│   │   ├── test_search_fallback.py[2m (python, 6 symbols)[0m
+│   │   ├── test_search_toolkit.py[2m (python, 7 symbols)[0m
+│   │   ├── test_snapshot_002156.py[2m (python, 10 symbols)[0m
+│   │   ├── test_tool_calling.py[2m (python, 11 symbols)[0m
+│   │   ├── test_yf_financials.py[2m (python, 5 symbols)[0m
+│   │   └── test_yf_fundamentals.py[2m (python, 4 symbols)[0m
+│   ├── tests
+│   │   ├── conftest.py[2m (python, 16 symbols)[0m
+│   │   ├── test_admin_api.py[2m (python, 7 symbols)[0m
+│   │   ├── test_agent_decision_schema.py[2m (python, 8 symbols)[0m
+│   │   ├── test_agent_output_validation.py[2m (python, 13 symbols)[0m
+│   │   ├── test_agent_upgrades.py[2m (python, 15 symbols)[0m
+│   │   ├── test_akshare_validation.py[2m (python, 7 symbols)[0m
+│   │   ├── test_analysis_api.py[2m (python, 7 symbols)[0m
+│   │   ├── test_analysis_job_pit_metadata.py[2m (python, 12 symbols)[0m
+│   │   ├── test_app_security.py[2m (python, 5 symbols)[0m
+│   │   ├── test_audit_phase1_fixes.py[2m (python, 11 symbols)[0m
+│   │   ├── test_auth_e2e.py[2m (python, 13 symbols)[0m
+│   │   ├── test_backtest_api.py[2m (python, 13 symbols)[0m
+│   │   ├── test_backtest_engine.py[2m (python, 20 symbols)[0m
+│   │   ├── test_decision_court.py[2m (python, 16 symbols)[0m
+│   │   ├── test_deepseek_integration.py[2m (python, 8 symbols)[0m
+│   │   ├── test_duckdb_aggregations.py[2m (python, 8 symbols)[0m
+│   │   ├── test_duckdb_caching.py[2m (python, 7 symbols)[0m
+│   │   ├── test_embedding_pipeline.py[2m (python, 7 symbols)[0m
+│   │   ├── test_end_to_end_analysis.py[2m (python, 13 symbols)[0m
+│   │   ├── test_financials_api.py[2m (python, 9 symbols)[0m
+│   │   ├── test_gep_refactor.py[2m (python, 14 symbols)[0m
+│   │   ├── test_health_api.py[2m (python, 8 symbols)[0m
+│   │   ├── test_jinja_prompts.py[2m (python, 10 symbols)[0m
+│   │   ├── test_kill_switch.py[2m (python, 17 symbols)[0m
+│   │   ├── test_lancedb_retrieval.py[2m (python, 7 symbols)[0m
+│   │   ├── test_lineage_and_quality.py[2m (python, 6 symbols)[0m
+│   │   ├── test_market_snapshot_pit.py[2m (python, 14 symbols)[0m
+│   │   ├── test_mock_trading.py[2m (python, 48 symbols)[0m
+│   │   ├── test_model_eval.py[2m (python, 13 symbols)[0m
+│   │   ├── test_observability.py[2m (python, 19 symbols)[0m
+│   │   ├── test_parquet_duckdb_pipeline.py[2m (python, 9 symbols)[0m
+│   │   ├── test_phase1_audit_fixes.py[2m (python, 44 symbols)[0m
+│   │   ├── test_phase2_accuracy.py[2m (python, 14 symbols)[0m
+│   │   ├── test_polars_indicators.py[2m (python, 7 symbols)[0m
+│   │   ├── test_pre_trade_risk_gateway.py[2m (python, 7 symbols)[0m
+│   │   ├── test_pre_trade_risk.py[2m (python, 18 symbols)[0m
+│   │   ├── test_prediction_accuracy.py[2m (python, 12 symbols)[0m
+│   │   ├── test_prompt_ops.py[2m (python, 16 symbols)[0m
+│   │   ├── test_reconciliation.py[2m (python, 13 symbols)[0m
+│   │   ├── test_restructured_report.py[2m (python, 7 symbols)[0m
+│   │   ├── test_risk_metrics.py[2m (python, 12 symbols)[0m
+│   │   ├── test_sqlite_repositories.py[2m (python, 10 symbols)[0m
+│   │   ├── test_tool_registry.py[2m (python, 11 symbols)[0m
+│   │   ├── test_trade_intents_api.py[2m (python, 5 symbols)[0m
+│   │   └── test_watchlist_journal_api.py[2m (python, 7 symbols)[0m
+│   ├── __init__.py[2m (python, 1 symbols)[0m
+│   ├── build_financial_db.py[2m (python, 9 symbols)[0m
+│   ├── build_full_market_db.py[2m (python, 11 symbols)[0m
+│   ├── check_jobs.py[2m (python, 4 symbols)[0m
+│   ├── check_latest_job.py[2m (python, 12 symbols)[0m
+│   ├── check_prompts.py[2m (python, 9 symbols)[0m
+│   ├── clean_prompts.py[2m (python, 12 symbols)[0m
+│   ├── cli.py[2m (python, 29 symbols)[0m
+│   ├── download_a_shares.py[2m (python, 18 symbols)[0m
+│   ├── download_akshare_data.py[2m (python, 20 symbols)[0m
+│   ├── download_full_data.py[2m (python, 17 symbols)[0m
+│   ├── fix_numbers.py[2m (python, 14 symbols)[0m
+│   ├── fix_sector_db.py[2m (python, 7 symbols)[0m
+│   ├── main.py[2m (python, 63 symbols)[0m
+│   ├── patch.py[2m (python, 29 symbols)[0m
+│   ├── portfolio_mock_backtest.py[2m (python, 11 symbols)[0m
+│   ├── re_render_msft.py[2m (python, 7 symbols)[0m
+│   ├── restart_server.py[2m (python, 6 symbols)[0m
+│   ├── run.py[2m (python, 6 symbols)[0m
+│   ├── seed_all_prompts.py[2m (python, 9 symbols)[0m
+│   ├── seed_prompts.py[2m (python, 5 symbols)[0m
+│   ├── seed_soros.py[2m (python, 5 symbols)[0m
+│   ├── snapshot_manager.py[2m (python, 9 symbols)[0m
+│   ├── technicals.py[2m (python, 21 symbols)[0m
+│   ├── test_ai_agent.py[2m (python, 11 symbols)[0m
+│   ├── test_ak.py[2m (python, 3 symbols)[0m
+│   ├── test_analysis.py[2m (python, 8 symbols)[0m
+│   ├── test_analysis2.py[2m (python, 8 symbols)[0m
+│   ├── test_analysis3.py[2m (python, 8 symbols)[0m
+│   ├── test_api_jobs.py[2m (python, 11 symbols)[0m
+│   ├── test_auth_live.py[2m (python, 4 symbols)[0m
+│   ├── test_e2e_system.py[2m (python, 5 symbols)[0m
+│   ├── test_fast.py[2m (python, 11 symbols)[0m
+│   ├── test_fastapi_500.py[2m (python, 7 symbols)[0m
+│   ├── test_has_running.py[2m (python, 5 symbols)[0m
+│   ├── test_index.py[2m (python, 3 symbols)[0m
+│   ├── test_invoke.py[2m (python, 4 symbols)[0m
+│   ├── test_jinja.py[2m (python, 4 symbols)[0m
+│   ├── test_login.py[2m (python, 7 symbols)[0m
+│   ├── test_mock_trade.py[2m (python, 12 symbols)[0m
+│   ├── test_mock_trade2.py[2m (python, 11 symbols)[0m
+│   ├── test_passlib.py[2m (python, 5 symbols)[0m
+│   ├── test_qlib_backtest_debug.py[2m (python, 5 symbols)[0m
+│   ├── test_qlib_backtest.py[2m (python, 5 symbols)[0m
+│   ├── test_qlib_updater.py[2m (python, 4 symbols)[0m
+│   ├── test_resolve.py[2m (python, 6 symbols)[0m
+│   ├── test_run_job.py[2m (python, 8 symbols)[0m
+│   ├── test_serenity_valid.py[2m (python, 7 symbols)[0m
+│   ├── test_serenity_valid2.py[2m (python, 8 symbols)[0m
+│   ├── test_serenity_valid3.py[2m (python, 8 symbols)[0m
+│   ├── test_spot.py[2m (python, 3 symbols)[0m
+│   └── test_trending.py[2m (python, 3 symbols)[0m
+├── scratch
+│   ├── analyze_bottlenecks.py[2m (python, 7 symbols)[0m
+│   ├── apply_runtime_env_fix.py[2m (python, 6 symbols)[0m
+│   ├── check_db.py[2m (python, 5 symbols)[0m
+│   ├── check_indent.py[2m (python, 6 symbols)[0m
+│   ├── check_status.py[2m (python, 9 symbols)[0m
+│   ├── debug_run.py[2m (python, 7 symbols)[0m
+│   ├── extract_prompts.py[2m (python, 14 symbols)[0m
+│   ├── find_akshare_funcs.py[2m (python, 4 symbols)[0m
+│   ├── fix_file.py[2m (python, 7 symbols)[0m
+│   ├── init_db.py[2m (python, 6 symbols)[0m
+│   ├── monitor_job.py[2m (python, 16 symbols)[0m
+│   ├── print_rest.py[2m (python, 6 symbols)[0m
+│   ├── query_prompts.py[2m (python, 12 symbols)[0m
+│   ├── query_sector_db.py[2m (python, 12 symbols)[0m
+│   ├── read_lines.py[2m (python, 7 symbols)[0m
+│   ├── rename_imports.py[2m (python, 4 symbols)[0m
+│   ├── rename_relative_imports.py[2m (python, 4 symbols)[0m
+│   ├── search_models.py[2m (python, 8 symbols)[0m
+│   ├── test_backtest.py[2m (python, 7 symbols)[0m
+│   ├── test_commodity.py[2m (python, 9 symbols)[0m
+│   ├── test_computation_tools.py[2m (python, 6 symbols)[0m
+│   ├── test_extraction.py[2m (python, 10 symbols)[0m
+│   ├── test_fx.py[2m (python, 12 symbols)[0m
+│   ├── test_json_render.py[2m (python, 10 symbols)[0m
+│   ├── test_na_fixes.py[2m (python, 5 symbols)[0m
+│   ├── test_new_fields.py[2m (python, 5 symbols)[0m
+│   ├── test_openbb_integration.py[2m (python, 4 symbols)[0m
+│   ├── test_openbb_providers.py[2m (python, 7 symbols)[0m
+│   ├── test_price_enrichment.py[2m (python, 9 symbols)[0m
+│   ├── test_run_backtest.py[2m (python, 8 symbols)[0m
+│   └── test_signals.py[2m (python, 8 symbols)[0m
+├── scripts
+│   ├── audit-repo-hygiene.js[2m (javascript, 5 symbols)[0m
+│   ├── ibkr-gateway.conf.yaml[2m (yaml, 0 symbols)[0m
+│   └── start-ibkr-gateway.js[2m (javascript, 14 symbols)[0m
+├── sdk
+│   ├── js
+│   │   └── alsa-sdk
+│   │       └── index.ts[2m (typescript, 41 symbols)[0m
+│   └── python
+│       ├── alsa_sdk
+│       │   ├── __init__.py[2m (python, 5 symbols)[0m
+│       │   ├── client.py[2m (python, 36 symbols)[0m
+│       │   └── models.py[2m (python, 10 symbols)[0m
+│       └── setup.py[2m (python, 2 symbols)[0m
+├── server
+│   ├── __tests__
+│   │   ├── dataSourceHealth.test.ts[2m (typescript, 3 symbols)[0m
+│   │   ├── debugRoutes.test.ts[2m (typescript, 2 symbols)[0m
+│   │   ├── deepseekIntegration.test.ts[2m (typescript, 3 symbols)[0m
+│   │   ├── fundamentalScoring.test.ts[2m (typescript, 3 symbols)[0m
+│   │   ├── llmGateway.test.ts[2m (typescript, 4 symbols)[0m
+│   │   ├── riskMetrics.test.ts[2m (typescript, 3 symbols)[0m
+│   │   ├── securityConfig.test.ts[2m (typescript, 3 symbols)[0m
+│   │   ├── stockRoutes.test.ts[2m (typescript, 9 symbols)[0m
+│   │   └── technicalCalc.test.ts[2m (typescript, 4 symbols)[0m
+│   ├── db
+│   │   └── client.ts[2m (typescript, 13 symbols)[0m
+│   ├── domain
+│   │   └── analysis
+│   │       └── analysisSnapshot.ts[2m (typescript, 3 symbols)[0m
+│   ├── indicators
+│   │   ├── fundamentalScoring.ts[2m (typescript, 5 symbols)[0m
+│   │   ├── riskMetrics.ts[2m (typescript, 4 symbols)[0m
+│   │   └── technicalCalc.ts[2m (typescript, 5 symbols)[0m
+│   ├── lib
+│   │   ├── ibkrClient.ts[2m (typescript, 22 symbols)[0m
+│   │   └── yahooFinance.ts[2m (typescript, 3 symbols)[0m
+│   ├── repositories
+│   │   └── analysisRepository.ts[2m (typescript, 5 symbols)[0m
+│   ├── routes
+│   │   ├── analysisRoutes.ts[2m (typescript, 26 symbols)[0m
+│   │   ├── ibkrRoutes.ts[2m (typescript, 16 symbols)[0m
+│   │   └── llmRoutes.ts[2m (typescript, 8 symbols)[0m
+│   ├── scratch
+│   │   └── verifyDeepSeekLogs.ts[2m (typescript, 7 symbols)[0m
+│   ├── copilotAuth.ts[2m (typescript, 21 symbols)[0m
+│   ├── dataSourceHealth.ts[2m (typescript, 19 symbols)[0m
+│   ├── debugRoutes.ts[2m (typescript, 17 symbols)[0m
+│   ├── feishuRoutes.ts[2m (typescript, 7 symbols)[0m
+│   ├── historyRoutes.ts[2m (typescript, 22 symbols)[0m
+│   ├── llmGateway.ts[2m (typescript, 18 symbols)[0m
+│   ├── securityConfig.ts[2m (typescript, 15 symbols)[0m
+│   ├── stockLogger.ts[2m (typescript, 7 symbols)[0m
+│   └── stockRoutes.ts[2m (typescript, 39 symbols)[0m
+├── skills
+│   ├── announcement-search
+│   │   ├── __MACOSX
+│   │   │   └── announcement-search
+│   │   │       └── scripts
+│   │   │           ├── .___main__.py[2m (python, 1 symbols)[0m
+│   │   │           ├── ._announcement_search.py[2m (python, 1 symbols)[0m
+│   │   │           ├── ._config.py[2m (python, 1 symbols)[0m
+│   │   │           ├── ._example_usage.py[2m (python, 1 symbols)[0m
+│   │   │           ├── ._setup.py[2m (python, 1 symbols)[0m
+│   │   │           ├── ._test_basic.py[2m (python, 1 symbols)[0m
+│   │   │           └── ._utils.py[2m (python, 1 symbols)[0m
+│   │   └── scripts
+│   │       ├── __main__.py[2m (python, 16 symbols)[0m
+│   │       ├── announcement_search.py[2m (python, 30 symbols)[0m
+│   │       ├── config.py[2m (python, 19 symbols)[0m
+│   │       ├── example_usage.py[2m (python, 16 symbols)[0m
+│   │       ├── setup.py[2m (python, 5 symbols)[0m
+│   │       ├── test_basic.py[2m (python, 32 symbols)[0m
+│   │       └── utils.py[2m (python, 28 symbols)[0m
+│   ├── brainstorming
+│   │   └── scripts
+│   │       ├── helper.js[2m (javascript, 1 symbols)[0m
+│   │       └── server.cjs[2m (javascript, 75 symbols)[0m
+│   ├── hithink-business-query
+│   │   └── scripts
+│   │       └── cli.py[2m (python, 23 symbols)[0m
+│   ├── hithink-finance-query
+│   │   └── scripts
+│   │       └── cli.py[2m (python, 23 symbols)[0m
+│   ├── hithink-macro-query
+│   │   └── scripts
+│   │       └── cli.py[2m (python, 23 symbols)[0m
+│   ├── hithink-management-query
+│   │   └── scripts
+│   │       └── cli.py[2m (python, 23 symbols)[0m
+│   ├── news-search
+│   │   └── scripts
+│   │       └── news-search.js[2m (javascript, 5 symbols)[0m
+│   ├── report-search
+│   │   └── scripts
+│   │       ├── fxbaogao_client.py[2m (python, 52 symbols)[0m
+│   │       ├── get_report_content.py[2m (python, 7 symbols)[0m
+│   │       ├── search_reports.py[2m (python, 8 symbols)[0m
+│   │       └── validate.py[2m (python, 14 symbols)[0m
+│   ├── systematic-debugging
+│   │   └── condition-based-waiting-example.ts[2m (typescript, 6 symbols)[0m
+│   └── writing-skills
+│       └── render-graphs.js[2m (javascript, 8 symbols)[0m
+├── src
+│   ├── components
+│   │   ├── __tests__
+│   │   │   ├── ErrorBoundary.test.tsx[2m (tsx, 6 symbols)[0m
+│   │   │   ├── HistoryModal.test.tsx[2m (tsx, 5 symbols)[0m
+│   │   │   └── MarketOverview.test.tsx[2m (tsx, 5 symbols)[0m
+│   │   ├── admin
+│   │   │   ├── AdminPanel.tsx[2m (tsx, 5 symbols)[0m
+│   │   │   ├── SystemMonitor.tsx[2m (tsx, 15 symbols)[0m
+│   │   │   └── TeamActivity.tsx[2m (tsx, 8 symbols)[0m
+│   │   ├── analysis
+│   │   │   ├── __tests__
+│   │   │   │   ├── ScorePanel.test.tsx[2m (tsx, 6 symbols)[0m
+│   │   │   │   └── StockHeroCard.test.tsx[2m (tsx, 6 symbols)[0m
+│   │   │   ├── AnalysisActionBar.tsx[2m (tsx, 8 symbols)[0m
+│   │   │   ├── AnalysisFeedback.tsx[2m (tsx, 7 symbols)[0m
+│   │   │   ├── AnalysisLoadingPulse.tsx[2m (tsx, 13 symbols)[0m
+│   │   │   ├── AnalysisResult.tsx[2m (tsx, 21 symbols)[0m
+│   │   │   ├── ChatSection.tsx[2m (tsx, 10 symbols)[0m
+│   │   │   ├── ConferenceResults.tsx[2m (tsx, 17 symbols)[0m
+│   │   │   ├── DeliberationMatrix.tsx[2m (tsx, 10 symbols)[0m
+│   │   │   ├── ExpertReportCard.tsx[2m (tsx, 13 symbols)[0m
+│   │   │   ├── HistorySelectionDialog.tsx[2m (tsx, 9 symbols)[0m
+│   │   │   ├── InstitutionalReportView.tsx[2m (tsx, 11 symbols)[0m
+│   │   │   ├── PredictionAccuracy.tsx[2m (tsx, 10 symbols)[0m
+│   │   │   ├── ScorePanel.tsx[2m (tsx, 13 symbols)[0m
+│   │   │   ├── SidebarSummary.tsx[2m (tsx, 13 symbols)[0m
+│   │   │   ├── StockHeroCard.tsx[2m (tsx, 11 symbols)[0m
+│   │   │   └── utils.ts[2m (typescript, 4 symbols)[0m
+│   │   ├── auth
+│   │   │   ├── AuthGuard.tsx[2m (tsx, 7 symbols)[0m
+│   │   │   ├── LoginPage.tsx[2m (tsx, 6 symbols)[0m
+│   │   │   └── RegisterPage.tsx[2m (tsx, 6 symbols)[0m
+│   │   ├── dashboard
+│   │   │   ├── __tests__
+│   │   │   │   ├── MockTradingUI.test.tsx[2m (tsx, 5 symbols)[0m
+│   │   │   │   └── SignalCenter.test.tsx[2m (tsx, 6 symbols)[0m
+│   │   │   ├── AccountMergeModal.tsx[2m (tsx, 6 symbols)[0m
+│   │   │   ├── BacktestPanel.tsx[2m (tsx, 11 symbols)[0m
+│   │   │   ├── BrainEvolutionModal.tsx[2m (tsx, 7 symbols)[0m
+│   │   │   ├── IBKRDashboard.tsx[2m (tsx, 16 symbols)[0m
+│   │   │   ├── InstitutionalAlertPanel.tsx[2m (tsx, 15 symbols)[0m
+│   │   │   ├── MarketOverview.tsx[2m (tsx, 24 symbols)[0m
+│   │   │   ├── MockTradingDashboard.tsx[2m (tsx, 16 symbols)[0m
+│   │   │   ├── PredictionDashboard.tsx[2m (tsx, 7 symbols)[0m
+│   │   │   ├── SectorScanner.tsx[2m (tsx, 9 symbols)[0m
+│   │   │   ├── SerenityAlphaAnalyst.tsx[2m (tsx, 8 symbols)[0m
+│   │   │   ├── SignalCenter.tsx[2m (tsx, 13 symbols)[0m
+│   │   │   ├── TokenUsage.tsx[2m (tsx, 7 symbols)[0m
+│   │   │   └── TradeTicketModal.tsx[2m (tsx, 7 symbols)[0m
+│   │   ├── layout
+│   │   │   ├── Header.tsx[2m (tsx, 19 symbols)[0m
+│   │   │   ├── MobileNav.tsx[2m (tsx, 10 symbols)[0m
+│   │   │   └── ResponsiveContainer.tsx[2m (tsx, 6 symbols)[0m
+│   │   ├── shared
+│   │   │   ├── ConfirmDialog.tsx[2m (tsx, 9 symbols)[0m
+│   │   │   ├── DetailModal.tsx[2m (tsx, 11 symbols)[0m
+│   │   │   ├── NotificationBubbles.tsx[2m (tsx, 7 symbols)[0m
+│   │   │   ├── StockSearchInput.tsx[2m (tsx, 6 symbols)[0m
+│   │   │   └── Toast.tsx[2m (tsx, 9 symbols)[0m
+│   │   ├── DiscussionPanel.tsx[2m (tsx, 24 symbols)[0m
+│   │   ├── ErrorBoundary.tsx[2m (tsx, 10 symbols)[0m
+│   │   ├── ErrorNotice.tsx[2m (tsx, 7 symbols)[0m
+│   │   ├── HistoryModal.tsx[2m (tsx, 9 symbols)[0m
+│   │   └── SettingsModal.tsx[2m (tsx, 12 symbols)[0m
+│   ├── hooks
+│   │   ├── index.ts[2m (typescript, 1 symbols)[0m
+│   │   ├── useAnalysisJob.ts[2m (typescript, 7 symbols)[0m
+│   │   ├── useAnalysisStatus.ts[2m (typescript, 6 symbols)[0m
+│   │   ├── useChat.ts[2m (typescript, 9 symbols)[0m
+│   │   ├── useDecisionJournal.ts[2m (typescript, 5 symbols)[0m
+│   │   ├── useDiscussion.ts[2m (typescript, 11 symbols)[0m
+│   │   ├── useI18nSync.ts[2m (typescript, 13 symbols)[0m
+│   │   ├── useMarketData.ts[2m (typescript, 9 symbols)[0m
+│   │   ├── usePredictionTrackRecord.ts[2m (typescript, 9 symbols)[0m
+│   │   ├── usePullToRefresh.ts[2m (typescript, 5 symbols)[0m
+│   │   ├── useReporting.ts[2m (typescript, 13 symbols)[0m
+│   │   ├── useStockAnalysis.ts[2m (typescript, 15 symbols)[0m
+│   │   ├── useUrlState.ts[2m (typescript, 9 symbols)[0m
+│   │   └── useWatchlistSync.ts[2m (typescript, 7 symbols)[0m
+│   ├── i18n
+│   │   └── index.ts[2m (typescript, 6 symbols)[0m
+│   ├── services
+│   │   ├── __tests__
+│   │   │   ├── analysisCache.test.ts[2m (typescript, 5 symbols)[0m
+│   │   │   ├── analysisLevelConfig.test.ts[2m (typescript, 3 symbols)[0m
+│   │   │   ├── backtestService.test.ts[2m (typescript, 5 symbols)[0m
+│   │   │   ├── backtestTimeSeries.test.ts[2m (typescript, 5 symbols)[0m
+│   │   │   ├── biasDetector.test.ts[2m (typescript, 5 symbols)[0m
+│   │   │   ├── comparisonService.test.ts[2m (typescript, 5 symbols)[0m
+│   │   │   ├── dataFreshness.test.ts[2m (typescript, 3 symbols)[0m
+│   │   │   ├── dataQualityService.test.ts[2m (typescript, 5 symbols)[0m
+│   │   │   ├── dateUtils.test.ts[2m (typescript, 3 symbols)[0m
+│   │   │   ├── driftDetection.test.ts[2m (typescript, 5 symbols)[0m
+│   │   │   ├── expertTracker.test.ts[2m (typescript, 5 symbols)[0m
+│   │   │   ├── formatUtils.test.ts[2m (typescript, 3 symbols)[0m
+│   │   │   ├── guardrails.test.ts[2m (typescript, 4 symbols)[0m
+│   │   │   ├── healthService.test.ts[2m (typescript, 3 symbols)[0m
+│   │   │   ├── promptAssembler.test.ts[2m (typescript, 4 symbols)[0m
+│   │   │   ├── promptRegistration.test.ts[2m (typescript, 4 symbols)[0m
+│   │   │   ├── promptRegistry.test.ts[2m (typescript, 3 symbols)[0m
+│   │   │   ├── quantitativeModeling.test.ts[2m (typescript, 4 symbols)[0m
+│   │   │   ├── quickScanPrompt.test.ts[2m (typescript, 3 symbols)[0m
+│   │   │   ├── reflectionService.test.ts[2m (typescript, 3 symbols)[0m
+│   │   │   ├── reportGenerator.test.ts[2m (typescript, 4 symbols)[0m
+│   │   │   ├── requestDedup.test.ts[2m (typescript, 3 symbols)[0m
+│   │   │   ├── schemas.test.ts[2m (typescript, 3 symbols)[0m
+│   │   │   ├── sectorRotationService.test.ts[2m (typescript, 4 symbols)[0m
+│   │   │   ├── undoManager.test.ts[2m (typescript, 4 symbols)[0m
+│   │   │   └── watchlistService.test.ts[2m (typescript, 5 symbols)[0m
+│   │   ├── api
+│   │   │   ├── __tests__
+│   │   │   │   └── analysisClient.test.ts[2m (typescript, 3 symbols)[0m
+│   │   │   ├── alertsClient.ts[2m (typescript, 19 symbols)[0m
+│   │   │   ├── analysisClient.ts[2m (typescript, 4 symbols)[0m
+│   │   │   ├── journalClient.ts[2m (typescript, 4 symbols)[0m
+│   │   │   ├── mockTradingClient.ts[2m (typescript, 23 symbols)[0m
+│   │   │   ├── screeningClient.ts[2m (typescript, 8 symbols)[0m
+│   │   │   ├── stockClient.ts[2m (typescript, 3 symbols)[0m
+│   │   │   └── watchlistClient.ts[2m (typescript, 5 symbols)[0m
+│   │   ├── discussion
+│   │   │   ├── __tests__
+│   │   │   │   ├── expertPrompts.test.ts[2m (typescript, 6 symbols)[0m
+│   │   │   │   ├── multiRoundDiscussion.test.ts[2m (typescript, 7 symbols)[0m
+│   │   │   │   ├── orchestrator.test.ts[2m (typescript, 4 symbols)[0m
+│   │   │   │   ├── resultAggregator.test.ts[2m (typescript, 5 symbols)[0m
+│   │   │   │   └── skipRules.test.ts[2m (typescript, 3 symbols)[0m
+│   │   │   ├── prompts
+│   │   │   │   ├── fewShot
+│   │   │   │   │   └── examples.ts[2m (typescript, 5 symbols)[0m
+│   │   │   │   ├── protocols
+│   │   │   │   │   ├── dataSourcePriority.ts[2m (typescript, 3 symbols)[0m
+│   │   │   │   │   └── temporalAlignment.ts[2m (typescript, 3 symbols)[0m
+│   │   │   │   └── roles
+│   │   │   │       ├── chiefStrategist.ts[2m (typescript, 3 symbols)[0m
+│   │   │   │       ├── fundamentalAnalyst.ts[2m (typescript, 3 symbols)[0m
+│   │   │   │       └── technicalAnalyst.ts[2m (typescript, 3 symbols)[0m
+│   │   │   ├── anchorDiscovery.ts[2m (typescript, 4 symbols)[0m
+│   │   │   ├── expertPrompts.ts[2m (typescript, 10 symbols)[0m
+│   │   │   ├── guardrails.ts[2m (typescript, 4 symbols)[0m
+│   │   │   ├── orchestrator.ts[2m (typescript, 7 symbols)[0m
+│   │   │   ├── promptAssembler.ts[2m (typescript, 12 symbols)[0m
+│   │   │   ├── resultAggregator.ts[2m (typescript, 4 symbols)[0m
+│   │   │   └── skipRules.ts[2m (typescript, 4 symbols)[0m
+│   │   ├── adminService.ts[2m (typescript, 9 symbols)[0m
+│   │   ├── aiService.test.ts[2m (typescript, 4 symbols)[0m
+│   │   ├── aiService.ts[2m (typescript, 29 symbols)[0m
+│   │   ├── analysisCache.ts[2m (typescript, 14 symbols)[0m
+│   │   ├── analysisLevelConfig.ts[2m (typescript, 8 symbols)[0m
+│   │   ├── analysisService.ts[2m (typescript, 18 symbols)[0m
+│   │   ├── apiClient.ts[2m (typescript, 5 symbols)[0m
+│   │   ├── backtestService.ts[2m (typescript, 5 symbols)[0m
+│   │   ├── backtestTimeSeries.ts[2m (typescript, 6 symbols)[0m
+│   │   ├── biasDetector.ts[2m (typescript, 8 symbols)[0m
+│   │   ├── brainService.ts[2m (typescript, 4 symbols)[0m
+│   │   ├── comparisonService.ts[2m (typescript, 4 symbols)[0m
+│   │   ├── coreVariablePriority.ts[2m (typescript, 10 symbols)[0m
+│   │   ├── dataFreshness.ts[2m (typescript, 6 symbols)[0m
+│   │   ├── dataQualityService.ts[2m (typescript, 5 symbols)[0m
+│   │   ├── dateUtils.ts[2m (typescript, 3 symbols)[0m
+│   │   ├── discussionService.ts[2m (typescript, 40 symbols)[0m
+│   │   ├── driftDetection.ts[2m (typescript, 17 symbols)[0m
+│   │   ├── expertTracker.ts[2m (typescript, 6 symbols)[0m
+│   │   ├── feishuService.ts[2m (typescript, 5 symbols)[0m
+│   │   ├── formatUtils.ts[2m (typescript, 2 symbols)[0m
+│   │   ├── formulaService.ts[2m (typescript, 4 symbols)[0m
+│   │   ├── geminiService.test.ts[2m (typescript, 6 symbols)[0m
+│   │   ├── geminiService.ts[2m (typescript, 31 symbols)[0m
+│   │   ├── healthService.ts[2m (typescript, 5 symbols)[0m
+│   │   ├── ibkrService.ts[2m (typescript, 15 symbols)[0m
+│   │   ├── llmProvider.ts[2m (typescript, 6 symbols)[0m
+│   │   ├── marketService.ts[2m (typescript, 15 symbols)[0m
+│   │   ├── mathService.ts[2m (typescript, 3 symbols)[0m
+│   │   ├── mcpService.ts[2m (typescript, 5 symbols)[0m
+│   │   ├── promptRegistration.ts[2m (typescript, 7 symbols)[0m
+│   │   ├── promptRegistry.ts[2m (typescript, 11 symbols)[0m
+│   │   ├── prompts.ts[2m (typescript, 15 symbols)[0m
+│   │   ├── quantitativeModeling.ts[2m (typescript, 12 symbols)[0m
+│   │   ├── reflectionService.ts[2m (typescript, 15 symbols)[0m
+│   │   ├── reportGenerator.ts[2m (typescript, 7 symbols)[0m
+│   │   ├── requestDedup.ts[2m (typescript, 4 symbols)[0m
+│   │   ├── requestScheduler.ts[2m (typescript, 17 symbols)[0m
+│   │   ├── schemas.ts[2m (typescript, 9 symbols)[0m
+│   │   ├── sectorRotationService.ts[2m (typescript, 8 symbols)[0m
+│   │   ├── undoManager.ts[2m (typescript, 8 symbols)[0m
+│   │   └── watchlistService.ts[2m (typescript, 3 symbols)[0m
+│   ├── stores
+│   │   ├── __tests__
+│   │   │   ├── useAnalysisStore.test.ts[2m (typescript, 3 symbols)[0m
+│   │   │   ├── useConfigStore.test.ts[2m (typescript, 4 symbols)[0m
+│   │   │   ├── useDecisionStore.test.ts[2m (typescript, 3 symbols)[0m
+│   │   │   ├── useDiscussionStore.test.ts[2m (typescript, 4 symbols)[0m
+│   │   │   ├── useScenarioStore.test.ts[2m (typescript, 4 symbols)[0m
+│   │   │   ├── useUIStore.test.ts[2m (typescript, 3 symbols)[0m
+│   │   │   └── useWatchlistStore.test.ts[2m (typescript, 3 symbols)[0m
+│   │   ├── useAnalysisStore.ts[2m (typescript, 14 symbols)[0m
+│   │   ├── useAuthStore.ts[2m (typescript, 13 symbols)[0m
+│   │   ├── useConfigStore.ts[2m (typescript, 18 symbols)[0m
+│   │   ├── useDecisionStore.ts[2m (typescript, 10 symbols)[0m
+│   │   ├── useDiscussionStore.ts[2m (typescript, 16 symbols)[0m
+│   │   ├── useJobQueueStore.ts[2m (typescript, 14 symbols)[0m
+│   │   ├── useMarketStore.ts[2m (typescript, 21 symbols)[0m
+│   │   ├── useScenarioStore.ts[2m (typescript, 22 symbols)[0m
+│   │   ├── useStatsStore.ts[2m (typescript, 13 symbols)[0m
+│   │   ├── useUIStore.ts[2m (typescript, 45 symbols)[0m
+│   │   └── useWatchlistStore.ts[2m (typescript, 16 symbols)[0m
+│   ├── test
+│   │   ├── aiService.test.ts[2m (typescript, 3 symbols)[0m
+│   │   ├── AnalysisResult.test.tsx[2m (tsx, 5 symbols)[0m
+│   │   ├── apiBoundary.test.ts[2m (typescript, 5 symbols)[0m
+│   │   ├── buildBudget.test.ts[2m (typescript, 4 symbols)[0m
+│   │   ├── commodityPrompt.test.ts[2m (typescript, 6 symbols)[0m
+│   │   ├── dataIntegrity.test.ts[2m (typescript, 4 symbols)[0m
+│   │   ├── decisionEngine.test.ts[2m (typescript, 6 symbols)[0m
+│   │   ├── deepResearchSpecialist.test.ts[2m (typescript, 5 symbols)[0m
+│   │   ├── marketStore.test.ts[2m (typescript, 5 symbols)[0m
+│   │   ├── repoHygiene.test.ts[2m (typescript, 4 symbols)[0m
+│   │   ├── setup.ts[2m (typescript, 3 symbols)[0m
+│   │   ├── TradingPlan.test.tsx[2m (tsx, 5 symbols)[0m
+│   │   └── viteSecurity.test.ts[2m (typescript, 3 symbols)[0m
+│   ├── types
+│   │   ├── analysis.ts[2m (typescript, 25 symbols)[0m
+│   │   ├── common.ts[2m (typescript, 32 symbols)[0m
+│   │   ├── index.ts[2m (typescript, 1 symbols)[0m
+│   │   ├── market.ts[2m (typescript, 14 symbols)[0m
+│   │   └── trading.ts[2m (typescript, 1 symbols)[0m
+│   ├── App.tsx[2m (tsx, 41 symbols)[0m
+│   ├── main.tsx[2m (tsx, 8 symbols)[0m
+│   ├── types.ts[2m (typescript, 64 symbols)[0m
+│   └── vite-env.d.ts[2m (typescript, 1 symbols)[0m
+├── check_status.py[2m (python, 4 symbols)[0m
+├── check-motion.ts[2m (typescript, 1 symbols)[0m
+├── diagnose_backtest.py[2m (python, 34 symbols)[0m
+├── docker-compose.yml[2m (yaml, 0 symbols)[0m
+├── dump_job.py[2m (python, 7 symbols)[0m
+├── job_info.py[2m (python, 8 symbols)[0m
+├── parse_all.py[2m (python, 10 symbols)[0m
+├── parse_json.py[2m (python, 5 symbols)[0m
+├── query_all.py[2m (python, 6 symbols)[0m
+├── query_db.py[2m (python, 6 symbols)[0m
+├── read_scan.py[2m (python, 6 symbols)[0m
+├── reset_mock_db.py[2m (python, 5 symbols)[0m
+├── rewrite_discussion.py[2m (python, 13 symbols)[0m
+├── run_py_service.py[2m (python, 7 symbols)[0m
+├── server.ts[2m (typescript, 40 symbols)[0m
+├── split_types.py[2m (python, 17 symbols)[0m
+├── split_types2.py[2m (python, 26 symbols)[0m
+├── stock_provider.py[2m (python, 10 symbols)[0m
+├── test_api.py[2m (python, 6 symbols)[0m
+├── test_backtest_api.py[2m (python, 6 symbols)[0m
+├── test_feishu.py[2m (python, 10 symbols)[0m
+├── test_homepage_components.ts[2m (typescript, 7 symbols)[0m
+├── test_market.ts[2m (typescript, 4 symbols)[0m
+├── test_mock_trading_features.py[2m (python, 14 symbols)[0m
+├── test_overview.ts[2m (typescript, 3 symbols)[0m
+├── test_proxy.py[2m (python, 4 symbols)[0m
+├── test_quotes.py[2m (python, 7 symbols)[0m
+├── test_tianshan.py[2m (python, 6 symbols)[0m
+├── test-backend.ts[2m (typescript, 7 symbols)[0m
+├── trigger.py[2m (python, 5 symbols)[0m
+├── update_db.py[2m (python, 4 symbols)[0m
+├── vite.config.ts[2m (typescript, 8 symbols)[0m
+└── vitest.config.ts[2m (typescript, 4 symbols)[0m
+

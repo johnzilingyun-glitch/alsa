@@ -7,7 +7,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from ..db.models import TradeIntent
-from ..db.sqlite import session_factory
+from ..db.database import session_factory
 from ..risk.pre_trade import PreTradeRiskGateway, PreTradeRiskRequest
 from ..utils.responses import success_response
 

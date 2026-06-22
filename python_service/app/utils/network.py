@@ -3,7 +3,10 @@ import functools
 import random
 import time
 import requests
+import logging
 from typing import Any, Callable, TypeVar
+
+logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
 
@@ -32,12 +35,12 @@ async def safe_ak_call(func: Callable[..., T], *args, max_retries: int = 2, init
 
             # Fast-fail: don't retry rate-limited or forbidden requests
             if any(kw in err_msg for kw in _NO_RETRY_KEYWORDS):
-                print(f"Rate limited/blocked, not retrying AkShare call: {e}")
+                logger.warning(f"Rate limited/blocked, not retrying AkShare call: {e}")
                 break
 
             is_network = "RemoteDisconnected" in err_msg or "Connection aborted" in err_msg or "Connection reset" in err_msg
             if is_network:
-                print(f"Network issue during AkShare call (Attempt {attempt+1}/{max_retries}): {e}")
+                logger.warning(f"Network issue during AkShare call (Attempt {attempt+1}/{max_retries}): {e}")
                 try:
                     import urllib3
                     urllib3.disable_warnings()
@@ -45,7 +48,7 @@ async def safe_ak_call(func: Callable[..., T], *args, max_retries: int = 2, init
                 except Exception:
                     pass
             else:
-                print(f"Error during AkShare call (Attempt {attempt+1}/{max_retries}): {e}")
+                logger.error(f"Error during AkShare call (Attempt {attempt+1}/{max_retries}): {e}")
 
             if attempt < max_retries - 1:
                 await asyncio.sleep(delay + random.uniform(0, 0.5))

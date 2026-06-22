@@ -200,3 +200,67 @@ def test_backtest_api_custom_rule():
     assert "avg_holding_days" in metrics
 
 
+def test_backtest_api_portfolio_cross_sectional():
+    # Clear RESULTS_FILE if it exists
+    if os.path.exists(RESULTS_FILE):
+        try:
+            os.remove(RESULTS_FILE)
+        except Exception:
+            pass
+
+    payload = {
+        "start_date": "2020-01-01",
+        "end_date": "2020-06-30",
+        "model": "portfolio_cross_sectional",
+        "market": "CN",
+        "config": {
+            "initial_capital": 1000000.0,
+            "commission": 0.0003,
+            "strategy_params": {
+                "rebalance_interval": 63,
+                "custom_symbols": [
+                    "600519.SS", "601398.SS", "600036.SS", "601318.SS",
+                    "000858.SZ", "000333.SZ", "600900.SS", "601012.SS"
+                ]
+            }
+        }
+    }
+
+    headers = {"Authorization": "Bearer mock-token"}
+    response = client.post("/api/backtest/run", json=payload, headers=headers)
+    assert response.status_code == 200
+    assert response.json()["status"] == "started"
+
+    # Wait for results to be written (background task)
+    max_wait = 25
+    results_data = None
+    for _ in range(max_wait):
+        time.sleep(1)
+        res_response = client.get("/api/backtest/results", headers=headers)
+        assert res_response.status_code == 200
+        data = res_response.json()
+        if data["status"] == "completed":
+            results_data = data["data"]
+            break
+        elif data["status"] == "error":
+            pytest.fail(f"Backtest engine failed: {data.get('message')}")
+
+    assert results_data is not None, "Backtest did not complete in time"
+    assert results_data["start_date"] == "2020-01-01"
+    assert results_data["end_date"] == "2020-06-30"
+    assert results_data["model"] in ("portfolio_cross_sectional_pandas", "portfolio_cross_sectional_vnpy")
+    assert results_data["market"] == "CN"
+    assert "final_account" in results_data
+    assert "snapshots" in results_data
+    assert "trades" in results_data
+    
+    # Assert existence of new risk & performance metrics
+    metrics = results_data.get("metrics", {})
+    assert "calmar_ratio" in metrics
+    assert "sortino_ratio" in metrics
+    assert "profit_factor" in metrics
+    assert "profit_loss_ratio" in metrics
+    assert "max_consecutive_loss" in metrics
+    assert "avg_holding_days" in metrics
+
+

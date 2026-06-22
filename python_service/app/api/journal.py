@@ -15,7 +15,10 @@ class JournalEntryCreate(BaseModel):
 router = APIRouter(prefix="/journal", tags=["journal"])
 
 def get_repo():
-    from ...main import get_journal_repo
+    try:
+        from python_service.main import get_journal_repo
+    except ImportError:
+        from main import get_journal_repo
     return get_journal_repo()
 
 @router.post("/", status_code=201)

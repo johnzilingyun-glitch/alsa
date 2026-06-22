@@ -131,10 +131,12 @@ class TestExecutionEngine:
         assert trade is not None
         assert trade.action == "BUY"
         updated = service.repo.get_account(acc.account_id)
-        assert updated.current_cash == 1_000_000.0 - 15_075.0
+        # 100 shares * 150 = 15000 + 1.0 minimum commission = 15001.0
+        assert updated.current_cash == 1_000_000.0 - 15_001.0
         pos = service.repo.get_position(acc.account_id, "AAPL", "US-Share")
         assert pos.shares == 100
-        assert pos.average_cost == 150.75
+        # Commission is included in the cost base: (15000 + 1.0) / 100 = 150.01
+        assert pos.average_cost == 150.01
 
     def test_buy_averaging_up(self, service: MockTradingService):
         acc = service.create_account(name="Test", market="US-Share")
@@ -142,16 +144,19 @@ class TestExecutionEngine:
         service.execute_trade(acc.account_id, "AAPL", "US-Share", "BUY", 100, 200.0, "MANUAL")
         pos = service.repo.get_position(acc.account_id, "AAPL", "US-Share")
         assert pos.shares == 200
-        assert pos.average_cost == 150.75
+        # Commission is included: (100 * 100.01 + 100 * 200.0 + 1.0) / 200 = 150.01
+        assert pos.average_cost == 150.01
 
     def test_sell_with_realized_pnl(self, service: MockTradingService):
         acc = service.create_account(name="Test", market="US-Share")
         service.execute_trade(acc.account_id, "TSLA", "US-Share", "BUY", 10, 200.0, "MANUAL")
         trade = service.execute_trade(acc.account_id, "TSLA", "US-Share", "SELL", 5, 250.0, "MANUAL")
         assert trade is not None
-        assert trade.realized_pnl == 238.75
+        # 5 shares * (250 - 200.1) - 1.0 closing commission = 5 * 49.9 - 1 = 248.5
+        assert trade.realized_pnl == 248.5
         updated = service.repo.get_account(acc.account_id)
-        assert updated.current_cash == 999_233.75
+        # Cash: 1,000,000 - (2000 + 1) + (1250 - 1) = 999,248.0
+        assert updated.current_cash == 999_248.0
 
     def test_sell_all_zeroes_position(self, service: MockTradingService):
         acc = service.create_account(name="Test", market="US-Share")
@@ -290,9 +295,12 @@ class TestPortfolioAnalytics:
         assert summary["currency"] == "USD"
         assert len(summary["positions"]) == 2
         aapl = next(p for p in summary["positions"] if p["symbol"] == "AAPL")
-        assert aapl["unrealized_pnl"] == (100 * 160) - 15075.0
+        # Unrealized PnL = (current_price - average_cost) * shares
+        # AAPL average_cost = 150.01 (due to 1.0 fee), unrealized = (160 - 150.01) * 100 = 999.0
+        assert aapl["unrealized_pnl"] == 999.0
         tsla = next(p for p in summary["positions"] if p["symbol"] == "TSLA")
-        assert tsla["unrealized_pnl"] == (50 * 180) - 10050.0
+        # TSLA average_cost = 200.02 (due to 1.0 fee), unrealized = (180 - 200.02) * 50 = -1001.0
+        assert tsla["unrealized_pnl"] == -1001.0
 
     def test_empty_portfolio_summary(self, service: MockTradingService):
         acc = service.create_account(name="Empty", market="A-Share")

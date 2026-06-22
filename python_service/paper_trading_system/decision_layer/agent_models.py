@@ -30,7 +30,7 @@ class MockAgent(BaseAgent):
         super().__init__(market_type)
         if universe is None:
             if market_type == "CN":
-                self.universe = ["SH600000", "SH600519", "SZ000001", "SZ000858", "SH601318"]
+                self.universe = ["sh600000", "sh600519", "sz000001", "sz000858", "sh601318"]
             elif market_type == "US":
                 self.universe = ["AAPL", "MSFT", "GOOGL", "AMZN", "TSLA"]
             elif market_type == "HK":

@@ -8,7 +8,7 @@ import pytest
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
 from python_service.app.db.repositories.job_repo import JobRepository
-from python_service.app.db.sqlite import build_session_factory
+from python_service.app.db.database import build_session_factory
 from python_service.app.services.analysis_job_service import AnalysisJobService
 
 
@@ -68,13 +68,18 @@ async def test_analysis_job_persists_snapshot_id(monkeypatch, tmp_path):
         "_wait_for_api_key",
         AsyncMock(return_value="mock_gemini_api_key"),
     )
+    monkeypatch.setattr(
+        service,
+        "_extract_structured_fields",
+        lambda msgs: {"tradingPlan": {"targetPrice": "150.0"}}
+    )
 
     job_id = await service.start_job("MSFT", "US-Share")
     await service._run_job(job_id, "MSFT", "US-Share")
 
     job = repo.get_by_id(job_id)
     runs = repo.get_runs_by_job(job_id)
-    payload = json.loads(job.result_payload)
+    payload = job.result_payload if isinstance(job.result_payload, dict) else json.loads(job.result_payload)
 
     assert job.snapshot_id == "snap_test123"
     assert runs[0].snapshot_id == "snap_test123"

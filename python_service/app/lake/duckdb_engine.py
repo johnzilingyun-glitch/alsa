@@ -1,6 +1,9 @@
 import duckdb
+import logging
 from typing import Dict, Any
 import time
+
+logger = logging.getLogger(__name__)
 
 
 class PatchableDuckDBConnection:
@@ -54,5 +57,5 @@ class DuckDBMarketQuery:
             self._cache[cache_key] = {'data': data, 'ts': now}
             return data
         except Exception as e:
-            print(f"DuckDB query failed: {e}")
+            logger.error(f"DuckDB query failed: {e}")
             return {}

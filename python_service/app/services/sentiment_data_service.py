@@ -11,6 +11,9 @@ import asyncio
 from typing import Dict, Any, Optional
 from datetime import datetime
 from ..utils.network import safe_ak_call
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class SentimentDataService:
@@ -132,7 +135,7 @@ class SentimentDataService:
                 if content:
                     forum_data.append({"source": "东方财富股吧", "url": guba_url, "content": content[:2000]})
             except Exception as e:
-                print(f"Eastmoney Guba scrape failed: {e}")
+                logger.warning(f"Eastmoney Guba scrape failed: {e}")
 
             # 2. Xueqiu
             try:
@@ -142,7 +145,7 @@ class SentimentDataService:
                 if content:
                     forum_data.append({"source": "雪球", "url": xueqiu_url, "content": content[:2000]})
             except Exception as e:
-                print(f"Xueqiu scrape failed: {e}")
+                logger.warning(f"Xueqiu scrape failed: {e}")
 
         elif market == "US":
             # 1. StockTwits
@@ -153,7 +156,7 @@ class SentimentDataService:
                 if content:
                     forum_data.append({"source": "StockTwits", "url": st_url, "content": content[:2000]})
             except Exception as e:
-                print(f"StockTwits scrape failed: {e}")
+                logger.warning(f"StockTwits scrape failed: {e}")
 
             # 2. Reddit r/wallstreetbets search
             try:
@@ -162,7 +165,7 @@ class SentimentDataService:
                 if content:
                     forum_data.append({"source": "Reddit WSB", "url": reddit_url, "content": content[:2000]})
             except Exception as e:
-                print(f"Reddit scrape failed: {e}")
+                logger.warning(f"Reddit scrape failed: {e}")
 
             # 3. X/Twitter search (via nitter or direct)
             try:
@@ -171,7 +174,7 @@ class SentimentDataService:
                 if content:
                     forum_data.append({"source": "X (Twitter)", "url": x_url, "content": content[:2000]})
             except Exception as e:
-                print(f"X scrape failed: {e}")
+                logger.warning(f"X scrape failed: {e}")
 
         elif market == "HK":
             # 1. Xueqiu HK
@@ -181,7 +184,7 @@ class SentimentDataService:
                 if content:
                     forum_data.append({"source": "雪球", "url": xueqiu_url, "content": content[:2000]})
             except Exception as e:
-                print(f"Xueqiu HK scrape failed: {e}")
+                logger.warning(f"Xueqiu HK scrape failed: {e}")
 
             # 2. Futu/富途牛牛
             try:
@@ -190,7 +193,7 @@ class SentimentDataService:
                 if content:
                     forum_data.append({"source": "富途牛牛", "url": futu_url, "content": content[:2000]})
             except Exception as e:
-                print(f"Futu scrape failed: {e}")
+                logger.warning(f"Futu scrape failed: {e}")
 
         result["forums"] = forum_data
         self._cache[cache_key] = result
@@ -217,7 +220,7 @@ class SentimentDataService:
                 if result.success and result.markdown:
                     return result.markdown.raw_markdown[:3000]
         except Exception as e:
-            print(f"Crawl4AI failed for {url}: {e}")
+            logger.warning(f"Crawl4AI failed for {url}: {e}")
         return None
 
     async def get_all_sentiment_data(self, symbol: str, name: str) -> Dict[str, Any]:
@@ -242,7 +245,7 @@ class SentimentDataService:
                 timeout=30
             )
         except (asyncio.TimeoutError, Exception) as e:
-            print(f"Forum sentiment timed out or failed: {e}")
+            logger.warning(f"Forum sentiment timed out or failed: {e}")
             forum_data = {"symbol": symbol, "forums": [], "error": "论坛抓取超时"}
 
         return {

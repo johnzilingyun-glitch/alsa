@@ -37,31 +37,69 @@ def dcf_calculate(params: Dict[str, Any]) -> str:
         growth_rates = params.get("growth_rates", [0.10, 0.08, 0.07, 0.06, 0.05])
         terminal_growth = float(params.get("terminal_growth", 0.03))
         
-        # WACC Breakdown logic
-        rf = params.get("rf")
-        beta = params.get("beta")
-        erp = params.get("erp")
+        # Force-override LLM hallucinations for critical WACC parameters (Phase 4 Security/DCF fix)
+        try:
+            import yfinance as yf
+            # Try to get 10-year treasury yield for risk-free rate
+            tnx = yf.Ticker("^TNX")
+            hist = tnx.history(period="1d")
+            if not hist.empty:
+                real_rf = float(hist["Close"].iloc[-1]) / 100.0
+            else:
+                real_rf = 0.042  # fallback 4.2%
+        except Exception:
+            real_rf = 0.042
+
+        # Override RF and ERP with robust defaults instead of trusting the LLM
+        rf = real_rf
+        erp = 0.055  # Standard ERP
+        beta = float(params.get("beta", 1.0)) # We could try fetching beta from yf here as well
+        
+        try:
+            symbol = params.get("symbol", "")
+            if symbol:
+                ticker = yf.Ticker(symbol)
+                info = ticker.info
+                if "beta" in info and info["beta"]:
+                    beta = float(info["beta"])
+        except Exception:
+            pass
+
         kd = params.get("kd")
         tax_rate = float(params.get("tax_rate", 0.25))
         debt_weight = float(params.get("debt_weight", 0.3))
         equity_weight = 1.0 - debt_weight
         
         wacc_breakdown = ""
-        if rf is not None and beta is not None and erp is not None:
-            ke = float(rf) + float(beta) * float(erp)
-            if kd is not None:
-                wacc = equity_weight * ke + debt_weight * float(kd) * (1.0 - tax_rate)
-                wacc_breakdown = f" (Breakdown: Ke={ke:.2%}, Kd={float(kd):.2%}, Wd={debt_weight:.0%}, Tax={tax_rate:.0%}, Rf={float(rf):.2%}, Beta={float(beta):.2f}, ERP={float(erp):.2%})"
-            else:
-                wacc = ke
-                wacc_breakdown = f" (Breakdown: 100% Equity, CAPM Ke={ke:.2%}, Rf={float(rf):.2%}, Beta={float(beta):.2f}, ERP={float(erp):.2%})"
+        ke = float(rf) + float(beta) * float(erp)
+        if kd is not None:
+            wacc = equity_weight * ke + debt_weight * float(kd) * (1.0 - tax_rate)
+            wacc_breakdown = f" (Breakdown (SYSTEM OVERRIDE): Ke={ke:.2%}, Kd={float(kd):.2%}, Wd={debt_weight:.0%}, Tax={tax_rate:.0%}, Real_Rf={float(rf):.2%}, Real_Beta={float(beta):.2f}, ERP={float(erp):.2%})"
         else:
-            wacc = float(params.get("wacc", 0.09))
-            wacc_breakdown = " [BLACK BOX WACC]"
+            wacc = ke
+            wacc_breakdown = f" (Breakdown (SYSTEM OVERRIDE): 100% Equity, CAPM Ke={ke:.2%}, Real_Rf={float(rf):.2%}, Real_Beta={float(beta):.2f}, ERP={float(erp):.2%})"
 
         shares = float(params.get("shares_outstanding", 1))
         net_debt = float(params.get("net_debt", 0))
         currency = params.get("currency", "USD")
+
+        # Sanity Checks on CAPM inputs, WACC, and terminal growth
+        if rf is not None:
+            rf_val = float(rf)
+            if rf_val < 0.01 or rf_val > 0.15:
+                return _obs("DCF ERROR: Unreasonable risk-free rate: {:.2%}. Must be between 1% and 15%.".format(rf_val))
+        if beta is not None:
+            beta_val = float(beta)
+            if beta_val < 0.0 or beta_val > 3.0:
+                return _obs("DCF ERROR: Unreasonable beta: {}. Must be between 0.0 and 3.0.".format(beta_val))
+        if erp is not None:
+            erp_val = float(erp)
+            if erp_val < 0.02 or erp_val > 0.12:
+                return _obs("DCF ERROR: Unreasonable Equity Risk Premium: {:.2%}. Must be between 2% and 12%.".format(erp_val))
+        if wacc < 0.02 or wacc > 0.25:
+            return _obs("DCF ERROR: Unreasonable WACC: {:.2%}. Must be between 2% and 25%.".format(wacc))
+        if terminal_growth < 0.0 or terminal_growth > 0.08:
+            return _obs("DCF ERROR: Unreasonable terminal growth rate: {:.2%}. Must be between 0% and 8%.".format(terminal_growth))
 
         if wacc <= terminal_growth:
             return _obs("DCF ERROR: WACC ({:.2%}) must be > terminal growth ({:.2%}). Model invalid.".format(wacc, terminal_growth))

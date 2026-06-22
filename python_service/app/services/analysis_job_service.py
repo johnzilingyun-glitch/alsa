@@ -2,6 +2,9 @@ import json
 import os
 import asyncio
 import uuid
+import logging
+
+logger = logging.getLogger(__name__)
 from datetime import date, datetime
 from ..time_utils import utc_now
 from typing import Optional, Dict, Any, List
@@ -26,10 +29,14 @@ class AnalysisJobService:
         self._concurrency_limit = asyncio.Semaphore(int(os.getenv("MAX_CONCURRENT_JOBS", "5")))
 
     async def start_job(self, symbol: str, market: str, level: str = "standard", model: Optional[str] = None, config: Optional[Dict[str, Any]] = None, user_id: str = "default_user") -> str:
+        import re
+        if not re.match(r"^[A-Za-z0-9.\-_]+$", symbol) or not re.match(r"^[A-Za-z0-9.\-_]+$", market):
+            raise ValueError(f"Invalid symbol or market format. Must be alphanumeric.")
+
         # Deduplicate: if same symbol+market already has a running/queued job within 60s, reuse it
         existing = self.job_repo.find_recent_running(symbol, market, within_seconds=60)
         if existing:
-            print(f"Dedup: returning existing job {existing} for {symbol} (already running/queued)")
+            logger.info(f"Dedup: returning existing job {existing} for {symbol} (already running/queued)")
             return existing
         
         job_id = f"job_{uuid.uuid4().hex[:8]}"
@@ -38,11 +45,18 @@ class AnalysisJobService:
         if os.getenv("ALSA_DISABLE_BACKGROUND_JOBS") == "true" or os.getenv("PYTEST_CURRENT_TEST"):
             return job_id
 
-        # Fire and forget the background task
-        task = asyncio.create_task(self._run_job(job_id, symbol, market, config=config))
-        self._running_tasks[job_id] = task
-        # Clean up task reference when done
-        task.add_done_callback(lambda t: self._running_tasks.pop(job_id, None))
+        redis_url = os.getenv("REDIS_URL")
+        if redis_url:
+            from app.worker import run_analysis_task
+            logger.info(f"Dispatching job {job_id} to Celery worker")
+            run_analysis_task.delay(job_id, symbol, market, config)
+        else:
+            logger.info(f"Running job {job_id} in local asyncio pool (Graceful Degradation)")
+            # Fire and forget the background task
+            task = asyncio.create_task(self._run_job(job_id, symbol, market, config=config))
+            self._running_tasks[job_id] = task
+            # Clean up task reference when done
+            task.add_done_callback(lambda t: self._running_tasks.pop(job_id, None))
         
         return job_id
 
@@ -132,7 +146,7 @@ class AnalysisJobService:
             key = self._api_keys.get(provider)
             return key
         except asyncio.TimeoutError:
-            print(f"Timeout waiting for API key for job {job_id}")
+            logger.warning(f"Timeout waiting for API key for job {job_id}")
             return None
         finally:
             self._api_key_events.pop(job_id, None)
@@ -206,6 +220,22 @@ class AnalysisJobService:
                 finally:
                     current_token_usage.reset(token_ctx)
                 
+                # Run Critic Agent on the discussion messages
+                critique_res = None
+                try:
+                    from app.services.critic_agent import critic_agent
+                    critique_res = await critic_agent.critique(
+                        analyses=discussion_messages,
+                        symbol=symbol,
+                        name=snapshot.get("name", symbol),
+                        context=snapshot,
+                        gemini_api_key=safe_config.get("geminiApiKey"),
+                        deepseek_api_key=safe_config.get("deepseekApiKey"),
+                        model=requested_model
+                    )
+                except Exception as e:
+                    logger.error(f"Critic Agent critique failed: {e}")
+
                 self.update_job_progress(job_id, "finalizing", 90)
                 # Key used — refresh timestamp (keeps it alive while job is active)
                 self._refresh_key_timestamp(provider)
@@ -235,12 +265,12 @@ class AnalysisJobService:
                         "lastUpdated": utc_now().strftime("%Y/%m/%d %H:%M:%S") + " CST",
                     },
                     "technicals": indicators,
-                "indicators": indicators,
                     "indicators": indicators,
                     "valuation": snapshot.get("valuation"),
                     "financials": snapshot.get("financials"),
                     "snapshot": snapshot,
                     "discussion": discussion_messages,
+                    "critique": critique_res,
                     "summary": self._extract_summary(discussion_messages),
                     "usageMetadata": job_usage,
                 }
@@ -308,7 +338,7 @@ class AnalysisJobService:
                                     session.add(pred)
                                     session.commit()
                     except Exception as e:
-                        print(f"Failed to save PredictionRecord: {e}")
+                        logger.warning(f"Failed to save PredictionRecord: {e}")
                     
                     # Update job
                     db_job = session.get(AnalysisJob, job_id)
@@ -322,7 +352,7 @@ class AnalysisJobService:
                                 return obj.isoformat()
                             raise TypeError(f"Type {type(obj)} not serializable")
                         
-                        db_job.result_payload = json.dumps(result, default=json_serial)
+                        db_job.result_payload = result
                         db_job.finished_at = utc_now()
                         session.add(db_job)
                         session.commit()
@@ -334,7 +364,7 @@ class AnalysisJobService:
                 error_msg = str(e)
                 # Check if this is a user-initiated stop — still save partial results
                 if "stopped by user" in error_msg:
-                    print(f"Analysis job {job_id} stopped by user, saving partial results")
+                    logger.info(f"Analysis job {job_id} stopped by user, saving partial results")
                     try:
                         _msgs = locals().get("discussion_messages", [])
                         _snap = locals().get("snapshot", {})
@@ -344,12 +374,10 @@ class AnalysisJobService:
                         else:
                             self.job_repo.update_status(job_id, "failed", json.dumps({"error": "Stopped before data was ready"}))
                     except Exception as save_err:
-                        print(f"Failed to save partial results: {save_err}")
+                        logger.error(f"Failed to save partial results: {save_err}")
                         self.job_repo.update_status(job_id, "failed", json.dumps({"error": error_msg}))
                 else:
-                    print(f"Analysis job {job_id} failed: {e}")
-                    import traceback
-                    traceback.print_exc()
+                    logger.exception(f"Analysis job {job_id} failed: {e}")
                     self.job_repo.update_status(job_id, "failed", json.dumps({"error": error_msg}))
             
             finally:
@@ -431,7 +459,7 @@ class AnalysisJobService:
                             session.add(pred)
                             session.commit()
             except Exception as e:
-                print(f"Failed to save PredictionRecord: {e}")
+                logger.warning(f"Failed to save PredictionRecord: {e}")
             
             db_job = session.get(AnalysisJob, job_id)
             if db_job:
@@ -444,12 +472,12 @@ class AnalysisJobService:
                         return obj.isoformat()
                     raise TypeError(f"Type {type(obj)} not serializable")
                 
-                db_job.result_payload = json.dumps(result, default=json_serial)
+                db_job.result_payload = result
                 db_job.finished_at = utc_now()
                 session.add(db_job)
                 session.commit()
         
-        print(f"Partial results saved for job {job_id}: {len(valid_messages)} expert messages")
+        logger.info(f"Partial results saved for job {job_id}: {len(valid_messages)} expert messages")
 
     @staticmethod
     def _extract_summary(discussion_messages: List[Dict[str, Any]]) -> str:
@@ -535,190 +563,13 @@ class AnalysisJobService:
                 # Return early to skip fragile regex if we got the core fields
                 if fields.get("sentiment") and fields.get("tradingPlan"):
                     return fields
+                else:
+                    raise ValueError("Structured data missing essential fields (sentiment or tradingPlan)")
             except Exception as e:
-                print(f"[AnalysisJobService] Failed to parse <structured_data> JSON: {e}")
-                # Fall through to Regex fallback
-        
-        # --- Sentiment & Recommendation ---
-        # Extract from the verdict/final section table (most reliable)
-        sentiment = "Neutral"
-        recommendation = "Hold"
-        
-        # Find rating text from structured table rows
-        rating_text = ""
-        rating_patterns = [
-            r'投资评级[^|]*\|\s*\*{0,2}([^*|\n]+)',   # Table: | 投资评级 | **value** |
-            r'投资评级[：:]\s*\*{0,2}([^*\n]{3,80})',  # Inline: 投资评级: value
-        ]
-        for pat in rating_patterns:
-            m = re.search(pat, chief_content)
-            if m:
-                rating_text = m.group(1).strip().strip('*').strip()
-                break
-        
-        # Map rating text to sentiment/recommendation (check rating_text first, then broader context)
-        if rating_text:
-            rt = rating_text
-            # Check cautious/hold FIRST (more specific: "谨慎观望" contains chars that overlap with bullish terms)
-            if any(kw in rt for kw in ["谨慎观望", "观望", "Cautious Hold", "中性偏谨慎", "中性"]):
-                sentiment, recommendation = "Neutral", "Hold"
-            elif any(kw in rt for kw in ["持有", "Hold"]):
-                sentiment, recommendation = "Neutral", "Hold"
-            elif any(kw in rt for kw in ["强烈买入", "Strong Buy", "积极买入"]):
-                sentiment, recommendation = "Bullish", "Buy"
-            elif any(kw in rt for kw in ["买入", "Buy"]):
-                sentiment, recommendation = "Bullish", "Buy"
-            elif any(kw in rt for kw in ["增持", "Accumulate", "条件性增持", "Overweight"]):
-                sentiment, recommendation = "Bullish", "Overweight"
-            elif any(kw in rt for kw in ["强烈卖出", "Strong Sell"]):
-                sentiment, recommendation = "Bearish", "Sell"
-            elif any(kw in rt for kw in ["卖出", "Sell"]):
-                sentiment, recommendation = "Bearish", "Sell"
-            elif any(kw in rt for kw in ["减持", "Underweight"]):
-                sentiment, recommendation = "Bearish", "Underweight"
+                logger.warning(f"[AnalysisJobService] Failed to parse <structured_data> JSON: {e}")
+                raise ValueError(f"Structured data missing or invalid: {e}")
         else:
-            # Fallback: search the final verdict section (last 20% of content)
-            tail = chief_content[int(len(chief_content) * 0.8):]
-            if any(kw in tail for kw in ["强烈买入", "积极增持"]):
-                sentiment, recommendation = "Bullish", "Buy"
-            elif any(kw in tail for kw in ["增持", "条件性增持", "Overweight", "Accumulate"]):
-                sentiment, recommendation = "Bullish", "Overweight"
-            elif any(kw in tail for kw in ["谨慎观望", "观望", "Cautious Hold", "中性"]):
-                sentiment, recommendation = "Neutral", "Hold"
-            elif any(kw in tail for kw in ["减持", "Underweight"]):
-                sentiment, recommendation = "Bearish", "Underweight"
-        
-        fields["sentiment"] = sentiment
-        fields["recommendation"] = recommendation
-        
-        # --- Key Risks ---
-        risks = []
-        # Extract from verdict table (核心风险 row)
-        risk_table = re.search(r'核心风险[^|]*\|\s*\*{0,2}([^*|\n]+)', chief_content)
-        if risk_table:
-            risk_text = risk_table.group(1).strip().strip('*').strip()
-            if risk_text and len(risk_text) > 5:
-                risks.append(risk_text)
-        
-        # Extract from 证伪/退出条件 section
-        falsify_section = re.search(r'(?:证伪条件|论点证伪|退出条件)[^\n]*\n((?:.*\n){1,20})', chief_content)
-        if falsify_section:
-            for line in falsify_section.group(1).split('\n'):
-                # Parse table rows
-                cells = [c.strip() for c in line.split('|') if c.strip()]
-                if len(cells) >= 2:
-                    cell0 = cells[0].strip('*- ')
-                    if cell0 and not cell0.startswith('---') and cell0 not in ('证伪条件', '审查项', '条件', '止损类型', '止盈条件'):
-                        item = f"{cell0}: {cells[1].strip('*- ')}" if cells[1].strip('*- ') else cell0
-                        if len(item) > 5 and item not in risks:
-                            risks.append(item[:120])
-                if len(risks) >= 6:
-                    break
-        
-        # Extract ⚠️ warnings but only from relevant sections (not generic disclaimers)
-        warning_section = re.findall(r'⚠️\s*\*{0,2}([^*\n]{10,100})\*{0,2}', chief_content)
-        for w in warning_section[:3]:
-            clean = w.strip().strip('*').strip()
-            if clean and '免责' not in clean and '声明' not in clean and clean not in risks:
-                risks.append(clean)
-        
-        if risks:
-            fields["keyRisks"] = risks[:8]
-        
-        # --- Key Opportunities ---
-        opps = []
-        # From verdict table
-        opp_table = re.search(r'核心机会[^|]*\|\s*\*{0,2}([^*|\n]+)', chief_content)
-        if opp_table:
-            opp_text = opp_table.group(1).strip().strip('*').strip()
-            if opp_text and len(opp_text) > 5:
-                opps.append(opp_text)
-        
-        # Extract named insights (洞察1:, 洞察2:, etc.)
-        insight_matches = re.findall(r'\*{0,2}洞察\d+[：:]\s*(.+?)\*{0,2}\s*$', chief_content, re.MULTILINE)
-        for insight in insight_matches:
-            clean = insight.strip().strip('*').strip()
-            if clean and len(clean) > 5 and clean not in opps:
-                opps.append(clean[:120])
-        
-        # Non-consensus insights section header
-        nci_match = re.search(r'非共识洞察[^：:\n]*[：:]?\s*(.+?)(?:\n|$)', chief_content)
-        if nci_match:
-            nci = nci_match.group(1).strip().strip('*').strip()
-            if nci and len(nci) > 5 and nci not in opps:
-                opps.append(nci[:120])
-        
-        if opps:
-            fields["keyOpportunities"] = opps[:8]
-        
-        # --- Trading Plan ---
-        trading_plan = {}
-        
-        # Extract from verdict table rows (most structured)
-        strategy_table = re.search(r'核心策略[^|]*\|\s*\*{0,2}([^*|\n]+)', chief_content)
-        if strategy_table:
-            trading_plan["strategy"] = strategy_table.group(1).strip().strip('*')[:200]
-        
-        # Expected/target price from calculation
-        exp_price = re.search(r'期望价格[^=]*=\s*\*{0,2}([\d.,]+\s*(?:CNY|USD|HKD|元)?)', chief_content)
-        if exp_price:
-            trading_plan["targetPrice"] = exp_price.group(1).strip()
-        else:
-            # From scenario table (基准 target)
-            base_target = re.search(r'基准.*?\|\s*([\d.,]+(?:\s*(?:CNY|USD|HKD))?)', chief_content)
-            if base_target:
-                trading_plan["targetPrice"] = base_target.group(1).strip()
-        
-        # Entry price from strategy description
-        entry = re.search(r'(?:回撤至|跌至|跌破|低于)\s*\*{0,2}([\d.,]+(?:\s*(?:CNY|USD|HKD|元))?(?:\s*(?:以下|附近|左右))?)', chief_content)
-        if entry:
-            trading_plan["entryPrice"] = entry.group(1).strip()
-        
-        # Stop loss - price-based
-        stop = re.search(r'(?:硬止损|价格.*?止损|收盘价\s*[<＜])\s*\*{0,2}([\d.,]+(?:\s*(?:CNY|USD|HKD|元))?)', chief_content)
-        if stop:
-            trading_plan["stopLoss"] = stop.group(1).strip()
-        
-        # Logic stop loss
-        logic_stop = re.search(r'逻辑止损[^|]*\|\s*\*{0,2}([^*|\n]{5,80})', chief_content)
-        if logic_stop:
-            ls = logic_stop.group(1).strip().strip('*').strip()
-            if trading_plan.get("stopLoss"):
-                trading_plan["stopLoss"] += f" / {ls}"
-            else:
-                trading_plan["stopLoss"] = ls
-        
-        # Position size
-        pos_match = re.search(r'(?:建议.*?仓位|最大.*?仓位)[：:]\s*\*{0,2}([\d.]+%[^*\n]{0,40})', chief_content)
-        if pos_match:
-            if trading_plan.get("strategy"):
-                trading_plan["strategy"] += f"（仓位: {pos_match.group(1).strip()}）"
-            else:
-                trading_plan["strategy"] = f"建议仓位: {pos_match.group(1).strip()}"
-
-        # Strategy risks from 最大警告
-        warning_match = re.search(r'最大警告[^|]*\|\s*\*{0,2}([^*|\n]+)', chief_content)
-        if warning_match:
-            trading_plan["strategyRisks"] = warning_match.group(1).strip().strip('*')[:200]
-        
-        if trading_plan:
-            fields["tradingPlan"] = trading_plan
-        
-        # --- Score estimation from content ---
-        # Look for explicit confidence/score mentions
-        score_patterns = [
-            r'综合可信度\s*[:：]?\s*(\d+)\s*/\s*100',
-            r'信心[评分度]\s*[:：]?\s*(\d+)',
-            r'评分\s*[:：]?\s*(\d+)\s*/\s*100',
-        ]
-        for pat in score_patterns:
-            m = re.search(pat, chief_content)
-            if m:
-                try:
-                    fields["score"] = min(100, max(0, int(m.group(1))))
-                except ValueError:
-                    pass
-                break
+            raise ValueError("No <structured_data> JSON block found in LLM output")
         
         return fields
 
@@ -747,7 +598,7 @@ class AnalysisJobService:
         if not job or not job.result_payload:
             return run.dict()
             
-        result = json.loads(job.result_payload)
+        result = job.result_payload if isinstance(job.result_payload, dict) else (json.loads(job.result_payload) if job.result_payload else None)
         result["analysis_id"] = run.analysis_id
         result["job_id"] = run.job_id
         result["summary_verdict"] = run.summary_verdict
@@ -793,7 +644,7 @@ class AnalysisJobService:
         """
         count = self.job_repo.recover_orphaned_jobs()
         if count > 0:
-            print(f"[Startup Recovery] Marked {count} orphaned job(s) as failed.")
+            logger.info(f"[Startup Recovery] Marked {count} orphaned job(s) as failed.")
         return count
 
     async def retry_job(self, job_id: str, config: Optional[Dict[str, Any]] = None) -> Optional[str]:

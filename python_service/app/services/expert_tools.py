@@ -1228,6 +1228,43 @@ class ToolExecutor:
         except Exception as e:
             return f"<tool_observation>\nKnowledge search error: {str(e)}\n</tool_observation>"
 
+    def _validate_scrape_url(self, url: str) -> bool:
+        from urllib.parse import urlparse
+        import ipaddress
+        try:
+            parsed = urlparse(url)
+            # Block non-HTTP/HTTPS
+            if parsed.scheme not in ("http", "https"):
+                return False
+            
+            hostname = parsed.hostname
+            if not hostname:
+                return False
+                
+            # Block loopback, local, and private networks
+            if hostname.lower() in ("localhost", "127.0.0.1", "[::1]"):
+                return False
+                
+            try:
+                import socket
+                resolved_ip = socket.gethostbyname(hostname)
+                ip = ipaddress.ip_address(resolved_ip)
+                if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_reserved:
+                    print(f"SSRF blocked: {hostname} resolved to {resolved_ip}")
+                    return False
+            except Exception as e:
+                print(f"SSRF DNS check failed: {e}")
+                return False
+                
+            ALLOWED_DOMAINS = {
+                "seekingalpha.com", "finance.yahoo.com", "wsj.com", "reuters.com",
+                "sec.gov", "eastmoney.com", "10jqka.com.cn", "xueqiu.com",
+                "sina.com.cn", "tencent.com"
+            }
+            return any(hostname.endswith(d) for d in ALLOWED_DOMAINS)
+        except Exception:
+            return False
+
     async def _exec_deep_scrape(self, url: str, query: str) -> str:
         """Use crawl4ai to extract full page content as LLM-ready markdown.
         
@@ -1238,6 +1275,9 @@ class ToolExecutor:
         - Ad/tracker blocking
         - Realistic viewport and timing
         """
+        # Validate URL to prevent SSRF and restrict to whitelist
+        if not self._validate_scrape_url(url):
+            return f"<tool_observation>\nError: URL '{url}' is not whitelisted or is invalid.\n</tool_observation>"
         # Block domains with server-side bot detection — auto-fallback to web_search
         from urllib.parse import urlparse
         BLOCKED_DOMAINS = ["finance.yahoo.com", "yahoo.com", "login.yahoo.com"]

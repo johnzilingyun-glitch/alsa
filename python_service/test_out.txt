@@ -1,0 +1,139 @@
+Traceback (most recent call last):
+  File "/home/ubuntu/work/alsa/python_service/test_qlib_backtest_debug.py", line 8, in main
+    results = await engine.run(
+              ^^^^^^^^^^^^^^^^^
+  File "/home/ubuntu/work/alsa/python_service/app/services/backtest_engine_service.py", line 86, in run
+    raise ValueError(f"Qlib backtest failed: {result.stderr}")
+ValueError: Qlib backtest failed: Gym has been unmaintained since 2022 and does not support NumPy 2.0 amongst other critical functionality.
+Please upgrade to Gymnasium, the maintained drop-in replacement of Gym, or contact the authors of your software and request that they upgrade.
+Users of this version of Gym should be able to simply replace 'import gym' with 'import gymnasium as gym' in the vast majority of cases.
+See the migration guide at https://gymnasium.farama.org/introduction/migration_guide/ for additional information.
+[59304:MainThread](2026-06-17 18:06:57,252) INFO - qlib.Initialization - [config.py:452] - default_conf: client.
+[59304:MainThread](2026-06-17 18:06:57,615) INFO - qlib.Initialization - [__init__.py:75] - qlib successfully initialized based on client settings.
+[59304:MainThread](2026-06-17 18:06:57,615) INFO - qlib.Initialization - [__init__.py:77] - data_path={'__DEFAULT_FREQ': PosixPath('/home/ubuntu/.qlib/qlib_data/cn_data')}
+[59304:MainThread](2026-06-17 18:06:57,617) WARNING - qlib.data - [data.py:665] - load calendar error: freq=day, future=True; return current calendar!
+[59304:MainThread](2026-06-17 18:06:57,618) WARNING - qlib.data - [data.py:668] - You can get future calendar by referring to the following document: https://github.com/microsoft/qlib/blob/main/scripts/data_collector/contrib/README.md
+[59304:MainThread](2026-06-17 18:06:57,619) WARNING - qlib.BaseExecutor - [executor.py:121] - `common_infra` is not set for <qlib.backtest.executor.SimulatorExecutor object at 0x7f25749c22e0>
+[59304:MainThread](2026-06-17 18:06:57,627) INFO - qlib.backtest caller - [__init__.py:93] - Create new exchange
+
+backtest loop:   0%|          | 0/59 [00:00<?, ?it/s]/home/ubuntu/work/alsa/.venv_qlib/lib/python3.9/site-packages/qlib/utils/index_data.py:492: RuntimeWarning: Mean of empty slice
+  return np.nanmean(self.data)
+/home/ubuntu/work/alsa/.venv_qlib/lib/python3.9/site-packages/qlib/utils/index_data.py:492: RuntimeWarning: Mean of empty slice
+  return np.nanmean(self.data)
+/home/ubuntu/work/alsa/.venv_qlib/lib/python3.9/site-packages/qlib/utils/index_data.py:492: RuntimeWarning: Mean of empty slice
+  return np.nanmean(self.data)
+/home/ubuntu/work/alsa/.venv_qlib/lib/python3.9/site-packages/qlib/utils/index_data.py:492: RuntimeWarning: Mean of empty slice
+  return np.nanmean(self.data)
+/home/ubuntu/work/alsa/.venv_qlib/lib/python3.9/site-packages/qlib/utils/index_data.py:492: RuntimeWarning: Mean of empty slice
+  return np.nanmean(self.data)
+/home/ubuntu/work/alsa/.venv_qlib/lib/python3.9/site-packages/qlib/utils/index_data.py:492: RuntimeWarning: Mean of empty slice
+  return np.nanmean(self.data)
+/home/ubuntu/work/alsa/.venv_qlib/lib/python3.9/site-packages/qlib/utils/index_data.py:492: RuntimeWarning: Mean of empty slice
+  return np.nanmean(self.data)
+/home/ubuntu/work/alsa/.venv_qlib/lib/python3.9/site-packages/qlib/utils/index_data.py:492: RuntimeWarning: Mean of empty slice
+  return np.nanmean(self.data)
+/home/ubuntu/work/alsa/.venv_qlib/lib/python3.9/site-packages/qlib/utils/index_data.py:492: RuntimeWarning: Mean of empty slice
+  return np.nanmean(self.data)
+/home/ubuntu/work/alsa/.venv_qlib/lib/python3.9/site-packages/qlib/utils/index_data.py:492: RuntimeWarning: Mean of empty slice
+  return np.nanmean(self.data)
+/home/ubuntu/work/alsa/.venv_qlib/lib/python3.9/site-packages/qlib/utils/index_data.py:492: RuntimeWarning: Mean of empty slice
+  return np.nanmean(self.data)
+/home/ubuntu/work/alsa/.venv_qlib/lib/python3.9/site-packages/qlib/utils/index_data.py:492: RuntimeWarning: Mean of empty slice
+  return np.nanmean(self.data)
+/home/ubuntu/work/alsa/.venv_qlib/lib/python3.9/site-packages/qlib/utils/index_data.py:492: RuntimeWarning: Mean of empty slice
+  return np.nanmean(self.data)
+/home/ubuntu/work/alsa/.venv_qlib/lib/python3.9/site-packages/qlib/utils/index_data.py:492: RuntimeWarning: Mean of empty slice
+  return np.nanmean(self.data)
+/home/ubuntu/work/alsa/.venv_qlib/lib/python3.9/site-packages/qlib/utils/index_data.py:492: RuntimeWarning: Mean of empty slice
+  return np.nanmean(self.data)
+/home/ubuntu/work/alsa/.venv_qlib/lib/python3.9/site-packages/qlib/utils/index_data.py:492: RuntimeWarning: Mean of empty slice
+  return np.nanmean(self.data)
+/home/ubuntu/work/alsa/.venv_qlib/lib/python3.9/site-packages/qlib/utils/index_data.py:492: RuntimeWarning: Mean of empty slice
+  return np.nanmean(self.data)
+/home/ubuntu/work/alsa/.venv_qlib/lib/python3.9/site-packages/qlib/utils/index_data.py:492: RuntimeWarning: Mean of empty slice
+  return np.nanmean(self.data)
+/home/ubuntu/work/alsa/.venv_qlib/lib/python3.9/site-packages/qlib/utils/index_data.py:492: RuntimeWarning: Mean of empty slice
+  return np.nanmean(self.data)
+/home/ubuntu/work/alsa/.venv_qlib/lib/python3.9/site-packages/qlib/utils/index_data.py:492: RuntimeWarning: Mean of empty slice
+  return np.nanmean(self.data)
+
+backtest loop:  34%|███▍      | 20/59 [00:00<00:00, 196.29it/s]/home/ubuntu/work/alsa/.venv_qlib/lib/python3.9/site-packages/qlib/utils/index_data.py:492: RuntimeWarning: Mean of empty slice
+  return np.nanmean(self.data)
+/home/ubuntu/work/alsa/.venv_qlib/lib/python3.9/site-packages/qlib/utils/index_data.py:492: RuntimeWarning: Mean of empty slice
+  return np.nanmean(self.data)
+/home/ubuntu/work/alsa/.venv_qlib/lib/python3.9/site-packages/qlib/utils/index_data.py:492: RuntimeWarning: Mean of empty slice
+  return np.nanmean(self.data)
+/home/ubuntu/work/alsa/.venv_qlib/lib/python3.9/site-packages/qlib/utils/index_data.py:492: RuntimeWarning: Mean of empty slice
+  return np.nanmean(self.data)
+/home/ubuntu/work/alsa/.venv_qlib/lib/python3.9/site-packages/qlib/utils/index_data.py:492: RuntimeWarning: Mean of empty slice
+  return np.nanmean(self.data)
+/home/ubuntu/work/alsa/.venv_qlib/lib/python3.9/site-packages/qlib/utils/index_data.py:492: RuntimeWarning: Mean of empty slice
+  return np.nanmean(self.data)
+/home/ubuntu/work/alsa/.venv_qlib/lib/python3.9/site-packages/qlib/utils/index_data.py:492: RuntimeWarning: Mean of empty slice
+  return np.nanmean(self.data)
+/home/ubuntu/work/alsa/.venv_qlib/lib/python3.9/site-packages/qlib/utils/index_data.py:492: RuntimeWarning: Mean of empty slice
+  return np.nanmean(self.data)
+/home/ubuntu/work/alsa/.venv_qlib/lib/python3.9/site-packages/qlib/utils/index_data.py:492: RuntimeWarning: Mean of empty slice
+  return np.nanmean(self.data)
+/home/ubuntu/work/alsa/.venv_qlib/lib/python3.9/site-packages/qlib/utils/index_data.py:492: RuntimeWarning: Mean of empty slice
+  return np.nanmean(self.data)
+/home/ubuntu/work/alsa/.venv_qlib/lib/python3.9/site-packages/qlib/utils/index_data.py:492: RuntimeWarning: Mean of empty slice
+  return np.nanmean(self.data)
+/home/ubuntu/work/alsa/.venv_qlib/lib/python3.9/site-packages/qlib/utils/index_data.py:492: RuntimeWarning: Mean of empty slice
+  return np.nanmean(self.data)
+/home/ubuntu/work/alsa/.venv_qlib/lib/python3.9/site-packages/qlib/utils/index_data.py:492: RuntimeWarning: Mean of empty slice
+  return np.nanmean(self.data)
+/home/ubuntu/work/alsa/.venv_qlib/lib/python3.9/site-packages/qlib/utils/index_data.py:492: RuntimeWarning: Mean of empty slice
+  return np.nanmean(self.data)
+/home/ubuntu/work/alsa/.venv_qlib/lib/python3.9/site-packages/qlib/utils/index_data.py:492: RuntimeWarning: Mean of empty slice
+  return np.nanmean(self.data)
+/home/ubuntu/work/alsa/.venv_qlib/lib/python3.9/site-packages/qlib/utils/index_data.py:492: RuntimeWarning: Mean of empty slice
+  return np.nanmean(self.data)
+/home/ubuntu/work/alsa/.venv_qlib/lib/python3.9/site-packages/qlib/utils/index_data.py:492: RuntimeWarning: Mean of empty slice
+  return np.nanmean(self.data)
+/home/ubuntu/work/alsa/.venv_qlib/lib/python3.9/site-packages/qlib/utils/index_data.py:492: RuntimeWarning: Mean of empty slice
+  return np.nanmean(self.data)
+/home/ubuntu/work/alsa/.venv_qlib/lib/python3.9/site-packages/qlib/utils/index_data.py:492: RuntimeWarning: Mean of empty slice
+  return np.nanmean(self.data)
+/home/ubuntu/work/alsa/.venv_qlib/lib/python3.9/site-packages/qlib/utils/index_data.py:492: RuntimeWarning: Mean of empty slice
+  return np.nanmean(self.data)
+
+backtest loop:  68%|██████▊   | 40/59 [00:00<00:00, 197.39it/s]/home/ubuntu/work/alsa/.venv_qlib/lib/python3.9/site-packages/qlib/utils/index_data.py:492: RuntimeWarning: Mean of empty slice
+  return np.nanmean(self.data)
+/home/ubuntu/work/alsa/.venv_qlib/lib/python3.9/site-packages/qlib/utils/index_data.py:492: RuntimeWarning: Mean of empty slice
+  return np.nanmean(self.data)
+/home/ubuntu/work/alsa/.venv_qlib/lib/python3.9/site-packages/qlib/utils/index_data.py:492: RuntimeWarning: Mean of empty slice
+  return np.nanmean(self.data)
+/home/ubuntu/work/alsa/.venv_qlib/lib/python3.9/site-packages/qlib/utils/index_data.py:492: RuntimeWarning: Mean of empty slice
+  return np.nanmean(self.data)
+/home/ubuntu/work/alsa/.venv_qlib/lib/python3.9/site-packages/qlib/utils/index_data.py:492: RuntimeWarning: Mean of empty slice
+  return np.nanmean(self.data)
+/home/ubuntu/work/alsa/.venv_qlib/lib/python3.9/site-packages/qlib/utils/index_data.py:492: RuntimeWarning: Mean of empty slice
+  return np.nanmean(self.data)
+/home/ubuntu/work/alsa/.venv_qlib/lib/python3.9/site-packages/qlib/utils/index_data.py:492: RuntimeWarning: Mean of empty slice
+  return np.nanmean(self.data)
+/home/ubuntu/work/alsa/.venv_qlib/lib/python3.9/site-packages/qlib/utils/index_data.py:492: RuntimeWarning: Mean of empty slice
+  return np.nanmean(self.data)
+/home/ubuntu/work/alsa/.venv_qlib/lib/python3.9/site-packages/qlib/utils/index_data.py:492: RuntimeWarning: Mean of empty slice
+  return np.nanmean(self.data)
+/home/ubuntu/work/alsa/.venv_qlib/lib/python3.9/site-packages/qlib/utils/index_data.py:492: RuntimeWarning: Mean of empty slice
+  return np.nanmean(self.data)
+/home/ubuntu/work/alsa/.venv_qlib/lib/python3.9/site-packages/qlib/utils/index_data.py:492: RuntimeWarning: Mean of empty slice
+  return np.nanmean(self.data)
+/home/ubuntu/work/alsa/.venv_qlib/lib/python3.9/site-packages/qlib/utils/index_data.py:492: RuntimeWarning: Mean of empty slice
+  return np.nanmean(self.data)
+/home/ubuntu/work/alsa/.venv_qlib/lib/python3.9/site-packages/qlib/utils/index_data.py:492: RuntimeWarning: Mean of empty slice
+  return np.nanmean(self.data)
+/home/ubuntu/work/alsa/.venv_qlib/lib/python3.9/site-packages/qlib/utils/index_data.py:492: RuntimeWarning: Mean of empty slice
+  return np.nanmean(self.data)
+/home/ubuntu/work/alsa/.venv_qlib/lib/python3.9/site-packages/qlib/utils/index_data.py:492: RuntimeWarning: Mean of empty slice
+  return np.nanmean(self.data)
+/home/ubuntu/work/alsa/.venv_qlib/lib/python3.9/site-packages/qlib/utils/index_data.py:492: RuntimeWarning: Mean of empty slice
+  return np.nanmean(self.data)
+/home/ubuntu/work/alsa/.venv_qlib/lib/python3.9/site-packages/qlib/utils/index_data.py:492: RuntimeWarning: Mean of empty slice
+  return np.nanmean(self.data)
+/home/ubuntu/work/alsa/.venv_qlib/lib/python3.9/site-packages/qlib/utils/index_data.py:492: RuntimeWarning: Mean of empty slice
+  return np.nanmean(self.data)
+
+backtest loop:  98%|█████████▊| 58/59 [00:00<00:00, 196.82it/s]
+

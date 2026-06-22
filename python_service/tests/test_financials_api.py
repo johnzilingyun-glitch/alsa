@@ -12,7 +12,7 @@ client = TestClient(app)
 
 def test_get_comprehensive_financials_ashare():
     # Mock market_data_service.get_financial_summary
-    with patch("python_service.app.services.market_data_service.market_data_service.get_financial_summary") as mock_summary:
+    with patch("app.services.market_data_service.market_data_service.get_financial_summary") as mock_summary:
         mock_summary.return_value = {
             "symbol": "600519",
             "market_cap": 2.1e12,
@@ -30,7 +30,7 @@ def test_get_comprehensive_financials_ashare():
         assert data["data"]["market_cap"] == 2.1e12
 
 def test_get_comprehensive_financials_error():
-    with patch("python_service.app.services.market_data_service.market_data_service.get_financial_summary") as mock_summary:
+    with patch("app.services.market_data_service.market_data_service.get_financial_summary") as mock_summary:
         mock_summary.return_value = {"error": "Symbol not found"}
         
         resp = client.get("/api/stock/comprehensive_financials?symbol=INVALID&market=A-Share")

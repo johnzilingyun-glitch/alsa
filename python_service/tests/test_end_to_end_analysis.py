@@ -15,7 +15,7 @@ from python_service.app.lake.parquet_store import ParquetMarketStore
 
 @pytest.fixture
 def mock_db(tmp_path):
-    from python_service.app.db.sqlite import build_session_factory
+    from python_service.app.db.database import build_session_factory
     db_path = tmp_path / "test.db"
     return build_session_factory(str(db_path))
 
@@ -95,13 +95,16 @@ async def test_full_analysis_job_lifecycle(mock_db, tmp_path):
         # In this test we use a small sleep to let the task progress or await the internal method
         from unittest.mock import AsyncMock
         service._wait_for_api_key = AsyncMock(return_value="mock_gemini_api_key")
-        await service._run_job(job_id, symbol, market)
+        service._extract_structured_fields = lambda msgs: {"tradingPlan": {"targetPrice": "1800.0"}}
+        with patch("app.services.critic_agent.critic_agent.critique", new_callable=AsyncMock) as mock_critique:
+            mock_critique.return_value = {"critique": "looks good"}
+            await service._run_job(job_id, symbol, market)
         
         # Verify result in DB
         job = job_repo.get_by_id(job_id)
         assert job.status == "completed"
         
-        result = json.loads(job.result_payload)
+        result = job.result_payload if isinstance(job.result_payload, dict) else json.loads(job.result_payload)
         assert result["symbol"] == symbol
         assert "indicators" in result
         assert result["indicators"]["ma_5"] == 1650.0 # Standard for our mock data

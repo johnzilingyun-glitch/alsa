@@ -10,12 +10,38 @@ services:
     environment:
       - HOST=0.0.0.0
       - PORT=8000
+      - DATABASE_URL=postgresql://alsa:alsa@postgres:5432/alsadb
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
     volumes:
       - ./.env:/app/.env
       - ./.env.runtime:/app/.env.runtime
       - ./data:/app/data
     networks:
       - alsa_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 1.5G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   frontend:
     build:
@@ -26,13 +52,81 @@ services:
     environment:
       - PYTHON_BACKEND_URL=http://backend:8000
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     volumes:
       - ./.env:/app/.env
       - ./.env.runtime:/app/.env.runtime
     networks:
       - alsa_network
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.2'
+          memory: 128M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  celery_worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: celery -A app.worker.celery_app worker --loglevel=info
+    environment:
+      - DATABASE_URL=postgresql://alsa:alsa@postgres:5432/alsadb
+      - REDIS_URL=redis://redis:6379/0
+    volumes:
+      - ./.env:/app/.env
+      - ./.env.runtime:/app/.env.runtime
+      - ./data:/app/data
+    depends_on:
+      - redis
+      - postgres
+    networks:
+      - alsa_network
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - alsa_network
+
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: alsa
+      POSTGRES_PASSWORD: alsa
+      POSTGRES_DB: alsadb
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - alsa_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U alsa -d alsadb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
 networks:
   alsa_network:
     driver: bridge
+
+volumes:
+  redis_data:
+  postgres_data:

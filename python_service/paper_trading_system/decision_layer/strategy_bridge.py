@@ -1,3 +1,4 @@
+import sys
 import pandas as pd
 import math
 import logging
@@ -38,18 +39,33 @@ class AIAgentStrategy(BaseStrategy):
         """
         Qlib engine calls this at each step.
         """
-        current_time = self.trade_calendar.get_trade_time()
+        # get_step_time returns (start_time, end_time) tuple
+        time_range = self.trade_calendar.get_step_time()
+        current_time = time_range[0]  # Use start time
         
-        # Get account state
-        account = self.get_agent_account()
+        # Get account state via Qlib 0.9.7 API
+        account = self.common_infra.get("trade_account")
         cash = account.get_cash()
         
-        # In Qlib, get_positions returns a dictionary where keys are symbols and values are Position objects
-        current_positions = account.get_positions()
+        # Get current positions from trade_position
+        current_positions = {}
+        pos = self.trade_position
+        if pos is not None:
+            # Qlib 0.9.7: use get_stock_amount_dict() and get_stock_price()
+            amounts = pos.get_stock_amount_dict()
+            for stock_id, amount in amounts.items():
+                if amount > 0:
+                    try:
+                        price = pos.get_stock_price(stock_id)
+                    except Exception:
+                        price = 0.0
+                    current_positions[stock_id] = type('Pos', (), {'amount': amount, 'price': price})()
         
         # 1. Ask the AI agent for target allocation (budget per stock)
-        # Note: We pass trade_exchange context if agent needs current prices
         target_allocation_value = self.agent.predict(current_time, current_positions, cash, context=self.trade_exchange)
+        # Normalize symbols to lowercase for Qlib compatibility
+        target_allocation_value = {k.lower(): v for k, v in target_allocation_value.items()}
+        print(f"DEBUG MockAgent: time={current_time} cash={cash:.0f} target_alloc={target_allocation_value}", file=sys.stderr)
         
         # 2. Calculate deltas and format standard Qlib Orders
         order_list = self._calculate_delta_and_format_orders(
@@ -59,7 +75,28 @@ class AIAgentStrategy(BaseStrategy):
         )
         
         return TradeDecisionWO(order_list, self)
-        
+
+    def _get_price(self, symbol: str, current_time: pd.Timestamp) -> float:
+        """Get close price from Qlib data API (fallback if exchange.get_quote_info fails)."""
+        try:
+            # Try exchange first
+            price = self.trade_exchange.get_quote_info(symbol, current_time, current_time, "close")
+            if price is not None and price > 0:
+                return float(price)
+        except Exception:
+            pass
+        # Fallback: query Qlib data directly
+        try:
+            from qlib.data import D
+            df = D.features([symbol], ["$close"], start_time=current_time, end_time=current_time)
+            if df is not None and not df.empty:
+                val = df.iloc[0, 0]
+                if not (isinstance(val, float) and (pd.isna(val) or val <= 0)):
+                    return float(val)
+        except Exception:
+            pass
+        return 0.0
+
     def _calculate_delta_and_format_orders(self, current_pos: dict, target_alloc: Dict[str, float], current_time: pd.Timestamp) -> List[Order]:
         orders = []
         
@@ -69,12 +106,9 @@ class AIAgentStrategy(BaseStrategy):
                 continue
                 
             # Current price from exchange to estimate value and calculate shares
-            try:
-                # Need to use self.trade_exchange to get the close price for the current step
-                current_price = self.trade_exchange.get_quote_info(symbol, current_time, "close")
-            except Exception:
+            current_price = self._get_price(symbol, current_time)
+            if current_price <= 0:
                 current_price = pos_obj.price if hasattr(pos_obj, 'price') else 0.0
-                
             if current_price <= 0:
                 continue
 
@@ -127,11 +161,7 @@ class AIAgentStrategy(BaseStrategy):
         # Now handle newly added symbols not in current_pos
         for symbol, target_val in target_alloc.items():
             if symbol not in current_pos:
-                try:
-                    current_price = self.trade_exchange.get_quote_info(symbol, current_time, "close")
-                except Exception:
-                    continue
-                
+                current_price = self._get_price(symbol, current_time)
                 if current_price <= 0:
                     continue
                     

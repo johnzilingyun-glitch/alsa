@@ -1,7 +1,6 @@
 import sqlite3
 import akshare as ak
 import pandas as pd
-import datetime
 
 # 对应 yfinance 的后缀
 SYMBOLS_MAP = {

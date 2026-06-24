@@ -1,7 +1,7 @@
 import os
 import logging
 import glob
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 from jinja2 import Environment, FileSystemLoader
 from .version_registry import prompt_version_registry
 

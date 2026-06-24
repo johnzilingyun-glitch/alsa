@@ -81,7 +81,7 @@ def compute_indicator_frame(rows: List[Dict[str, Any]]) -> pl.DataFrame:
         tr = pl.fold(tr1, lambda acc, s: pl.when(acc > s).then(acc).otherwise(s), [tr2, tr3])
         
     df = df.with_columns([
-        tr.rolling_mean(14).alias("atr_14")
+        tr.ewm_mean(alpha=1.0/14, adjust=False).alias("atr_14")
     ])
     
     # 5. OBV (On-Balance Volume)

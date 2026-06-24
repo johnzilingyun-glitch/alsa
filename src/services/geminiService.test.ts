@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { generateContentWithUsage, fetchAvailableModelsList, generateAndParseJsonWithRetry, QuotaError, ModelNotFoundError } from './geminiService';
+import { generateContentWithUsage, fetchAvailableModelsList, generateAndParseJsonWithRetry, QuotaError, ModelNotFoundError } from './llmService';
 import { useConfigStore } from '../stores/useConfigStore';
 import { GoogleGenAI } from '@google/genai';
 import { requestScheduler } from './requestScheduler';
@@ -48,7 +48,7 @@ vi.mock('@google/genai', () => {
   };
 });
 
-describe('geminiService', () => {
+describe('llmService', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     (useConfigStore.getState as any).mockReturnValue({

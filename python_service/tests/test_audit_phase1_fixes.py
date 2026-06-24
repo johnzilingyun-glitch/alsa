@@ -1,6 +1,5 @@
 import sys
 import os
-import pytest
 from unittest.mock import patch
 
 # Add project root to path

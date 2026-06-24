@@ -1,7 +1,7 @@
-import { createAI, withRetry, generateContentWithUsage, GEMINI_MODEL, generateAndParseJsonWithRetry } from "./geminiService";
+import { createAI, withRetry, generateContentWithUsage, DEFAULT_LLM_MODEL, generateAndParseJsonWithRetry } from "./llmService";
 import { useConfigStore } from "../stores/useConfigStore";
 import { getAnalyzeStockPrompt, getChatMessagePrompt, getStockReportPrompt, getDiscussionReportPrompt, getChatReportPrompt, getCorrectionPrompt, getTranslationPrompt } from "./prompts";
-import { Market, StockAnalysis, AgentMessage, Scenario, AgentDiscussion, GeminiConfig } from "../types";
+import { Market, StockAnalysis, AgentMessage, Scenario, AgentDiscussion, LLMConfig } from "../types";
 import { getHistoryContext, saveAnalysisToHistory } from "./adminService";
 import { getBeijingDate } from "./dateUtils";
 import { getCommoditiesData } from "./marketService";
@@ -13,7 +13,7 @@ import { getBrainContext } from "./brainService";
 export async function analyzeStock(
   symbol: string, 
   market: Market, 
-  config?: GeminiConfig,
+  config?: LLMConfig,
   onStatus?: (status: string) => void
 ): Promise<StockAnalysis> {
   const language = useConfigStore.getState().language;
@@ -80,7 +80,7 @@ export async function analyzeStock(
   const raw = await generateAndParseJsonWithRetry<StockAnalysis>(
     ai,
     {
-      model: config?.model || GEMINI_MODEL,
+      model: config?.model || DEFAULT_LLM_MODEL,
       contents: prompt,
       config: {
         tools: [{ googleSearch: {} }]
@@ -130,7 +130,7 @@ export async function analyzeStock(
           const correctedRaw = await generateAndParseJsonWithRetry<StockAnalysis>(
             ai,
             {
-              model: config?.model || GEMINI_MODEL,
+              model: config?.model || DEFAULT_LLM_MODEL,
               contents: correctionPrompt,
               config: { responseMimeType: "application/json" }
             },
@@ -181,7 +181,7 @@ export async function analyzeStock(
   return analysis;
 }
 
-export async function sendChatMessage(userMessage: string, analysis: StockAnalysis, config?: GeminiConfig): Promise<string> {
+export async function sendChatMessage(userMessage: string, analysis: StockAnalysis, config?: LLMConfig): Promise<string> {
   const ai = createAI(config);
   const commoditiesData = await getCommoditiesData();
   const language = useConfigStore.getState().language;
@@ -189,7 +189,7 @@ export async function sendChatMessage(userMessage: string, analysis: StockAnalys
 
   const response = await withRetry(async () => {
     const result = await generateContentWithUsage(ai, {
-      model: config?.model || GEMINI_MODEL,
+      model: config?.model || DEFAULT_LLM_MODEL,
       contents: prompt
     });
     return result.text;
@@ -198,14 +198,14 @@ export async function sendChatMessage(userMessage: string, analysis: StockAnalys
   return response;
 }
 
-export async function getStockReport(analysis: StockAnalysis, config?: GeminiConfig): Promise<string> {
+export async function getStockReport(analysis: StockAnalysis, config?: LLMConfig): Promise<string> {
   const ai = createAI(config);
   const language = useConfigStore.getState().language;
   const prompt = getStockReportPrompt(analysis, language);
 
   const response = await withRetry(async () => {
     const result = await generateContentWithUsage(ai, {
-      model: config?.model || GEMINI_MODEL,
+      model: config?.model || DEFAULT_LLM_MODEL,
       contents: prompt
     });
     return result.text;
@@ -214,14 +214,14 @@ export async function getStockReport(analysis: StockAnalysis, config?: GeminiCon
   return response;
 }
 
-export async function getChatReport(stockName: string, chatHistory: { role: string; content: string }[], config?: GeminiConfig): Promise<string> {
+export async function getChatReport(stockName: string, chatHistory: { role: string; content: string }[], config?: LLMConfig): Promise<string> {
   const ai = createAI(config);
   const language = useConfigStore.getState().language;
   const prompt = getChatReportPrompt(stockName, chatHistory, language);
 
   const response = await withRetry(async () => {
     const result = await generateContentWithUsage(ai, {
-      model: config?.model || GEMINI_MODEL,
+      model: config?.model || DEFAULT_LLM_MODEL,
       contents: prompt
     });
     return result.text;
@@ -235,7 +235,7 @@ export async function getDiscussionReport(
   discussion: AgentMessage[], 
   scenarios?: Scenario[], 
   backtestResult?: any,
-  config?: GeminiConfig
+  config?: LLMConfig
 ): Promise<string> {
   const ai = createAI(config);
   const language = useConfigStore.getState().language;
@@ -244,7 +244,7 @@ export async function getDiscussionReport(
 
   const response = await withRetry(async () => {
     const result = await generateContentWithUsage(ai, {
-      model: config?.model || GEMINI_MODEL,
+      model: config?.model || DEFAULT_LLM_MODEL,
       contents: prompt
     });
     return result.text;
@@ -253,7 +253,7 @@ export async function getDiscussionReport(
   return response;
 }
 
-export async function translateAnalysis(analysis: StockAnalysis, targetLanguage: string, config?: GeminiConfig): Promise<StockAnalysis> {
+export async function translateAnalysis(analysis: StockAnalysis, targetLanguage: string, config?: LLMConfig): Promise<StockAnalysis> {
   const ai = createAI(config);
   const prompt = getTranslationPrompt(targetLanguage, analysis, 'analysis');
 
@@ -261,7 +261,7 @@ export async function translateAnalysis(analysis: StockAnalysis, targetLanguage:
     const translatedRaw = await generateAndParseJsonWithRetry<StockAnalysis>(
       ai,
       {
-        model: config?.model || GEMINI_MODEL,
+        model: config?.model || DEFAULT_LLM_MODEL,
         contents: prompt,
         config: { responseMimeType: "application/json" }
       },

@@ -1,11 +1,10 @@
-import pytest
 import pandas as pd
 import numpy as np
 import tempfile
 import os
 import sqlite3
 from app.quant.risk_metrics import RiskMetrics
-from app.db.database import build_session_factory, engine
+from app.db.database import build_session_factory
 
 def test_sqlite_wal_mode():
     # Test WAL mode initialization via build_session_factory

@@ -1,7 +1,7 @@
 from typing import Optional, List, Dict
 from sqlmodel import Session
 from ..db.repositories.mock_trading_repo import MockTradingRepo
-from ..db.models import MockTrade, MockAccount, MARKET_DEFAULT_BALANCE
+from ..db.models import MockTrade, MockAccount
 import logging
 import sys
 import os

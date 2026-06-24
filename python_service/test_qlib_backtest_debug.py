@@ -13,7 +13,7 @@ async def main():
             params={"target_symbol": "600519"}
         )
         print("Success:", results)
-    except Exception as e:
+    except Exception:
         traceback.print_exc()
 
 asyncio.run(main())

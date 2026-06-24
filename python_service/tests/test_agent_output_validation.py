@@ -4,13 +4,12 @@ Trading-critical fields extracted from Chief Strategist output MUST pass
 schema validation before being persisted or used in any trade signal.
 Regex-extracted strings that fail numeric parsing must be rejected.
 """
-import sys, os
+import sys
+import os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
-import pytest
 from python_service.app.decision.trading_fields_validator import (
     TradingFieldsValidator,
-    ValidationResult,
 )
 
 

@@ -1,7 +1,5 @@
 from ddgs import DDGS
-import json
 import time
-import sys
 
 # Ensure UTF-8 output if possible, but emojis are safer removed for GBK terminals
 def test_ddgs():

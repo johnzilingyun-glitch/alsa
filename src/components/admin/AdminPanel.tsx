@@ -1,6 +1,7 @@
 import { Zap, Newspaper } from 'lucide-react';
 import { useMarketStore } from '../../stores/useMarketStore';
 import { useUIStore } from '../../stores/useUIStore';
+import { PipelineManager } from './PipelineManager';
 
 export function AdminPanel() {
   const { optimizationLogs, historyItems } = useMarketStore();
@@ -8,6 +9,7 @@ export function AdminPanel() {
 
   return (
     <section className="space-y-8 pt-12 border-t border-zinc-200 mt-12">
+      <PipelineManager />
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         <div className="space-y-6">
           <h2 className="flex items-center gap-2 text-xl font-medium">

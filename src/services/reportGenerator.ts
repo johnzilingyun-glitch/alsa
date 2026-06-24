@@ -570,7 +570,7 @@ export class ReportGeneratorService {
             ${discussion!.map((m: AgentMessage) => {
               const raw = m.content || '';
               const content = marked.parse(raw, { breaks: true, gfm: true }) as string;
-              const modelUsed = (m as any).model || useConfigStore.getState().geminiConfig.model;
+              const modelUsed = (m as any).model || useConfigStore.getState().llmConfig.model;
               return `
                 <div class="message">
                     <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 5px;">

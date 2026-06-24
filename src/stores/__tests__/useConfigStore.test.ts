@@ -66,8 +66,8 @@ describe('useConfigStore', () => {
     useConfigStore.getState().setConfig(newConfig);
 
     expect(useConfigStore.getState().config.model).toBe('gemini-2.5-pro');
-    expect(useConfigStore.getState().geminiConfig.model).toBe('gemini-2.5-pro');
-    expect(localStorageMock.setItem).toHaveBeenCalledWith('gemini_config', JSON.stringify(newConfig));
+    expect(useConfigStore.getState().llmConfig.model).toBe('gemini-2.5-pro');
+    expect(localStorageMock.setItem).toHaveBeenCalledWith('llm_config', JSON.stringify(newConfig));
   });
 
   it('should set available models', () => {

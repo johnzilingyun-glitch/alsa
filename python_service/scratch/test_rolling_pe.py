@@ -1,5 +1,4 @@
 import pandas as pd
-import numpy as np
 import yfinance as yf
 import traceback
 
@@ -57,7 +56,7 @@ def compute_rolling_pe(symbol):
                             print("Successfully calculated PE using earnings_dates!")
                             print(f"Sample PE values (first 5):\n{rolling_pe.head(5)}")
                             print(f"Sample PE values (last 5):\n{rolling_pe.tail(5)}")
-    except Exception as e:
+    except Exception:
         print("Failed to calculate PE using earnings_dates:")
         traceback.print_exc()
         

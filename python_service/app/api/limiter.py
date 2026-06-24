@@ -1,8 +1,7 @@
 from slowapi import Limiter
 from slowapi.util import get_remote_address
-from fastapi import Request, Response
+from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware
-import time
 
 
 def _get_limiter_key(request: Request) -> str:

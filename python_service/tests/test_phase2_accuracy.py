@@ -1,7 +1,6 @@
 import pytest
 import pandas as pd
 import numpy as np
-from datetime import datetime
 from unittest.mock import MagicMock, patch
 from app.services.mock_trading_service import MockTradingService
 from app.services.backtest_engine_service import BacktestEngine

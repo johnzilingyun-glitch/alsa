@@ -1,5 +1,4 @@
 import akshare as ak
-import pandas as pd
 
 try:
     print("Testing ak.fx_spot_quote() raw data...")

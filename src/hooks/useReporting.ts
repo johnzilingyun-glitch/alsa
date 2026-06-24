@@ -10,7 +10,7 @@ import { sendAnalysisToFeishu } from '../services/feishuService';
 import { ReportGeneratorService } from '../services/reportGenerator';
 
 export function useReporting(fetchAdminData: () => Promise<void>) {
-  const geminiConfig = useConfigStore(s => s.config);
+  const llmConfig = useConfigStore(s => s.config);
   const setIsGeneratingReport = useUIStore(s => s.setIsGeneratingReport);
   const setIsSendingReport = useUIStore(s => s.setIsSendingReport);
   const setReportStatus = useUIStore(s => s.setReportStatus);
@@ -31,11 +31,7 @@ export function useReporting(fetchAdminData: () => Promise<void>) {
   const backtestResult = useScenarioStore(s => s.backtestResult);
 
   const sendReport = useCallback(async (report: string, type: string, data?: any) => {
-    const webhookUrl = useConfigStore.getState().feishuWebhookUrl;
-    if (!webhookUrl) {
-      useUIStore.getState().setIsSettingsOpen(true);
-      throw new Error('请先在设置中配置飞书 Webhook 链接');
-    }
+    
     setIsSendingReport(true);
     try {
       const response = await fetch('/api/feishu/send-report', {
@@ -69,7 +65,7 @@ export function useReporting(fetchAdminData: () => Promise<void>) {
     if (!marketOverview) return;
     setIsTriggeringReport(true);
     try {
-      const report = await getDailyReport(marketOverview, geminiConfig);
+      const report = await getDailyReport(marketOverview, llmConfig);
       setDailyReport(report);
       setIsTriggeringReport(false);
       await sendReport(report, 'daily', marketOverview);
@@ -77,16 +73,11 @@ export function useReporting(fetchAdminData: () => Promise<void>) {
       setReportStatus('error');
       setIsTriggeringReport(false);
     }
-  }, [marketOverviews, overviewMarket, geminiConfig, setIsTriggeringReport, setDailyReport, setReportStatus, sendReport]);
+  }, [marketOverviews, overviewMarket, llmConfig, setIsTriggeringReport, setDailyReport, setReportStatus, sendReport]);
 
   const handleSendStockReport = useCallback(async () => {
     if (!analysis) return;
-    const webhookUrl = useConfigStore.getState().feishuWebhookUrl;
-    if (!webhookUrl) {
-      useUIStore.getState().setIsSettingsOpen(true);
-      setReportStatus('error');
-      return;
-    }
+    
     setIsSendingReport(true);
     try {
       const success = await sendAnalysisToFeishu(analysis, webhookUrl);
@@ -105,12 +96,7 @@ export function useReporting(fetchAdminData: () => Promise<void>) {
 
   const handleSendChatReport = useCallback(async () => {
     if (!analysis || !chatHistory || chatHistory.length === 0) return;
-    const webhookUrl = useConfigStore.getState().feishuWebhookUrl;
-    if (!webhookUrl) {
-      useUIStore.getState().setIsSettingsOpen(true);
-      setReportStatus('error');
-      return;
-    }
+    
     setIsGeneratingReport(true);
     try {
       const report = await getChatReport(analysis.stockInfo?.name || 'Unknown', chatHistory);
@@ -132,16 +118,11 @@ export function useReporting(fetchAdminData: () => Promise<void>) {
       setReportStatus('error');
       setIsGeneratingReport(false);
     }
-  }, [analysis, chatHistory, geminiConfig, setIsGeneratingReport, setReportStatus, sendReport]);
+  }, [analysis, chatHistory, llmConfig, setIsGeneratingReport, setReportStatus, sendReport]);
 
   const handleSendDiscussionReport = useCallback(async () => {
     if (!analysis || discussionMessages.length === 0) return;
-    const webhookUrl = useConfigStore.getState().feishuWebhookUrl;
-    if (!webhookUrl) {
-      useUIStore.getState().setIsSettingsOpen(true);
-      setReportStatus('error');
-      return;
-    }
+    
     setIsSendingReport(true);
     try {
       const success = await sendAnalysisToFeishu(analysis, webhookUrl);
@@ -172,13 +153,13 @@ export function useReporting(fetchAdminData: () => Promise<void>) {
   const handleSendHistoryToFeishu = useCallback(async (item: any) => {
     try {
       const report = item.stockInfo
-        ? await getStockReport(item, geminiConfig)
-        : await getDailyReport(item, geminiConfig);
+        ? await getStockReport(item, llmConfig)
+        : await getDailyReport(item, llmConfig);
       await sendReport(report, 'history_backup', item);
     } catch (error) {
       setReportStatus('error');
     }
-  }, [geminiConfig, setReportStatus, sendReport]);
+  }, [llmConfig, setReportStatus, sendReport]);
 
   const handleExportFullReport = useCallback(async () => {
     if (!analysis) return;

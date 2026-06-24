@@ -1,9 +1,5 @@
-import asyncio
-from sqlmodel import Session
 from app.db.database import session_factory, init_db
 from app.services.mock_trading_service import MockTradingService
-import json
-from datetime import datetime
 
 # Initialize the db to trigger migrations
 init_db()

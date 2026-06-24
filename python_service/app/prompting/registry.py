@@ -1,5 +1,5 @@
 import os
-from typing import Dict, Optional
+from typing import Dict
 
 class PromptRegistry:
     def __init__(self, templates_dir: str):

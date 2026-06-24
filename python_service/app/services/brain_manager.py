@@ -1,6 +1,5 @@
 import os
 import json
-from jinja2 import Template
 from dotenv import load_dotenv
 from google import genai
 from typing import Optional, List, Dict, Any
@@ -96,7 +95,7 @@ class BrainManager:
         except Exception as e:
             self._memory_init_failed = True
             if "already accessed" in str(e):
-                print(f"BrainManager: Qdrant DB locked by another process — running without vector memory. (Use Qdrant server for multi-process access)")
+                print("BrainManager: Qdrant DB locked by another process — running without vector memory. (Use Qdrant server for multi-process access)")
             else:
                 print(f"BrainManager: Failed to initialize Mem0: {e}")
             return None

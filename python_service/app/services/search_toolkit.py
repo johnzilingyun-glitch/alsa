@@ -320,9 +320,9 @@ class SearchToolkit:
 
             lines.append(f"**[{label}]**")
             for i, r in enumerate(cat_results[:5], 1):
-                title = r.get("title", "N/A")
-                content = r.get("content", "")
-                source = r.get("source", "web")
+                title = search_service.sanitize_text(r.get("title", "N/A"))
+                content = search_service.sanitize_text(r.get("content", ""))
+                source = search_service.sanitize_text(r.get("source", "web"))
                 url = r.get("url", "")
                 date = r.get("date", "")
 

@@ -2,20 +2,18 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import React from 'react';
 
-// Mock lucide-react
-vi.mock('lucide-react', () => {
+const { lucideMock } = vi.hoisted(() => {
   const icons = [
-    'Globe', 'Settings', 'Loader2', 'ExternalLink', 'TrendingUp', 'Share2',
-    'CheckCircle2', 'LayoutGrid', 'Coins', 'Star', 'Newspaper', 'Search',
-    'RefreshCw', 'Calendar', 'Heart', 'Target', 'Activity', 'BarChart3', 'ChevronRight',
-    'Bell', 'ShieldAlert', 'Trash2', 'ArrowRight'
+    'Globe','Settings','Loader2','ExternalLink','TrendingUp','Share2','CheckCircle2',
+    'LayoutGrid','Coins','Star','Newspaper','Search','RefreshCw','Calendar','Heart',
+    'Target','Activity','BarChart3','ChevronRight','Bell','ShieldAlert','Trash2',
+    'ArrowRight','Plus','Sparkles',
   ];
-  const mocks: Record<string, any> = {};
-  icons.forEach(icon => {
-    mocks[icon] = (props: any) => <div data-testid={`icon-${icon}`} />;
-  });
-  return mocks;
+  const m: Record<string, any> = {};
+  icons.forEach(n => { m[n] = () => null; });
+  return { lucideMock: m };
 });
+vi.mock('lucide-react', () => lucideMock);
 
 // Mock motion/react
 vi.mock('motion/react', () => ({

@@ -1,10 +1,8 @@
-import json
 import logging
 import pandas as pd
-from typing import Dict, List, Optional
+from typing import Dict, List
 from qlib.strategy.base import BaseStrategy
 from qlib.backtest.decision import TradeDecisionWO, Order, OrderDir
-from qlib.data.dataset import DatasetH
 
 logger = logging.getLogger(__name__)
 

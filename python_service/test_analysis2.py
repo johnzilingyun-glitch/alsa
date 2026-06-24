@@ -14,7 +14,7 @@ async def main():
     try:
         job_id = await service.start_job("AAPL", "US-Share", user_id="test_user")
         print(f"Success: {job_id}")
-    except Exception as e:
+    except Exception:
         import traceback
         traceback.print_exc()
 

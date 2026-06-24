@@ -8,7 +8,7 @@ sys.path.append(root_dir)
 
 from python_service.app.db.database import session_factory
 from python_service.app.db.models import PromptVersion
-from sqlmodel import select, delete
+from sqlmodel import delete
 
 def seed_all_prompts():
     templates_dir = os.path.join(root_dir, "python_service", "app", "prompting", "templates")

@@ -5,7 +5,6 @@ Used as fallback when the primary direct HTTP provider fails.
 Wraps existing akshare calls with the unified DataProvider interface.
 """
 
-import asyncio
 import logging
 from typing import Dict, Any, Optional
 

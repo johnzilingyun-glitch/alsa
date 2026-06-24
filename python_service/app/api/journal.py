@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
-from typing import Optional, List
+from typing import Optional
 from ..db.repositories.journal_repo import JournalRepository
 
 class JournalEntryCreate(BaseModel):

@@ -5,7 +5,7 @@ logger = logging.getLogger(__name__)
 import re
 import pandas as pd
 import aiohttp
-from typing import Dict, Any, List
+from typing import Dict, Any
 from datetime import datetime
 
 _AKSHARE_ENABLED = os.getenv("AKSHARE_ENABLED", "false").lower() in ("true", "1", "yes")

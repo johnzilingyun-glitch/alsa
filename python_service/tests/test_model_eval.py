@@ -6,14 +6,13 @@ Tests for:
 - Evaluation result comparison between model/prompt versions
 - Pass/fail threshold enforcement
 """
-import sys, os
+import sys
+import os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
-import pytest
 from python_service.app.evaluation.model_eval import (
     ModelEvaluator,
     EvalCase,
-    EvalResult,
     EvalSuite,
     EvalVerdict,
 )

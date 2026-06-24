@@ -1,5 +1,5 @@
-from fastapi import APIRouter, Query, HTTPException
-from typing import List, Optional, Dict, Any
+from fastapi import APIRouter, Query
+from typing import Optional, Dict, Any
 import pandas as pd
 import akshare as ak
 from ..services.market_data_service import market_data_service
@@ -52,7 +52,6 @@ async def get_symbol_history(
 
 @router.get("/sector_flow")
 async def get_sector_fund_flow() -> Dict[str, Any]:
-    import pandas as pd
     try:
         df = await safe_ak_call(ak.stock_sector_fund_flow_rank, indicator="今日", sector_type="行业资金流")
         if df is None or df.empty:

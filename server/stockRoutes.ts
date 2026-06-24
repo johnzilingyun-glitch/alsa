@@ -314,7 +314,7 @@ router.get('/stock/indices', async (req, res) => {
     throw new Error('Python indices fetch failed or empty');
   } catch (error) {
     monitor.recordFailure('python_market');
-    console.warn(`Indices fetch error for ${marketKey} (falling back to legacy yf):`, error instanceof Error ? error.message : error);
+    console.warn(`Indices fetch error for ${marketKey} (falling back to legacy yf):`, error.response ? error.response.data : error.message);
     
     // Legacy fallback (preserving minimal safety)
     try {
@@ -615,7 +615,7 @@ router.get('/stock/sectors', async (req, res) => {
   if (cached) return res.json(cached);
 
   try {
-    const data = await fetchJsonWithTimeout('http://127.0.0.1:8001/api/market/sector_flow', 5000);
+    const data = await fetchJsonWithTimeout('http://127.0.0.1:8001/api/market/sector_flow', 15000);
     
     if (data.success && data.data) {
       setCache(cacheKey, data.data);
@@ -640,7 +640,7 @@ router.get('/stock/northbound', async (req, res) => {
   if (cached) return res.json(cached);
 
   try {
-    const data = await fetchJsonWithTimeout('http://127.0.0.1:8001/api/market/northbound', 5000);
+    const data = await fetchJsonWithTimeout('http://127.0.0.1:8001/api/market/northbound', 15000);
     
     if (data.success && data.data) {
       setCache(cacheKey, data.data);
@@ -723,18 +723,16 @@ router.get('/stock/suggest', async (req, res) => {
 
   try {
     // 1. Try EastMoney Suggest API
-    // Response format: var cb = "code,symbol,marketType,pinyin,name,category,flag;..."
     try {
       const emUrl = `https://suggest.eastmoney.com/suggest/default.aspx?name=cb&input=${encodedInput}`;
-      const emText = await fetchJsonWithTimeout(emUrl, 4000).then(t => typeof t === 'string' ? t : JSON.stringify(t)).catch(() => '');
+      const rawRes = await fetch(emUrl, { 
+        signal: AbortSignal.timeout(4000),
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        }
+      }).catch(() => null);
       
-      // EastMoney usually returns plain text like: var cb="...";
-      // If fetchJsonWithTimeout returns parsed JSON (rare for this API), we handle it
-      let text = emText;
-      if (!text.includes('var cb')) {
-        const rawRes = await fetch(emUrl, { signal: AbortSignal.timeout(4000) }).catch(() => null);
-        text = rawRes ? await rawRes.text() : '';
-      }
+      const text = rawRes ? await rawRes.text() : '';
 
       const emMatch = text.match(/var cb\s*=\s*"(.*)"/);
       if (emMatch?.[1]) {
@@ -774,7 +772,13 @@ router.get('/stock/suggest', async (req, res) => {
     if (suggestions.length < 5) {
       try {
         const sinaUrl = `https://suggest3.sinajs.cn/suggest/type=&key=${encodedInput}`;
-        const sinaRes = await fetch(sinaUrl, { signal: AbortSignal.timeout(4000) }).catch(() => null);
+        const sinaRes = await fetch(sinaUrl, { 
+          signal: AbortSignal.timeout(4000),
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+            'Referer': 'https://finance.sina.com.cn/'
+          }
+        }).catch(() => null);
         if (!sinaRes) throw new Error('Sina Timeout');
         
         // Sina returns GBK-encoded text, decode properly

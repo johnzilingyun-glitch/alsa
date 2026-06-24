@@ -1,6 +1,5 @@
 import json
 import os
-from datetime import datetime
 from ..time_utils import utc_now
 
 from fastapi import APIRouter, HTTPException

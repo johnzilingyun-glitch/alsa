@@ -18,12 +18,15 @@ os.environ["API_TOKEN"] = "mock-token"
 # first, then alias all sub-modules so app.* resolves to the same objects.
 import python_service.app  # noqa: E402
 
+# Alias BEFORE importing submodules: app.db.models imports from app.time_utils.
+# Without the alias, Python sees `app.time_utils` as a different module from
+# `python_service.app.time_utils`, causing ModuleNotFoundError.
+sys.modules.setdefault("app", python_service.app)
+
 # Pre-import the sqlite module (and its models) under the python_service path
 from python_service.app.db.database import engine  # noqa: E402, F401
 
-# Now alias: app.* → python_service.app.*
-if "app" not in sys.modules:
-    sys.modules["app"] = python_service.app
+# Now alias all sub-modules: app.* → python_service.app.*
 for name in list(sys.modules.keys()):
     if name.startswith("python_service.app."):
         alias = "app." + name[len("python_service.app."):]

@@ -31,14 +31,18 @@ class AuditEntry:
 
 
 class AuditLogger:
-    """In-memory audit logger (production would use DB/append-only log)."""
+    """In-memory audit logger with size cap (production would use DB/append-only log)."""
+
+    MAX_ENTRIES = 2000
 
     def __init__(self):
         self._entries: List[AuditEntry] = []
 
     def log(self, action: AuditAction, actor: str, details: Dict[str, Any]) -> None:
-        """Record an audit entry."""
+        """Record an audit entry. Evicts oldest when full."""
         self._entries.append(AuditEntry(action=action, actor=actor, details=details))
+        if len(self._entries) > self.MAX_ENTRIES:
+            self._entries = self._entries[-self.MAX_ENTRIES:]
 
     def get_entries(self, action: Optional[AuditAction] = None) -> List[AuditEntry]:
         """Retrieve entries, optionally filtered by action type."""

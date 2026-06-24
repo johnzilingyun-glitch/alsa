@@ -42,13 +42,17 @@ class DuckDBMarketQuery:
             return self._cache[cache_key]['data']
 
         try:
-            sql = f"""
-                SELECT close
-                FROM read_parquet('{parquet_glob}')
-                ORDER BY trade_date DESC
-                LIMIT 1
-            """
-            result = self.con.execute(sql).df()
+            # Validate glob pattern: only allow safe path characters
+            import re
+            if not re.match(r'^[a-zA-Z0-9_/. *?\[\]=-]+$', parquet_glob):
+                logger.error(f"Invalid parquet_glob pattern: {parquet_glob}")
+                return {}
+
+            # Use parameterized query to prevent SQL injection
+            result = self.con.execute(
+                "SELECT close FROM read_parquet(?) ORDER BY trade_date DESC LIMIT 1",
+                [parquet_glob]
+            ).df()
 
             data = {}
             if not result.empty:

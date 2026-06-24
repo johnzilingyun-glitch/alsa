@@ -7,7 +7,6 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')
 
 from python_service.main import app
 
-import time
 
 def test_analysis_job_lifecycle():
     client = TestClient(app)

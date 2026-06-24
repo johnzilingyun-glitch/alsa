@@ -1,8 +1,6 @@
 from python_service.app.db.database import build_session_factory, DATABASE_URL
-from python_service.app.db.repositories.job_repo import JobRepository
-from sqlmodel import Session, select
+from sqlmodel import select
 from python_service.app.models import AnalysisJob
-import json
 
 session_factory = build_session_factory(DATABASE_URL)
 with session_factory() as session:

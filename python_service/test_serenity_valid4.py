@@ -1,0 +1,23 @@
+import time
+from fastapi.testclient import TestClient
+from main import app
+from app.db.database import init_db
+from app.security import require_api_token
+import traceback
+
+try:
+    init_db()
+    app.dependency_overrides[require_api_token] = lambda: "test_token"
+    client = TestClient(app)
+    
+    response = client.post("/api/sector/serenity-analyze", json={
+        "sector_name": "A股市场",
+        "model": "gemini-3.5-flash",
+        "gemini_api_key": "fake_key"
+    })
+    print("POST Status:", response.status_code)
+    print("POST Response:", response.text)
+    print("Sleeping 20 seconds to allow background task to run...")
+    time.sleep(20)
+except Exception:
+    traceback.print_exc()

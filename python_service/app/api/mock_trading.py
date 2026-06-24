@@ -2,12 +2,11 @@
 Mock Trading API — FastAPI routes for managing simulated trading accounts,
 executing trades, viewing portfolio analytics, and anomaly logs.
 """
-from fastapi import APIRouter, HTTPException, Query, Header
+from fastapi import APIRouter, HTTPException, Header
 import logging
 logger = logging.getLogger(__name__)
 from pydantic import BaseModel
 from typing import Optional, List
-from sqlmodel import Session
 from ..db.database import session_factory
 from ..services.mock_trading_service import MockTradingService
 

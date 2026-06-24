@@ -5,7 +5,7 @@ Base classes and unified data schema for all data providers.
 import logging
 from abc import ABC, abstractmethod
 from enum import Enum
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional
 from dataclasses import dataclass
 
 import pandas as pd

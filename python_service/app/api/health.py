@@ -27,7 +27,6 @@ def check_database() -> Dict[str, Any]:
 def check_llm_gateway() -> Dict[str, Any]:
     """Check LLM gateway configuration"""
     try:
-        from ..services.llm_gateway import llm_gateway
         
         providers = []
         if os.getenv("GEMINI_API_KEY"):

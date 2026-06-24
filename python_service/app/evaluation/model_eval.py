@@ -9,7 +9,7 @@ A model can only be promoted to production if it passes all required suites.
 """
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 
 class EvalVerdict(str, Enum):
@@ -83,7 +83,7 @@ class ModelEvaluator:
             if pred_direction != case.expected_direction:
                 failures.append(CaseFailure(
                     case_id=case.case_id,
-                    reason=f"direction mismatch",
+                    reason="direction mismatch",
                     expected=case.expected_direction,
                     actual=pred_direction,
                 ))

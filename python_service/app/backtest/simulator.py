@@ -7,7 +7,6 @@ Handles:
 - Partial fills (future extension)
 """
 from dataclasses import dataclass
-from typing import Optional
 
 
 @dataclass

@@ -14,7 +14,7 @@ Tools:
 """
 
 import math
-from typing import Dict, List, Any, Optional
+from typing import Dict, Any, Optional
 
 
 def dcf_calculate(params: Dict[str, Any]) -> str:
@@ -249,8 +249,8 @@ def position_size_calculate(params: Dict[str, Any]) -> str:
         lines.append(f"| Portfolio Heat (after) | {new_heat:.1f}% / {heat_limit}% |")
         lines.append("")
         lines.append("### R-Multiple Targets")
-        lines.append(f"| Target | Price | Profit |")
-        lines.append(f"|--------|-------|--------|")
+        lines.append("| Target | Price | Profit |")
+        lines.append("|--------|-------|--------|")
         lines.append(f"| 1R (break-even risk) | {currency} {entry + r_multiple_1r if direction == 'Long' else entry - r_multiple_1r:.2f} | {currency} {r_multiple_1r * shares:,.0f} |")
         lines.append(f"| 2R | {currency} {target_2r:.2f} | {currency} {2 * r_multiple_1r * shares:,.0f} |")
         lines.append(f"| 3R | {currency} {target_3r:.2f} | {currency} {3 * r_multiple_1r * shares:,.0f} |")
@@ -719,8 +719,8 @@ def minervini_stage_classifier(params: Dict[str, Any]) -> str:
         lines.append(f"| **Score** | **{passed}/{total}** |")
         lines.append("")
         lines.append("### Key Levels")
-        lines.append(f"| Metric | Value |")
-        lines.append(f"|--------|-------|")
+        lines.append("| Metric | Value |")
+        lines.append("|--------|-------|")
         lines.append(f"| Current Price | {price:.2f} |")
         lines.append(f"| MA50 | {ma50:.2f} |")
         lines.append(f"| MA150 | {ma150:.2f} |")
@@ -1005,9 +1005,9 @@ def stop_loss_validator(params: Dict[str, Any]) -> str:
             lines.append(f"| Days of vol to hit stop | {days_to_hit:.1f} |")
             
             if days_to_hit < 1:
-                warnings.append(f"🚨 Stop can be hit in < 1 day of normal movement — extremely tight")
+                warnings.append("🚨 Stop can be hit in < 1 day of normal movement — extremely tight")
             elif days_to_hit < 3:
-                warnings.append(f"⚠️ Stop within 3 days of normal vol — may be stopped out by noise")
+                warnings.append("⚠️ Stop within 3 days of normal vol — may be stopped out by noise")
 
         lines.append("")
         if warnings:
@@ -1020,8 +1020,8 @@ def stop_loss_validator(params: Dict[str, Any]) -> str:
         lines.append("")
         lines.append("### Recommended Stop Levels")
         if atr > 0:
-            lines.append(f"| Method | Stop Price |")
-            lines.append(f"|--------|-----------|")
+            lines.append("| Method | Stop Price |")
+            lines.append("|--------|-----------|")
             lines.append(f"| 1.5× ATR | {entry - 1.5 * atr:.2f} |")
             lines.append(f"| 2.0× ATR | {entry - 2.0 * atr:.2f} |")
             lines.append(f"| 2.5× ATR | {entry - 2.5 * atr:.2f} |")

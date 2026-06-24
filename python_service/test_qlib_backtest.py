@@ -1,6 +1,5 @@
 import asyncio
 from app.services.backtest_engine_service import BacktestEngine
-import json
 
 async def test_qlib_backtest():
     engine = BacktestEngine(init_cash=100000, commission=0.0003)

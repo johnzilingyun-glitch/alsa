@@ -1,7 +1,6 @@
 import yfinance as yf
 import pandas as pd
 import numpy as np
-import datetime
 
 # 模拟的主板股票池 (代表性个股)
 SYMBOLS = [

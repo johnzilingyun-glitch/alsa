@@ -105,6 +105,16 @@ export function SerenityAlphaAnalyst() {
 
           if (job.status === 'completed') {
             if (pollRef.current) clearInterval(pollRef.current);
+            const usageMetadata = job.result?.usageMetadata;
+            if (usageMetadata) {
+              import('../../stores/useConfigStore').then(({ useConfigStore }) => {
+                useConfigStore.getState().addTokenUsage({
+                  promptTokens: usageMetadata.promptTokens || 0,
+                  candidatesTokens: usageMetadata.candidatesTokens || 0,
+                  totalTokens: usageMetadata.totalTokens || 0
+                });
+              });
+            }
             await loadAnalysisReport(jobId, activeKeyword);
           } else if (job.status === 'failed') {
             if (pollRef.current) clearInterval(pollRef.current);

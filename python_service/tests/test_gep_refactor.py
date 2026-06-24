@@ -1,14 +1,13 @@
 import sys
 import os
 import unittest
-import json
 from unittest.mock import MagicMock, patch
 
 # Add the app directory to sys.path
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 
 from app.services.brain_manager import BrainManager
-from app.services.gep_models import EvolutionaryState, Genome, Gene
+from app.services.gep_models import EvolutionaryState, Genome
 
 class TestGEP(unittest.TestCase):
     def setUp(self):

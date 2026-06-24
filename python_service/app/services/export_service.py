@@ -1,9 +1,6 @@
 """
 Export Service — PDF generation and share card rendering via Playwright.
 """
-import os
-import asyncio
-import tempfile
 from typing import Optional
 
 

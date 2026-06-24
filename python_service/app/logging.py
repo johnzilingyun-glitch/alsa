@@ -106,3 +106,46 @@ def get_logger(name: Optional[str] = None):
     if name:
         return structlog.get_logger(name)
     return structlog.get_logger()
+
+
+def log_llm_call(
+    model: str,
+    role: str,
+    symbol: str,
+    latency_ms: int,
+    input_tokens: int = 0,
+    output_tokens: int = 0,
+    cache_hit: bool = False,
+    provider: str = "unknown",
+    success: bool = True,
+    error: str = None,
+):
+    """
+    Structured logging for LLM API calls.
+    
+    This provides consistent, queryable logs for:
+    - Performance monitoring (latency, tokens)
+    - Cost tracking (token usage)
+    - Error analysis (failure rates by model/provider)
+    - Cache effectiveness
+    """
+    log = get_logger("llm_gateway")
+    extra = {
+        "model": model,
+        "role": role,
+        "symbol": symbol,
+        "provider": provider,
+        "latency_ms": latency_ms,
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "total_tokens": input_tokens + output_tokens,
+        "cache_hit": cache_hit,
+        "success": success,
+    }
+    if error:
+        extra["error"] = error
+        log.error("llm_call_failed", **extra)
+    elif cache_hit:
+        log.info("llm_call_cache_hit", **extra)
+    else:
+        log.info("llm_call_completed", **extra)

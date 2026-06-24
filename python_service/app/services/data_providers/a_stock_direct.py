@@ -259,18 +259,18 @@ class AStockDirectProvider(DataProvider):
         elif interval == "1h" or interval == "60m":
             kline_type = "m60"
 
-        from datetime import datetime, timedelta
+        from datetime import timedelta
         end_date = datetime.now().strftime("%Y-%m-%d")
         start_date = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
 
         is_min = interval in ("15m", "1h", "60m")
         if is_min:
-            url = f"https://ifzq.gtimg.cn/appstock/app/kline/mkline"
+            url = "https://ifzq.gtimg.cn/appstock/app/kline/mkline"
             params = {
                 "param": f"{qt_symbol},{kline_type},,640",
             }
         else:
-            url = f"https://web.ifzq.gtimg.cn/appstock/app/fqkline/get"
+            url = "https://web.ifzq.gtimg.cn/appstock/app/fqkline/get"
             params = {
                 "_var": "kline_dayqfq",
                 "param": f"{qt_symbol},{kline_type},{start_date},{end_date},640,qfq",

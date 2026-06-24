@@ -54,7 +54,8 @@ export function useMarketData(fetchAdminData: () => Promise<void>) {
         setMarketLastUpdated(overviewMarket, snapshot.generatedAt || Date.now());
         console.log(`[Market] Snapshot loaded for ${overviewMarket}: ${snapshot.indices.length} indices`);
         snapshotLoaded = true;
-        setOverviewLoading(false); // Reveal UI as soon as indices are here
+        // Do NOT setOverviewLoading(false) here. Keep it true until Phase 2 completes, 
+        // so the refresh button stays spinning and disabled.
       } else {
         console.warn(`[Market] Snapshot empty for ${overviewMarket}.`);
       }
@@ -71,8 +72,8 @@ export function useMarketData(fetchAdminData: () => Promise<void>) {
     }
 
     try {
-      const geminiConfig = useConfigStore.getState().config;
-      const data = await getMarketOverview(geminiConfig, overviewMarket, forceRefresh, 1);
+      const llmConfig = useConfigStore.getState().config;
+      const data = await getMarketOverview(llmConfig, overviewMarket, forceRefresh, 1);
       
       // Preserve fresh API indices from Phase 1 if available, 
       // preventing stale AI history from overwriting real-time quotes (e.g. 0 prices)

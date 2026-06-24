@@ -9,7 +9,7 @@ import argparse
 import subprocess
 import pandas as pd
 import akshare as ak
-from datetime import datetime, timedelta
+from datetime import datetime
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)

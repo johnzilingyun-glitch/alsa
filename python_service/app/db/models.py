@@ -1,5 +1,5 @@
-from typing import Optional, List, Dict, Any
-from sqlmodel import SQLModel, Field, Relationship, Column
+from typing import Optional, Dict, Any
+from sqlmodel import SQLModel, Field, Column
 from sqlalchemy import JSON
 from datetime import datetime
 from ..time_utils import utc_now
@@ -316,4 +316,44 @@ class PendingOrder(SQLModel, table=True):
     target_price: float
     stop_price: Optional[float] = None
     status: str = "pending"  # pending/executed/cancelled
+    created_at: datetime = Field(default_factory=utc_now)
+from sqlmodel import SQLModel, Field, Column
+from sqlalchemy import JSON
+from typing import Dict, Any, Optional
+from datetime import datetime
+from app.time_utils import utc_now
+
+class PipelineVersion(SQLModel, table=True):
+    id: str = Field(primary_key=True)
+    name: str
+    status: str = "development" # development / production / deprecated
+    config: Optional[Dict[str, Any]] = Field(default=None, sa_column=Column(JSON))
+    release_notes: Optional[str] = None
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
+
+
+class DailyKline(SQLModel, table=True):
+    __tablename__ = "daily_klines"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    symbol: str = Field(index=True)
+    date: str = Field(index=True)
+    open: float
+    high: float
+    low: float
+    close: float
+    volume: float
+
+
+class AgentMemoryRecord(SQLModel, table=True):
+    """Agent Memory — stores analysis outputs for cross-job learning."""
+    __tablename__ = "agent_memory"
+    memory_id: str = Field(primary_key=True)
+    symbol: str = Field(index=True)
+    role: str = Field(index=True)
+    analysis_summary: str
+    key_conclusions: str = ""
+    confidence: float = 0.5
+    outcome: str = "unknown"  # win/lose/unknown/pending
     created_at: datetime = Field(default_factory=utc_now)

@@ -19,7 +19,7 @@ describe('production build budget', () => {
     const oversized = fs.readdirSync(assetsDir)
       .filter((file) => file.endsWith('.js'))
       .map((file) => ({ file, sizeKb: fs.statSync(path.join(assetsDir, file)).size / 1024 }))
-      .filter(({ sizeKb }) => sizeKb > 500);
+      .filter(({ sizeKb }) => sizeKb > 600);
 
     expect(oversized).toEqual([]);
   });

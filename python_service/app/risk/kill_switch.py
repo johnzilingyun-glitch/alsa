@@ -9,7 +9,7 @@ When triggered, the system enters read-only mode:
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
-from typing import List, Optional
+from typing import Optional
 
 
 class KillSwitchState(str, Enum):
@@ -44,13 +44,15 @@ class KillSwitch:
         self.state = self._load_state()
 
     def _compute_signature(self, state: str, reason: str) -> str:
-        import hmac, hashlib, os
+        import hmac
+        import hashlib
+        import os
         key = os.getenv("API_TOKEN", "fallback_secret_key").encode()
         message = f"{state}:{reason}".encode()
         return hmac.new(key, message, hashlib.sha256).hexdigest()
 
     def _load_state(self) -> KillSwitchState:
-        import sqlite3, os
+        import sqlite3
         
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()

@@ -4,7 +4,7 @@ Sector Report Service — Generates HTML reports for sector/industry analysis.
 import os
 import re
 import markdown2
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List
 from datetime import datetime
 
 

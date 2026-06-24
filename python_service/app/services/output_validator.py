@@ -12,7 +12,7 @@ This is a lightweight Phase 1 implementation. Phase 2 will add:
 """
 import logging
 import re
-from datetime import datetime, date
+from datetime import date
 from typing import List, Tuple
 
 logger = logging.getLogger(__name__)

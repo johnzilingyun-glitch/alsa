@@ -159,7 +159,7 @@ async def get_macro_regime_text() -> str:
         return f"⚠ Macro Regime Detection Failed: {data['error']}"
 
     lines = [
-        f"## 🌐 宏观体制检测 (Macro Regime Detector)",
+        "## 🌐 宏观体制检测 (Macro Regime Detector)",
         f"**当前体制**: {data['regime_zh']} ({data['regime']})",
         f"**判断依据**: {data['description']}",
         f"**多头信号占比**: {data['bullish_pct']}%",

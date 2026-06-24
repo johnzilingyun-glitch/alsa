@@ -1,7 +1,5 @@
 import sys
 import os
-import pytest
-import polars as pl
 
 # Add project root to path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))

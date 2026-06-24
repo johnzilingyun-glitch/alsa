@@ -1,6 +1,4 @@
 import asyncio
-import os
-from app.services.macro_service import macro_service
 from app.services.search_service import search_service
 
 async def test_search():

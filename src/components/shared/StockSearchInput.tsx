@@ -18,6 +18,7 @@ interface StockSearchInputProps {
   className?: string;
   onSelect: (symbol: string, market?: string) => void;
   onSubmit?: (symbol: string) => void;
+  onChange?: (value: string) => void;
   /** Additional class for the input element */
   inputClassName?: string;
 }
@@ -29,6 +30,7 @@ export function StockSearchInput({
   className = '',
   onSelect,
   onSubmit,
+  onChange,
   inputClassName = '',
 }: StockSearchInputProps) {
   const [localValue, setLocalValue] = useState(value);
@@ -144,9 +146,11 @@ export function StockSearchInput({
         onCompositionEnd={(e) => {
           setIsComposing(false);
           setLocalValue(e.currentTarget.value);
+          onChange?.(e.currentTarget.value);
         }}
         onChange={(e) => {
           setLocalValue(e.target.value);
+          onChange?.(e.target.value);
         }}
         onFocus={() => {
           if (suggestions.length > 0) setShowSuggestions(true);

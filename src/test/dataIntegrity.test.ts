@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { AgentDiscussion, StockAnalysis } from '../types';
-import { parseJsonResponse } from '../services/geminiService';
+import { parseJsonResponse } from '../services/llmService';
 
 describe('Data Integrity and Verification Tests', () => {
   it('should correctly parse AgentDiscussion with dataVerification and references', () => {

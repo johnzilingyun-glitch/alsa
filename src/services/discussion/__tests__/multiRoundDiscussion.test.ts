@@ -1,11 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { startMultiRoundDiscussion } from '../../discussionService';
 import { StockAnalysis, MultiRoundProgress, AgentMessage } from '../../../types';
-import * as geminiService from '../../geminiService';
+import * as llmService from '../../llmService';
 
-// Mock geminiService
-vi.mock('../../geminiService', async () => {
-  const actual = await vi.importActual('../../geminiService');
+// Mock llmService
+vi.mock('../../llmService', async () => {
+  const actual = await vi.importActual('../../llmService');
   return {
     ...actual as any,
     generateContentWithUsage: vi.fn(),
@@ -89,13 +89,13 @@ describe('startMultiRoundDiscussion', () => {
     });
 
     // Mock AI - use generateAndParseJsonWithRetry directly
-    (geminiService.generateAndParseJsonWithRetry as any).mockImplementation(() => {
+    (llmService.generateAndParseJsonWithRetry as any).mockImplementation(() => {
       callCount++;
       return Promise.resolve(mockExpertResponse(`Expert response #${callCount}`));
     });
 
     // Also mock generateContentWithUsage for synthesis step if needed
-    (geminiService.generateContentWithUsage as any).mockImplementation(() => {
+    (llmService.generateContentWithUsage as any).mockImplementation(() => {
       return Promise.resolve({
         text: JSON.stringify({ 
           finalConclusion: 'Final synthesis result',
@@ -153,7 +153,7 @@ describe('startMultiRoundDiscussion', () => {
   it('messages accumulate across rounds (each expert sees previous messages)', async () => {
     const prompts: string[] = [];
 
-    (geminiService.generateAndParseJsonWithRetry as any).mockImplementation((_ai: any, params: any) => {
+    (llmService.generateAndParseJsonWithRetry as any).mockImplementation((_ai: any, params: any) => {
       prompts.push(params.contents);
       callCount++;
       return Promise.resolve(mockExpertResponse(`Response #${callCount}`));
@@ -173,7 +173,7 @@ describe('startMultiRoundDiscussion', () => {
     const controller = new AbortController();
 
     // Abort after first call
-    (geminiService.generateAndParseJsonWithRetry as any).mockImplementation(() => {
+    (llmService.generateAndParseJsonWithRetry as any).mockImplementation(() => {
       callCount++;
       if (callCount === 1) {
         controller.abort();
@@ -204,7 +204,7 @@ describe('startMultiRoundDiscussion', () => {
       'Value Investing Sage',
       'Growth Visionary'
     ]);
-    (geminiService.generateAndParseJsonWithRetry as any).mockImplementation((_ai: any, params: any, options: any) => {
+    (llmService.generateAndParseJsonWithRetry as any).mockImplementation((_ai: any, params: any, options: any) => {
       const tools = options?.tools || params.config?.tools;
       const schema = options?.responseSchema || params.config?.responseSchema;
       const role = options?.role;
@@ -241,7 +241,7 @@ describe('startMultiRoundDiscussion', () => {
   });
 
   it('handles expert structured data extraction', async () => {
-    const m = geminiService.generateAndParseJsonWithRetry as any;
+    const m = llmService.generateAndParseJsonWithRetry as any;
     m.mockImplementation((_ai: any, params: any, options: any) => {
       const role = options?.role;
       
@@ -287,7 +287,7 @@ describe('startMultiRoundDiscussion', () => {
     // In standard mode, Technical Analyst is called. 
     // It should hit the pre-fill logic and NOT call generateAndParseJsonWithRetry for its role.
     const calledRoles: string[] = [];
-    (geminiService.generateAndParseJsonWithRetry as any).mockImplementation((_ai: any, _params: any, options: any) => {
+    (llmService.generateAndParseJsonWithRetry as any).mockImplementation((_ai: any, _params: any, options: any) => {
       calledRoles.push(options?.role);
       return Promise.resolve(mockExpertResponse(`Response`));
     });
@@ -303,7 +303,7 @@ describe('startMultiRoundDiscussion', () => {
 
   it('compacts long history to save tokens in multi-round discussions', async () => {
     const allPrompts: string[] = [];
-    (geminiService.generateAndParseJsonWithRetry as any).mockImplementation((_ai: any, params: any, options: any) => {
+    (llmService.generateAndParseJsonWithRetry as any).mockImplementation((_ai: any, params: any, options: any) => {
       allPrompts.push(params.contents);
       const role = options?.role;
       // Return a VERY long response for Technical Analyst (Round 2)

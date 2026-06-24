@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, status, Request, Body
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from jose import JWTError, jwt
 from passlib.context import CryptContext
@@ -10,7 +10,6 @@ from ..db.database import get_session
 from ..db.models import User
 from .limiter import limiter
 import os
-import uuid
 import secrets
 
 def get_or_create_jwt_secret():

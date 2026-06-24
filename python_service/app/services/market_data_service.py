@@ -3,7 +3,7 @@ import json
 import os
 import time
 import yfinance as yf
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import List, Dict, Any, Optional
 from ..utils.data_validation import validate_ak_data
 from .search_service import search_service

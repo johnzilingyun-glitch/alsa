@@ -9,7 +9,6 @@ Sentiment data service: fetches real-time sentiment indicators from AkShare APIs
 import akshare as ak
 import asyncio
 from typing import Dict, Any, Optional
-from datetime import datetime
 from ..utils.network import safe_ak_call
 import logging
 

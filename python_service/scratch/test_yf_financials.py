@@ -1,5 +1,4 @@
 import yfinance as yf
-import json
 
 ticker = yf.Ticker("002156.SZ")
 info = ticker.info

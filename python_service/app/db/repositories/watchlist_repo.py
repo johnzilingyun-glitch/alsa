@@ -1,4 +1,4 @@
-from typing import List, Optional, Callable
+from typing import List, Callable
 from sqlmodel import Session, select
 from ..models import WatchlistItem
 

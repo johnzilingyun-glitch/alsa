@@ -1,10 +1,9 @@
 import pytest
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 import pandas as pd
 from unittest.mock import AsyncMock, patch
-from sqlmodel import Session, select
+from sqlmodel import Session
 from app.db.models import PredictionRecord
-from app.db.database import session_factory
 from app.services.prediction_service import PredictionService
 from app.time_utils import utc_now
 

@@ -173,15 +173,10 @@ export function SidebarSummary({ analysis }: SidebarSummaryProps) {
                   <p className="text-xs text-amber-600 mb-3">
                     后台将持续监控该股票价格，当触及入场价/目标价/止损价时，自动通过飞书发送提醒。
                   </p>
-                  {!feishuWebhookUrl && (
-                    <p className="text-xs text-rose-500 mb-2">
-                      ⚠ 未配置飞书 Webhook URL，请在系统设置中配置后再启用监控。
-                    </p>
-                  )}
                   <div className="flex gap-2">
                     <button
                       onClick={handleEnableMonitoring}
-                      disabled={isEnablingMonitor || !feishuWebhookUrl}
+                      disabled={isEnablingMonitor}
                       className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-50 transition-all"
                     >
                       <Bell size={12} />

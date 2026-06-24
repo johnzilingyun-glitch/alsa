@@ -1,6 +1,6 @@
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter
 from pydantic import BaseModel
-from typing import Optional, Dict, Any
+from typing import Optional
 from ..services.brain_manager import brain_manager
 
 router = APIRouter(prefix="/brain", tags=["brain"])

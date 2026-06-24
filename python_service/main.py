@@ -1,4 +1,3 @@
-import os
 
 # Apply AkShare requests.Session keep-alive patch BEFORE any other imports
 from app.utils.akshare_patch import *  # noqa: F401, F403
@@ -34,11 +33,12 @@ from app.services.prediction_service import PredictionService
 from app.risk.kill_switch import KillSwitch
 from app.risk.pre_trade import PreTradeRiskGateway
 from app.observability.metrics import MetricsCollector
-from app.observability.audit import AuditLogger, AuditAction
+from app.observability.audit import AuditLogger
 from app.prompting.version_registry import prompt_version_registry
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    from app.db.redis_client import RedisManager
     init_db()
     analysis_job_service.recover_orphaned_jobs()
 
@@ -76,6 +76,7 @@ async def lifespan(app: FastAPI):
         monitor_task.cancel()
         cleanup_task.cancel()
         prediction_task.cancel()
+        await RedisManager.close()
         try:
             await task
         except asyncio.CancelledError:

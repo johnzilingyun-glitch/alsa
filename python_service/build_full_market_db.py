@@ -1,7 +1,6 @@
 import sqlite3
 import akshare as ak
 import pandas as pd
-import datetime
 import time
 
 DB_PATH = "fundamentals.db"

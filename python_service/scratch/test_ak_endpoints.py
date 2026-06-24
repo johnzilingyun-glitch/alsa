@@ -1,5 +1,4 @@
 import akshare as ak
-import json
 
 try:
     print("Testing stock_financial_abstract_ths:")

@@ -1,7 +1,7 @@
 import os
 import secrets
 import httpx
-from typing import Dict, Any
+from typing import Dict
 from datetime import datetime
 from .registry import tool_registry
 
@@ -21,7 +21,7 @@ async def exec_iwencai_query(query: str, skill_id: str, label: str) -> str:
         "Content-Type": "application/json",
         "X-Claw-Call-Type": "normal",
         "X-Claw-Skill-Id": skill_id,
-        "X-Claw-Skill-Version": "1.0.0",
+        "X-Claw-Skill-Version": "2.0.0",
         "X-Claw-Plugin-Id": "none",
         "X-Claw-Plugin-Version": "none",
         "X-Claw-Trace-Id": secrets.token_hex(32),
@@ -65,6 +65,15 @@ async def exec_iwencai_query(query: str, skill_id: str, label: str) -> str:
 
         lines.append("</tool_observation>")
         return "\n".join(lines)
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 401:
+            body = e.response.text
+            # Detect quota exhaustion — return clean skip message
+            if "次数已用完" in body:
+                return f"<tool_observation>\n{label}: Iwencai 每日配额已用完，跳过。\n</tool_observation>"
+            if "Skill 版本过低" in body:
+                return f"<tool_observation>\n{label}: Iwencai Skill 版本过旧，跳过。\n</tool_observation>"
+        return f"<tool_observation>\n{label} error: HTTP {e.response.status_code}\n</tool_observation>"
     except Exception as e:
         return f"<tool_observation>\n{label} error: {str(e)}\n</tool_observation>"
 

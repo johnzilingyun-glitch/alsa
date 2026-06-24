@@ -1,7 +1,6 @@
 import pytest
 from fastapi.testclient import TestClient
 import os
-import json
 import time
 
 from python_service.main import app

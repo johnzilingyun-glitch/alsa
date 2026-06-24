@@ -1,5 +1,4 @@
 import pandas as pd
-import pytest
 from python_service.app.utils.data_validation import validate_ak_data
 
 def test_validate_ak_data_empty():

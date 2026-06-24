@@ -30,7 +30,13 @@ dependencies = [
     "google-genai>=2.7.0",
     "langgraph>=1.2.4",
     "mem0ai>=2.0.4",
+    "structlog>=24.0",
+    "slowapi>=0.1.9",
+    "prometheus-client>=0.20",
 ]
+
+[project.scripts]
+alsacli = "cli:cli"
 
 [tool.setuptools]
 packages = ["app"]

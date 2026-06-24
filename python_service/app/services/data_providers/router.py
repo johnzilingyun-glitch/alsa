@@ -19,7 +19,7 @@ from typing import Dict, Any, Optional, List
 
 import pandas as pd
 
-from .base import DataProvider, QuoteData, MarketType, detect_market, normalize_ohlcv
+from .base import DataProvider, QuoteData, MarketType, detect_market
 from .a_stock_direct import AStockDirectProvider
 from .akshare_fallback import AkShareFallbackProvider
 from .yfinance_provider import YFinanceProvider

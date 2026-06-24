@@ -1,10 +1,9 @@
 import asyncio
 import functools
 import random
-import time
 import requests
 import logging
-from typing import Any, Callable, TypeVar
+from typing import Callable, TypeVar
 
 logger = logging.getLogger(__name__)
 

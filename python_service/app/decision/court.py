@@ -6,7 +6,7 @@ with signal strength, confidence, and position ceiling.
 """
 import uuid
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import List
 
 from .schemas import AgentDecisionOutput, ConflictLevel
 
@@ -84,7 +84,7 @@ class DecisionCourt:
             if claim.falsification_condition
         ]
 
-        return DecisionCase(
+        case = DecisionCase(
             decision_case_id=f"case_{uuid.uuid4().hex[:8]}",
             symbol=symbol,
             verdict=verdict,
@@ -96,6 +96,11 @@ class DecisionCourt:
             human_review_required=conflict_level in (ConflictLevel.C2, ConflictLevel.C3, ConflictLevel.C4),
             falsification_conditions=falsification_conditions,
         )
+
+        # Clear submissions to prevent state leakage between calls
+        self._submissions.clear()
+
+        return case
 
     def _detect_conflict(self, claims) -> ConflictLevel:
         """Detect directional conflicts between high-confidence claims."""

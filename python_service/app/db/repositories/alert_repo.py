@@ -1,7 +1,6 @@
 from typing import List, Optional, Callable
 from sqlmodel import Session, select
 from ..models import SearchAlert
-from datetime import datetime
 from ...time_utils import utc_now
 
 class AlertRepository:

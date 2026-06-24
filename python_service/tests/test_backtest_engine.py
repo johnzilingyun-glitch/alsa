@@ -7,13 +7,14 @@ Tests for:
 - Portfolio accounting (cash, positions, equity curve)
 - Metrics calculation (CAGR, Sharpe, max drawdown, hit rate)
 """
-import sys, os
+import sys
+import os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
 import pytest
 from python_service.app.backtest.engine import BacktestEngine, BacktestConfig
 from python_service.app.backtest.costs import CostModel, CostParams
-from python_service.app.backtest.simulator import ExecutionSimulator, OrderRequest, FillResult
+from python_service.app.backtest.simulator import ExecutionSimulator, OrderRequest
 
 
 class TestCostModel:

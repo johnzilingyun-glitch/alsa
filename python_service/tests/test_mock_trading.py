@@ -4,7 +4,6 @@ Covers: DB CRUD, execution engine, signal-triggered auto-trade, anomaly detectio
 """
 import pytest
 from sqlmodel import Session, SQLModel, create_engine
-from python_service.app.db.models import MockAccount, MockPosition, MockTrade, MARKET_DEFAULT_BALANCE
 from python_service.app.db.repositories.mock_trading_repo import MockTradingRepo
 from python_service.app.services.mock_trading_service import MockTradingService
 

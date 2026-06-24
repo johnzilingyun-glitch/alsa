@@ -1,4 +1,3 @@
-import os
 
 file_path = "app/api/sector.py"
 with open(file_path, "r", encoding="utf-8") as f:

@@ -3,7 +3,6 @@
 import os
 import sys
 import time
-import shutil
 import logging
 import subprocess
 import pandas as pd

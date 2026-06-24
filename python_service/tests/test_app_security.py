@@ -1,5 +1,4 @@
-﻿import os
-from fastapi.testclient import TestClient
+﻿from fastapi.testclient import TestClient
 
 
 def test_python_app_cors_restricts_origins(monkeypatch):

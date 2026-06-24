@@ -9,6 +9,15 @@ from . import models as _models  # noqa: F401
 # Unified Institutional Database Path
 current_dir = os.path.dirname(os.path.abspath(__file__))
 root_dir = os.path.dirname(os.path.dirname(os.path.dirname(current_dir)))
+
+try:
+    from dotenv import load_dotenv
+    env_path = os.path.join(root_dir, ".env.runtime")
+    if os.path.exists(env_path):
+        load_dotenv(env_path)
+except ImportError:
+    pass
+
 DEFAULT_DB_PATH = os.path.join(root_dir, "data", "app.db")
 
 DATABASE_URL = os.getenv("DATABASE_URL")
@@ -50,6 +59,7 @@ def init_db():
         _migrate_alert_monitoring(engine)
         _migrate_analysis_lineage(engine)
         _migrate_mocktrade(engine)
+        _migrate_agent_memory(engine)
 
 def get_session():
     with Session(engine) as session:
@@ -98,25 +108,26 @@ def _migrate_alert_postmortem(eng):
     conn.commit()
     conn.close()
 
-def _migrate_analysis_lineage(eng):
+def _migrate_agent_memory(eng):
+    """Create agent_memory table if it doesn't exist."""
     import sqlite3
     db_path = str(eng.url).replace("sqlite:///", "")
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
-    cursor.execute("PRAGMA table_info(analysisrun)")
-    existing = {row[1] for row in cursor.fetchall()}
-    new_cols = [
-        ("prompt_version", "VARCHAR DEFAULT 'v1'"),
-        ("model_provider", "VARCHAR DEFAULT 'unknown'"),
-        ("model_name", "VARCHAR DEFAULT 'unknown'"),
-        ("model_version", "VARCHAR"),
-        ("schema_version", "VARCHAR DEFAULT 'analysis.v1'"),
-        ("approval_state", "VARCHAR DEFAULT 'draft'"),
-        ("human_reviewer", "VARCHAR"),
-    ]
-    for col_name, col_type in new_cols:
-        if col_name not in existing:
-            cursor.execute(f"ALTER TABLE analysisrun ADD COLUMN {col_name} {col_type}")
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS agent_memory (
+            memory_id VARCHAR PRIMARY KEY,
+            symbol VARCHAR,
+            role VARCHAR,
+            analysis_summary TEXT,
+            key_conclusions TEXT DEFAULT '',
+            confidence REAL DEFAULT 0.5,
+            outcome VARCHAR DEFAULT 'unknown',
+            created_at TIMESTAMP
+        )
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_agent_memory_symbol ON agent_memory(symbol)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_agent_memory_role ON agent_memory(role)")
     conn.commit()
     conn.close()
 
@@ -180,3 +191,27 @@ def _migrate_alert_monitoring(eng):
             cursor.execute(f"ALTER TABLE searchalert ADD COLUMN {col_name} {col_type}")
     conn.commit()
     conn.close()
+
+
+def _migrate_analysis_lineage(eng):
+    import sqlite3
+    db_path = str(eng.url).replace("sqlite:///", "")
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    cursor.execute("PRAGMA table_info(analysisrun)")
+    existing = {row[1] for row in cursor.fetchall()}
+    new_cols = [
+        ("prompt_version", "VARCHAR DEFAULT 'v1'"),
+        ("model_provider", "VARCHAR DEFAULT 'unknown'"),
+        ("model_name", "VARCHAR DEFAULT 'unknown'"),
+        ("model_version", "VARCHAR"),
+        ("schema_version", "VARCHAR DEFAULT 'analysis.v1'"),
+        ("approval_state", "VARCHAR DEFAULT 'draft'"),
+        ("human_reviewer", "VARCHAR"),
+    ]
+    for col_name, col_type in new_cols:
+        if col_name not in existing:
+            cursor.execute(f"ALTER TABLE analysisrun ADD COLUMN {col_name} {col_type}")
+    conn.commit()
+    conn.close()
+

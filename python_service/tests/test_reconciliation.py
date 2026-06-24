@@ -6,16 +6,14 @@ Tests for:
 - Fill matching (internal order → broker fill)
 - Discrepancy detection and reporting
 """
-import sys, os
+import sys
+import os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
-import pytest
 from python_service.app.reconciliation.engine import (
     ReconciliationEngine,
     InternalPosition,
     BrokerPosition,
-    ReconciliationResult,
-    Discrepancy,
 )
 
 

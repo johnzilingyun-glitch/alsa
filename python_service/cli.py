@@ -18,7 +18,7 @@ os.makedirs(REPORTS_DIR, exist_ok=True)
 load_dotenv(os.path.join(root_dir, ".env"), override=True)
 load_dotenv(os.path.join(root_dir, ".env.runtime"), override=True)
 
-from python_service.app.db.database import init_db, build_session_factory
+from python_service.app.db.database import build_session_factory
 from python_service.app.db.repositories.job_repo import JobRepository
 from python_service.app.services.market_snapshot_service import MarketSnapshotService
 from python_service.app.services.analysis_job_service import AnalysisJobService
@@ -81,12 +81,43 @@ def set(key, value):
     save_config(cfg)
     click.echo(f"Set {key} to {value}")
 
+@config.command()
+@click.argument("key")
+def get(key):
+    """Get a configuration value.
+    
+    API keys are masked, showing only the last 4 characters."""
+    cfg = load_config()
+    if key not in cfg:
+        click.echo("Not set")
+        return
+    value = cfg[key]
+    if "api_key" in key.lower():
+        click.echo(f"{key}: {'*' * 8}{value[-4:] if value else ''}")
+    else:
+        click.echo(f"{key}: {value}")
+
+@config.command()
+@click.argument("key")
+def unset(key):
+    """Remove a configuration value."""
+    cfg = load_config()
+    if key not in cfg:
+        click.echo(f"Key '{key}' is not set.")
+        return
+    if click.confirm(f"Remove '{key}' from configuration?"):
+        del cfg[key]
+        save_config(cfg)
+        click.echo(f"Removed '{key}' from configuration.")
+    else:
+        click.echo("Aborted.")
+
 @cli.command()
 @click.argument("query")
 @click.option("--market", "-m", default=None, help="Explicit market (A-Share, HK-Share, US-Share).")
 @click.option("--level", "-l", default="standard", type=click.Choice(["quick", "standard", "deep"]), help="Analysis depth.")
 @click.option("--output", "-o", default=None, help="Custom path for HTML report.")
-@click.option("--model", "-model", default=None, help="Gemini model version (e.g. 1.5-pro, 2.0-flash).")
+@click.option("--model", default=None, help="Gemini model version (e.g. 1.5-pro, 2.0-flash).")
 @click.option("--guard", "-g", default="high", type=click.Choice(["none", "low", "medium", "high"]), help="Token guard level (none/low/medium/high).")
 @click.option("--lang", default=None, type=click.Choice(["zh", "en"]), help="Report language (auto-detected from market if omitted).")
 def analyze(query, market, level, output, model, guard, lang):
@@ -100,17 +131,58 @@ def analyze(query, market, level, output, model, guard, lang):
 @cli.command("sector")
 @click.argument("sector_name", required=False, default=None)
 @click.option("--output", "-o", default=None, help="Custom path for HTML report.")
-@click.option("--model", "-model", default=None, help="LLM model to use.")
+@click.option("--model", default=None, help="LLM model to use.")
 def sector_analyze(sector_name, output, model):
-    """Analyze a sector/industry and recommend 5-10 stocks.
+    """Analyze a sector/industry and recommend stocks.
     
-    If SECTOR_NAME is omitted, runs a market scan first to recommend sectors."""
+    Provide a sector name (e.g. "半导体", "新能车") for direct deep analysis
+    of that sector with LLM-powered expert discussion and an HTML report.
+    
+    If SECTOR_NAME is omitted, runs an interactive market scan to identify
+    the most promising sectors based on current market conditions."""
     if sector_name:
         click.echo(f"Starting sector analysis for: {sector_name}")
         asyncio.run(run_sector_flow(sector_name, output, model))
     else:
         click.echo("No sector specified. Running market scan to recommend sectors...")
         asyncio.run(run_market_scan_then_sector(output, model))
+
+
+@cli.command("list")
+@click.option("--limit", "-n", default=10, type=int, help="Number of recent jobs to show (default: 10).")
+def list_jobs(limit):
+    """List recent analysis jobs from the database."""
+    from sqlmodel import select, desc
+    from python_service.app.db.database import DATABASE_URL
+    from python_service.app.db.models import AnalysisJob
+
+    # Check if the SQLite database file exists
+    if DATABASE_URL.startswith("sqlite:///"):
+        db_path = DATABASE_URL[len("sqlite:///"):]
+        if not os.path.exists(db_path):
+            click.echo(f"Database not found (expected at: {db_path}). No jobs to list.")
+            return
+
+    try:
+        from python_service.app.db.database import session_factory as db_sf
+        with db_sf() as session:
+            statement = select(AnalysisJob).order_by(desc(AnalysisJob.created_at)).limit(limit)
+            jobs = session.exec(statement).all()
+
+        if not jobs:
+            click.echo("No analysis jobs found.")
+            return
+
+        click.echo(f"{'Job ID':<40} {'Symbol':<10} {'Market':<12} {'Status':<12} {'Created At':<22} {'Level':<8}")
+        click.echo("-" * 104)
+        for job in jobs:
+            click.echo(
+                f"{job.job_id:<40} {job.symbol:<10} {job.market:<12} "
+                f"{job.status:<12} {str(job.created_at):<22} {job.analysis_level:<8}"
+            )
+    except Exception as e:
+        click.echo(f"Error listing jobs: {e}")
+
 
 async def run_analysis_flow(query, market, level, output_path, model, guard="high", lang=None):
     # 0. Set token guard level
@@ -191,7 +263,7 @@ async def run_analysis_flow(query, market, level, output_path, model, guard="hig
         await asyncio.sleep(2)
 
     # 5. Generate HTML Report
-    click.echo(f"Generating HTML report...")
+    click.echo("Generating HTML report...")
     from python_service.app.services.report_generator_service import ReportGeneratorService
     
     report_service = ReportGeneratorService()
@@ -233,7 +305,7 @@ async def run_sector_flow(sector_name, output_path, model):
             return
 
         if job_status.status != last_status:
-            progress = service.get_progress(job_id)
+            progress = await service.get_progress(job_id)
             msg = progress.get("message", job_status.status)
             click.echo(f"\nStatus: {job_status.status} | {msg}", nl=False)
             last_status = job_status.status
@@ -365,7 +437,7 @@ Market: A-Share (中国A股)
         click.echo("\n请选择要深入分析的板块:")
         for i, s in enumerate(sectors):
             click.echo(f"  {i+1}. {s}")
-        click.echo(f"  0. 退出")
+        click.echo("  0. 退出")
 
         choice = click.prompt("输入编号选择", type=int, default=1)
         if choice == 0:

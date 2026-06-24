@@ -8,7 +8,7 @@ logger = logging.getLogger(__name__)
 import json
 import asyncio
 from datetime import datetime
-from typing import List, Dict, Any, Optional
+from typing import List, Dict
 from ..db.models import SearchAlert
 from ..db.repositories.alert_repo import AlertRepository
 

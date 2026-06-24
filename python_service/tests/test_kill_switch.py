@@ -8,7 +8,8 @@ The kill switch must:
 - Be triggerable by multiple conditions (loss, heartbeat, manual)
 - Be resettable only via explicit human action
 """
-import sys, os
+import sys
+import os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
 import pytest

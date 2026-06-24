@@ -3,8 +3,6 @@ from sqlmodel import Session, select
 from typing import List, Optional
 from ..db.database import get_session
 from ..db.models import PredictionRecord
-from pydantic import BaseModel
-from datetime import datetime
 
 router = APIRouter(prefix="/predictions", tags=["Predictions"])
 

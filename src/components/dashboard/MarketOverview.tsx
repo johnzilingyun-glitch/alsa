@@ -68,23 +68,9 @@ export const MarketOverview = memo(function MarketOverview({ onFetchMarketOvervi
                 updateAlertPriceRef.current(quote.symbol, quote.price);
               } else if (quote.error) {
                 const errStr = String(quote.error);
-                // Only delete if the data source explicitly confirms the symbol does not exist.
-                // If it's a network timeout, rate limit, or other 500 error, we keep it.
-                const isSymbolInvalid = errStr.includes('Quote not found for symbol') || 
-                                        errStr.includes('No data found, symbol may be delisted');
-                
-                if (isSymbolInvalid) {
-                  console.warn(`[Auto-Cleanup] Symbol ${quote.symbol} is invalid (not a data source outage). Removing from local storage...`);
-                  // Remove from recent searches
-                  useMarketStore.getState().removeRecentSearch(quote.symbol);
-                  // Remove from watchlist
-                  const currentWatchlist = useMarketStore.getState().watchlist;
-                  if (currentWatchlist.some(w => w.symbol.toUpperCase() === quote.symbol.toUpperCase())) {
-                    useMarketStore.getState().setWatchlist(currentWatchlist.filter(w => w.symbol.toUpperCase() !== quote.symbol.toUpperCase()));
-                  }
-                } else {
-                  console.warn(`[Price Sync] Data source issue for ${quote.symbol}, skipping cleanup: ${errStr}`);
-                }
+                // Log the error but DO NOT aggressively delete from watchlist.
+                // yfinance often returns "No data found, symbol may be delisted" for transient errors or rate limits.
+                console.warn(`[Price Sync] Data source issue for ${quote.symbol}: ${errStr}`);
               }
             });
             refreshAlertStatusRef.current();
@@ -94,6 +80,40 @@ export const MarketOverview = memo(function MarketOverview({ onFetchMarketOvervi
         console.error('Price sync failed:', err);
       }
     };
+
+    // Sync watchlist from backend on load to restore any accidentally deleted items
+    const syncWatchlistFromBackend = async () => {
+      try {
+        const res = await fetch('/api/watchlist/');
+        if (res.ok) {
+          const data = await res.json();
+          if (data && data.items && Array.isArray(data.items)) {
+            const backendWatchlist = data.items.map((item: any) => ({
+              symbol: item.symbol,
+              name: item.name || item.symbol,
+              market: item.market
+            }));
+            
+            // Merge with local storage, preferring backend
+            const localWatchlist = useMarketStore.getState().watchlist || [];
+            const merged = [...backendWatchlist];
+            
+            for (const local of localWatchlist) {
+              if (!merged.some(m => m.symbol.toUpperCase() === local.symbol.toUpperCase() && m.market === local.market)) {
+                merged.push(local);
+              }
+            }
+            
+            useMarketStore.getState().setWatchlist(merged);
+          }
+        }
+      } catch (err) {
+        console.error('Failed to sync watchlist from backend:', err);
+      }
+    };
+
+    // Trigger sync once on mount
+    syncWatchlistFromBackend();
 
     // Defer initial price sync to avoid competing with critical indices/news fetches
     const initTimer = setTimeout(syncPrices, 3000);

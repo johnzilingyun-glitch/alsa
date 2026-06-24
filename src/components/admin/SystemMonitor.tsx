@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import {
   Activity, Cpu, Zap, RefreshCw, Square, AlertTriangle, CheckCircle,
   Clock, TrendingUp, Database, Wifi, WifiOff, ChevronDown, ChevronUp,
-  BarChart2, Radio, Eye, EyeOff, Trash2, Info, Users, RotateCcw
+  BarChart2, Radio, Eye, EyeOff, Trash2, Info, Users, RotateCcw, X
 } from 'lucide-react';
 import { useConfigStore } from '../../stores/useConfigStore';
 import { useUIStore } from '../../stores/useUIStore';
@@ -120,7 +120,7 @@ function CategoryBadge({ category }: { category: BackgroundTask['category'] }) {
 }
 
 export function SystemMonitor() {
-  const { tokenUsage, dailyTokenBudget, config, resetTokenUsage } = useConfigStore();
+  const { tokenUsage, dailyTokenBudget, setDailyTokenBudget, config, resetTokenUsage } = useConfigStore();
   const { autoRefreshInterval, analysisActivity, overviewLoading } = useUIStore();
   const { marketOverviews } = useMarketStore();
   const { stats } = useStatsStore();
@@ -131,6 +131,8 @@ export function SystemMonitor() {
   const [showDebugLogs, setShowDebugLogs] = useState(false);
   const [expandedTask, setExpandedTask] = useState<string | null>(null);
   const [lastRefreshed, setLastRefreshed] = useState(Date.now());
+  const [isBudgetModalOpen, setIsBudgetModalOpen] = useState(false);
+  const [budgetInput, setBudgetInput] = useState('');
 
   const fetchApiJobs = useCallback(async () => {
     setApiJobsLoading(true);
@@ -250,23 +252,35 @@ export function SystemMonitor() {
       </div>
 
       {/* Daily budget bar */}
-      {dailyTokenBudget > 0 && (
-        <div className="bg-white rounded-2xl border border-zinc-100 p-4 shadow-sm">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-bold text-zinc-600">今日 Token 预算使用率</span>
-            <span className={`text-xs font-black ${dailyPct > 80 ? 'text-red-600' : 'text-zinc-700'}`}>{dailyPct.toFixed(1)}%</span>
-          </div>
-          <div className="w-full h-2.5 bg-zinc-100 rounded-full overflow-hidden">
-            <div
-              className={`h-full rounded-full transition-all ${dailyPct > 90 ? 'bg-red-500' : dailyPct > 70 ? 'bg-amber-400' : 'bg-emerald-500'}`}
-              style={{ width: `${dailyPct}%` }}
-            />
-          </div>
-          <p className="text-[10px] text-zinc-400 mt-1.5">
-            {formatTokens(tokenUsage.dailyTotal)} / {formatTokens(dailyTokenBudget)} Tokens · 重置于下一个午夜（北京时间）
-          </p>
+      <div className="bg-white rounded-2xl border border-zinc-100 p-4 shadow-sm">
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-xs font-bold text-zinc-600 flex items-center gap-2">
+            今日 Token 预算使用率
+            <button
+              onClick={() => {
+                setBudgetInput(dailyTokenBudget > 0 ? String(dailyTokenBudget) : '0');
+                setIsBudgetModalOpen(true);
+              }}
+              className="text-[10px] px-2 py-0.5 rounded border border-zinc-200 text-zinc-500 hover:text-indigo-600 hover:border-indigo-200 hover:bg-indigo-50 transition-colors"
+            >
+              修改预算
+            </button>
+          </span>
+          <span className={`text-xs font-black ${dailyTokenBudget > 0 && dailyPct > 80 ? 'text-red-600' : 'text-zinc-700'}`}>
+            {dailyTokenBudget > 0 ? `${dailyPct.toFixed(1)}%` : '无限制'}
+          </span>
         </div>
-      )}
+        <div className="w-full h-2.5 bg-zinc-100 rounded-full overflow-hidden">
+          <div
+            className={`h-full rounded-full transition-all ${dailyTokenBudget === 0 ? 'bg-zinc-300' : dailyPct > 90 ? 'bg-red-500' : dailyPct > 70 ? 'bg-amber-400' : 'bg-emerald-500'}`}
+            style={{ width: dailyTokenBudget > 0 ? `${dailyPct}%` : '100%' }}
+          />
+        </div>
+        <p className="text-[10px] text-zinc-400 mt-1.5 flex items-center justify-between">
+          <span>{formatTokens(tokenUsage.dailyTotal)} / {dailyTokenBudget > 0 ? formatTokens(dailyTokenBudget) : '∞'} Tokens</span>
+          <span>重置于下一个午夜（北京时间）</span>
+        </p>
+      </div>
 
       {/* ── Visit Statistics ── */}
       <div className="bg-white rounded-2xl border border-zinc-100 p-5 shadow-sm space-y-4">
@@ -508,6 +522,99 @@ export function SystemMonitor() {
           </div>
         )}
       </div>
+
+      {/* ── Budget Modal ── */}
+      {isBudgetModalOpen && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-zinc-950/40 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl w-full max-w-sm overflow-hidden shadow-2xl border border-zinc-100 flex flex-col">
+            <div className="px-5 py-4 border-b border-zinc-100 flex items-center justify-between bg-zinc-50/50">
+              <h3 className="font-bold text-zinc-800 flex items-center gap-2">
+                <Zap size={16} className="text-indigo-500" />
+                设置每日 Token 预算
+              </h3>
+              <button
+                onClick={() => setIsBudgetModalOpen(false)}
+                className="text-zinc-400 hover:text-zinc-600 transition-colors"
+              >
+                <X size={16} />
+              </button>
+            </div>
+            
+            <div className="p-5 space-y-5">
+              <div>
+                <label className="block text-xs font-medium text-zinc-500 mb-2">
+                  自定义预算数量（输入 0 为无限额）
+                </label>
+                <div className="relative">
+                  <input
+                    type="number"
+                    min="0"
+                    value={budgetInput}
+                    onChange={e => setBudgetInput(e.target.value)}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter') {
+                        const val = parseInt(budgetInput, 10);
+                        if (!isNaN(val) && val >= 0) {
+                          setDailyTokenBudget(val);
+                          setIsBudgetModalOpen(false);
+                        }
+                      }
+                    }}
+                    className="w-full px-4 py-2.5 bg-zinc-50 border border-zinc-200 rounded-xl text-lg font-mono font-bold text-zinc-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all"
+                    placeholder="例如: 900000"
+                    autoFocus
+                  />
+                  <div className="absolute inset-y-0 right-0 pr-4 flex items-center pointer-events-none">
+                    <span className="text-zinc-400 text-xs font-medium">Tokens</span>
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-zinc-500 mb-2">快速选择</label>
+                <div className="grid grid-cols-2 gap-2">
+                  {[
+                    { label: '小额 (100K)', value: 100000 },
+                    { label: '标准 (500K)', value: 500000 },
+                    { label: '推荐 (900K)', value: 900000 },
+                    { label: '无限制 (0)', value: 0 },
+                  ].map(preset => (
+                    <button
+                      key={preset.label}
+                      onClick={() => setBudgetInput(String(preset.value))}
+                      className="px-3 py-2 rounded-xl text-xs font-medium border border-zinc-200 text-zinc-600 hover:bg-zinc-50 hover:border-indigo-200 hover:text-indigo-600 transition-colors text-center"
+                    >
+                      {preset.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="px-5 py-4 border-t border-zinc-100 flex justify-end gap-2 bg-zinc-50/50">
+              <button
+                onClick={() => setIsBudgetModalOpen(false)}
+                className="px-4 py-2 text-xs font-medium text-zinc-600 hover:text-zinc-800 hover:bg-zinc-200/50 rounded-xl transition-colors"
+              >
+                取消
+              </button>
+              <button
+                onClick={() => {
+                  const val = parseInt(budgetInput, 10);
+                  if (!isNaN(val) && val >= 0) {
+                    setDailyTokenBudget(val);
+                    setIsBudgetModalOpen(false);
+                  }
+                }}
+                className="px-4 py-2 text-xs font-medium text-white bg-indigo-500 hover:bg-indigo-600 shadow-sm shadow-indigo-200 rounded-xl transition-colors flex items-center gap-1.5"
+              >
+                <CheckCircle size={14} />
+                确认保存
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

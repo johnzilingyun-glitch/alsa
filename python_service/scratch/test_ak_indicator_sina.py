@@ -1,5 +1,4 @@
 import akshare as ak
-import pandas as pd
 
 def test_indicator_sina(symbol="sh600519"):
     try:

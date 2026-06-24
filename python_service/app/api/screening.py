@@ -1,5 +1,5 @@
 """Idea Screening API — Multi-factor stock screening endpoint."""
-from fastapi import APIRouter, Query
+from fastapi import APIRouter
 from typing import Optional, Dict, Any
 from pydantic import BaseModel
 from ..services.screening_service import run_screen, SCREEN_PRESETS

@@ -1,5 +1,4 @@
 import akshare as ak
-import json
 
 try:
     df = ak.stock_financial_analysis_indicator_em(symbol="002156")

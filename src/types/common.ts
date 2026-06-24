@@ -117,7 +117,7 @@ export interface AgentDiscussion {
 
 export type BusinessType = "manufacturing" | "saas" | "banking" | "retail" | "healthcare" | "tech" | "other";
 
-export interface GeminiConfig {
+export interface LLMConfig {
   model: string;
   apiKey?: string;
   deepseekApiKey?: string;

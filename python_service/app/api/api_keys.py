@@ -5,7 +5,7 @@ from typing import Optional, List
 from ..security import authenticate
 from ..db.database import session_factory
 from ..db.repositories.api_key_repo import ApiKeyRepository
-from ..utils.responses import success_response, error_response
+from ..utils.responses import success_response
 from .limiter import limiter
 
 router = APIRouter(prefix="/api-keys", tags=["api-keys"])

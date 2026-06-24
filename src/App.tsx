@@ -16,6 +16,7 @@ import { useAnalysisStore } from './stores/useAnalysisStore';
 import { useDiscussionStore } from './stores/useDiscussionStore';
 import { useScenarioStore } from './stores/useScenarioStore';
 import { useConfigStore } from './stores/useConfigStore';
+import { useStatsStore } from './stores/useStatsStore';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { ErrorNotice } from './components/ErrorNotice';
 import { TokenUsage } from './components/dashboard/TokenUsage';
@@ -57,6 +58,12 @@ export default function App() {
   const watchlist = useMarketStore(s => s.watchlist);
   const setWatchlist = useMarketStore(s => s.setWatchlist);
   const setAlerts = useMarketStore(s => s.setAlerts);
+
+  const recordSession = useStatsStore(s => s.recordSession);
+  useEffect(() => {
+    // Count every page load/refresh as a visit
+    recordSession();
+  }, [recordSession]);
 
   // Granular UI store selection to avoid render loops
   const analysisError = useUIStore(s => s.analysisError);
@@ -216,9 +223,12 @@ export default function App() {
             isOpen={isHistoryOpen} 
             onClose={() => setIsHistoryOpen(false)} 
             onSelect={(item) => {
-              // Sector history items → open report in new tab
-              if (item.type === 'sector' && item.jobId) {
-                window.open(`/api/sector/report/${item.jobId}`, '_blank');
+              if (item.type === 'sector') {
+                if (item.jobId) {
+                  window.open(`/api/sector/report/${item.jobId}`, '_blank');
+                } else {
+                  window.location.hash = `#/sector-analysis/${item.id}`;
+                }
                 setIsHistoryOpen(false);
                 return;
               }
@@ -226,7 +236,7 @@ export default function App() {
               setAnalysis(item);
               setSymbol(item.stockInfo?.symbol || '');
               setMarket(item.stockInfo?.market || 'A-Share');
-              setLastJobId(item.analysis_id || item.analysisId || item.jobId || item.job_id || item._jobId || null);
+              setLastJobId(item.job_id || item.jobId || item._jobId || item.analysis_id || item.analysisId || item.id || null);
               
               if (item.chatHistory) {
                 setChatHistory(item.chatHistory);

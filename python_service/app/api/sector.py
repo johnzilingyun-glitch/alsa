@@ -8,10 +8,11 @@ import uuid
 import logging
 from datetime import datetime, date
 from typing import Optional, Dict, Any
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from ..utils.responses import success_response, error_response
+from ..db.redis_client import RedisManager
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +25,21 @@ SECTOR_REPORTS_DIR = os.getenv("SECTOR_REPORTS_DIR", os.path.join(_PROJECT_ROOT,
 # In-memory store for scan/analysis jobs (same pattern as AnalysisJobService)
 _scan_jobs: Dict[str, Dict[str, Any]] = {}
 _scan_tasks: Dict[str, asyncio.Task] = {}
+
+async def _update_scan_job_redis(job_id: str, **kwargs):
+    redis = await RedisManager.get_client()
+    key = f"scan_job:{job_id}"
+    data = await redis.get(key)
+    job = json.loads(data) if data else {}
+    job.update(kwargs)
+    await redis.set(key, json.dumps(job), ex=86400)
+
+async def _get_scan_job_redis(job_id: str):
+    redis = await RedisManager.get_client()
+    data = await redis.get(f"scan_job:{job_id}")
+    return json.loads(data) if data else None
+
+
 
 
 class SectorScanRequest(BaseModel):
@@ -41,6 +57,7 @@ class SectorAnalyzeRequest(BaseModel):
     force: Optional[bool] = False
     gemini_api_key: Optional[str] = None
     deepseek_api_key: Optional[str] = None
+    pipeline_version: Optional[str] = "production"
 
 
 class SerenityAnalyzeRequest(BaseModel):
@@ -50,6 +67,7 @@ class SerenityAnalyzeRequest(BaseModel):
     force: Optional[bool] = False
     gemini_api_key: Optional[str] = None
     deepseek_api_key: Optional[str] = None
+    pipeline_version: Optional[str] = "production"
 
 
 def _resolve_model(requested: Optional[str] = None) -> str:
@@ -95,6 +113,8 @@ def _escape_like(s: str) -> str:
     """Escape special characters for SQL LIKE clause."""
     if not s:
         return s
+    # Also block SQL injection characters
+    s = s.replace("'", "").replace('"', '').replace('--', '').replace(';', '')
     return s.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
 
 # ---------- Scan ----------
@@ -147,14 +167,14 @@ async def start_scan(req: SectorScanRequest):
                     })
 
     job_id = f"scan_{uuid.uuid4().hex[:8]}"
-    _scan_jobs[job_id] = {
-        "status": "running",
-        "progress": "正在扫描A股市场板块轮动...",
-        "result": None,
-        "sectors": [],
-        "error": None,
-        "created_at": datetime.now().isoformat(),
-    }
+    asyncio.create_task(_update_scan_job_redis(job_id, 
+        status="running",
+        progress="正在扫描A股市场板块轮动...",
+        result=None,
+        sectors=[],
+        error=None,
+        created_at=datetime.now().isoformat()
+    ))
 
     task = asyncio.create_task(_run_scan(
         job_id, model, target_date, 
@@ -171,7 +191,7 @@ async def start_scan(req: SectorScanRequest):
 @router.get("/run/{job_id}")
 async def get_scan_status(job_id: str):
     """Poll scan job status. Returns sectors list when completed."""
-    job = _scan_jobs.get(job_id)
+    job = await _get_scan_job_redis(job_id)
     if not job:
         return error_response("NOT_FOUND", "Scan job not found")
     return success_response(job)
@@ -184,8 +204,8 @@ async def cancel_scan(job_id: str):
     if task and not task.done():
         task.cancel()
         if job_id in _scan_jobs:
-            _scan_jobs[job_id]["status"] = "cancelled"
-            _scan_jobs[job_id]["error"] = "已手动取消"
+            asyncio.create_task(_update_scan_job_redis(job_id, status="cancelled"))
+            asyncio.create_task(_update_scan_job_redis(job_id, error="已手动取消"))
         return success_response({"status": "cancelled"})
     return error_response("NOT_FOUND", "Running scan job not found or already completed")
 
@@ -193,10 +213,11 @@ async def cancel_scan(job_id: str):
 async def _run_scan(job_id: str, model: str, target_date: str, gemini_api_key: str = None, deepseek_api_key: str = None):
     """Execute the market sector scan via LLM + tools."""
     from ..services.llm_gateway import llm_gateway
+    from ..services.agent_orchestrator import agent_orchestrator
     from ..prompting.runtime import prompt_runtime
 
     try:
-        _scan_jobs[job_id]["progress"] = "正在加载扫描提示..."
+        asyncio.create_task(_update_scan_job_redis(job_id, progress="正在加载扫描提示..."))
 
         prompt_data = prompt_runtime.get_prompt("market_sector_scanner")
         template = prompt_data["template"]
@@ -213,7 +234,7 @@ Current Date: {target_date}
 Market: A-Share (中国A股)
 """
 
-        _scan_jobs[job_id]["progress"] = "正在搜索和分析市场数据..."
+        asyncio.create_task(_update_scan_job_redis(job_id, progress="正在搜索和分析市场数据..."))
 
         use_tools = "deepseek" in model.lower()
 
@@ -221,15 +242,15 @@ Market: A-Share (中国A股)
         # so the frontend polling sees live progress and never times out while AI is active
         def _on_chunk(count, message=None):
             if message:
-                _scan_jobs[job_id]["progress"] = message
+                asyncio.create_task(_update_scan_job_redis(job_id, progress=message))
             else:
-                _scan_jobs[job_id]["progress"] = f"AI 正在生成分析内容... ({count:,} chars)"
-            _scan_jobs[job_id]["content_count"] = count
+                asyncio.create_task(_update_scan_job_redis(job_id, progress=f"AI 正在生成分析内容... ({count:,} chars)"))
+            asyncio.create_task(_update_scan_job_redis(job_id, content_count=count))
 
         # No hard timeout — let the model run as long as it is producing output.
         # The frontend uses activity-based timeout (300s of zero progress change).
         if use_tools:
-            scan_result = await llm_gateway.generate_with_tools(
+            scan_result = await agent_orchestrator.generate_with_tools(
                 context, model=model, max_tool_rounds=20,
                 on_chunk=_on_chunk,
                 gemini_api_key=gemini_api_key, deepseek_api_key=deepseek_api_key
@@ -242,17 +263,17 @@ Market: A-Share (中国A股)
             )
 
         if not scan_result:
-            _scan_jobs[job_id]["status"] = "failed"
-            _scan_jobs[job_id]["error"] = "扫描返回空结果"
+            asyncio.create_task(_update_scan_job_redis(job_id, status="failed"))
+            asyncio.create_task(_update_scan_job_redis(job_id, error="扫描返回空结果"))
             return
 
         # Extract sectors from the 7-column recommendation table
         sectors = _extract_sectors(scan_result)
 
-        _scan_jobs[job_id]["status"] = "completed"
-        _scan_jobs[job_id]["result"] = scan_result
-        _scan_jobs[job_id]["sectors"] = sectors
-        _scan_jobs[job_id]["progress"] = "扫描完成"
+        asyncio.create_task(_update_scan_job_redis(job_id, status="completed"))
+        asyncio.create_task(_update_scan_job_redis(job_id, result=scan_result))
+        asyncio.create_task(_update_scan_job_redis(job_id, sectors=sectors))
+        asyncio.create_task(_update_scan_job_redis(job_id, progress="扫描完成"))
 
         # Save to SQLite database
         from ..db.database import session_factory
@@ -290,8 +311,8 @@ Market: A-Share (中国A股)
     except Exception as e:
         import traceback
         traceback.print_exc()
-        _scan_jobs[job_id]["status"] = "failed"
-        _scan_jobs[job_id]["error"] = str(e)
+        asyncio.create_task(_update_scan_job_redis(job_id, status="failed"))
+        asyncio.create_task(_update_scan_job_redis(job_id, error=str(e)))
 
 
 def _extract_sectors(scan_result: str) -> list:
@@ -388,11 +409,15 @@ async def start_serenity_analysis(req: SerenityAnalyzeRequest):
     from ..db.database import session_factory
     from ..db.repositories.job_repo import JobRepository
     from ..services.sector_analysis_service import SectorAnalysisService
+    from ..services.serenity_graph import SerenityGraphService
     from ..db.models import AnalysisJob
     from sqlmodel import select
 
     job_repo = JobRepository(session_factory)
-    service = SectorAnalysisService(job_repo)
+    if req.pipeline_version == "development":
+        service = SerenityGraphService(job_repo)
+    else:
+        service = SectorAnalysisService(job_repo)
 
     sector_name = req.sector_name if req.sector_name else "A股市场"
     target_date = req.date if req.date else datetime.now().strftime("%Y-%m-%d")
@@ -463,7 +488,7 @@ async def get_sector_analysis_status(job_id: str):
     if not db_job:
         return error_response("NOT_FOUND", "Job not found in database")
 
-    progress = service.get_progress(job_id)
+    progress = await service.get_progress(job_id)
 
     result_data = None
     if db_job.status == "completed":

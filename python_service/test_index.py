@@ -13,7 +13,7 @@ def test():
         # Using Sina API for HK indices usually works, or EM
         # Wait, there's no reliable HSI components in akshare without web scraping EM.
         print("AkShare doesn't have a stable HSI component API that returns pure symbols easily.")
-    except Exception as e:
+    except Exception:
         pass
 
 test()

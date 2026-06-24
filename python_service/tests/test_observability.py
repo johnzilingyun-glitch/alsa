@@ -5,11 +5,12 @@ Tests for:
 - AuditLog: records all critical actions (job creation, signal, risk check, order)
 - Metrics aggregation for dashboard queries
 """
-import sys, os
+import sys
+import os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
 import pytest
-from python_service.app.observability.metrics import MetricsCollector, MetricType
+from python_service.app.observability.metrics import MetricsCollector
 from python_service.app.observability.audit import AuditLogger, AuditAction
 
 

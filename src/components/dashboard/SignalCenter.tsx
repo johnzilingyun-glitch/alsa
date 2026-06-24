@@ -19,6 +19,7 @@ interface SignalCenterProps {
 
 export function SignalCenter({ isOpen, onClose }: SignalCenterProps) {
   const { t } = useTranslation();
+  const setLastJobId = useAnalysisStore(s => s.setLastJobId);
   const { searchAlerts, alertPrices, historyItems, setAlerts } = useMarketStore();
   const { setSymbol, setMarket, setAnalysis } = useAnalysisStore();
   const [tab, setTab] = useState<'active' | 'closed'>('active');
@@ -325,19 +326,20 @@ export function SignalCenter({ isOpen, onClose }: SignalCenterProps) {
                               "{tradingPlanText}"
                             </p>
                             
-                            <button
-                              onClick={() => {
-                                if (histItem) {
+                            {histItem && (
+                              <button
+                                onClick={() => {
                                   setAnalysis(histItem);
+                                  setLastJobId((histItem as any).job_id || (histItem as any).jobId || (histItem as any)._jobId || (histItem as any).analysis_id || (histItem as any).analysisId || histItem.id || null);
                                   setSymbol(alert.symbol);
                                   setMarket(alert.market);
                                   onClose();
-                                }
-                              }}
-                              className="absolute bottom-4 right-4 text-xs font-bold text-indigo-600 hover:text-indigo-700 flex items-center gap-1 group/btn"
-                            >
-                              查看研判全文 <ChevronRight size={14} className="group-hover/btn:translate-x-0.5 transition-transform" />
-                            </button>
+                                }}
+                                className="absolute bottom-4 right-4 text-xs font-bold text-indigo-600 hover:text-indigo-700 flex items-center gap-1 group/btn"
+                              >
+                                查看研判全文 <ChevronRight size={14} className="group-hover/btn:translate-x-0.5 transition-transform" />
+                              </button>
+                            )}
                           </div>
                         </div>
 

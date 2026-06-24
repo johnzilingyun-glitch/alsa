@@ -1,5 +1,3 @@
-import pytest
-import time
 from unittest.mock import patch
 from python_service.app.lake.duckdb_engine import DuckDBMarketQuery
 from python_service.app.lake.parquet_store import ParquetMarketStore

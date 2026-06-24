@@ -16,5 +16,5 @@ try:
     })
     print("POST Status:", response.status_code)
     print("POST Response:", response.text)
-except Exception as e:
+except Exception:
     traceback.print_exc()

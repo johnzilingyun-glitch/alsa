@@ -31,7 +31,7 @@ class AnalysisJobService:
     async def start_job(self, symbol: str, market: str, level: str = "standard", model: Optional[str] = None, config: Optional[Dict[str, Any]] = None, user_id: str = "default_user") -> str:
         import re
         if not re.match(r"^[A-Za-z0-9.\-_]+$", symbol) or not re.match(r"^[A-Za-z0-9.\-_]+$", market):
-            raise ValueError(f"Invalid symbol or market format. Must be alphanumeric.")
+            raise ValueError("Invalid symbol or market format. Must be alphanumeric.")
 
         # Deduplicate: if same symbol+market already has a running/queued job within 60s, reuse it
         existing = self.job_repo.find_recent_running(symbol, market, within_seconds=60)
@@ -195,7 +195,7 @@ class AnalysisJobService:
                 
                 # 3b. Run Expert Discussion
                 level = job.analysis_level if job else "standard"
-                def report_discussion_progress(round, total, msg, count=None, error_type=None):
+                def report_discussion_progress(round, total, msg, count=None, error_type=None, **kwargs):
                     self.update_job_progress(job_id, "discussion", 50 + int((round/total) * 40), round=round, total_rounds=total, message=msg, count=count, error_type=error_type)
     
                 # Determine language: explicit config > market-based auto-detection
@@ -386,7 +386,7 @@ class AnalysisJobService:
     
     async def _save_partial_results(self, job_id: str, symbol: str, market: str, snapshot: Dict[str, Any], indicators: Dict[str, Any], discussion_messages: List[Dict[str, Any]]):
         """Save partial results when analysis is interrupted (user abort or 402)."""
-        from ..db.models import AnalysisRun, AnalysisJob, PredictionRecord
+        from ..db.models import AnalysisRun, AnalysisJob
         
         # Filter out empty messages
         valid_messages = [m for m in discussion_messages if m.get("content")]
@@ -439,27 +439,8 @@ class AnalysisJobService:
             session.commit()
             session.refresh(analysis_run)
             
-            # Extract and save PredictionRecord if target price exists
-            try:
-                target_price_str = structured.get("tradingPlan", {}).get("targetPrice")
-                if target_price_str:
-                    import re
-                    match = re.search(r"[\d.]+", str(target_price_str))
-                    if match:
-                        tp = float(match.group())
-                        cp = float(quote.get("price") or snapshot.get("price", 0.0))
-                        if tp > 0 and cp > 0:
-                            pred = PredictionRecord(
-                                job_id=job_id,
-                                symbol=symbol,
-                                market=market,
-                                target_price=tp,
-                                current_price_at_prediction=cp
-                            )
-                            session.add(pred)
-                            session.commit()
-            except Exception as e:
-                logger.warning(f"Failed to save PredictionRecord: {e}")
+            # Skip PredictionRecord for partial results — no reliable structured data available
+            # (structured fields are only extracted after full discussion completes)
             
             db_job = session.get(AnalysisJob, job_id)
             if db_job:

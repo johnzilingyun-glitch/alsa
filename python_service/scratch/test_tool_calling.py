@@ -9,7 +9,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.services.expert_tools import (
     parse_tool_calls, has_tool_calls, tool_executor,
-    format_tool_descriptions, TOOL_DEFINITIONS
+    format_tool_descriptions
 )
 
 def test_parse():

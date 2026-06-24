@@ -12,7 +12,7 @@ import { saveAnalysisToHistory } from '../services/aiService';
 import { alertsClient } from '../services/api/alertsClient';
 
 export function useStockAnalysis() {
-  const geminiConfig = useConfigStore(s => s.config);
+  const llmConfig = useConfigStore(s => s.config);
   const isAnalyzing = useUIStore(selectLoading);
   const setLoading = useUIStore(s => s.setLoading);
   const setAnalysisError = useUIStore(s => s.setAnalysisError);
@@ -76,8 +76,8 @@ export function useStockAnalysis() {
           symbol: bgSymbol, 
           market: bgMarket, 
           analysis_level: analysisLevel,
-          model: geminiConfig?.model || null,
-          config: geminiConfig
+          model: llmConfig?.model || null,
+          config: llmConfig
         }),
       });
       const responseData = await res.json();
@@ -135,7 +135,7 @@ export function useStockAnalysis() {
     } catch (err: any) {
       showToast(`${bgSymbol} 提交失败: ${err.message}`, 'error');
     }
-  }, [analysisLevel, geminiConfig, addJob, updateJob, showToast, addRecentSearch]);
+  }, [analysisLevel, llmConfig, addJob, updateJob, showToast, addRecentSearch]);
 
   // Watch for job completion
   useEffect(() => {
@@ -226,7 +226,7 @@ export function useStockAnalysis() {
 
     // No history — start fresh analysis
     doStartAnalysis(searchSymbol, searchMarket);
-  }, [symbol, market, analysisLevel, geminiConfig, startAnalysis, setLoading, resetAnalysis, resetDiscussion, resetScenario, resetErrors, setAnalysisTarget, isAnalyzing, startBackgroundJob]);
+  }, [symbol, market, analysisLevel, llmConfig, startAnalysis, setLoading, resetAnalysis, resetDiscussion, resetScenario, resetErrors, setAnalysisTarget, isAnalyzing, startBackgroundJob]);
 
   const doStartAnalysis = useCallback((explicitSymbol?: string, explicitMarket?: string) => {
     const s = explicitSymbol || symbol;
@@ -240,8 +240,8 @@ export function useStockAnalysis() {
     setAnalysisTarget({ symbol: s, market: m });
     // Record search immediately so it appears in recent searches even if analysis fails
     addRecentSearch({ symbol: s, name: s, market: m as Market });
-    startAnalysis(s, m, analysisLevel, geminiConfig?.model || null, geminiConfig);
-  }, [symbol, market, analysisLevel, geminiConfig, startAnalysis, setLoading, resetAnalysis, resetDiscussion, resetScenario, resetErrors, setAnalysisTarget, addRecentSearch]);
+    startAnalysis(s, m, analysisLevel, llmConfig?.model || null, llmConfig);
+  }, [symbol, market, analysisLevel, llmConfig, startAnalysis, setLoading, resetAnalysis, resetDiscussion, resetScenario, resetErrors, setAnalysisTarget, addRecentSearch]);
 
   const loadHistoryResult = useCallback(async (analysisId: string) => {
     setHistoryDialogOpen(false);
@@ -254,7 +254,7 @@ export function useStockAnalysis() {
         setAnalysis(data.data);
         setScenarioResults(data.data as any);
         setDiscussionStoreResults(data.data as any);
-        setLastJobId(data.data.analysis_id || data.data.job_id || data.data.jobId || null);
+        setLastJobId(data.data.job_id || data.data.jobId || data.data.analysis_id || null);
         if (data.data.discussion) {
           setDiscussionMessages(data.data.discussion);
         }

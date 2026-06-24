@@ -237,7 +237,7 @@ class MockTradingRepo:
         return list(self.session.exec(stmt).all())
 
     def get_today_bought_shares(self, account_id: str, symbol: str, market: str) -> int:
-        from datetime import datetime, time
+        from datetime import time
         from ...time_utils import utc_now
         today_start = datetime.combine(utc_now().date(), time.min)
         stmt = select(MockTrade).where(

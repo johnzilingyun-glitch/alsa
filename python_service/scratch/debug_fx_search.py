@@ -1,6 +1,4 @@
 import akshare as ak
-import pandas as pd
-import numpy as np
 
 try:
     print("Searching for USD or CNY/USD...")

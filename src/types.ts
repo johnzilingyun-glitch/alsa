@@ -517,7 +517,7 @@ export interface QuantifiedRisk {
   mitigation: string;      // 对冲/缓释手段
 }
 
-export interface GeminiConfig {
+export interface LLMConfig {
   model: string;
   apiKey?: string;
   deepseekApiKey?: string;

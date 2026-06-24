@@ -15,7 +15,7 @@ Tools follow a unified protocol:
 
 import re
 import asyncio
-from typing import Dict, List, Any, Optional, Callable, Awaitable
+from typing import Dict, List
 from datetime import datetime
 
 
@@ -886,7 +886,7 @@ class ToolExecutor:
         if not results:
             return "<tool_observation>\nNo results found for this query.\n</tool_observation>"
         
-        lines = [f"<tool_observation>"]
+        lines = ["<tool_observation>"]
         lines.append(f"Web search results for: {query}")
         lines.append(f"Date: {datetime.now().strftime('%Y-%m-%d')}")
         lines.append("")
@@ -960,55 +960,80 @@ class ToolExecutor:
 
     async def _exec_announcement_search(self, query: str) -> str:
         """Search company announcements via Iwencai (同花顺问财).
-        Token-defensive: max 6 items, title≤80, summary≤200, no URL."""
+        Falls back to web search when iwencai quota is exhausted."""
         MAX_ITEMS = 6
         MAX_TITLE = 80
         MAX_SUMMARY = 200
 
+        lines = ["<tool_observation>"]
+        lines.append(f"Announcements: {query}")
+        lines.append("")
+
+        # Try iwencai first
+        iwencai_data = []
         try:
             from .data_providers.iwencai_news import search_announcements
             raw = await search_announcements(query)
-            if raw.get("error"):
-                return f"<tool_observation>\nAnnouncement error: {raw['error']}\n</tool_observation>"
-            items = raw.get("data", [])
-            if not items:
-                return "<tool_observation>\nNo announcements found.\n</tool_observation>"
+            if raw.get("error") == "quota_exhausted":
+                pass  # skip to web search fallback
+            elif raw.get("data"):
+                iwencai_data = raw["data"]
+        except Exception:
+            pass
 
-            lines = ["<tool_observation>"]
-            lines.append(f"Announcements: {query}")
-            lines.append("")
-            for i, item in enumerate(items[:MAX_ITEMS], 1):
+        if iwencai_data:
+            for i, item in enumerate(iwencai_data[:MAX_ITEMS], 1):
                 title = item.get("title", "")[:MAX_TITLE]
                 date = item.get("publish_date", "")[:10]
                 summary = item.get("summary", "")[:MAX_SUMMARY]
                 lines.append(f"{i}. [{date}] {title}")
                 if summary:
                     lines.append(f"   {summary}")
-            lines.append("</tool_observation>")
-            return "\n".join(lines)
-        except Exception as e:
-            return f"<tool_observation>\nAnnouncement error: {str(e)}\n</tool_observation>"
+        else:
+            # Fallback: web search
+            try:
+                results = await self.search_service.search(query, max_results=MAX_ITEMS)
+                if results:
+                    for i, r in enumerate(results, 1):
+                        title = r.get("title", "")[:MAX_TITLE]
+                        content = r.get("content", "")[:MAX_SUMMARY]
+                        source = r.get("source", "")[:20]
+                        lines.append(f"{i}. {title} ({source})")
+                        if content:
+                            lines.append(f"   {content}")
+                else:
+                    lines.append("No announcements found.")
+            except Exception as e:
+                lines.append(f"No announcements found. (fallback error: {e})")
+
+        lines.append("</tool_observation>")
+        return "\n".join(lines)
 
     async def _exec_report_search(self, query: str) -> str:
         """Search analyst research reports via Iwencai (同花顺问财).
-        Token-defensive: max 6 items, title≤80, summary≤250, no URL."""
+        Falls back to web search when iwencai quota is exhausted."""
         MAX_ITEMS = 6
         MAX_TITLE = 80
         MAX_SUMMARY = 250
 
+        lines = ["<tool_observation>"]
+        lines.append(f"Research reports: {query}")
+        lines.append("")
+
+        # Try iwencai first
+        iwencai_data = []
         try:
             from .data_providers.iwencai_news import search_reports
             raw = await search_reports(query)
-            if raw.get("error"):
-                return f"<tool_observation>\nReport search error: {raw['error']}\n</tool_observation>"
-            items = raw.get("data", [])
-            if not items:
-                return "<tool_observation>\nNo research reports found.\n</tool_observation>"
+            if raw.get("error") == "quota_exhausted":
+                pass  # skip to web search fallback
+            elif raw.get("data"):
+                iwencai_data = raw["data"]
+        except Exception:
+            pass
 
-            lines = ["<tool_observation>"]
-            lines.append(f"Research reports: {query}")
-            lines.append("")
-            for i, item in enumerate(items[:MAX_ITEMS], 1):
+        if iwencai_data:
+            for i, item in enumerate(iwencai_data[:MAX_ITEMS], 1):
                 title = item.get("title", "")[:MAX_TITLE]
                 date = item.get("publish_date", "")[:10]
                 summary = item.get("summary", "")[:MAX_SUMMARY]
@@ -1016,10 +1041,25 @@ class ToolExecutor:
                 lines.append(f"{i}. [{date}] {title} ({source})")
                 if summary:
                     lines.append(f"   {summary}")
-            lines.append("</tool_observation>")
-            return "\n".join(lines)
-        except Exception as e:
-            return f"<tool_observation>\nReport search error: {str(e)}\n</tool_observation>"
+        else:
+            # Fallback: web search
+            try:
+                results = await self.search_service.search(query, max_results=MAX_ITEMS)
+                if results:
+                    for i, r in enumerate(results, 1):
+                        title = r.get("title", "")[:MAX_TITLE]
+                        content = r.get("content", "")[:MAX_SUMMARY]
+                        source = r.get("source", "")[:20]
+                        lines.append(f"{i}. {title} ({source})")
+                        if content:
+                            lines.append(f"   {content}")
+                else:
+                    lines.append("No research reports found.")
+            except Exception as e:
+                lines.append(f"No research reports found. (fallback error: {e})")
+
+        lines.append("</tool_observation>")
+        return "\n".join(lines)
 
     async def _exec_macro_query(self, query: str) -> str:
         """Query macroeconomic data via Iwencai (同花顺问财) hithink-macro-query skill."""
@@ -1039,7 +1079,6 @@ class ToolExecutor:
 
     async def _exec_commodity_price_query(self, query: str) -> str:
         """Search for commodity spot prices using Iwencai comprehensive search."""
-        import os
         from datetime import datetime
         MAX_ITEMS = 8
         MAX_TITLE = 80
@@ -1122,7 +1161,6 @@ class ToolExecutor:
         import os
         import secrets
         import httpx
-        import json as _json
 
         MAX_ITEMS = 8
         MAX_FIELDS = 6
@@ -1362,7 +1400,6 @@ class ToolExecutor:
         from ..utils.network import safe_ak_call
         from ..services.data_providers import data_router
         from ..utils.data_validation import validate_ak_data
-        from .token_guard import token_guard
 
         # Hard limits for this tool (internal budget before TokenGuard's external enforcement)
         MAX_PERIODS = 4          # Max historical periods to show
@@ -1423,7 +1460,7 @@ class ToolExecutor:
                             if parts:
                                 lines.append(" | ".join(parts))
                                 lines.append("")
-                    except Exception as e:
+                    except Exception:
                         pass  # Non-fatal — fall through to detailed sections below
 
                 # --- A-Share: Quarterly financial abstract ---
@@ -1448,7 +1485,7 @@ class ToolExecutor:
                     try:
                         yf_symbol = f"{symbol}.SS" if symbol.startswith('6') else f"{symbol}.SZ"
                         ticker = yf.Ticker(yf_symbol)
-                        bs = ticker.balance_sheet
+                        bs = await asyncio.to_thread(getattr, ticker, "balance_sheet")
                         if bs is not None and not bs.empty:
                             lines.append("## 资产负债表")
                             key_items = ['Total Assets', 'Total Liabilities Net Minority Interest',
@@ -1468,7 +1505,7 @@ class ToolExecutor:
                     try:
                         yf_symbol = f"{symbol}.SS" if symbol.startswith('6') else f"{symbol}.SZ"
                         ticker = yf.Ticker(yf_symbol)
-                        cf = ticker.cashflow
+                        cf = await asyncio.to_thread(getattr, ticker, "cashflow")
                         if cf is not None and not cf.empty:
                             lines.append("## 现金流量表")
                             key_items = ['Operating Cash Flow', 'Capital Expenditure', 'Free Cash Flow']
@@ -1487,7 +1524,7 @@ class ToolExecutor:
                     try:
                         yf_symbol = f"{symbol}.SS" if symbol.startswith('6') else f"{symbol}.SZ"
                         ticker = yf.Ticker(yf_symbol)
-                        fin = ticker.financials
+                        fin = await asyncio.to_thread(getattr, ticker, "financials")
                         if fin is not None and not fin.empty:
                             lines.append("## 利润表")
                             key_items = ['Total Revenue', 'Gross Profit', 'Operating Income', 'Net Income', 'EBITDA']
@@ -1520,17 +1557,30 @@ class ToolExecutor:
                     except Exception as e:
                         lines.append(f"⚠ dividend failed: {e}")
 
-                # --- Peer comparison (reduced) ---
+                # --- Peer comparison (improved with Iwencai) ---
                 if _budget_ok() and any(kw in query_lower for kw in ["peer", "industry", "比较", "同业", "行业", "对标"]):
                     try:
-                        from .search_service import search_service
-                        search_res = await search_service.quick_search(f"{symbol} 行业对比 PE PB ROE 同业估值")
-                        if search_res:
-                            lines.append("## 行业对比")
-                            lines.append(search_res[:1000])
+                        iwencai_res = await self._exec_iwencai_query(
+                            f"{symbol} 的同行业可比公司的市盈率、市净率、ROE、销售净利率、总市值", 
+                            "hithink-valuation-query", 
+                            "Peer Comparison (同业估值)"
+                        )
+                        if iwencai_res and "no results found" not in iwencai_res.lower() and "error" not in iwencai_res.lower():
+                            lines.append("## 行业对比 (同花顺数据)")
+                            lines.append(iwencai_res.replace("<tool_observation>", "").replace("</tool_observation>", "").strip())
                             lines.append("")
-                    except Exception as e:
-                        lines.append(f"⚠ peer comparison failed: {e}")
+                        else:
+                            raise Exception("Iwencai peer query returned no valid data")
+                    except Exception:
+                        try:
+                            from .search_service import search_service
+                            search_res = await search_service.quick_search(f"{symbol} 行业对比 PE PB ROE 同业估值")
+                            if search_res:
+                                lines.append("## 行业对比 (Web Search Fallback)")
+                                lines.append(search_res[:1000])
+                                lines.append("")
+                        except Exception as se:
+                            lines.append(f"⚠ peer comparison failed: {se}")
 
             else:
                 # --- US/HK data from yfinance ---
@@ -1543,7 +1593,7 @@ class ToolExecutor:
 
                 if _budget_ok() and any(kw in query_lower for kw in ["valuation", "pe", "pb", "roe", "margin", "marketcap", "peer", "industry", "估值", "对标", "同业", "市盈率", "市净率"]):
                     try:
-                        info = ticker.info
+                        info = await asyncio.to_thread(getattr, ticker, "info")
                         if info:
                             lines.append("## Valuation & Key Metrics")
                             lines.append(f"- Market Cap: {_fmt_num(info.get('marketCap'))}")
@@ -1561,7 +1611,7 @@ class ToolExecutor:
                         lines.append(f"⚠ valuation metrics failed: {e}")
 
                 if _budget_ok() and any(kw in query_lower for kw in ["quarter", "earnings", "revenue", "profit", "eps"]):
-                    qf = ticker.quarterly_financials
+                    qf = await asyncio.to_thread(getattr, ticker, "quarterly_financials")
                     if qf is not None and not qf.empty:
                         lines.append("## Quarterly Financials")
                         for item in ['Total Revenue', 'Net Income', 'Gross Profit', 'Operating Income', 'EBITDA']:
@@ -1573,7 +1623,7 @@ class ToolExecutor:
                         lines.append("")
 
                 if _budget_ok() and any(kw in query_lower for kw in ["balance", "cash", "debt", "asset"]):
-                    bs = ticker.balance_sheet
+                    bs = await asyncio.to_thread(getattr, ticker, "balance_sheet")
                     if bs is not None and not bs.empty:
                         lines.append("## Balance Sheet")
                         for item in ['Total Assets', 'Total Liabilities Net Minority Interest', 'Cash And Cash Equivalents',
@@ -1586,7 +1636,7 @@ class ToolExecutor:
                         lines.append("")
 
                 if _budget_ok() and any(kw in query_lower for kw in ["cash flow", "capex", "fcf"]):
-                    cf = ticker.cashflow
+                    cf = await asyncio.to_thread(getattr, ticker, "cashflow")
                     if cf is not None and not cf.empty:
                         lines.append("## Cash Flow")
                         for item in ['Operating Cash Flow', 'Capital Expenditure', 'Free Cash Flow']:
@@ -1598,7 +1648,7 @@ class ToolExecutor:
                         lines.append("")
 
                 if _budget_ok() and any(kw in query_lower for kw in ["income", "breakdown", "cost"]):
-                    fin = ticker.financials
+                    fin = await asyncio.to_thread(getattr, ticker, "financials")
                     if fin is not None and not fin.empty:
                         lines.append("## Income Statement")
                         for item in ['Total Revenue', 'Gross Profit', 'Operating Income', 'Net Income', 'EBITDA']:
@@ -1610,7 +1660,7 @@ class ToolExecutor:
                         lines.append("")
 
                 if _budget_ok() and any(kw in query_lower for kw in ["dividend"]):
-                    divs = ticker.dividends
+                    divs = await asyncio.to_thread(getattr, ticker, "dividends")
                     if divs is not None and len(divs) > 0:
                         lines.append("## Dividend History")
                         for date, val in list(divs.items())[-5:]:

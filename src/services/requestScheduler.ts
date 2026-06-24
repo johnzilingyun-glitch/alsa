@@ -1,5 +1,5 @@
 
-import { delay } from './geminiService';
+import { delay } from './llmService';
 import { useConfigStore } from '../stores/useConfigStore';
 
 type Task<T> = () => Promise<T>;

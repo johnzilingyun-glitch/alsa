@@ -8,7 +8,6 @@ but EastMoney servers close the connection immediately, causing
 Fix: Override Session.__init__ to add 'Connection: close' header.
 """
 import requests
-from requests.adapters import HTTPAdapter
 
 _original_session_init = requests.Session.__init__
 

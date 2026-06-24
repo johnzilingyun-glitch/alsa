@@ -7,13 +7,12 @@ Tests for:
 - Decision case verdict generation
 - Position ceiling enforcement based on conflict level
 """
-import sys, os
+import sys
+import os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
-import pytest
 from python_service.app.decision.court import (
     DecisionCourt,
-    DecisionCase,
     AgentSubmission,
 )
 from python_service.app.decision.schemas import (

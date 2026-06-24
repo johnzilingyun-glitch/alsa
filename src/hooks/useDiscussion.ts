@@ -8,7 +8,7 @@ import { answerDiscussionQuestion, generateNewConclusion, saveAnalysisToHistory,
 import { StockAnalysis, AgentMessage, AgentRole } from '../types';
 
 export function useDiscussion(fetchAdminData: () => Promise<void>) {
-  const geminiConfig = useConfigStore(s => s.config);
+  const llmConfig = useConfigStore(s => s.config);
   const setIsReviewing = useUIStore(s => s.setIsReviewing);
   const isReviewing = useUIStore(selectIsReviewing);
   const isDiscussing = useUIStore(selectIsDiscussing);
@@ -45,10 +45,10 @@ export function useDiscussion(fetchAdminData: () => Promise<void>) {
     let selectedRole: AgentRole = 'Professional Reviewer';
     try {
       // Step 1: Route the question to an expert
-      selectedRole = await routeUserQuestion(question, analysis, updatedMessages, geminiConfig);
+      selectedRole = await routeUserQuestion(question, analysis, updatedMessages, llmConfig);
       
       // Step 2: Get the answer from the selected expert
-      const answerMsg = await answerDiscussionQuestion(analysis, question, selectedRole, updatedMessages, geminiConfig);
+      const answerMsg = await answerDiscussionQuestion(analysis, question, selectedRole, updatedMessages, llmConfig);
       
       const newMessages = [...updatedMessages, answerMsg];
       setDiscussionMessages(newMessages);
@@ -73,7 +73,7 @@ export function useDiscussion(fetchAdminData: () => Promise<void>) {
     } finally {
       setIsReviewing(false);
     }
-  }, [analysis, isReviewing, isDiscussing, geminiConfig, discussionMessages, setDiscussionMessages, setIsReviewing, setAnalysis, fetchAdminData]);
+  }, [analysis, isReviewing, isDiscussing, llmConfig, discussionMessages, setDiscussionMessages, setIsReviewing, setAnalysis, fetchAdminData]);
 
   const handleGenerateNewConclusion = useCallback(async () => {
     if (!analysis || isReviewing || isDiscussing) return;
@@ -81,7 +81,7 @@ export function useDiscussion(fetchAdminData: () => Promise<void>) {
     setIsReviewing(true);
 
     try {
-      const { message, finalConclusion } = await generateNewConclusion(analysis, discussionMessages, geminiConfig);
+      const { message, finalConclusion } = await generateNewConclusion(analysis, discussionMessages, llmConfig);
       
       const newMessages = [...discussionMessages, message];
       setDiscussionMessages(newMessages);
@@ -107,7 +107,7 @@ export function useDiscussion(fetchAdminData: () => Promise<void>) {
     } finally {
       setIsReviewing(false);
     }
-  }, [analysis, isReviewing, isDiscussing, geminiConfig, discussionMessages, setDiscussionMessages, setIsReviewing, setAnalysis, fetchAdminData]);
+  }, [analysis, isReviewing, isDiscussing, llmConfig, discussionMessages, setDiscussionMessages, setIsReviewing, setAnalysis, fetchAdminData]);
 
   return { handleDiscussionQuestion, handleGenerateNewConclusion };
 }

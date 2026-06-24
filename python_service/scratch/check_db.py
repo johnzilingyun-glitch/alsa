@@ -1,5 +1,4 @@
 import sqlite3
-import json
 
 db_path = 'data/alsa.db'
 try:

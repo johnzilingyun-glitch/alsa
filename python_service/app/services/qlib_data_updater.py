@@ -2,7 +2,6 @@ import os
 import shutil
 import yfinance as yf
 import pandas as pd
-from datetime import datetime, timezone
 import logging
 
 logger = logging.getLogger(__name__)

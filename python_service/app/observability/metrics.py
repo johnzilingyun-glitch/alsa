@@ -24,22 +24,27 @@ class MetricPoint:
 
 
 class MetricsCollector:
-    """Metrics collector with tag-based filtering and SQLite persistence."""
+    """Metrics collector with tag-based filtering, auto-flush, and size cap."""
+
+    MAX_POINTS = 5000
 
     def __init__(self, db_path="metrics.db"):
         self._points: List[MetricPoint] = []
         self._db_path = db_path
 
     def record(self, name: str, value: float, tags: Optional[Dict[str, str]] = None) -> None:
-        """Record a metric data point."""
+        """Record a metric data point. Auto-flushes when buffer is full."""
         self._points.append(MetricPoint(name=name, value=value, tags=tags or {}))
+        if len(self._points) >= self.MAX_POINTS:
+            self.flush()
 
     def flush(self) -> None:
         """Write all pending in-memory points to the SQLite database."""
         if not self._points:
             return
             
-        import sqlite3, json
+        import sqlite3
+        import json
         conn = sqlite3.connect(self._db_path)
         cursor = conn.cursor()
         cursor.execute("""

@@ -1,6 +1,5 @@
-import json
 from datetime import datetime
-from typing import Dict, Any
+from typing import Dict
 from .registry import tool_registry
 
 # Try to import search service locally
@@ -30,7 +29,7 @@ async def exec_web_search(tool_call: Dict[str, str]) -> str:
     if not results:
         return "<tool_observation>\nNo results found for this query.\n</tool_observation>"
     
-    lines = [f"<tool_observation>"]
+    lines = ["<tool_observation>"]
     lines.append(f"Web search results for: {query}")
     lines.append(f"Date: {datetime.now().strftime('%Y-%m-%d')}")
     lines.append("")
@@ -142,32 +141,53 @@ async def exec_announcement_search(tool_call: Dict[str, str]) -> str:
     MAX_TITLE = 80
     MAX_SUMMARY = 200
 
+    lines = ["<tool_observation>"]
+    lines.append(f"Announcements for: {query}")
+    lines.append(f"Date: {datetime.now().strftime('%Y-%m-%d')}")
+    lines.append("")
+
+    # Try iwencai first
+    iwencai_results = []
     try:
         from app.services.data_providers.iwencai_news import search_announcements
         raw = await search_announcements(query)
-        if raw.get("error"):
-            return f"<tool_observation>\nAnnouncement error: {raw['error']}\n</tool_observation>"
-        items = raw.get("data", [])
-        if not items:
-            return "<tool_observation>\nNo announcements found.\n</tool_observation>"
+        if raw.get("error") == "quota_exhausted":
+            # Quota exhausted — skip straight to web search fallback
+            pass
+        elif raw.get("data"):
+            iwencai_results = raw["data"]
+    except Exception:
+        pass
 
-        lines = ["<tool_observation>"]
-        lines.append(f"Announcements for: {query}")
-        lines.append(f"Date: {datetime.now().strftime('%Y-%m-%d')}")
-        lines.append("")
-
-        for i, item in enumerate(items[:MAX_ITEMS], 1):
+    if iwencai_results:
+        for i, item in enumerate(iwencai_results[:MAX_ITEMS], 1):
             title = item.get("title", "")[:MAX_TITLE]
             date = item.get("publish_date", "")[:10]
             summary = item.get("summary", "")[:MAX_SUMMARY]
             lines.append(f"{i}. [{date}] {title}")
             if summary:
                 lines.append(f"   {summary}")
+    else:
+        # Fallback: web search
+        from app.services.search_service import SearchService
+        search_service = SearchService()
+        try:
+            results = await search_service.search(query, max_results=MAX_ITEMS)
+            if results:
+                for i, r in enumerate(results, 1):
+                    title = r.get("title", "")[:MAX_TITLE]
+                    content = r.get("content", "")[:MAX_SUMMARY]
+                    source = r.get("source", "")[:20]
+                    lines.append(f"{i}. {title} ({source})")
+                    if content:
+                        lines.append(f"   {content}")
+            else:
+                lines.append("No announcements found.")
+        except Exception as e:
+            lines.append(f"No announcements found. (fallback error: {e})")
 
-        lines.append("</tool_observation>")
-        return "\n".join(lines)
-    except Exception as e:
-        return f"<tool_observation>\nError executing announcement_search: {str(e)}\n</tool_observation>"
+    lines.append("</tool_observation>")
+    return "\n".join(lines)
 
 
 REPORT_SEARCH_SCHEMA = {
@@ -193,21 +213,25 @@ async def exec_report_search(tool_call: Dict[str, str]) -> str:
     MAX_TITLE = 80
     MAX_SUMMARY = 250
 
+    lines = ["<tool_observation>"]
+    lines.append(f"Research Reports for: {query}")
+    lines.append(f"Date: {datetime.now().strftime('%Y-%m-%d')}")
+    lines.append("")
+
+    # Try iwencai first
+    iwencai_results = []
     try:
         from app.services.data_providers.iwencai_news import search_reports
         raw = await search_reports(query)
-        if raw.get("error"):
-            return f"<tool_observation>\nReport search error: {raw['error']}\n</tool_observation>"
-        items = raw.get("data", [])
-        if not items:
-            return "<tool_observation>\nNo research reports found.\n</tool_observation>"
+        if raw.get("error") == "quota_exhausted":
+            pass  # skip to web search fallback
+        elif raw.get("data"):
+            iwencai_results = raw["data"]
+    except Exception:
+        pass
 
-        lines = ["<tool_observation>"]
-        lines.append(f"Research Reports for: {query}")
-        lines.append(f"Date: {datetime.now().strftime('%Y-%m-%d')}")
-        lines.append("")
-
-        for i, item in enumerate(items[:MAX_ITEMS], 1):
+    if iwencai_results:
+        for i, item in enumerate(iwencai_results[:MAX_ITEMS], 1):
             title = item.get("title", "")[:MAX_TITLE]
             date = item.get("publish_date", "")[:10]
             source = item.get("extra", {}).get("real_publish_source", "")[:20]
@@ -215,8 +239,24 @@ async def exec_report_search(tool_call: Dict[str, str]) -> str:
             lines.append(f"{i}. [{date}] {title} (Source: {source})")
             if summary:
                 lines.append(f"   {summary}")
+    else:
+        # Fallback: web search
+        from app.services.search_service import SearchService
+        search_service = SearchService()
+        try:
+            results = await search_service.search(query, max_results=MAX_ITEMS)
+            if results:
+                for i, r in enumerate(results, 1):
+                    title = r.get("title", "")[:MAX_TITLE]
+                    content = r.get("content", "")[:MAX_SUMMARY]
+                    source = r.get("source", "")[:20]
+                    lines.append(f"{i}. {title} ({source})")
+                    if content:
+                        lines.append(f"   {content}")
+            else:
+                lines.append("No research reports found.")
+        except Exception as e:
+            lines.append(f"No research reports found. (fallback error: {e})")
 
-        lines.append("</tool_observation>")
-        return "\n".join(lines)
-    except Exception as e:
-        return f"<tool_observation>\nError executing report_search: {str(e)}\n</tool_observation>"
+    lines.append("</tool_observation>")
+    return "\n".join(lines)

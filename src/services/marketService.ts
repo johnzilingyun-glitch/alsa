@@ -1,7 +1,7 @@
 import { GoogleGenAI } from "@google/genai";
-import { createAI, withRetry, generateContentWithUsage, GEMINI_MODEL, generateAndParseJsonWithRetry } from "./geminiService";
+import { createAI, withRetry, generateContentWithUsage, DEFAULT_LLM_MODEL, generateAndParseJsonWithRetry } from "./llmService";
 import { getMarketOverviewPrompt, getDailyReportPrompt } from "./prompts";
-import { MarketOverview, GeminiConfig, Market, IndexInfo, CommodityAnalysis } from "../types";
+import { MarketOverview, LLMConfig, Market, IndexInfo, CommodityAnalysis } from "../types";
 import { useConfigStore } from "../stores/useConfigStore";
 import { getHistoryContext, saveAnalysisToHistory } from "./adminService";
 import { getBeijingDate } from "./dateUtils";
@@ -47,7 +47,7 @@ export async function getMarketSnapshot(market: Market = "A-Share"): Promise<Par
   };
 }
 
-export async function getMarketOverview(config?: GeminiConfig, market: Market = "A-Share", forceRefresh: boolean = false, priority: number = 0): Promise<MarketOverview> {
+export async function getMarketOverview(config?: LLMConfig, market: Market = "A-Share", forceRefresh: boolean = false, priority: number = 0): Promise<MarketOverview> {
   const now = new Date();
   const today = getBeijingDate(now);
   const language = useConfigStore.getState().language;
@@ -104,7 +104,7 @@ export async function getMarketOverview(config?: GeminiConfig, market: Market = 
   
   try {
     const raw = await generateAndParseJsonWithRetry<MarketOverview>(ai, {
-      model: config?.model || GEMINI_MODEL,
+      model: config?.model || DEFAULT_LLM_MODEL,
       contents: prompt,
       config: { 
         responseMimeType: "application/json"
@@ -231,7 +231,7 @@ export async function getCommoditiesData(signal?: AbortSignal): Promise<any[]> {
   return [];
 }
 
-export async function getDailyReport(marketOverview: MarketOverview, config?: GeminiConfig): Promise<string> {
+export async function getDailyReport(marketOverview: MarketOverview, config?: LLMConfig): Promise<string> {
   const ai = createAI(config);
   const now = new Date();
   const beijingDate = getBeijingDate(now);
@@ -241,7 +241,7 @@ export async function getDailyReport(marketOverview: MarketOverview, config?: Ge
 
   const response = await withRetry(async () => {
     const result = await generateContentWithUsage(ai, {
-      model: config?.model || GEMINI_MODEL,
+      model: config?.model || DEFAULT_LLM_MODEL,
       contents: prompt,
       config: {
         tools: [{ googleSearch: {} }]

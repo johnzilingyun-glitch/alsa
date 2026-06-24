@@ -197,7 +197,6 @@ class PromptVersionManager:
     
     def get_ab_test_variant(self, test_id: int, user_id: str) -> str:
         """根据用户ID确定A/B测试变体（确保一致性）"""
-        import hash
         
         test = self.db.execute(
             "SELECT split_ratio FROM ab_tests WHERE id = ? AND status = 'active'",

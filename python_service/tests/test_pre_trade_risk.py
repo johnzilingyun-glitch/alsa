@@ -8,14 +8,13 @@ Ensures the Risk Gateway enforces:
 - Daily new exposure limit
 - All rules produce auditable rejection records
 """
-import sys, os
+import sys
+import os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
-import pytest
 from python_service.app.risk.pre_trade import (
     PreTradeRiskGateway,
     PreTradeRiskRequest,
-    PreTradeRiskResult,
     RiskStatus,
 )
 

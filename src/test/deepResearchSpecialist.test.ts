@@ -1,11 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { startAgentDiscussion } from '../services/discussionService';
-import * as geminiService from '../services/geminiService';
+import * as llmService from '../services/llmService';
 import { StockAnalysis } from '../types';
 
-// Mock geminiService
-vi.mock('../services/geminiService', async () => {
-  const actual = await vi.importActual('../services/geminiService');
+// Mock llmService
+vi.mock('../services/llmService', async () => {
+  const actual = await vi.importActual('../services/llmService');
   return {
     ...actual as any,
     generateContentWithUsage: vi.fn(),
@@ -69,8 +69,8 @@ describe('Deep Research Specialist Prompt Requirements', () => {
     });
 
     // Mock AI response
-    (geminiService.generateAndParseJsonWithRetry as any).mockResolvedValue(mockDiscussionResult);
-    (geminiService.generateContentWithUsage as any).mockResolvedValue({
+    (llmService.generateAndParseJsonWithRetry as any).mockResolvedValue(mockDiscussionResult);
+    (llmService.generateContentWithUsage as any).mockResolvedValue({
       text: JSON.stringify(mockDiscussionResult)
     });
   });
@@ -78,7 +78,7 @@ describe('Deep Research Specialist Prompt Requirements', () => {
   it('should contain dynamic indicator selection and cross-verification instructions', async () => {
     await startAgentDiscussion(mockAnalysis);
 
-    const lastCall = (geminiService.generateAndParseJsonWithRetry as any).mock.calls[0];
+    const lastCall = (llmService.generateAndParseJsonWithRetry as any).mock.calls[0];
     const prompt = lastCall[1].contents;
 
     expect(prompt).toContain('responsible for full-dimension data penetration');

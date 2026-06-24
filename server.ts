@@ -60,7 +60,7 @@ async function startServer() {
       // Auth endpoints use JWT, not API token — skip check
       if (req.path.startsWith('/auth')) return next();
       // Proxy-routed endpoints and Node routes get bypassed for API token check as frontend uses JWT
-      if (req.path.startsWith('/backtest') || req.path.startsWith('/sector') || req.path.startsWith('/analysis') || req.path.startsWith('/mock-trading') || req.path.startsWith('/alerts') || req.path.startsWith('/brain') || req.path.startsWith('/journal') || req.path.startsWith('/market') || req.path.startsWith('/watchlist') || req.path.startsWith('/predictions') || req.path.startsWith('/stock') || req.path.startsWith('/history') || req.path.startsWith('/feishu') || req.path.startsWith('/diagnostics')) return next();
+      if (req.path.startsWith('/backtest') || req.path.startsWith('/sector') || req.path.startsWith('/analysis') || req.path.startsWith('/mock-trading') || req.path.startsWith('/alerts') || req.path.startsWith('/brain') || req.path.startsWith('/journal') || req.path.startsWith('/market') || req.path.startsWith('/watchlist') || req.path.startsWith('/predictions') || req.path.startsWith('/stock') || req.path.startsWith('/history') || req.path.startsWith('/feishu') || req.path.startsWith('/diagnostics') || req.path.startsWith('/admin')) return next();
       if (!validateApiToken(req.header('authorization'))) {
         return res.status(401).json({ success: false, error: 'Unauthorized' });
       }
@@ -131,6 +131,11 @@ async function startServer() {
         '/api/mock-trading',
         '/api/backtest',
         '/api/auth',
+        '/api/admin',
+        '/api/predictions',
+        '/api/technicals',
+        '/api/screening',
+        '/api/stock',
         '/api/v1/brain',
         '/api/v1/evolution',
         '/api/v1/market',
@@ -142,7 +147,6 @@ async function startServer() {
         '/api/v1/mock-trading',
         '/api/v1/trade-intents',
         '/api/v1/backtest',
-        '/api/predictions',
         '/api/v1/predictions'
       ];
       return targets.some(t => path.startsWith(t));

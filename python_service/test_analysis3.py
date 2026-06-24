@@ -21,7 +21,7 @@ async def main():
             if job.status in ["completed", "failed"]:
                 break
             await asyncio.sleep(1)
-    except Exception as e:
+    except Exception:
         import traceback
         traceback.print_exc()
 

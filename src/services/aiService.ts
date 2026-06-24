@@ -1,5 +1,5 @@
 import type { StockInfo, MarketOverview } from "../types";
-export { getApiKey, withRetry, parseJsonResponse, extractJsonBlock } from "./geminiService";
+export { getApiKey, withRetry, parseJsonResponse, extractJsonBlock } from "./llmService";
 
 type AnalysisModule = typeof import('./analysisService');
 type MarketModule = typeof import('./marketService');

@@ -9,7 +9,7 @@ import os
 # Add parent to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from app.services.search_toolkit import search_toolkit, SEARCH_CATEGORIES, ROLE_CATEGORY_MAP, A_SHARE_EXTRA_CATEGORIES
+from app.services.search_toolkit import search_toolkit, SEARCH_CATEGORIES
 
 async def test_batch_search():
     print("=" * 60)

@@ -1,34 +1,31 @@
 import pytest
-from unittest.mock import AsyncMock, patch, MagicMock
+from unittest.mock import AsyncMock, patch
 from fastapi.testclient import TestClient
-from sqlmodel import Session, SQLModel, create_engine
 import pandas as pd
 
 from main import app
 from app.services.discussion_service import DiscussionService
-from app.services.critic_agent import CriticAgent
-from app.services.self_reflection_agent import SelfReflectionAgent
 
 client = TestClient(app)
 
 def test_extract_confidence():
     ds = DiscussionService()
     
-    # Test Chinese matching
-    analysis_zh = "这里有一些分析，投资推荐是买入。推荐置信度: 0.55。原因如下..."
-    assert ds._extract_confidence(analysis_zh) == 0.55
+    # Test JSON with confidence field
+    analysis_json_1 = '{"core_thesis": "Thesis...", "confidence": 0.55}'
+    assert ds._extract_confidence(analysis_json_1) == 0.55
     
-    # Test percent matching
-    analysis_pct = "可信度：80%"
-    assert ds._extract_confidence(analysis_pct) == 0.8
+    # Test JSON with confidence percentage representation (e.g. 80.0)
+    analysis_json_pct = '{"core_thesis": "Thesis...", "confidence": 80.0}'
+    assert ds._extract_confidence(analysis_json_pct) == 0.8
     
-    # Test English matching
-    analysis_en = "My confidence score: 0.45 for this strategy."
-    assert ds._extract_confidence(analysis_en) == 0.45
+    # Test JSON with confidence_score field
+    analysis_json_score = '{"recommendation": "BUY", "confidence_score": 0.35, "reasons": []}'
+    assert ds._extract_confidence(analysis_json_score) == 0.35
     
-    # Test JSON matching
-    analysis_json = '{"recommendation": "BUY", "confidence_score": 0.35, "reasons": []}'
-    assert ds._extract_confidence(analysis_json) == 0.35
+    # Test JSON with markdown wrapper
+    analysis_markdown = '```json\n{"core_thesis": "Thesis...", "confidence": 0.45}\n```'
+    assert ds._extract_confidence(analysis_markdown) == 0.45
     
     # Test default
     assert ds._extract_confidence("No mention of confidence") == 0.75
@@ -40,7 +37,7 @@ async def test_self_reflection_triggered():
     
     mock_msg = {
         "role": "Technical Analyst",
-        "content": "Confidence score: 0.50. I am not very confident in this trend.",
+        "content": '{"confidence": 0.50, "core_thesis": "I am not very confident in this trend.", "key_metrics_extracted": [], "risks": [], "rating": "Hold"}',
         "model": "test-model",
         "timestamp": "now"
     }
@@ -83,7 +80,7 @@ async def test_self_reflection_skipped_for_high_confidence():
     
     mock_msg = {
         "role": "Technical Analyst",
-        "content": "Confidence score: 0.85. Extremely confident in this bullish breakout.",
+        "content": '{"confidence": 0.85, "core_thesis": "Extremely confident in this breakout.", "key_metrics_extracted": [], "risks": [], "rating": "Buy"}',
         "model": "test-model",
         "timestamp": "now"
     }
@@ -143,3 +140,51 @@ def test_monte_carlo_endpoint():
          assert data["results"]["n_successful"] == 10
          assert "return_stats" in data["results"]
          assert "risk_metrics" in data["results"]
+
+@pytest.mark.asyncio
+async def test_backtest_agent_runs_sector_backtest():
+    ds = DiscussionService()
+    
+    mock_closes = pd.DataFrame({
+        "600519.SS": [150.0, 152.0, 151.0, 153.0],
+        "601398.SS": [5.0, 5.1, 5.05, 5.2]
+    }, index=pd.to_datetime(["2026-01-01", "2026-01-02", "2026-01-03", "2026-01-04"]))
+    
+    mock_pe = pd.DataFrame(10.0, index=mock_closes.index, columns=["600519.SS", "601398.SS"])
+    mock_mc = pd.DataFrame(2000.0, index=mock_closes.index, columns=["600519.SS", "601398.SS"])
+    
+    mock_msg = {
+        "role": "Sector Stock Screener",
+        "content": '{"confidence": 0.8, "core_thesis": "Recommended list: 600519, 601398", "key_metrics_extracted": [], "risks": [], "rating": "Buy"}',
+        "model": "test-model",
+        "timestamp": "now"
+    }
+    
+    original_call_expert = ds._call_expert
+    async def mock_call_expert_side_effect(role, *args, **kwargs):
+        if role == "Backtest Agent":
+            return await original_call_expert(role, *args, **kwargs)
+        return mock_msg
+
+    with patch("yfinance.download", return_value=mock_closes), \
+         patch("app.services.portfolio_real_backtest.PortfolioBacktester.load_fundamentals", return_value=(mock_pe, mock_mc)), \
+         patch.object(ds, "_call_expert", side_effect=mock_call_expert_side_effect), \
+         patch("app.services.search_toolkit.search_toolkit.batch_search", AsyncMock(return_value={})):
+         
+         results = await ds.run_discussion(
+             symbol="CNY",
+             name="消费",
+             snapshot={"market": "A-Share"},
+             level="sector"
+         )
+         
+         backtest_msg = next((r for r in results if r["role"] == "Backtest Agent"), None)
+         assert backtest_msg is not None
+         assert backtest_msg["model"] == "quant_engine"
+         
+         import json
+         data = json.loads(backtest_msg["content"])
+         assert "core_thesis" in data
+         assert "key_metrics_extracted" in data
+         assert "risks" in data
+         assert "confidence" in data

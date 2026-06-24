@@ -3,7 +3,7 @@ import { X, Settings, ShieldCheck, Cpu, AlertTriangle, Globe, Info, RefreshCw, L
 import { motion, AnimatePresence } from 'motion/react';
 import { useConfigStore } from '../stores/useConfigStore';
 import { useUIStore } from '../stores/useUIStore';
-import { fetchAvailableModelsList, type ModelInfo } from '../services/geminiService';
+import { fetchAvailableModelsList, type ModelInfo } from '../services/llmService';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 

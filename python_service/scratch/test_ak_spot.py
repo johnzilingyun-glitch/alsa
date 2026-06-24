@@ -1,5 +1,4 @@
 import akshare as ak
-import pandas as pd
 
 def test_spot():
     try:

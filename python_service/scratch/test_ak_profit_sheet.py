@@ -1,5 +1,4 @@
 import akshare as ak
-import pandas as pd
 
 def test_profit_sheet(symbol="002532"):
     try:

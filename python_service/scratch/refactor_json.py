@@ -1,5 +1,4 @@
 import os
-import glob
 import re
 
 def process_file(filepath):

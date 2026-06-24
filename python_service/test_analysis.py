@@ -1,5 +1,5 @@
 import asyncio
-from app.db.database import session_factory, init_db
+from app.db.database import session_factory
 from app.services.analysis_job_service import AnalysisJobService
 from app.db.repositories.job_repo import JobRepository
 from app.services.market_snapshot_service import MarketSnapshotService
@@ -14,7 +14,7 @@ async def main():
     try:
         job_id = await service.start_job("AAPL", "US-Share", user_id="test_user")
         print(f"Success: {job_id}")
-    except Exception as e:
+    except Exception:
         import traceback
         traceback.print_exc()
 

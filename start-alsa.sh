@@ -1,32 +1,86 @@
 #!/bin/bash
-# Start ALSA app without IBKR - survives CLI exit
-cd /home/ubuntu/work/alsa || exit 1
+# Start ALSA app without IBKR - all services in background
+# Usage: bash start-alsa.sh
+#        PUBLIC_IP=your.ip.here bash start-alsa.sh  (for network access)
+#
+# To stop: bash stop-alsa.sh
 
-# Kill any existing instances
-pkill -f "tsx server.ts" 2>/dev/null
-pkill -f "vite --host" 2>/dev/null
-pkill -f "run_py_service" 2>/dev/null
-pkill -f "uvicorn" 2>/dev/null
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_DIR="$SCRIPT_DIR"
+PUBLIC_IP="${PUBLIC_IP:-localhost}"
+LOGS_DIR="$PROJECT_DIR/logs"
+
+# Create logs directory if it doesn't exist
+mkdir -p "$LOGS_DIR"
+
+# Cleanup handler for Ctrl+C / SIGTERM
+cleanup() {
+    echo ""
+    echo "Shutting down ALSA services..."
+    # Kill using PID files first (precise, graceful)
+    for pid_file in "$PROJECT_DIR"/.alsa-*.pid; do
+        if [ -f "$pid_file" ]; then
+            pid=$(cat "$pid_file")
+            kill "$pid" 2>/dev/null || true
+            rm -f "$pid_file"
+        fi
+    done
+    # Fallback pkill for any remaining processes
+    pkill -f "tsx server.ts" 2>/dev/null || true
+    pkill -f "vite --host" 2>/dev/null || true
+    pkill -f "run_py_service" 2>/dev/null || true
+    pkill -f "uvicorn" 2>/dev/null || true
+    pkill -f "celery -A app.worker.celery_app" 2>/dev/null || true
+    echo "All services stopped."
+    exit 0
+}
+trap cleanup SIGINT SIGTERM
+
+# Kill any existing instances before starting fresh
+echo "Stopping any existing services..."
+pkill -f "tsx server.ts" 2>/dev/null || true
+pkill -f "vite --host" 2>/dev/null || true
+pkill -f "run_py_service" 2>/dev/null || true
+pkill -f "uvicorn" 2>/dev/null || true
+pkill -f "celery -A app.worker.celery_app" 2>/dev/null || true
 sleep 1
 
-# Start API server
-nohup npx tsx server.ts > /home/ubuntu/work/alsa/logs/api.log 2>&1 &
-echo "API started (PID $!)"
+# Clean up stale PID files from previous runs
+rm -f "$PROJECT_DIR"/.alsa-*.pid
 
-# Start Vite dev server  
-nohup npx vite --host 0.0.0.0 > /home/ubuntu/work/alsa/logs/vite.log 2>&1 &
-echo "Vite started (PID $!)"
+# All services run from project root so npx can find package.json
+cd "$PROJECT_DIR"
 
-# Start Python FastAPI service (with AkShare + Iwencai enabled for Chinese markets)
-AKSHARE_ENABLED=true nohup /home/ubuntu/work/alsa/run_py_service_with_env.sh > /home/ubuntu/work/alsa/logs/py_api.log 2>&1 &
-echo "Python API started (PID $!)"
+# --- Start Express API gateway (port 3000) ---
+nohup npx tsx server.ts > "$LOGS_DIR/api.log" 2>&1 &
+echo $! > "$PROJECT_DIR/.alsa-api.pid"
+echo "API started (PID $(cat "$PROJECT_DIR/.alsa-api.pid"))"
+
+# --- Start Vite dev server (port 5173) ---
+nohup npx vite --host 0.0.0.0 > "$LOGS_DIR/vite.log" 2>&1 &
+echo $! > "$PROJECT_DIR/.alsa-vite.pid"
+echo "Vite started (PID $(cat "$PROJECT_DIR/.alsa-vite.pid"))"
+
+# --- Start Python FastAPI service (port 8001) ---
+AKSHARE_ENABLED=true nohup "$PROJECT_DIR/run_py_service_with_env.sh" > "$LOGS_DIR/py_api.log" 2>&1 &
+echo $! > "$PROJECT_DIR/.alsa-python.pid"
+echo "Python API started (PID $(cat "$PROJECT_DIR/.alsa-python.pid"))"
+
+# --- Start Celery Worker (async task queue) ---
+PYTHONPATH="$PROJECT_DIR/python_service" REDIS_URL=redis://localhost:6379/0 \
+    nohup "$PROJECT_DIR/python_service/.venv/bin/celery" -A app.worker.celery_app worker --loglevel=info > "$LOGS_DIR/celery.log" 2>&1 &
+echo $! > "$PROJECT_DIR/.alsa-celery.pid"
+echo "Celery worker started (PID $(cat "$PROJECT_DIR/.alsa-celery.pid"))"
 
 echo "---"
 echo "ALSA app is running!"
-echo "  Frontend: http://1.117.62.178:5173"
+echo "  Frontend: http://${PUBLIC_IP}:5173"
 echo "  API:      http://localhost:3000/api/health"
 echo ""
-echo "To stop:   pkill -f 'tsx server.ts'; pkill -f 'vite --host'"
+echo "To stop:  $PROJECT_DIR/stop-alsa.sh"
+echo ""
 echo "To view logs:"
-echo "  tail -f ~/work/alsa/logs/api.log"
-echo "  tail -f ~/work/alsa/logs/vite.log"
+echo "  tail -f $LOGS_DIR/api.log"
+echo "  tail -f $LOGS_DIR/vite.log"
+echo "  tail -f $LOGS_DIR/py_api.log"
+echo "  tail -f $LOGS_DIR/celery.log"

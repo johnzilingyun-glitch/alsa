@@ -1,9 +1,7 @@
-import os
 import logging
 import hashlib
 import numpy as np
 import lancedb
-import polars as pl
 from typing import List, Dict, Any, Optional
 from google import genai
 
@@ -127,7 +125,9 @@ class LanceResearchStore:
                 query_vector = [0.0] * 768
                 
         # Sanitize symbol to prevent SQL injection in where clause
-        sanitized_symbol = "".join(c for c in symbol if c.isalnum() or c in ".-_=/^")
+        # Only allow alphanumeric, dot, hyphen, underscore (typical stock symbol chars)
+        import re
+        sanitized_symbol = re.sub(r'[^a-zA-Z0-9.\-_]', '', symbol)
         fetch_limit = max(limit * 10, limit)
         rows = self.table.search(query_vector).where(f"symbol = '{sanitized_symbol}'").limit(fetch_limit).to_list()
         if as_of_date:

@@ -185,6 +185,121 @@ class PortfolioBacktester:
         mc_df = df.pivot(index='date', columns='symbol', values='market_cap')
         return pe_df, mc_df
 
+    def get_klines_cached(self, symbols, start_date, end_date):
+        """
+        Fetch historical close prices for symbols within start_date and end_date.
+        Uses local SQLite caching (daily_klines table) to avoid redundant yfinance downloads.
+        """
+        import pandas as pd
+        from app.db.database import session_factory
+        from app.db.models import DailyKline
+        from sqlmodel import select
+        
+        if isinstance(symbols, str):
+            symbols = [symbols]
+        symbols = [s.strip() for s in symbols if s.strip()]
+        
+        logger.info(f"[KlineCache] Checking local cache for {len(symbols)} symbols from {start_date} to {end_date}...")
+        
+        cached_data = []
+        with session_factory() as session:
+            statement = select(DailyKline).where(
+                DailyKline.symbol.in_(symbols),
+                DailyKline.date >= start_date,
+                DailyKline.date <= end_date
+            )
+            db_klines = session.exec(statement).all()
+            for k in db_klines:
+                cached_data.append({
+                    "symbol": k.symbol,
+                    "date": pd.to_datetime(k.date),
+                    "close": k.close,
+                    "volume": k.volume,
+                    "high": k.high,
+                    "low": k.low,
+                    "open": k.open
+                })
+                
+        symbol_groups = {}
+        for d in cached_data:
+            symbol_groups.setdefault(d["symbol"], []).append(d)
+            
+        symbols_to_download = []
+        for sym in symbols:
+            cnt = len(symbol_groups.get(sym, []))
+            if cnt < 5:
+                symbols_to_download.append(sym)
+                
+        if symbols_to_download:
+            logger.info(f"[KlineCache] Cache miss for symbols {symbols_to_download}. Downloading from yfinance...")
+            try:
+                df = yf.download(symbols_to_download, start=start_date, end=end_date, progress=False)
+                
+                with session_factory() as session:
+                    for sym in symbols_to_download:
+                        if len(symbols_to_download) == 1:
+                            sym_df = df
+                        else:
+                            sym_df = pd.DataFrame()
+                            for col in ['Open', 'High', 'Low', 'Close', 'Adj Close', 'Volume']:
+                                if col in df:
+                                    sym_df[col] = df[col][sym]
+                        
+                        if sym_df.empty:
+                            continue
+                            
+                        for idx, row in sym_df.iterrows():
+                            close_val = row.get('Adj Close', row.get('Close', 0.0))
+                            if pd.isna(close_val) or close_val <= 0:
+                                close_val = row.get('Close', 0.0)
+                            if pd.isna(close_val) or close_val <= 0:
+                                continue
+                                
+                            dt_str = idx.strftime("%Y-%m-%d")
+                            
+                            chk_stmt = select(DailyKline).where(
+                                DailyKline.symbol == sym,
+                                DailyKline.date == dt_str
+                            )
+                            existing_k = session.exec(chk_stmt).first()
+                            if not existing_k:
+                                kline = DailyKline(
+                                    symbol=sym,
+                                    date=dt_str,
+                                    open=float(row.get('Open', close_val)),
+                                    high=float(row.get('High', close_val)),
+                                    low=float(row.get('Low', close_val)),
+                                    close=float(close_val),
+                                    volume=float(row.get('Volume', 0.0))
+                                )
+                                session.add(kline)
+                                cached_data.append({
+                                    "symbol": sym,
+                                    "date": pd.to_datetime(dt_str),
+                                    "close": float(close_val),
+                                    "volume": float(row.get('Volume', 0.0)),
+                                    "high": float(row.get('High', close_val)),
+                                    "low": float(row.get('Low', close_val)),
+                                    "open": float(row.get('Open', close_val))
+                                })
+                    session.commit()
+            except Exception as ex:
+                logger.error(f"[KlineCache] yfinance download failed during caching: {ex}")
+                
+        result_df = pd.DataFrame(cached_data)
+        if result_df.empty:
+            return pd.DataFrame()
+            
+        closes_pivot = result_df.pivot(index='date', columns='symbol', values='close')
+        closes_pivot = closes_pivot.sort_index()
+        
+        for sym in symbols:
+            if sym not in closes_pivot.columns:
+                closes_pivot[sym] = pd.NA
+                
+        closes_pivot = closes_pivot.ffill().bfill()
+        return closes_pivot
+
     def run_backtest(self, start_date="2020-01-01", end_date="2026-05-31", rebalance_interval=63, initial_capital=1000000.0, commission=0.0003, symbols=None):
         if not symbols:
             symbols = SYMBOLS
@@ -207,13 +322,7 @@ class PortfolioBacktester:
         pe_df, mc_df = self.load_fundamentals()
         
         logger.info("Loading K-lines...")
-        df = yf.download(symbols, start=start_date, end=end_date, progress=False)
-        
-        # Use Adj Close for closes to implement perfect front-adjustment
-        closes = df['Adj Close'] if 'Adj Close' in df else df['Close']
-        if not isinstance(closes, pd.DataFrame):
-            closes = pd.DataFrame(closes, columns=[symbols[0]])
-        closes = closes.ffill()
+        closes = self.get_klines_cached(symbols, start_date, end_date)
         
         pe_df = pe_df.reindex(closes.index).ffill(limit=3)
         mc_df = mc_df.reindex(closes.index).ffill(limit=3)
@@ -491,11 +600,7 @@ class PortfolioBacktester:
         # 2. Fetch closes from yfinance if not provided
         if closes is None:
             logger.info("Loading K-lines (pandas mode)...")
-            df = yf.download(symbols, start=start_date, end=end_date, progress=False)
-            closes = df['Close'] if 'Close' in df else df
-            if not isinstance(closes, pd.DataFrame):
-                closes = pd.DataFrame(closes, columns=[symbols[0]])
-            closes = closes.ffill().bfill()
+            closes = self.get_klines_cached(symbols, start_date, end_date)
         
         pe_df = pe_df.reindex(closes.index).ffill(limit=3).bfill()
         mc_df = mc_df.reindex(closes.index).ffill(limit=3).bfill()

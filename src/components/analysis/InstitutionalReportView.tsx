@@ -290,16 +290,11 @@ export function InstitutionalReportView() {
                     <p className="text-[10px] text-amber-600 leading-normal mt-0.5">
                       系统将持续盯盘，触及价格线时自动通过飞书发送警报。
                     </p>
-                    {!feishuWebhookUrl && (
-                      <p className="text-[9px] text-rose-500 font-medium mt-1">
-                        ⚠ 未检测到飞书 Webhook，无法接收通知。请去设置中配置。
-                      </p>
-                    )}
                   </div>
                   <div className="flex flex-col gap-1 flex-shrink-0">
                     <button
                       onClick={handleEnableMonitoring}
-                      disabled={isEnablingMonitor || !feishuWebhookUrl}
+                      disabled={isEnablingMonitor}
                       className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-[10px] font-bold transition-all disabled:opacity-40 whitespace-nowrap"
                     >
                       {isEnablingMonitor ? '启动中...' : '确认启动'}

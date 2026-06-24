@@ -1,5 +1,5 @@
 import json
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import Response
 from pydantic import BaseModel
 from typing import Optional, Dict, Any
@@ -188,7 +188,7 @@ class ReportRequest(BaseModel):
 async def generate_report(job_id: str, body: ReportRequest = None, service: AnalysisJobService = Depends(get_job_service)):
     """Generate a professional HTML report from a completed analysis job."""
     from ..services.report_generator_service import ReportGeneratorService
-    import tempfile, os
+    import os
 
     if body is None:
         body = ReportRequest()
@@ -202,24 +202,29 @@ async def generate_report(job_id: str, body: ReportRequest = None, service: Anal
     result = job.result_payload if isinstance(job.result_payload, dict) else (json.loads(job.result_payload) if job.result_payload else None)
     report_service = ReportGeneratorService()
 
-    # Generate into a temp file, then read and return HTML
-    tmp_path = os.path.join(tempfile.gettempdir(), f"{job.symbol}_{job_id}_report.html")
+    # Cache the HTML report to avoid regenerating
+    reports_dir = os.path.join(os.getcwd(), "data", "reports")
+    os.makedirs(reports_dir, exist_ok=True)
+    report_path = os.path.join(reports_dir, f"{job.symbol}_{job_id}_report.html")
+
     try:
+        if os.path.exists(report_path):
+            with open(report_path, "r", encoding="utf-8") as f:
+                html_content = f.read()
+            return Response(content=html_content, media_type="text/html")
+
         deepseek_key = body.deepseekApiKey or service._api_keys.get("deepseek")
         gemini_key = body.geminiApiKey or service._api_keys.get("gemini")
         await report_service.generate_html_report_async(
-            result, tmp_path, model=job.requested_model,
+            result, report_path, model=job.requested_model,
             deepseek_api_key=deepseek_key,
             gemini_api_key=gemini_key
         )
-        with open(tmp_path, "r", encoding="utf-8") as f:
+        with open(report_path, "r", encoding="utf-8") as f:
             html_content = f.read()
         return Response(content=html_content, media_type="text/html")
     except Exception as e:
         return error_response("REPORT_FAILED", f"Report generation failed: {str(e)}")
-    finally:
-        if os.path.exists(tmp_path):
-            os.remove(tmp_path)
 
 
 @router.post("/jobs/{job_id}/export/pdf")
@@ -227,7 +232,7 @@ async def export_pdf(job_id: str, body: ReportRequest = None, service: AnalysisJ
     """Export analysis report as PDF."""
     from ..services.report_generator_service import ReportGeneratorService
     from ..services.export_service import export_service
-    import tempfile, os
+    import os
 
     if body is None:
         body = ReportRequest()
@@ -241,19 +246,34 @@ async def export_pdf(job_id: str, body: ReportRequest = None, service: AnalysisJ
     result = job.result_payload if isinstance(job.result_payload, dict) else (json.loads(job.result_payload) if job.result_payload else None)
     report_service = ReportGeneratorService()
 
-    tmp_path = os.path.join(tempfile.gettempdir(), f"{job.symbol}_{job_id}_report.html")
+    reports_dir = os.path.join(os.getcwd(), "data", "reports")
+    os.makedirs(reports_dir, exist_ok=True)
+    report_path = os.path.join(reports_dir, f"{job.symbol}_{job_id}_report.html")
+    pdf_path = os.path.join(reports_dir, f"{job.symbol}_{job_id}_report.pdf")
+
     try:
-        deepseek_key = body.deepseekApiKey or service._api_keys.get("deepseek")
-        gemini_key = body.geminiApiKey or service._api_keys.get("gemini")
-        await report_service.generate_html_report_async(
-            result, tmp_path, model=job.requested_model,
-            deepseek_api_key=deepseek_key,
-            gemini_api_key=gemini_key
-        )
-        with open(tmp_path, "r", encoding="utf-8") as f:
+        # 1. Generate/Load HTML
+        if not os.path.exists(report_path):
+            deepseek_key = body.deepseekApiKey or service._api_keys.get("deepseek")
+            gemini_key = body.geminiApiKey or service._api_keys.get("gemini")
+            await report_service.generate_html_report_async(
+                result, report_path, model=job.requested_model,
+                deepseek_api_key=deepseek_key,
+                gemini_api_key=gemini_key
+            )
+        
+        with open(report_path, "r", encoding="utf-8") as f:
             html_content = f.read()
 
-        pdf_bytes = await export_service.html_to_pdf(html_content)
+        # 2. Generate/Load PDF
+        if not os.path.exists(pdf_path):
+            pdf_bytes = await export_service.html_to_pdf(html_content)
+            with open(pdf_path, "wb") as f:
+                f.write(pdf_bytes)
+        else:
+            with open(pdf_path, "rb") as f:
+                pdf_bytes = f.read()
+
         filename = f"EquityResearch_{job.symbol}_{job_id}.pdf"
         return Response(
             content=pdf_bytes,
@@ -262,9 +282,6 @@ async def export_pdf(job_id: str, body: ReportRequest = None, service: AnalysisJ
         )
     except Exception as e:
         return error_response("PDF_EXPORT_FAILED", f"PDF export failed: {str(e)}")
-    finally:
-        if os.path.exists(tmp_path):
-            os.remove(tmp_path)
 
 
 @router.post("/jobs/{job_id}/export/share-card")
@@ -322,6 +339,47 @@ async def export_share_card(job_id: str, service: AnalysisJobService = Depends(g
 
 class TokenGuardLevelRequest(BaseModel):
     level: str  # "none" | "low" | "medium" | "high"
+
+@router.get("/settings")
+async def get_analysis_settings():
+    """Get general analysis settings including available LLM models."""
+    from ..services.llm_gateway import llm_gateway
+    
+    default_model = getattr(llm_gateway, "default_model", "deepseek-v4-pro")
+    
+    available_models = [
+        {
+            "id": "deepseek-v4-pro",
+            "name": "DeepSeek V4 Pro",
+            "description": "Default DeepSeek internal model",
+            "status": "available"
+        },
+        {
+            "id": "deepseek-reasoner",
+            "name": "DeepSeek Reasoner",
+            "description": "DeepSeek with reasoning",
+            "status": "available"
+        },
+        {
+            "id": "gemini-3.1-pro-preview",
+            "name": "Gemini 3.1 Pro Preview",
+            "description": "Google Gemini Pro model",
+            "status": "available"
+        },
+        {
+            "id": "gemini-3.5-flash",
+            "name": "Gemini 3.5 Flash",
+            "description": "Google Gemini Flash model",
+            "status": "available"
+        }
+    ]
+    
+    return {
+        "config": {
+            "model": default_model
+        },
+        "availableModels": available_models
+    }
 
 @router.get("/settings/token-guard")
 async def get_token_guard_settings():

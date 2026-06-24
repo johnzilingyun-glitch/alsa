@@ -180,6 +180,14 @@ Each extracted field should meet this bar:
 - **scenarios**: Must have realistic probability splits summing to 100%, with specific price targets if discussed
 - **data_completeness**: Honestly assess what data the experts had vs. what was missing
 
+## Rule 5: Narrative Fields MUST Be Substantive
+The fields `summary`, `moat_summary`, `macro_summary`, and `trading_plan` are **PARAGRAPH-LEVEL narrative fields** displayed prominently in the report. They MUST:
+- Contain at least 3-5 complete sentences each (NOT single-line labels)
+- Extract specific analytical content from the discussion, not generic placeholders
+- Include concrete data points, mechanisms, or causal logic mentioned by experts
+- NEVER be truncated with "..." or returned as single-phrase summaries like "稀缺的采矿权资源壁垒..."
+- If the discussion truly lacks content for a narrative field, synthesize from nearby related analysis rather than returning a 5-word phrase
+
 # JSON SCHEMA
 
 ```json
@@ -234,12 +242,12 @@ Each extracted field should meet this bar:
   "peer_comparison": [
     {{"name": "公司名", "symbol": "代码", "pe": 15.2, "pb": 3.1, "roe": 18.5, "margin": 22.3, "marketCap": "3200亿", "vs_target": "对比结论"}}
   ],
-  "summary": "2-3句执行摘要",
-  "moat_summary": "护城河总结",
+  "summary": "2-3句话的执行摘要，总结整体投资逻辑和核心结论",
+  "moat_summary": "至少3-5句话的基本面护城河深度解析段落，包含竞争壁垒、行业地位、资源禀赋、定价权等具体分析",
   "moat_points": ["护城河要素1", "护城河要素2"],
-  "macro_summary": "宏观环境总结",
+  "macro_summary": "至少3-5句话的宏观环境与资金技术面剖析段落，包含行业供需格局、政策环境、资金流向、技术形态等具体分析",
   "macro_points": ["宏观要素1", "宏观要素2"],
-  "trading_plan": "交易策略总述",
+  "trading_plan": "至少3-5句话的交易策略总述段落，包含整体操作思路、仓位管理原则、风控止损框架",
   "trading_steps": [
     {{"level": "第一层", "price": "价格", "weight": "仓位", "logic": "逻辑"}}
   ],
@@ -432,6 +440,26 @@ Now extract from the following discussion:
         if not ui_data.get("risks_points"):
             ui_data["risks_points"] = self._extract_items_by_keywords_dual("risks", ["证伪", "失效", "止损", "Invalidation", "风险预警"], discussion_msgs)
 
+        # Backfill narrative summary fields — these MUST be substantive paragraphs, not placeholders
+        narrative_backfill_map = {
+            "moat_summary": (["护城河", "Moat", "壁垒", "竞争优势", "基本面", "Fundamental"], ["moat", "competitive", "fundamental"]),
+            "macro_summary": (["宏观", "技术面", "资金面", "Technical", "Macro", "行业格局", "供给", "需求"], ["macro", "technical", "supply", "demand"]),
+            "trading_plan": (["交易计划", "操作步骤", "Trading Plan", "建仓", "仓位", "止损", "风控", "Execution"], ["trading", "execution", "position", "stop"]),
+        }
+        for field, (keywords, _) in narrative_backfill_map.items():
+            val = ui_data.get(field, "")
+            if not val or len(str(val).strip()) < 30:
+                extracted = self._extract_narrative_section(field, keywords, discussion_msgs)
+                if extracted:
+                    ui_data[field] = extracted
+
+        # Backfill summary if too short
+        summary_val = ui_data.get("summary", "")
+        if not summary_val or len(str(summary_val).strip()) < 30:
+            extracted_summary = self._extract_narrative_section("summary", ["核心", "投资", "估值", "thesis", "core", "conclusion", "总结", "结论"], discussion_msgs)
+            if extracted_summary:
+                ui_data["summary"] = extracted_summary
+
         # Ensure data_completeness is populated
         dc = ui_data.get("data_completeness")
         if not dc or not isinstance(dc, dict) or dc.get("score") is None:
@@ -458,6 +486,85 @@ Now extract from the following discussion:
                                                                   "thesis", "core", "valuation", "profit"]):
                     return line
         return "请参考下方详细深度研报..."
+
+    def _extract_narrative_section(self, field: str, keywords: list, discussion_msgs: list) -> str:
+        """Extract a narrative paragraph from expert discussion for a given semantic field.
+
+        Scans discussion messages for sections that discuss the given topic and
+        returns the most substantive paragraph found (structured analysis, not bullet lists).
+        """
+        candidates = []
+        for m in discussion_msgs:
+            content = m.get("content", "").strip()
+            if len(content) < 100:
+                continue
+            content_normalized = content.replace('\\n', '\n')
+            lines = content_normalized.split('\n')
+
+            in_section = False
+            section_buffer = []
+            for line in lines:
+                stripped = line.strip()
+
+                # Detect section headers that match our keywords
+                is_header = stripped.startswith('#')
+                is_bold = stripped.startswith('**') and stripped.endswith('**')
+
+                if is_header or is_bold:
+                    clean_header = stripped.lstrip('#').strip().strip('*').strip()
+                    if any(kw.lower() in clean_header.lower() for kw in keywords):
+                        in_section = True
+                        section_buffer = []
+                    elif in_section:
+                        # Section ended — flush buffer if substantial
+                        full_text = ' '.join(section_buffer).strip()
+                        if len(full_text) > 50:
+                            candidates.append(full_text)
+                        in_section = False
+                        section_buffer = []
+                    continue
+
+                if in_section:
+                    # Skip table lines, dividers, empty lines, and bullet items
+                    if '|' in stripped or stripped.startswith('---') or stripped.startswith('==='):
+                        continue
+                    if not stripped:
+                        if section_buffer:
+                            section_buffer.append('')
+                        continue
+                    # Collect non-bullet prose lines
+                    if not re.match(r'^\s*[-*•▪◆\d.)]+\s', stripped):
+                        # Skip lines that look like JSON or data fragments
+                        if not re.match(r'^[\d.,\-+%]+$|^N/?A$', stripped):
+                            section_buffer.append(stripped)
+
+            # Flush remaining buffer
+            if in_section:
+                full_text = ' '.join(section_buffer).strip()
+                if len(full_text) > 50:
+                    candidates.append(full_text)
+
+            # If no section-based extraction worked, try paragraph-based fallback
+            if not candidates:
+                # Look for any paragraph containing multiple keywords
+                paragraphs = re.split(r'\n\s*\n', content_normalized)
+                for para in paragraphs:
+                    para = para.strip()
+                    # Skip headers, bullets, tables, code blocks
+                    if para.startswith('#') or para.startswith('```') or '|' in para:
+                        continue
+                    matched_kws = sum(1 for kw in keywords if kw.lower() in para.lower())
+                    if matched_kws >= 2 and len(para) > 60:
+                        # Clean up markdown formatting
+                        para_clean = re.sub(r'\*\*', '', para)
+                        candidates.append(para_clean[:800])
+
+        if candidates:
+            # Return the longest substantive candidate
+            candidates.sort(key=len, reverse=True)
+            return candidates[0][:800]
+
+        return ""
 
     def _extract_verdict_from_discussion(self, discussion_msgs: list) -> str:
         """Try to extract a verdict-like sentence from the discussion content."""
@@ -760,13 +867,18 @@ Now extract from the following discussion:
                     "logic": line[:150]
                 })
 
+        # Extract narrative summaries from discussion instead of hardcoded placeholders
+        moat_summary = self._extract_narrative_section("moat", ["护城河", "Moat", "壁垒", "竞争优势", "基本面", "Fundamental"], discussion_msgs)
+        macro_summary = self._extract_narrative_section("macro", ["宏观", "技术面", "资金面", "Technical", "Macro", "行业格局", "供给", "需求"], discussion_msgs)
+        trading_plan_summary = self._extract_narrative_section("trading", ["交易计划", "操作步骤", "Trading Plan", "建仓", "仓位", "止损", "风控", "Execution"], discussion_msgs)
+
         return {
             "summary": summary_text,
-            "moat_summary": "基于专家基本面护城河深度解析研讨内容提炼",
+            "moat_summary": moat_summary or "暂无基本面护城河深度解析数据",
             "moat_points": moat_points,
-            "macro_summary": "基于专家宏观与资金技术面剖析研讨内容提炼",
+            "macro_summary": macro_summary or "暂无宏观与资金技术面剖析数据",
             "macro_points": macro_points,
-            "trading_plan": "基于交易执行步骤与风险防线研讨内容提炼",
+            "trading_plan": trading_plan_summary or "暂无交易执行步骤与风险防线数据",
             "trading_steps": trading_steps,
             "risks_points": risks_points,
             "upside": upside,
@@ -826,14 +938,16 @@ Now extract from the following discussion:
                 return "<p><em>(Tool-calling round — no text content)</em></p>"
 
         # Detect raw tool-call data fragments (mostly numbers/N/A without prose)
+        # Only discard if it's PURELY data with ZERO prose — keep if there's ANY analysis text
         lines = stripped.split('\n')
         non_empty_lines = [l.strip() for l in lines if l.strip()]
         if non_empty_lines:
             data_lines = sum(1 for l in non_empty_lines if re.match(
                 r'^[\d.,\-+%]+$|^N/?A$|^[\d]+\.\d+$|^\d{6}$', l
             ))
-            # If >60% of lines are pure data fragments and total is short, skip this entry
-            if len(non_empty_lines) <= 20 and data_lines / len(non_empty_lines) > 0.6:
+            # Only discard if ≥90% data AND total is very short (≤10 non-empty lines)
+            # This preserves expert rounds that have both data tables and prose analysis
+            if len(non_empty_lines) <= 10 and len(non_empty_lines) > 0 and data_lines / len(non_empty_lines) > 0.9:
                 return "<p><em>(数据查询轮次 — 无分析文本)</em></p>"
 
         # Detect JSON-containing content — use LLM to convert to 1️⃣2️⃣ styled markdown
@@ -1224,7 +1338,7 @@ CONTENT:
                                 field_lines.append(f"- {ReportGeneratorService._format_py_value(r)}")
                             field_lines.append("")
                     else:
-                        field_lines.append(f"- *(空)*\n")
+                        field_lines.append("- *(空)*\n")
                 else:
                     field_lines.append(f"### {label}\n")
                     for dk, dv in val.items():

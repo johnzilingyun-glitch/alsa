@@ -1,8 +1,8 @@
 import logging
 import asyncio
-from datetime import datetime, timedelta
+from datetime import timedelta
 import pandas as pd
-from sqlmodel import select, Session
+from sqlmodel import select
 from app.db.models import PredictionRecord
 from app.db.database import session_factory
 from app.services.data_providers.router import data_router

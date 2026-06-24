@@ -1,5 +1,5 @@
-import { createAI, withRetry, generateContentWithUsage, GEMINI_MODEL, delay, generateAndParseJsonWithRetry, QuotaError, DUCKDUCKGO_TOOLS } from "./geminiService";
-import { StockAnalysis, AgentMessage, AgentDiscussion, GeminiConfig, AnalysisLevel, AgentRole, ExpertOutput, Language, MultiRoundProgress, DataVerification } from "../types";
+import { createAI, withRetry, generateContentWithUsage, DEFAULT_LLM_MODEL, delay, generateAndParseJsonWithRetry, QuotaError, DUCKDUCKGO_TOOLS } from "./llmService";
+import { StockAnalysis, AgentMessage, AgentDiscussion, LLMConfig, AnalysisLevel, AgentRole, ExpertOutput, Language, MultiRoundProgress, DataVerification } from "../types";
 import { useConfigStore } from "../stores/useConfigStore";
 import { getCommoditiesData } from "./marketService";
 import { getPreviousStockAnalysis } from "./adminService";
@@ -26,7 +26,7 @@ async function runJudgeAgent(
   ai: any, 
   analysis: StockAnalysis, 
   discussion: AgentDiscussion, 
-  config?: GeminiConfig,
+  config?: LLMConfig,
   language: Language = "en"
 ): Promise<DataVerification[]> {
   try {
@@ -141,7 +141,7 @@ function drCoreVarsMissingSourceDate(role: AgentRole, parsed: any): boolean {
 export async function startMultiRoundDiscussion(
   analysis: StockAnalysis,
   level: AnalysisLevel,
-  config?: GeminiConfig,
+  config?: LLMConfig,
   onProgress?: (progress: MultiRoundProgress) => void,
   abortSignal?: AbortSignal,
 ): Promise<AgentDiscussion> {
@@ -338,7 +338,7 @@ export async function startMultiRoundDiscussion(
           const prefix = `[系统紧急修复: 结构化数据解析异常，已切换至纯文本分析模式] `;
           try {
             const lastDitch = await generateContentWithUsage(ai, {
-              model: GEMINI_MODEL, // Always use default model — user's model may have zero quota
+              model: DEFAULT_LLM_MODEL, // Always use default model — user's model may have zero quota
               contents: `你是${role}。请针对 ${analysis.stockInfo.name} (${analysis.stockInfo.symbol}) 给出一段 150 字左右的专业分析结论。严禁返回空内容。`,
             });
             content = prefix + (lastDitch.text || `${role} 认为当前市场环境下，该标的展现出复杂的博弈特征，建议维持审慎态度并关注量化指标的动态变化。`);
@@ -603,7 +603,7 @@ export async function routeUserQuestion(
   question: string,
   analysis: StockAnalysis,
   history: AgentMessage[],
-  config?: GeminiConfig
+  config?: LLMConfig
 ): Promise<AgentRole> {
   const ai = createAI(config);
   
@@ -633,7 +633,7 @@ export async function routeUserQuestion(
   `;
 
   const raw = await generateAndParseJsonWithRetry<any>(ai, {
-    model: config?.model || GEMINI_MODEL,
+    model: config?.model || DEFAULT_LLM_MODEL,
     contents: routingPrompt,
     config: {
       responseMimeType: "application/json"
@@ -678,7 +678,7 @@ export async function answerDiscussionQuestion(
   question: string,
   expertRole: AgentRole,
   history: AgentMessage[],
-  config?: GeminiConfig
+  config?: LLMConfig
 ): Promise<AgentMessage> {
   const ai = createAI(config);
   const commoditiesData = await getCachedCommodities();
@@ -696,7 +696,7 @@ export async function answerDiscussionQuestion(
 `;
 
   const raw = await generateAndParseJsonWithRetry<any>(ai, {
-    model: config?.model || GEMINI_MODEL,
+    model: config?.model || DEFAULT_LLM_MODEL,
     contents: prompt + additionalContext,
     config: {
       responseMimeType: "application/json",
@@ -716,7 +716,7 @@ export async function answerDiscussionQuestion(
 export async function generateNewConclusion(
   analysis: StockAnalysis,
   history: AgentMessage[],
-  config?: GeminiConfig
+  config?: LLMConfig
 ): Promise<{ message: AgentMessage, finalConclusion: string }> {
   const ai = createAI(config);
   const commoditiesData = await getCachedCommodities();
@@ -733,7 +733,7 @@ export async function generateNewConclusion(
 `;
 
   const raw = await generateAndParseJsonWithRetry<any>(ai, {
-    model: config?.model || GEMINI_MODEL,
+    model: config?.model || DEFAULT_LLM_MODEL,
     contents: prompt + additionalContext,
   }, { 
     responseMimeType: "application/json",
@@ -756,7 +756,7 @@ export async function generateNewConclusion(
 
 export async function startAgentDiscussion(
   analysis: StockAnalysis,
-  config?: GeminiConfig,
+  config?: LLMConfig,
   history?: AgentMessage[],
   prefetched?: {
     commoditiesData?: any[];
@@ -801,7 +801,7 @@ export async function startAgentDiscussion(
   );
   
   const raw = await generateAndParseJsonWithRetry<AgentDiscussion>(ai, {
-    model: config?.model || GEMINI_MODEL,
+    model: config?.model || DEFAULT_LLM_MODEL,
     contents: prompt,
   }, { 
     responseMimeType: "application/json",
@@ -834,7 +834,7 @@ export async function startAgentDiscussion(
   return parsed;
 }
 
-export async function translateDiscussion(discussion: AgentDiscussion, targetLanguage: string, config?: GeminiConfig): Promise<AgentDiscussion> {
+export async function translateDiscussion(discussion: AgentDiscussion, targetLanguage: string, config?: LLMConfig): Promise<AgentDiscussion> {
   const ai = createAI(config);
   const prompt = getTranslationPrompt(targetLanguage, discussion, 'discussion');
 
@@ -842,7 +842,7 @@ export async function translateDiscussion(discussion: AgentDiscussion, targetLan
     const translatedRaw = await generateAndParseJsonWithRetry<AgentDiscussion>(
       ai,
       {
-        model: config?.model || GEMINI_MODEL,
+        model: config?.model || DEFAULT_LLM_MODEL,
         contents: prompt,
         config: { responseMimeType: "application/json" }
       },

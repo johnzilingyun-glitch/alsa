@@ -1,5 +1,4 @@
-import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 from app.vector.lancedb_store import LanceResearchStore, get_fallback_embedding, get_embedding
 
 def test_get_fallback_embedding():

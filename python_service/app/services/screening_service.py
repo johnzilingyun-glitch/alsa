@@ -299,7 +299,6 @@ def _screen_ashare_sync(screen_type: str, criteria: Dict, sector: Optional[str],
     try:
         import akshare as ak
         import pandas as pd
-        import yfinance as yf
 
         # Get real-time A-share market data
         df = ak.stock_zh_a_spot_em()
@@ -329,13 +328,20 @@ def _screen_ashare_sync(screen_type: str, criteria: Dict, sector: Optional[str],
                 df[col] = pd.to_numeric(df[col], errors='coerce')
 
         # Apply screen-type specific rough filters
+        # These pre-filter before the deep yfinance criteria check
         if screen_type == "value":
             df = df[(df["pe"] > 0) & (df["pe"] < 35)]
             df = df[(df["pb"] > 0) & (df["pb"] < 3.5)]
         elif screen_type == "growth":
-            df = df[(df["pe"] > 0) & (df["pe"] < 70)]
+            # Growth stocks: moderate PE (high PE = overvalued, not growth)
+            # Also require positive PE (profitable) and market_cap > 5B (established)
+            df = df[(df["pe"] > 0) & (df["pe"] < 50)]
+            if "market_cap" in df.columns:
+                df = df[df["market_cap"] > 5e9]  # >50亿市值
         elif screen_type == "quality":
             df = df[(df["pe"] > 0) & (df["pe"] < 60)]
+            if "market_cap" in df.columns:
+                df = df[df["market_cap"] > 5e9]
         elif screen_type == "short":
             df = df[(df["pe"] < 0) | (df["pe"] > 80)]
         elif screen_type == "momentum":

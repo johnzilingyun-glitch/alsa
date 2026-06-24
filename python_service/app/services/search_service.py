@@ -33,6 +33,57 @@ class SearchService:
     def _is_blocked_source(self, url: str) -> bool:
         return any(d in url for d in self.BLOCKED_SOURCE_DOMAINS)
 
+    @staticmethod
+    def sanitize_text(text: str) -> str:
+        """Sanitize text to defuse potential indirect prompt injection vectors."""
+        if not text:
+            return ""
+
+        # 1. Defuse instruction overrides: e.g. "ignore previous instructions", "disregard instructions", etc.
+        override_pattern = re.compile(
+            r"\b(ignore|disregard|bypass|override)\s+(?:all\s+)?(?:previous\s+|system\s+|above\s+)?instructions\b",
+            re.IGNORECASE
+        )
+        
+        # 2. Defuse role modifications: e.g. "you are now a...", "act as a...", "acting as...", "your new role is..."
+        role_pattern = re.compile(
+            r"\b(you\s+are\s+now\s+(?:a|an|the)?|you\s+must\s+now\s+act\s+as\s+(?:a|an|the)?|act\s+as\s+(?:a|an|the)?|acting\s+as\s+(?:a|an|the)?|your\s+new\s+role\s+is\s+(?:a|an|the)?)\b",
+            re.IGNORECASE
+        )
+        
+        # 3. Defuse system-like instructions or bracketed developer blocks: e.g. [SYSTEM: ...] or [SYSTEM ...]
+        bracket_system_pattern = re.compile(
+            r"\[\s*(?:system|developer|instruction|user|assistant|prompt)\s*:.*?\]",
+            re.IGNORECASE
+        )
+        
+        # 4. Clean unbracketed "system: " or "system prompt: "
+        colon_system_pattern = re.compile(
+            r"\b(?:system|developer|instruction|system\s+prompt)\s*:\s*",
+            re.IGNORECASE
+        )
+
+        sanitized = text
+        sanitized = override_pattern.sub("[CLEANED DIRECTIVE]", sanitized)
+        sanitized = role_pattern.sub("[CLEANED ROLE DIRECTIVE]", sanitized)
+        sanitized = bracket_system_pattern.sub("[CLEANED DIRECTIVE]", sanitized)
+        sanitized = colon_system_pattern.sub("[CLEANED DIRECTIVE]: ", sanitized)
+
+        return sanitized
+
+    def _sanitize_results(self, results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        if not results:
+            return []
+        sanitized = []
+        for r in results:
+            item = dict(r)
+            if "title" in item and isinstance(item["title"], str):
+                item["title"] = self.sanitize_text(item["title"])
+            if "content" in item and isinstance(item["content"], str):
+                item["content"] = self.sanitize_text(item["content"])
+            sanitized.append(item)
+        return sanitized
+
     # ────────── SearXNG ──────────
     async def _searxng_search(self, query: str, max_results: int = 10, categories: str = "general") -> List[Dict[str, Any]]:
         """Search via local SearXNG instance. Returns formatted results."""
@@ -244,25 +295,25 @@ class SearchService:
         if is_skill_enabled("ddg_fallback"):
             results = await self._ddg_text(query, max_results)
             if results:
-                return results
+                return self._sanitize_results(results)
 
         # 2. 同花顺问财 (primary source for Chinese financial data)
         if _IS_CHINA_SERVER or self._is_chinese_stock_query(query):
             results = await self._iwencai_search(query, max_results)
             if results:
-                return results
+                return self._sanitize_results(results)
 
         # 3. AkShare fallback (for Chinese stock/financial queries)
         if _IS_CHINA_SERVER or self._is_chinese_stock_query(query):
             results = await self._akshare_search(query, max_results)
             if results:
-                return results
+                return self._sanitize_results(results)
 
         # 4. SearXNG fallback (if enabled)
         if is_skill_enabled("searxng_backend"):
             results = await self._searxng_search(query, max_results)
             if results:
-                return results
+                return self._sanitize_results(results)
 
         return []
 
@@ -277,25 +328,25 @@ class SearchService:
         if is_skill_enabled("ddg_fallback"):
             results = await self._ddg_text(f"{query} latest news 2025", max_results)
             if results:
-                return results
+                return self._sanitize_results(results)
 
         # 2. 同花顺问财 (primary source for Chinese financial news)
         if _IS_CHINA_SERVER or self._is_chinese_stock_query(query):
             results = await self._iwencai_search(query, max_results)
             if results:
-                return results
+                return self._sanitize_results(results)
 
         # 3. AkShare fallback (for Chinese stock queries)
         if _IS_CHINA_SERVER or self._is_chinese_stock_query(query):
             results = await self._akshare_search(query, max_results)
             if results:
-                return results
+                return self._sanitize_results(results)
 
         # 4. SearXNG fallback
         if is_skill_enabled("searxng_backend"):
             results = await self._searxng_search(f"{query} latest news 2025", max_results, categories="news")
             if results:
-                return results
+                return self._sanitize_results(results)
 
         return []
 

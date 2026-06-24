@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """End-to-end auth flow test. Run after restarting Node gateway."""
-import os, sys, json
+import os
+import sys
 
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
 sys.path.insert(0, project_root)
@@ -8,8 +9,6 @@ sys.path.insert(0, project_root)
 os.environ['SQLITE_PATH'] = os.path.join(project_root, 'data', 'app.db')
 os.environ['API_TOKEN'] = 'mock-token'
 
-import python_service.app
-from python_service.app.db.database import engine
 for name in list(sys.modules.keys()):
     if name.startswith('python_service.app.'):
         alias = 'app.' + name[len('python_service.app.'):]

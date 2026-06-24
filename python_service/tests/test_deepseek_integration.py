@@ -1,7 +1,6 @@
 import pytest
 import asyncio
 import os
-import json
 from python_service.app.services.llm_gateway import LLMGateway
 
 @pytest.mark.asyncio

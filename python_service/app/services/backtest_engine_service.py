@@ -7,8 +7,8 @@ logger = logging.getLogger(__name__)
 import pandas as pd
 import yfinance as yf
 import numpy as np
-from datetime import datetime, timedelta, timezone
-from typing import List, Dict, Any, Optional
+from datetime import datetime, timezone
+from typing import Dict, Any, Optional
 from enum import Enum
 
 from .data_sync_service import data_sync_service

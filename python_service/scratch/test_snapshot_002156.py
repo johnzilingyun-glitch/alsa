@@ -3,8 +3,6 @@ import os
 import sys
 
 # Add project root to path
-import sys
-import os
 root_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 if root_dir not in sys.path:
     sys.path.append(root_dir)

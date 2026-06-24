@@ -1,5 +1,4 @@
 import akshare as ak
-import pandas as pd
 
 def check_indicators(symbol="002532"):
     try:

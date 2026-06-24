@@ -1,7 +1,6 @@
 import argparse
 import json
 import sys
-import logging
 import pandas as pd
 import numpy as np
 from datetime import datetime
@@ -9,7 +8,6 @@ from datetime import datetime
 import qlib
 from qlib.constant import REG_CN
 from qlib.backtest import backtest, executor
-from qlib.backtest.account import Account
 from qlib.contrib.evaluate import risk_analysis
 
 from paper_trading_system.decision_layer.qlib_custom_strategy import CustomRuleQlibStrategy
@@ -133,7 +131,7 @@ def run_bridge():
             req_end_date = pd.Timestamp(args.end_date)
             if req_end_date > max_end_date:
                 args.end_date = max_end_date.strftime('%Y-%m-%d')
-    except Exception as e:
+    except Exception:
         pass
 
     # Setup Strategy

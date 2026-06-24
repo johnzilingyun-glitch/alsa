@@ -6,7 +6,7 @@ import { sendChatMessage, saveAnalysisToHistory } from '../services/aiService';
 import { StockAnalysis } from '../types';
 
 export function useChat(fetchAdminData: () => Promise<void>) {
-  const geminiConfig = useConfigStore(s => s.config);
+  const llmConfig = useConfigStore(s => s.config);
   const setChatError = useUIStore(s => s.setChatError);
   const setIsChatting = useUIStore(s => s.setIsChatting);
   
@@ -30,7 +30,7 @@ export function useChat(fetchAdminData: () => Promise<void>) {
     setIsChatting(true);
 
     try {
-      const reply = await sendChatMessage(userMsg, analysis, geminiConfig);
+      const reply = await sendChatMessage(userMsg, analysis, llmConfig);
       const aiMsgId = `ai-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
       const aiMsg = { id: aiMsgId, role: 'ai' as const, content: reply || '抱歉，我暂时无法回答这个问题。' };
 
@@ -62,7 +62,7 @@ export function useChat(fetchAdminData: () => Promise<void>) {
     } finally {
       setIsChatting(false);
     }
-  }, [analysis, chatMessage, geminiConfig, setChatMessage, setChatError, setChatHistory, setIsChatting, setAnalysis, fetchAdminData]);
+  }, [analysis, chatMessage, llmConfig, setChatMessage, setChatError, setChatHistory, setIsChatting, setAnalysis, fetchAdminData]);
 
   return { handleChat };
 }

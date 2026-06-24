@@ -370,6 +370,7 @@ export const Header = memo(function Header({
               placeholder={t('header.searchPlaceholder')}
               className="flex-1"
               inputClassName="h-14 text-base pl-14 pr-6 font-medium text-zinc-950 shadow-sm shadow-zinc-900/5"
+              onChange={setSymbol}
               onSelect={handleSelectSuggestion}
             />
 

@@ -11,8 +11,8 @@ try:
         "sector_name": "A股市场",
         "model": "gemini-3.5-flash",
         "gemini_api_key": "fake_key"
-    })
+    }, headers={"Authorization": "Bearer QvbdCfBoV-T41bzkWzP-f5DQXZm0_wVuJUPUiKYqvbY"})
     print("POST Status:", response.status_code)
     print("POST Response:", response.text)
-except Exception as e:
+except Exception:
     traceback.print_exc()

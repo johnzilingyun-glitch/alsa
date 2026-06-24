@@ -9,10 +9,8 @@ filters (PE, PB, market cap) to generate trading signals.
 import os
 import sqlite3
 import logging
-from datetime import datetime
-from typing import Dict, Any, List, Optional
+from typing import Dict, List
 
-import numpy as np
 
 from vnpy.trader.object import BarData
 from vnpy.trader.utility import ArrayManager

@@ -7,16 +7,15 @@ Every prompt must have:
 The registry must prevent serving deprecated prompts and track which
 version was used for any given analysis.
 """
-import sys, os
+import sys
+import os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
 import hashlib
 import pytest
 from python_service.app.prompting.version_registry import (
     PromptVersionRegistry,
-    PromptVersion,
     PromptStatus,
-    PromptRun,
 )
 
 

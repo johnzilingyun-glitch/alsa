@@ -1,5 +1,4 @@
 import re
-import os
 
 filepath = 'D:/zily/alsa/alsa/python_service/app/services/report_generator_service.py'
 with open(filepath, 'r', encoding='utf-8') as f:

@@ -11,7 +11,6 @@ from datetime import datetime, timezone
 AKSHARE_ENABLED = os.getenv("AKSHARE_ENABLED", "false").lower() == "true"
 if AKSHARE_ENABLED:
     import akshare as ak
-    from ..utils.network import safe_ak_call
 
 class MarketSnapshotService:
     def __init__(self, store: ParquetMarketStore):
@@ -91,7 +90,19 @@ class MarketSnapshotService:
             if df is None or df.empty:
                 print(f"Snapshot: no history data for {symbol}")
                 return {}
-            
+
+            # Data quality validation before storing
+            try:
+                from .data_quality import data_quality_pipeline
+                quality_report = data_quality_pipeline.validate(df, symbol)
+                print(f"[DataQuality] {symbol}: score={quality_report.score:.2f}, passed={quality_report.overall_passed}")
+                if not quality_report.overall_passed:
+                    critical_checks = [c for c in quality_report.checks if not c.passed and c.severity == "critical"]
+                    for c in critical_checks:
+                        print(f"[DataQuality] CRITICAL: {c}")
+            except Exception as e:
+                print(f"[DataQuality] Validation failed for {symbol}: {e}")
+
             # Run secondary fetches (use AkShare's own connection pool, not concurrent)
             valuation = await _fetch_valuation()
             financials = await _fetch_financials()

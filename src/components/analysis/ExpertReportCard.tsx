@@ -45,10 +45,10 @@ export function ExpertReportCard({
   message, isExpert, expertiseArea, references, isVerified, auditDetail, sentiment 
 }: ExpertReportCardProps) {
   const { t } = useTranslation();
-  const { geminiConfig } = useConfigStore();
+  const { llmConfig } = useConfigStore();
   const theme = roleThemes[message.role] || roleThemes["Moderator"];
   const RoleIcon = theme.icon;
-  const modelUsed = (message as any).model || geminiConfig.model;
+  const modelUsed = (message as any).model || llmConfig.model;
 
   const activeSentiment = sentiment || 
     (message.role === 'Bull Researcher' ? 'bullish' : 

@@ -17,13 +17,28 @@ logger = logging.getLogger(__name__)
 IWENCAI_BASE_URL = os.getenv("IWENCAI_BASE_URL", "https://openapi.iwencai.com")
 IWENCAI_API_KEY = os.getenv("IWENCAI_API_KEY", "")
 
+# Circuit breaker: once we get a 401 "quota exhausted" response,
+# skip further comprehensive/search calls for this process lifetime.
+_iwencai_quota_exhausted = False
+
+# Known quota-exhausted messages from the Iwencai API.
+_QUOTA_EXHAUSTED_KEYWORDS = ("次数已用完", "quota", "rate limit", "insufficient balance")
+
 # Channel → Skill ID mapping
 CHANNEL_SKILL_MAP = {
     "news": "news-search",
     "announcement": "announcement-search",
     "report": "report-search",
 }
-SKILL_VERSION = "1.0.0"
+SKILL_VERSION = "2.0.0"  # bumped from 1.0.0 — older versions may be rejected
+
+
+def _is_quota_error(status_code: int, body: str) -> bool:
+    """Check whether a 401 response indicates quota exhaustion vs. auth failure."""
+    if status_code != 401:
+        return False
+    lower = body.lower()
+    return any(kw in lower for kw in _QUOTA_EXHAUSTED_KEYWORDS)
 
 
 def _generate_trace_id() -> str:
@@ -34,14 +49,20 @@ def _generate_trace_id() -> str:
 async def _iwencai_search(query: str, channel: str = "news", retry: bool = False) -> Dict[str, Any]:
     """
     Core search function for Iwencai OpenAPI.
-    
+
     Args:
         query: Search keywords (supports Chinese)
         channel: One of 'news', 'announcement', 'report'
         retry: Whether this is a retry attempt
-    
+
     Returns the raw API response (transparent passthrough per gateway spec).
     """
+    global _iwencai_quota_exhausted
+
+    # Fast-path skip when quota is known to be exhausted.
+    if _iwencai_quota_exhausted:
+        return {"error": "quota_exhausted", "status_code": 401, "data": []}
+
     api_key = IWENCAI_API_KEY or os.getenv("IWENCAI_API_KEY", "")
     if not api_key:
         return {"error": "IWENCAI_API_KEY not configured"}
@@ -70,17 +91,31 @@ async def _iwencai_search(query: str, channel: str = "news", retry: bool = False
             response.raise_for_status()
             return response.json()
     except httpx.HTTPStatusError as e:
-        logger.error(f"[iwencai-{channel}] HTTP {e.response.status_code} for query '{query}'")
-        if not retry and e.response.status_code >= 500:
+        status = e.response.status_code
+        body = e.response.text
+        logger.warning("[iwencai-%s] HTTP %s for query '%s'", channel, status, query)
+
+        # Detect quota exhaustion — flip circuit breaker so all subsequent
+        # calls skip the API entirely and go straight to the fallback.
+        if _is_quota_error(status, body):
+            _iwencai_quota_exhausted = True
+            logger.warning(
+                "[iwencai] Quota exhausted for channel '%s' — "
+                "disabling iwencai news/announcement/report for this session.",
+                channel,
+            )
+            return {"error": "quota_exhausted", "status_code": 401, "data": []}
+
+        if not retry and status >= 500:
             return await _iwencai_search(query, channel, retry=True)
-        return {"error": f"HTTP {e.response.status_code}", "detail": e.response.text}
+        return {"error": f"HTTP {status}", "detail": body}
     except httpx.TimeoutException:
-        logger.error(f"[iwencai-{channel}] Timeout for query '{query}'")
+        logger.warning("[iwencai-%s] Timeout for query '%s'", channel, query)
         if not retry:
             return await _iwencai_search(query, channel, retry=True)
         return {"error": "Request timeout"}
     except Exception as e:
-        logger.error(f"[iwencai-{channel}] Unexpected error: {e}")
+        logger.error("[iwencai-%s] Unexpected error: %s", channel, e)
         return {"error": str(e)}
 
 

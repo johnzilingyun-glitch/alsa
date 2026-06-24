@@ -8,6 +8,9 @@ from typing import List, Dict, Any, Optional
 from ..utils.data_validation import validate_ak_data
 from .search_service import search_service
 from .data_providers import data_router
+from ..logging import get_logger
+
+logger = get_logger(__name__)
 
 # Only import akshare if enabled (geo-blocked from non-China servers)
 class DummyAkShare:
@@ -646,7 +649,8 @@ class MarketDataService:
                         company_name = info.get("longName") or info.get("shortName") or symbol
                         query = f"{company_name} ({yf_symbol}) 2024 2025 financials net profit adjusted net profit Non-GAAP 扣非净利润 营收环比 QoQ growth capex"
                         search_context = await search_service.quick_search(query)
-                    except:
+                    except Exception:
+                        logger.exception("search_service.quick_search failed for %s", symbol)
                         pass
                 
                 # --- CAPEX from cashflow statement (fallback when info lacks it) ---
@@ -829,7 +833,8 @@ class MarketDataService:
                 yf_info = {}
                 try:
                     yf_info = ticker.info
-                except:
+                except Exception:
+                    logger.exception("Failed to fetch yfinance ticker.info for %s", yf_symbol)
                     pass
 
                 # Fetch financials for history
@@ -868,7 +873,8 @@ class MarketDataService:
                                 net_profit_qoq = (q_inc.iloc[0] - q_inc.iloc[1]) / abs(q_inc.iloc[1]) if q_inc.iloc[1] != 0 else None
                             if len(q_inc) >= 5:
                                 net_profit_yoy = (q_inc.iloc[0] - q_inc.iloc[4]) / abs(q_inc.iloc[4]) if q_inc.iloc[4] != 0 else None
-                    except:
+                    except Exception:
+                        logger.exception("Failed to process quarterly financials for A-Share %s", clean_symbol)
                         pass
 
                 ak_info = {}
@@ -922,7 +928,8 @@ class MarketDataService:
                                         ak_financials["latestNetProfitDeductYoY"] = (float(npd0) - float(npd4)) / abs(float(npd4))
                                     except (ValueError, TypeError):
                                         pass
-                    except:
+                    except Exception:
+                        logger.exception("Failed to fetch AkShare financial indicators for %s", clean_symbol)
                         pass
                 
                 # Fetch stock_financial_abstract_ths — primary source for quarterly history
@@ -991,7 +998,8 @@ class MarketDataService:
                     try:
                         dividend_df = await safe_ak_call(ak.stock_history_dividend_detail, symbol=clean_symbol)
                         latest_dividend = dividend_df.iloc[0].to_dict() if validate_ak_data(dividend_df, min_rows=1) else {}
-                    except:
+                    except Exception:
+                        logger.exception("Failed to fetch dividend data for %s", clean_symbol)
                         pass
 
                 # --- CAPEX from cashflow statement (fallback) ---
@@ -1195,7 +1203,8 @@ class MarketDataService:
             # Handle negative→positive (turnaround): use absolute values and flag as positive growth
             if start_val < 0 and end_val > 0:
                 return (end_val / abs(start_val)) ** (1/years) - 1
-        except:
+        except Exception:
+            logger.exception("Failed to calculate CAGR")
             pass
         return None
 

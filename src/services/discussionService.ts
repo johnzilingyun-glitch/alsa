@@ -343,6 +343,7 @@ export async function startMultiRoundDiscussion(
             });
             content = prefix + (lastDitch.text || `${role} 认为当前市场环境下，该标的展现出复杂的博弈特征，建议维持审慎态度并关注量化指标的动态变化。`);
           } catch {
+            console.warn('[discussionService] Last-ditch expert generation failed for role:', role);
             content = prefix + `${role} 认为当前市场环境下，该标的展现出复杂的博弈特征，建议维持审慎态度并关注量化指标的动态变化。`;
           }
         }

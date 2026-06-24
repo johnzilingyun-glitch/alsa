@@ -51,7 +51,10 @@ function loadStats(): VisitStats {
   try {
     const raw = localStorage.getItem(STATS_KEY);
     if (raw) return JSON.parse(raw) as VisitStats;
-  } catch { /* ignore */ }
+  } catch {
+    console.warn('[useStatsStore] Failed to load stats from localStorage:');
+    /* ignore */
+  }
   return makeEmptyStats();
 }
 
@@ -73,7 +76,10 @@ function makeEmptyStats(): VisitStats {
 function saveStats(s: VisitStats) {
   try {
     localStorage.setItem(STATS_KEY, JSON.stringify(s));
-  } catch { /* ignore */ }
+  } catch {
+    console.warn('[useStatsStore] Failed to save stats to localStorage:');
+    /* ignore */
+  }
 }
 
 export const useStatsStore = create<StatsState>((set) => {

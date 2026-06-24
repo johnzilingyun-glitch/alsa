@@ -75,7 +75,7 @@ describe('useAuthStore', () => {
     });
 
     it('should not authenticate when no token in storage', () => {
-      localStorageMock.getItem.mockReturnValue(null);
+      localStorageMock.getItem.mockReturnValue(null as unknown as string);
       useAuthStore.getState().initFromStorage();
       const state = useAuthStore.getState();
       expect(state.isAuthenticated).toBe(false);
@@ -135,7 +135,7 @@ describe('useAuthStore', () => {
 
     it('should skip when no token', async () => {
       useAuthStore.setState({ token: null });
-      localStorageMock.getItem.mockReturnValue(null);
+      localStorageMock.getItem.mockReturnValue(null as unknown as string);
       const fetchSpy = vi.fn();
       global.fetch = fetchSpy;
 
@@ -170,7 +170,7 @@ describe('authFetch', () => {
   });
 
   it('should not attach header when no token', async () => {
-    localStorageMock.getItem.mockReturnValue(null);
+    localStorageMock.getItem.mockReturnValue(null as unknown as string);
     global.fetch = vi.fn().mockResolvedValue({ ok: true });
 
     await authFetch('/api/test');

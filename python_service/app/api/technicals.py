@@ -6,6 +6,9 @@ import akshare as ak
 from ..quant.polars_indicators import compute_indicator_frame
 from ..utils.responses import success_response, error_response
 from ..utils.network import safe_ak_call
+from ..logging import get_logger
+
+logger = get_logger(__name__)
 
 router = APIRouter(prefix="/technicals", tags=["technicals"])
 
@@ -38,7 +41,8 @@ async def get_technicals(
         # Try a-share first (heuristic)
         try:
             df = await safe_ak_call(ak.stock_zh_a_hist, symbol=symbol[:6], period="daily", start_date=start_date, end_date=end_date, adjust="qfq")
-        except:
+        except Exception:
+            logger.exception("Failed to fetch A-Share history data for symbol '%s'", symbol)
             df = pd.DataFrame()
             
         if df.empty:

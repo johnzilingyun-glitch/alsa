@@ -35,9 +35,8 @@ function resetStores() {
     lastJobId: null,
   });
   useUIStore.setState({
-    loading: false,
+    analysisActivity: 'idle',
     analysisError: null,
-    isDiscussing: false,
     showDiscussion: false,
     analysisLevel: 'standard',
     analysisTarget: null,
@@ -48,7 +47,7 @@ function resetStores() {
     watchlist: [],
     recentSearches: [],
     marketOverviews: {},
-    alerts: [],
+    searchAlerts: [],
   });
   useDiscussionStore.setState({
     discussionMessages: [],
@@ -65,8 +64,6 @@ function resetStores() {
   });
   useJobQueueStore.setState({
     jobs: [],
-    notifications: [],
-    expanded: false,
   });
 }
 
@@ -144,7 +141,7 @@ describe('useStockAnalysis', () => {
     });
 
     it('queues background job when already analyzing', async () => {
-      useUIStore.setState({ loading: true });
+      useUIStore.setState({ analysisActivity: 'analyzing' });
       useAnalysisStore.setState({ symbol: 'BABA', market: 'US-Share' });
       const { result } = renderHook(() => useStockAnalysis());
 
@@ -200,7 +197,7 @@ describe('useStockAnalysis', () => {
       const { result } = renderHook(() => useStockAnalysis());
 
       await waitFor(() => {
-        expect(useUIStore.getState().loading).toBe(false);
+        expect(useUIStore.getState().analysisActivity).toBe('idle');
       });
     });
 
@@ -293,7 +290,7 @@ describe('useStockAnalysis', () => {
   describe('resetToHome', () => {
     it('resets analysis, discussion, and scenario', () => {
       useAnalysisStore.setState({ analysis: { stockInfo: {} } as any });
-      useDiscussionStore.setState({ discussionMessages: [{ id: '1', role: 'analyst', content: 'test' }], currentRound: 3 });
+      useDiscussionStore.setState({ discussionMessages: [{ id: '1', role: 'Technical Analyst' as const, content: 'test', timestamp: new Date().toISOString() }], currentRound: 3 });
       useScenarioStore.setState({ scenarios: [{ name: 'test' } as any], sensitivityFactors: [{ factor: 'risk' } as any] });
 
       const { result } = renderHook(() => useStockAnalysis());

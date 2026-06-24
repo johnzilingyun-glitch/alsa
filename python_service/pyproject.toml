@@ -17,11 +17,8 @@ dependencies = [
     "httpx",
     "click",
     "python-dotenv",
-    "google-generativeai",
     "openai",
     "anthropic",
-    "pytest",
-    "pytest-asyncio",
     "jinja2",
     "pyyaml",
     "markdown2",
@@ -32,7 +29,9 @@ dependencies = [
     "mem0ai>=2.0.4",
     "structlog>=24.0",
     "slowapi>=0.1.9",
-    "prometheus-client>=0.20",
+    "numpy",
+    "tushare",
+    "sqlalchemy",
 ]
 
 [project.scripts]

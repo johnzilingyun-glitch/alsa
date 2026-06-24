@@ -2,6 +2,9 @@
 Export Service — PDF generation and share card rendering via Playwright.
 """
 from typing import Optional
+from app.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 class ExportService:
@@ -77,7 +80,8 @@ class ExportService:
             try:
                 if float(change_pct.replace("%", "").replace("+", "")) >= 0:
                     change_color = "#16a34a"
-            except:
+            except Exception:
+                logger.exception("Failed to parse change percentage '%s'", change_pct)
                 pass
 
         # Highlights HTML

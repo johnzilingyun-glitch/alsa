@@ -11,6 +11,9 @@ from .search_toolkit import search_toolkit
 from .input_sanitizer import input_sanitizer
 from .agent_memory import agent_memory
 from .expert_tools import format_tool_descriptions
+from ..logging import get_logger
+
+logger = get_logger(__name__)
 
 # --- Topologies (Ported from orchestrator.ts) ---
 
@@ -476,7 +479,8 @@ class DiscussionService:
             prompt_data = prompt_runtime.get_prompt(prompt_name, version="v1", language=language)
             template = prompt_data["template"]
             pv_id = prompt_data.get("version", "v1")
-        except:
+        except Exception:
+            logger.exception("Failed to fetch prompt template for role '%s'", role)
             # Fallback to simple instruction if prompt not found in DB
             template = f"You are a {role}. Provide professional institutional research analysis for {symbol}."
             pv_id = "v1"
@@ -748,7 +752,9 @@ class DiscussionService:
                 if abs(v) >= 1e9: return f"{v/1e9:.2f}B"
                 if abs(v) >= 1e6: return f"{v/1e6:.1f}M"
                 return f"{v:,.0f}"
-            except: return str(v)
+            except Exception:
+                logger.warning("fmt_num: failed to convert '%s' to number", v)
+                return str(v)
 
         enrichment_text = ""
         if search_enrichment:

@@ -127,6 +127,7 @@ export function useStockAnalysis() {
             updateJob(bgId, { status: 'failed', error: data.error_message || '分析失败' });
           }
         } catch {
+          console.warn('[useStockAnalysis] Transient polling error, continuing:');
           // Ignore transient errors, keep polling
         }
       }, 2000);
@@ -222,7 +223,10 @@ export function useStockAnalysis() {
           return; // Wait for user choice
         }
       }
-    } catch { /* ignore, proceed with new analysis */ }
+    } catch {
+      console.warn('[useStockAnalysis] History fetch failed, proceeding with new analysis:');
+      /* ignore, proceed with new analysis */
+    }
 
     // No history — start fresh analysis
     doStartAnalysis(searchSymbol, searchMarket);

@@ -41,7 +41,7 @@ export function useReporting(fetchAdminData: () => Promise<void>) {
           content: report,
           type,
           data,
-          feishuWebhookUrl: webhookUrl
+          feishuWebhookUrl: useConfigStore.getState().feishuWebhookUrl
         })
       });
       if (!response.ok) {
@@ -80,7 +80,7 @@ export function useReporting(fetchAdminData: () => Promise<void>) {
     
     setIsSendingReport(true);
     try {
-      const success = await sendAnalysisToFeishu(analysis, webhookUrl);
+      const success = await sendAnalysisToFeishu(analysis, useConfigStore.getState().feishuWebhookUrl);
       if (success) {
         setReportStatus('success');
         setTimeout(() => setReportStatus('idle'), 3000);
@@ -101,7 +101,7 @@ export function useReporting(fetchAdminData: () => Promise<void>) {
     try {
       const report = await getChatReport(analysis.stockInfo?.name || 'Unknown', chatHistory);
       setIsGeneratingReport(false);
-      const success = await sendReport(report, 'chat', { stock: analysis.stockInfo?.name || 'Unknown', history: chatHistory });
+      const success = await sendReport(report, 'chat', { stock: analysis.stockInfo?.name || 'Unknown', history: chatHistory, feishuWebhookUrl: useConfigStore.getState().feishuWebhookUrl });
       if (success) {
         void fetch('/api/logs/add', {
           method: 'POST',
@@ -125,7 +125,7 @@ export function useReporting(fetchAdminData: () => Promise<void>) {
     
     setIsSendingReport(true);
     try {
-      const success = await sendAnalysisToFeishu(analysis, webhookUrl);
+      const success = await sendAnalysisToFeishu(analysis, useConfigStore.getState().feishuWebhookUrl);
       if (success) {
         setReportStatus('success');
         setTimeout(() => setReportStatus('idle'), 3000);

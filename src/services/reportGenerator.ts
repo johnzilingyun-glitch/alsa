@@ -47,6 +47,7 @@ export class ReportGeneratorService {
           lastUpdatedDisplay = stockInfo.lastUpdated;
         }
       } catch {
+        console.warn('[reportGenerator] Failed to parse lastUpdated date, using raw string:');
         lastUpdatedDisplay = stockInfo.lastUpdated;
       }
     }

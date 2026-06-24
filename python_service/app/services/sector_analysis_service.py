@@ -10,6 +10,9 @@ import uuid
 from datetime import datetime, date
 from typing import Optional, Dict, Any, List
 from app.db.redis_client import RedisManager
+from app.logging import get_logger
+
+logger = get_logger(__name__)
 
 _AKSHARE_ENABLED = os.getenv("AKSHARE_ENABLED", "false").lower() in ("true", "1", "yes")
 
@@ -292,7 +295,8 @@ class SectorAnalysisService:
                 import json
                 try:
                     return json.loads(job.result_payload)
-                except:
+                except Exception:
+                    logger.exception("Failed to parse job result payload as JSON for job %s", job_id)
                     return {}
             return job.result_payload
         return None

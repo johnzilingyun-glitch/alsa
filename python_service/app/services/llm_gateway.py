@@ -230,7 +230,8 @@ class LLMGateway:
                                 json.loads(json_match.group(0))
                             else:
                                 schema_passed = False
-                        except:
+                        except Exception:
+                            logger.exception("Failed to validate JSON schema in LLM response")
                             schema_passed = False
                     elif not result_text:
                         schema_passed = False

@@ -32,7 +32,7 @@ def load_config():
         with open(CONFIG_FILE, "r") as f:
             try:
                 return json.load(f)
-            except:
+            except (json.JSONDecodeError, OSError):
                 return {}
     return {}
 

@@ -7,6 +7,9 @@ import markdown2
 from datetime import datetime
 from typing import List, Any, Dict
 from .llm_gateway import llm_gateway, current_token_usage
+from ..logging import get_logger
+
+logger = get_logger(__name__)
 
 class ReportGeneratorService:
     def generate_report(self, run, outputs: List) -> str:
@@ -1054,7 +1057,8 @@ CONTENT:
             res = re.sub(r"\n```$", "", res)
             result = markdown2.markdown(res.strip(), extras=["tables", "fenced-code-blocks"])
             return result + trailing_json_md if trailing_json_md else result
-        except:
+        except Exception:
+            logger.exception("LLM markdown generation failed, using fallback")
             result = markdown2.markdown(stripped, extras=["tables", "fenced-code-blocks"])
             return result + trailing_json_md if trailing_json_md else result
 
@@ -3049,7 +3053,9 @@ CONTENT:
             if v is None: return None
             if isinstance(v, (int, float)): return v
             try: return float(str(v).replace(",", ""))
-            except: return None
+            except Exception:
+                logger.exception("Failed to convert value '%s' to float in report generation", v)
+                return None
         at_num = safe_float(at_val)
         it_num = safe_float(it_val)
         m["总资产周转率"] = ratio(at_num) if at_num else (ui_data.get("asset_turnover") or "N/A")

@@ -11,6 +11,7 @@ export async function getDataSourceHealth(): Promise<SourceHealthInfo[]> {
     if (!res.ok) return [];
     return await res.json();
   } catch {
+    console.warn('[healthService] Failed to fetch data source health:');
     return [];
   }
 }

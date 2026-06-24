@@ -28,7 +28,7 @@ const defaultProps = { onSendChatReport: vi.fn(), onChat: vi.fn() };
 
 beforeEach(() => {
   useAnalysisStore.setState({ chatMessage: '', chatHistory: [] });
-  useUIStore.setState({ isChatting: false, isGeneratingReport: false, isSendingReport: false, reportStatus: null });
+  useUIStore.setState({ analysisActivity: 'idle', isGeneratingReport: false, isSendingReport: false, reportStatus: 'idle' });
 });
 
 describe('ChatSection', () => {
@@ -54,13 +54,13 @@ describe('ChatSection', () => {
     useAnalysisStore.setState({ chatMessage: 'test question' });
     const onChat = vi.fn();
     render(<ChatSection {...defaultProps} onChat={onChat} />);
-    const sendBtns = screen.getAllByRole('button').filter(b => !b.disabled && b.innerHTML);
+    const sendBtns = screen.getAllByRole('button').filter((b): b is HTMLButtonElement => b instanceof HTMLButtonElement && !b.disabled && !!b.innerHTML);
     fireEvent.click(sendBtns[sendBtns.length - 1]);
     expect(onChat).toHaveBeenCalled();
   });
 
   it('shows loading indicator when isChatting', () => {
-    useUIStore.setState({ isChatting: true });
+    useUIStore.setState({ analysisActivity: 'chatting' });
     render(<ChatSection {...defaultProps} />);
     expect(screen.getByText('analysis.tools.ai_thinking')).toBeTruthy();
   });

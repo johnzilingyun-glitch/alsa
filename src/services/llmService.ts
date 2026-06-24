@@ -411,6 +411,7 @@ export async function generateAndParseJsonWithRetry<T>(
       diagnosticDetail = `\n详情: ${message}`.substring(0, 300);
     }
   } catch {
+    console.warn('[llmService] Failed to parse error diagnostic detail:');
     diagnosticDetail = `\n详情: ${lastErrorMsg.substring(0, 300)}`;
   }
   const triedModels = modelsToTry.slice(0, consecutiveQuotaErrors + 1).join(', ');
@@ -791,9 +792,11 @@ export function parseJsonResponse<T>(raw: string): T {
     try {
       parsed = JSON.parse(extracted);
     } catch {
+      console.warn('[llmService] Initial JSON parse failed, trying sanitized:');
       try {
         parsed = JSON.parse(sanitizeJsonControlCharacters(extracted));
       } catch {
+        console.warn('[llmService] Sanitized JSON parse also failed, attempting repair:');
         // Last resort: repair common LLM JSON issues (trailing commas, unescaped quotes, etc.)
         parsed = JSON.parse(repairJson(sanitizeJsonControlCharacters(extracted)));
       }

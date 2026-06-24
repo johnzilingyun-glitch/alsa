@@ -369,9 +369,9 @@ function LocalChartTab({ symbol, onSymbolChange }: { symbol: string; onSymbolCha
       },
     });
 
-    const ma5Series = chart.addSeries(LineSeries, { color: '#f59e0b', lineWidth: 1.5, crosshairMarkerVisible: false });
-    const ma20Series = chart.addSeries(LineSeries, { color: '#8b5cf6', lineWidth: 1.5, crosshairMarkerVisible: false });
-    const ma100Series = chart.addSeries(LineSeries, { color: '#ec4899', lineWidth: 1.5, crosshairMarkerVisible: false });
+    const ma5Series = chart.addSeries(LineSeries, { color: '#f59e0b', lineWidth: 2, crosshairMarkerVisible: false });
+    const ma20Series = chart.addSeries(LineSeries, { color: '#8b5cf6', lineWidth: 2, crosshairMarkerVisible: false });
+    const ma100Series = chart.addSeries(LineSeries, { color: '#ec4899', lineWidth: 2, crosshairMarkerVisible: false });
 
     const formatLegendText = (data: any, prevData?: any, maData?: {ma5: any, ma20: any, ma100: any}) => {
       const open = data.open.toFixed(2);

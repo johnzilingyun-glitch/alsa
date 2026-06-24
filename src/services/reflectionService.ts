@@ -45,6 +45,7 @@ async function loadMemory(): Promise<ReflectionEntry[]> {
     if (!res.ok) return [];
     return res.json();
   } catch {
+    console.warn('[reflectionService] Failed to load memory from API:');
     return [];
   }
 }

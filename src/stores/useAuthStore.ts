@@ -124,7 +124,7 @@ export const useAuthStore = create<AuthState>()(
             set({ user: null, token: null, isAuthenticated: false });
           }
         } catch {
-          // Keep existing state on network error
+          console.warn('[useAuthStore] fetchMe network error, keeping existing state:');
         }
       },
 

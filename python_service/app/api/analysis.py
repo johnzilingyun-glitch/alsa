@@ -7,6 +7,9 @@ from ..services.analysis_job_service import AnalysisJobService
 from ..utils.responses import success_response, error_response
 from ..db.database import session_factory
 from ..services.lineage_service import build_analysis_lineage
+from ..logging import get_logger
+
+logger = get_logger(__name__)
 
 class AnalysisJobCreate(BaseModel):
     symbol: str
@@ -70,7 +73,8 @@ async def get_job(job_id: str, service: AnalysisJobService = Depends(get_job_ser
         import json
         try:
             result = job.result_payload if isinstance(job.result_payload, dict) else (json.loads(job.result_payload) if job.result_payload else None)
-        except:
+        except Exception:
+            logger.exception("Failed to parse analysis job result payload for job %s", job_id)
             result = job.result_payload
 
     # Use live in-memory progress from the service if available

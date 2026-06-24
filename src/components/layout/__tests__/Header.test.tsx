@@ -40,7 +40,7 @@ const defaultProps = {
 
 beforeEach(() => {
   useUIStore.setState({
-    loading: false, isTriggeringReport: false, showAdminPanel: false,
+    analysisActivity: 'idle', isTriggeringReport: false, showAdminPanel: false,
     analysisLevel: 'standard', serviceStatus: 'available',
   });
   useMarketStore.setState({ dailyReport: null, activeAlertStatus: 'neutral' });
@@ -65,7 +65,7 @@ describe('Header', () => {
 
   it('shows loading state on search button', async () => {
     render(<Header {...defaultProps} />);
-    useUIStore.setState({ loading: true });
+    useUIStore.setState({ analysisActivity: 'analyzing' });
     await waitFor(() => {
       expect(screen.getByText('header.addToQueue')).toBeTruthy();
     });
@@ -101,7 +101,7 @@ describe('Header', () => {
   });
 
   it('shows user avatar when logged in', () => {
-    useAuthStore.setState({ user: { username: 'testuser', role: 'user', display_name: 'Test User' } });
+    useAuthStore.setState({ user: { user_id: '1', username: 'testuser', role: 'viewer', display_name: 'Test User' } });
     render(<Header {...defaultProps} />);
     fireEvent.click(screen.getByTitle('Test User'));
     expect(screen.getByText('登出')).toBeTruthy();

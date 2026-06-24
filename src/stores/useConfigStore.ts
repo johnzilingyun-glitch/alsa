@@ -150,7 +150,10 @@ export const useConfigStore = create<ConfigState>((set) => {
       try {
         const saved = localStorage.getItem('daily_token_budget');
         return saved ? Number(saved) : 900_000;
-      } catch { return 900_000; }
+      } catch {
+        console.warn('[useConfigStore] Failed to load daily token budget:');
+        return 900_000;
+      }
     })(),
     setDailyTokenBudget: (budget) => {
       localStorage.setItem('daily_token_budget', String(budget));
@@ -182,7 +185,10 @@ export const useConfigStore = create<ConfigState>((set) => {
       // Persist to localStorage so usage survives page refresh
       try {
         localStorage.setItem('token_usage', JSON.stringify(newTokenUsage));
-      } catch { /* quota exceeded — ignore */ }
+      } catch {
+        console.warn('[useConfigStore] Failed to persist token usage (quota exceeded):');
+        /* quota exceeded — ignore */
+      }
       return { tokenUsage: newTokenUsage };
     }),
     resetTokenUsage: () => {
@@ -200,7 +206,10 @@ export const useConfigStore = create<ConfigState>((set) => {
       };
       try {
         localStorage.setItem('token_usage', JSON.stringify(freshUsage));
-      } catch { /* ignore */ }
+      } catch {
+        console.warn('[useConfigStore] Failed to reset token usage:');
+        /* ignore */
+      }
       set({ tokenUsage: freshUsage });
     },
     setLLMConfig: (config) => {

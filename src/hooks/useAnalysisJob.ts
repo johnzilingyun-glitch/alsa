@@ -97,7 +97,10 @@ export function useAnalysisJob() {
             try {
               const raw = localStorage.getItem('gemini_config');
               return raw ? JSON.parse(raw) : {};
-            } catch { return {}; }
+              } catch {
+                console.warn('[useAnalysisJob] Failed to parse saved config for API key:');
+                return {};
+              }
           })();
           const model = savedConfig.model || '';
           const isDeepSeek = model.toLowerCase().startsWith('deepseek');
@@ -142,7 +145,10 @@ export function useAnalysisJob() {
               try {
                 const raw = localStorage.getItem('gemini_config');
                 return raw ? JSON.parse(raw) : {};
-              } catch { return {}; }
+            } catch {
+              console.warn('[useAnalysisJob] Failed to parse saved config:');
+              return {};
+            }
             })();
             const model = savedConfig.model || '';
             const isDeepSeek = model.toLowerCase().startsWith('deepseek');

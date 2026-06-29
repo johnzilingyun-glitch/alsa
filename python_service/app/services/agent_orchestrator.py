@@ -121,12 +121,16 @@ class AgentOrchestrator:
                 if reasoning_before:
                     all_content_parts.append(reasoning_before)
 
+            if on_chunk:
+                tool_names = [tc.get("tool", "unknown") for tc in tool_calls]
+                on_chunk(0, message=f"{role or 'Agent'} (工具调用第 {round_num + 1} 轮: {', '.join(tool_names)})")
+
             # Execute tools
             observations = await tool_executor.execute_all(tool_calls)
 
             # Heartbeat: keep frontend idle timer alive after tool execution
             if on_chunk:
-                on_chunk((round_num + 1) * (len(tool_calls) + 100))
+                on_chunk((round_num + 1) * (len(tool_calls) + 100), message=f"{role or 'Agent'} (第 {round_num + 1} 轮工具调用完成，正在思考...)")
 
             # Build continuation prompt (TokenGuard already enforces per-tool limits)
             tool_section = "\n\n--- TOOL RESULTS ---\n"
@@ -505,9 +509,13 @@ class AgentOrchestrator:
                 break
             except Exception as e:
                 error_msg = str(e)
-                logger.error(
-                    f"DeepSeek Native Tool Error (round {round_num}): {error_msg}"
-                )
+                logger.error(f"DeepSeek Native Tool Error (round {round_num}): {error_msg}")
+                
+                # Fail fast for fatal API errors
+                fatal_keywords = ["401", "402", "429", "authentication fails", "invalid api key", "insufficient balance"]
+                if any(k in error_msg.lower() for k in fatal_keywords):
+                    raise e
+                
                 if use_tools:
                     # Error in tool round — continue to next round (may reach final round)
                     logger.info(
@@ -575,6 +583,10 @@ class AgentOrchestrator:
                 assistant_msg["reasoning_content"] = reasoning_content
             messages.append(assistant_msg)
 
+            if on_chunk:
+                tool_names = [tc["function"]["name"] for tc in tool_calls_data]
+                on_chunk(0, message=f"{role or 'Agent'} (工具调用第 {round_num + 1} 轮: {', '.join(tool_names)})")
+
             # Execute all tool calls in PARALLEL for speed
             async def _exec_one_tool(tc_data):
                 func_name = tc_data["function"]["name"]
@@ -617,7 +629,7 @@ class AgentOrchestrator:
 
             # Heartbeat: notify frontend of activity after tool execution
             if on_chunk:
-                on_chunk((round_num + 1) * (len(messages) + 500))
+                on_chunk((round_num + 1) * (len(messages) + 500), message=f"{role or 'Agent'} (第 {round_num + 1} 轮工具调用完成，正在思考...)")
 
             # Append results in order as role:tool messages
             for i, result_or_exc in enumerate(tool_results):

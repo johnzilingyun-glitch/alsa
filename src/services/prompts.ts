@@ -979,8 +979,33 @@ export const getTranslationPrompt = (targetLanguage: string, data: any, type: 'a
     
     Target Language: ${languageName}
     Object Type: ${type}
-    
+
     JSON Data to Translate:
     ${JSON.stringify(data)}
   `.trim();
 };
+
+// ── Market Summary Prompt (AI only generates summary + sentiment) ──
+
+export const getMarketSummaryPrompt = (payload: {
+  majorIndices: { name: string; changePct: number }[];
+  topSectors: { name: string; inflow: number; changePct: number }[];
+  northboundNet: string;
+  commoditiesMove: { name: string; changePct: number }[];
+  headlines: string[];
+}) => `你是专业金融市场分析助手。只输出 JSON。
+
+输入数据：
+${JSON.stringify(payload)}
+
+你只允许输出：
+{
+  "marketSummary": "100字以内的市场总结",
+  "marketSentiment": "bullish | bearish | neutral"
+}
+
+规则：
+- 不要生成板块列表、推荐、资金流、sectorAnalysis、recommendations
+- marketSummary 不要使用 markdown 或换行
+- marketSentiment 根据整体市场情绪判断，只能是 bullish/bearish/neutral
+- 用中文输出`;

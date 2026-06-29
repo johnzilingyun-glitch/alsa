@@ -60,6 +60,7 @@ def init_db():
         _migrate_analysis_lineage(engine)
         _migrate_mocktrade(engine)
         _migrate_agent_memory(engine)
+        _migrate_user_last_login(engine)
 
 def get_session():
     with Session(engine) as session:
@@ -212,6 +213,19 @@ def _migrate_analysis_lineage(eng):
     for col_name, col_type in new_cols:
         if col_name not in existing:
             cursor.execute(f"ALTER TABLE analysisrun ADD COLUMN {col_name} {col_type}")
+    conn.commit()
+    conn.close()
+
+def _migrate_user_last_login(eng):
+    """Add last_login column to user table if missing."""
+    import sqlite3
+    db_path = str(eng.url).replace("sqlite:///", "")
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    cursor.execute("PRAGMA table_info(user)")
+    existing = {row[1] for row in cursor.fetchall()}
+    if "last_login" not in existing:
+        cursor.execute("ALTER TABLE user ADD COLUMN last_login TIMESTAMP")
     conn.commit()
     conn.close()
 

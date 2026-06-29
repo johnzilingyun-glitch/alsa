@@ -81,8 +81,9 @@ export const InstitutionalAlertPanel = memo(function InstitutionalAlertPanel() {
     const currentPrice = alertPrices[alert.symbol];
     if (!currentPrice) return 'neutral';
 
-    if (currentPrice >= alert.target_price) return 'target_hit';
-    if (currentPrice <= alert.stop_loss) return 'stop_loss_hit';
+    const isShort = alert.target_price < alert.entry_price;
+    if (isShort ? currentPrice <= alert.target_price : currentPrice >= alert.target_price) return 'target_hit';
+    if (isShort ? currentPrice >= alert.stop_loss : currentPrice <= alert.stop_loss) return 'stop_loss_hit';
     
     // Entry zone: within 2% of entry price
     const entryDiff = Math.abs(currentPrice - alert.entry_price) / alert.entry_price;

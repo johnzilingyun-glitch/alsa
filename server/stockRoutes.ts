@@ -3,6 +3,8 @@ import { yf } from './lib/yahooFinance.js';
 import axios from 'axios';
 import { monitor } from './dataSourceHealth.js';
 import { logDebug, logError } from './stockLogger.js';
+import fs from 'fs';
+import path from 'path';
 import { calcIndicators } from './indicators/technicalCalc.js';
 import { calculateVolatility, calculateVolatilityAdjustedLimit } from './indicators/riskMetrics.js';
 import { calculateFundamentalScores, calculateIntrinsicValueEstimate } from './indicators/fundamentalScoring.js';
@@ -269,6 +271,60 @@ const PYTHON_SERVICE_URL = process.env.PYTHON_SERVICE_URL || 'http://127.0.0.1:8
 
 // -----------------------------
 
+// Market Dashboard — single aggregated endpoint (no AI, pure data)
+router.get('/market/dashboard', async (req, res) => {
+  const market = (req.query.market as string) || 'A-Share';
+  const cacheKey = `dashboard_${market}`;
+  const cached = getCached(cacheKey);
+  if (cached) return res.json(cached);
+
+  try {
+    const resp = await axios.get(`${PYTHON_SERVICE_URL}/api/market/dashboard?market=${encodeURIComponent(market)}`, {
+      timeout: 15000,
+      headers: getPythonAuthHeaders(),
+    });
+    if (resp.data.success) {
+      setCache(cacheKey, resp.data.data);
+      return res.json(resp.data.data);
+    }
+    throw new Error('dashboard fetch failed');
+  } catch (e: any) {
+    console.warn('Dashboard aggregation failed, falling back to individual endpoints:', e.message || e);
+    // Fallback: assemble from individual routes
+    const fetchPy = async (path: string) => {
+      try {
+        const r = await axios.get(`${PYTHON_SERVICE_URL}${path}`, { timeout: 8000, headers: getPythonAuthHeaders() });
+        return r.data.success ? r.data.data : null;
+      } catch { return null; }
+    };
+
+    const [indices, commodities, news, sectorFlow, northbound] = await Promise.all([
+      fetchPy(`/api/market/indices?market=${market}`),
+      fetchPy('/api/market/commodities'),
+      fetchPy(`/api/market/news?market=${market}`),
+      market !== 'US-Share' ? fetchPy('/api/market/sector_flow') : Promise.resolve(null),
+      market === 'A-Share' ? fetchPy('/api/market/northbound') : Promise.resolve(null),
+    ]);
+
+    const sf = sectorFlow || { topInflows: [], topOutflows: [] };
+    const hotSectors = (sf.topInflows || []).slice(0, 5).map((s: any) => ({
+      name: s['行业'] || '', inflow: s['主力净流入-净额'] || 0, changePct: s['涨跌幅'] || 0,
+      companyCount: s['公司家数'] || 0, leadStock: s['领涨股'] || '', leadStockPct: s['领涨股-涨跌幅'] || 0,
+    }));
+    const recommendations = (sf.topInflows || [])
+      .filter((s: any) => (s['涨跌幅'] || 0) > 0).slice(0, 3)
+      .map((s: any) => ({ type: 'Sector', name: s['行业'] || '', reason: `主力净流入${((s['主力净流入-净额'] || 0) / 1e8).toFixed(2)}亿，涨跌幅${s['涨跌幅'] || 0}%` }));
+
+    const fallbackData = {
+      indices: indices || [], commodities: commodities || [], news: news || [],
+      sectorFlow: sf, northbound: northbound || [], hotSectors, recommendations,
+      updatedAt: new Date().toISOString(),
+    };
+    setCache(cacheKey, fallbackData);
+    return res.json(fallbackData);
+  }
+});
+
 // Market Indices
 const INDEX_NAME_MAP: Record<string, string> = {
   '000001.SS': '上证指数',
@@ -283,6 +339,23 @@ const INDEX_NAME_MAP: Record<string, string> = {
   '^IXIC': '纳斯达克',
   '^DJI': '道琼斯',
 };
+
+// ── THS (同花顺) Proxy ──────────────────────────────────────
+router.get('/ths/*', async (req, res) => {
+  const pyPath = req.path;  // e.g. /ths/search
+  const qs = new URLSearchParams(req.query as any).toString();
+  const url = `${PYTHON_SERVICE_URL}/api${pyPath}${qs ? '?' + qs : ''}`;
+  try {
+    const resp = await axios.get(url, {
+      timeout: 20000,
+      headers: getPythonAuthHeaders(),
+    });
+    res.json(resp.data);
+  } catch (e: any) {
+    const msg = e?.response?.data?.error?.message || e?.message || 'THS proxy failed';
+    res.status(502).json({ success: false, error: { code: 'THS_PROXY_ERROR', message: msg } });
+  }
+});
 
 router.get('/stock/indices', async (req, res) => {
   const { market } = req.query;
@@ -608,6 +681,15 @@ router.get('/stock/trending', async (req, res) => {
     );
   }
 });
+// ── Disk-persisted cache for sector flow ─────────────────────────
+const SECTOR_DISK_PATH = path.join(process.cwd(), 'data', 'sector_flow_cache.json');
+function loadSectorDiskCache(): { topInflows: any[]; topOutflows: any[] } | null {
+  try { return JSON.parse(fs.readFileSync(SECTOR_DISK_PATH, 'utf-8')); } catch { return null; }
+}
+function saveSectorDiskCache(data: { topInflows: any[]; topOutflows: any[] }) {
+  try { fs.mkdirSync(path.dirname(SECTOR_DISK_PATH), { recursive: true }); fs.writeFileSync(SECTOR_DISK_PATH, JSON.stringify(data)); } catch {}
+}
+
 // Institutional Sector Flows (Python Microservice Proxy)
 router.get('/stock/sectors', async (req, res) => {
   const cacheKey = 'sector_flow';
@@ -616,10 +698,16 @@ router.get('/stock/sectors', async (req, res) => {
 
   try {
     const data = await fetchJsonWithTimeout('http://127.0.0.1:8001/api/market/sector_flow', 15000);
-    
+
     if (data.success && data.data) {
-      setCache(cacheKey, data.data);
-      return res.json(data.data);
+      const flowData = data.data;
+      for (const rec of [...(flowData.topInflows || []), ...(flowData.topOutflows || [])]) {
+        if (rec['涨跌幅'] == null) rec['涨跌幅'] = 0;
+        if (rec['主力净流入-净额'] == null) rec['主力净流入-净额'] = 0;
+      }
+      setCache(cacheKey, flowData);
+      saveSectorDiskCache(flowData);
+      return res.json(flowData);
     }
     throw new Error('Python API returned success: false or empty data');
   } catch (error) {
@@ -627,7 +715,13 @@ router.get('/stock/sectors', async (req, res) => {
     const fallback = await fetchSectorFlowFromEastMoneyFallback().catch(() => null);
     if (fallback) {
       setCache(cacheKey, fallback);
+      saveSectorDiskCache(fallback);
       return res.json(fallback);
+    }
+    const diskCache = loadSectorDiskCache();
+    if (diskCache && diskCache.topInflows?.length) {
+      setCache(cacheKey, diskCache);
+      return res.json(diskCache);
     }
     res.json({ topInflows: [], topOutflows: [] });
   }

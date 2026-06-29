@@ -63,6 +63,21 @@ export function useStockAnalysis() {
 
   // Background job polling
   const startBackgroundJob = useCallback(async (bgSymbol: string, bgMarket: string) => {
+    // Check if API Key is configured
+    const model = llmConfig?.model || '';
+    const isDeepSeek = model.toLowerCase().startsWith('deepseek');
+    const apiKey = isDeepSeek ? (llmConfig?.deepseekApiKey || '') : (llmConfig?.apiKey || '');
+    
+    if (!apiKey || !apiKey.trim()) {
+      showToast(
+        isDeepSeek 
+          ? '请先前往设置配置 DeepSeek API Key (Please configure DeepSeek API Key in settings)' 
+          : '请先前往设置配置 Gemini API Key (Please configure Gemini API Key in settings)', 
+        'error'
+      );
+      return;
+    }
+
     const bgId = `bg_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
     // Record search immediately
     addRecentSearch({ symbol: bgSymbol, name: bgSymbol, market: bgMarket as Market });
@@ -235,6 +250,23 @@ export function useStockAnalysis() {
   const doStartAnalysis = useCallback((explicitSymbol?: string, explicitMarket?: string) => {
     const s = explicitSymbol || symbol;
     const m = explicitMarket || market;
+    
+    // Check if API Key is configured
+    const model = llmConfig?.model || '';
+    const isDeepSeek = model.toLowerCase().startsWith('deepseek');
+    const apiKey = isDeepSeek ? (llmConfig?.deepseekApiKey || '') : (llmConfig?.apiKey || '');
+    
+    if (!apiKey || !apiKey.trim()) {
+      setLoading(false);
+      setAnalysisError(
+        isDeepSeek 
+          ? '请先前往设置配置 DeepSeek API Key (Please configure DeepSeek API Key in settings)' 
+          : '请先前往设置配置 Gemini API Key (Please configure Gemini API Key in settings)'
+      );
+      showToast('API Key 未配置 (API Key not configured)', 'error');
+      return;
+    }
+
     setHistoryDialogOpen(false);
     setLoading(true);
     resetAnalysis();
@@ -245,7 +277,7 @@ export function useStockAnalysis() {
     // Record search immediately so it appears in recent searches even if analysis fails
     addRecentSearch({ symbol: s, name: s, market: m as Market });
     startAnalysis(s, m, analysisLevel, llmConfig?.model || null, llmConfig);
-  }, [symbol, market, analysisLevel, llmConfig, startAnalysis, setLoading, resetAnalysis, resetDiscussion, resetScenario, resetErrors, setAnalysisTarget, addRecentSearch]);
+  }, [symbol, market, analysisLevel, llmConfig, startAnalysis, setLoading, resetAnalysis, resetDiscussion, resetScenario, resetErrors, setAnalysisTarget, addRecentSearch, setAnalysisError, showToast]);
 
   const loadHistoryResult = useCallback(async (analysisId: string) => {
     setHistoryDialogOpen(false);

@@ -1,11 +1,51 @@
 import { GoogleGenAI } from "@google/genai";
 import { createAI, withRetry, generateContentWithUsage, DEFAULT_LLM_MODEL, generateAndParseJsonWithRetry } from "./llmService";
-import { getMarketOverviewPrompt, getDailyReportPrompt } from "./prompts";
-import { MarketOverview, LLMConfig, Market, IndexInfo, CommodityAnalysis } from "../types";
+import { getMarketOverviewPrompt, getDailyReportPrompt, getMarketSummaryPrompt } from "./prompts";
+import { MarketOverview, LLMConfig, Market, IndexInfo, CommodityAnalysis, MarketDashboard } from "../types";
 import { useConfigStore } from "../stores/useConfigStore";
+import { formatFundFlow } from "./formatUtils";
 import { getHistoryContext, saveAnalysisToHistory } from "./adminService";
 import { getBeijingDate } from "./dateUtils";
 import { MarketOverviewSchema, validateResponse } from "./schemas";
+
+// ── New Dashboard API ─────────────────────────────────────────
+
+export async function fetchDashboardFromAPI(market: Market = "A-Share"): Promise<MarketDashboard> {
+  const res = await fetch(`/api/market/dashboard?market=${encodeURIComponent(market)}`);
+  if (!res.ok) throw new Error(`Dashboard fetch failed: ${res.status}`);
+  return res.json();
+}
+
+export interface SummaryPayload {
+  majorIndices: { name: string; changePct: number }[];
+  topSectors: { name: string; inflow: number; changePct: number }[];
+  northboundNet: string;
+  commoditiesMove: { name: string; changePct: number }[];
+  headlines: string[];
+}
+
+export async function generateMarketSummary(payload: SummaryPayload): Promise<{ summary: string; sentiment: 'bullish' | 'bearish' | 'neutral' }> {
+  const ai = createAI();
+  const prompt = getMarketSummaryPrompt(payload);
+  const raw = await generateAndParseJsonWithRetry<{ marketSummary?: string; marketSentiment?: string }>(ai, {
+    model: DEFAULT_LLM_MODEL,
+    contents: prompt,
+    config: { responseMimeType: "application/json" },
+  }, { transportRetries: 1, parseRetries: 1 });
+  const sentiment = (raw.marketSentiment || 'neutral').toLowerCase();
+  const validSentiment = (['bullish', 'bearish', 'neutral'].includes(sentiment) ? sentiment : 'neutral') as 'bullish' | 'bearish' | 'neutral';
+  return { summary: raw.marketSummary || '', sentiment: validSentiment };
+}
+
+export function compressForAI(dashboard: MarketDashboard): SummaryPayload {
+  return {
+    majorIndices: dashboard.indices.slice(0, 5).map(i => ({ name: i.name, changePct: i.changePercent })),
+    topSectors: dashboard.hotSectors.slice(0, 5).map(s => ({ name: s.name, inflow: s.inflow, changePct: s.changePct })),
+    northboundNet: dashboard.northbound.length > 0 ? JSON.stringify(dashboard.northbound[0]) : '无数据',
+    commoditiesMove: dashboard.commodities.map(c => ({ name: c.name, changePct: 0 })),
+    headlines: dashboard.news.slice(0, 3).map((n: any) => n.title || ''),
+  };
+}
 
 /**
  * Fetches real-time market data (indices + commodities) directly from financial APIs.
@@ -135,7 +175,7 @@ export async function getMarketOverview(config?: LLMConfig, market: Market = "A-
         name: s['行业'],
         trend: Number(s['涨跌幅']) > 0 ? '上涨' : '下跌',
         rotationStage: 'Leading',
-        conclusion: `资金净流入: ${s['主力净流入-净额']}, 涨跌幅: ${s['涨跌幅']}%`,
+        conclusion: `资金净流入: ${s['主力净流入-净额'] ?? 0}, 涨跌幅: ${s['涨跌幅'] ?? 0}%`,
       })) : [
         { name: '科技互联网', trend: '上涨', rotationStage: 'Leading', conclusion: '基于市场整体热度，科技板块持续受到关注。' },
         { name: '金融地产', trend: '震荡', rotationStage: 'Improving', conclusion: '宏观政策预期对金融地产板块形成支撑。' },
@@ -149,7 +189,7 @@ export async function getMarketOverview(config?: LLMConfig, market: Market = "A-
       recommendations: sectorsData?.topInflows?.length ? sectorsData.topInflows.slice(0, 3).map((s: any) => ({
         type: 'Sector',
         name: s['行业'],
-        reason: `资金大幅流入 (${s['主力净流入-净额']})`,
+        reason: `资金大幅流入 (${formatFundFlow(s['主力净流入-净额'], 'A-Share')})`,
         riskLevel: 'Medium'
       })) : [
         { type: 'Sector', name: '人工智能产业链', reason: '全球AI资本开支增加，算力需求旺盛', riskLevel: 'High' },

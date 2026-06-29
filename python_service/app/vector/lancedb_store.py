@@ -11,6 +11,7 @@ def get_fallback_embedding(text: str, dimension: int = 768) -> List[float]:
     """
     Generate a deterministic, normalized vector from text using MD5 hashing of words.
     This acts as a high-quality zero-dependency fallback.
+    Uses a local RandomState instance to avoid mutating the global numpy random state.
     """
     if not text:
         return [0.0] * dimension
@@ -24,15 +25,15 @@ def get_fallback_embedding(text: str, dimension: int = 768) -> List[float]:
     for word in words:
         h = hashlib.md5(word.encode('utf-8')).hexdigest()
         val = int(h, 16)
-        np.random.seed(val % 2**32)
-        vector += np.random.normal(0, 1.0, dimension)
+        rng = np.random.RandomState(val % 2**32)
+        vector += rng.normal(0, 1.0, dimension)
         
     for i in range(len(text) - 2):
         ngram = text[i:i+3]
         h = hashlib.md5(ngram.encode('utf-8')).hexdigest()
         val = int(h, 16)
-        np.random.seed(val % 2**32)
-        vector += 0.2 * np.random.normal(0, 1.0, dimension)
+        rng = np.random.RandomState(val % 2**32)
+        vector += 0.2 * rng.normal(0, 1.0, dimension)
         
     norm = np.linalg.norm(vector)
     if norm > 1e-8:

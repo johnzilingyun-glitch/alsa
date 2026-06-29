@@ -91,17 +91,19 @@ export function TradeTicketModal({ account, onClose, onSuccess }: TradeTicketMod
     }
   };
 
-  // Debounced price fetch
+  // Debounced price fetch with AbortController to prevent stale results
   useEffect(() => {
-    if (!symbol || symbol.length < 4) {
+    if (!symbol || symbol.trim().length < 1) {
       setPrice(null);
       return;
     }
+    const controller = new AbortController();
     const timer = setTimeout(async () => {
       setLoadingPrice(true);
       setError(null);
       try {
         const quotes = await getQuotes([symbol.toUpperCase()]);
+        if (controller.signal.aborted) return;
         if (quotes && quotes.length > 0 && quotes[0].price > 0) {
           setPrice(quotes[0].price);
         } else {
@@ -109,13 +111,15 @@ export function TradeTicketModal({ account, onClose, onSuccess }: TradeTicketMod
           setError('未找到股票实时价格');
         }
       } catch (e) {
-        setPrice(null);
-        setError('获取实时价格失败');
+        if (!controller.signal.aborted) {
+          setPrice(null);
+          setError('获取实时价格失败');
+        }
       } finally {
-        setLoadingPrice(false);
+        if (!controller.signal.aborted) setLoadingPrice(false);
       }
     }, 800);
-    return () => clearTimeout(timer);
+    return () => { clearTimeout(timer); controller.abort(); };
   }, [symbol]);
 
   const handleTrade = async () => {

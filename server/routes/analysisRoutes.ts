@@ -323,6 +323,20 @@ router.get('/history/recent', async (req, res) => {
   res.json(history);
 });
 
+router.delete('/analysis/history/:jobId', async (req, res) => {
+  try {
+    const resp = await fetch(`${PYTHON_SERVICE_URL}/api/analysis/history/${req.params.jobId}`, {
+      method: 'DELETE',
+      headers: getPythonAuthHeaders()
+    });
+    const data = await resp.json();
+    res.json(data);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    res.status(500).json({ success: false, error: { message } });
+  }
+});
+
 // Cancel / stop analysis — creates a .stop file that LLM gateway checks
 router.post('/analysis/cancel', async (req, res) => {
   try {

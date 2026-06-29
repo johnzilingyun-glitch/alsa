@@ -3,6 +3,7 @@ import { Loader2, FileText, AlertCircle, Target, CheckCircle2, Bell, BellRing } 
 import { useAnalysisStore } from '../../stores/useAnalysisStore';
 import { useConfigStore } from '../../stores/useConfigStore';
 import { useUIStore } from '../../stores/useUIStore';
+import { useMarketStore } from '../../stores/useMarketStore';
 import { alertsClient } from '../../services/api/alertsClient';
 import { useTranslation } from 'react-i18next';
 import { cn } from './utils';
@@ -30,6 +31,7 @@ export function InstitutionalReportView() {
   const [isEnablingMonitor, setIsEnablingMonitor] = useState(false);
   const showToast = useUIStore(s => s.showToast);
   const feishuWebhookUrl = useConfigStore(s => s.feishuWebhookUrl);
+  const setAlerts = useMarketStore(s => s.setAlerts);
 
   const isNotRecommended = String(analysis?.tradingPlan?.entryPrice || '').includes('不推荐') || 
                           String(analysis?.tradingPlan?.entryPrice || '').includes('Not Recommended');
@@ -62,6 +64,12 @@ export function InstitutionalReportView() {
         setAdded(true);
         setCreatedAlertId(result.alert_id);
         setShowMonitorConfirm(true);
+        // Optimistically push the created alert into the store so Signal Center shows it
+        // instantly, even if the user opens it before a fresh GET completes.
+        const cur = useMarketStore.getState().searchAlerts || [];
+        setAlerts([result, ...cur.filter((a: any) => a.alert_id !== result.alert_id)]);
+        // Reconcile with backend (authoritative list)
+        alertsClient.list().then(r => setAlerts(r.items || [])).catch(() => {});
         showToast('已添加至信号中心，请确认是否启动实时监控', 'success');
       } else {
         showToast('交易计划中未能提取有效的数值，无法添加', 'error');
@@ -222,6 +230,13 @@ export function InstitutionalReportView() {
     strategyRisks: analysis?.summary || ""
   };
 
+  // Entry display: when the model leaves entryPrice blank, surface a
+  // "现价 / 区间待定" hint (with the live price) instead of a silent blank.
+  const _entryPx = analysis?.stockInfo?.price;
+  const entryDisplay = /\d/.test(String(plan.entryPrice ?? ''))
+    ? plan.entryPrice
+    : (_entryPx ? `现价 ${_entryPx} / 区间待定` : '现价 / 区间待定');
+
   return (
     <div className="space-y-6">
       {analysis && (
@@ -263,7 +278,7 @@ export function InstitutionalReportView() {
               <div className="flex flex-wrap gap-x-6 gap-y-2 pt-2">
                 <div className="text-xs">
                   <span className="text-zinc-400 mr-1.5">{t('analysis.conference.entry_price')}:</span>
-                  <span className="font-semibold text-indigo-600 font-mono">{plan.entryPrice}</span>
+                  <span className="font-semibold text-indigo-600 font-mono">{entryDisplay}</span>
                 </div>
                 <div className="text-xs">
                   <span className="text-zinc-400 mr-1.5">{t('analysis.conference.target_price')}:</span>

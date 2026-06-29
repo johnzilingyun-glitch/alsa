@@ -1,10 +1,10 @@
 import pytest
 import pandas as pd
 import numpy as np
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, patch, AsyncMock
 from app.services.mock_trading_service import MockTradingService
 from app.services.backtest_engine_service import BacktestEngine
-from app.services.screening_service import _screen_ashare_sync
+from app.services.screening_service import _fetch_ashare_candidates
 
 
 # 1. Test Position cost basis math (Task 3)
@@ -67,28 +67,25 @@ def test_mock_trading_cost_basis_add_long():
 
 
 # 2. Test A-Share screening flow (Task 2)
-from unittest.mock import AsyncMock
 @patch('akshare.stock_zh_a_spot_em')
-@patch('app.services.screening_service._filter_tickers_by_criteria_async', new_callable=AsyncMock)
-def test_a_share_screening_flow(mock_filter, mock_ak):
+def test_a_share_screening_flow(mock_ak):
     # Mock AkShare spot data
     mock_ak.return_value = pd.DataFrame([
         {"代码": "600519", "名称": "贵州茅台", "最新价": "1600.0", "市盈率-动态": "25.0", "市净率": "6.0", "涨跌幅": "1.5", "总市值": 2e12},
         {"代码": "000858", "名称": "五粮液", "最新价": "150.0", "市盈率-动态": "18.0", "市净率": "4.0", "涨跌幅": "-0.5", "总市值": 6e11},
     ])
 
-    mock_filter.return_value = [
-        {"symbol": "600519.SS", "price": 1600.0, "pe": 25.0, "pb": 6.0, "score": 90.0}
-    ]
-
-    criteria = {"pe_max": 30, "pb_max": 8.0}
-    res = _screen_ashare_sync("growth", criteria, None, limit=10)
-
-    assert len(res) == 1
-    assert res[0]["symbol"] == "600519.SS"
-    assert res[0]["name"] == "贵州茅台"
+    # Test the data fetching function (runs in executor, no asyncio.run)
+    result = _fetch_ashare_candidates("growth")
+    
+    assert result is not None
+    assert "yf_tickers" in result
+    assert "symbol_to_name" in result
     # Verify A-share symbols got properly mapped to yfinance (.SS / .SZ)
-    mock_filter.assert_called_once_with(["600519.SS", "000858.SZ"], criteria, 10)
+    assert "600519.SS" in result["yf_tickers"]
+    assert "000858.SZ" in result["yf_tickers"]
+    assert result["symbol_to_name"]["600519.SS"] == "贵州茅台"
+    assert result["symbol_to_name"]["000858.SZ"] == "五粮液"
 
 
 # 3. Test US Backtest Benchmark Calculations (Task 4)

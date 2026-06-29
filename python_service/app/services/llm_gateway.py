@@ -4,6 +4,7 @@ logger = logging.getLogger(__name__)
 import json
 import asyncio
 import time
+from datetime import datetime
 from contextvars import ContextVar
 from google import genai
 from openai import OpenAI
@@ -73,6 +74,13 @@ class LLMGateway:
         self._last_deepseek_key = None
         self.deepseek_api_key = self.get_deepseek_api_key()
 
+        # Rate limiter for the default relay (中转站) to prevent 503 errors
+        _min_interval = float(os.getenv("LLM_RATE_LIMIT_INTERVAL", "3.0"))
+        _max_concurrent = int(os.getenv("LLM_RATE_LIMIT_CONCURRENCY", "2"))
+        self._default_rate_limiter = RateLimiter(
+            min_interval=_min_interval, max_concurrent=_max_concurrent
+        )
+
         # Cache configuration
         self._cache_dir = os.path.join(os.path.expanduser("~/.alsa_cache/llm"))
         self._cache_ttl_hours = int(os.getenv("LLM_CACHE_TTL_HOURS", "12"))
@@ -113,6 +121,46 @@ class LLMGateway:
                 json.dump({"content": content, "cached_at": datetime.now().isoformat()}, f)
         except Exception as e:
             logger.debug(f"[Cache] Write failed: {e}")
+
+    async def validate_api_key(self, provider: str, api_key: str) -> bool:
+        """Validate if the given API key is active and working."""
+        try:
+            if provider == "gemini":
+                client = genai.Client(api_key=api_key)
+                loop = asyncio.get_event_loop()
+                def _test():
+                    client.models.generate_content(
+                        model="gemini-2.5-flash",
+                        contents="Say 'OK'",
+                        config={"max_output_tokens": 5}
+                    )
+                await loop.run_in_executor(None, _test)
+                return True
+            elif provider == "deepseek":
+                import httpx
+                client = OpenAI(
+                    api_key=api_key,
+                    base_url=self.deepseek_base_url,
+                    timeout=httpx.Timeout(10.0, connect=5.0),
+                )
+                loop = asyncio.get_event_loop()
+                def _test():
+                    client.chat.completions.create(
+                        model="deepseek-chat",
+                        messages=[{"role": "user", "content": "Say 'OK'"}],
+                        max_tokens=2
+                    )
+                await loop.run_in_executor(None, _test)
+                return True
+            return False
+        except Exception as e:
+            err_msg = str(e).lower()
+            if any(term in err_msg for term in ["invalid", "key not", "unauthorized", "authentication", "incorrect", "401"]):
+                logger.error(f"API key validation failed for {provider}: {e}")
+                return False
+            # For other errors (like timeout/503), assume key is valid to prevent false negatives
+            logger.warning(f"Key validation got transient error, assuming valid: {e}")
+            return True
 
     def get_gemini_api_key(self, api_key=None):
         if api_key:

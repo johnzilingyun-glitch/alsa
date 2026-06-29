@@ -13,6 +13,7 @@ PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..
 
 from .backtest_engine_service import calculate_round_trip_trades
 from ..quant.risk_metrics import RiskMetrics
+from ..config import RISK_FREE_RATE
 
 _has_vnpy = False
 try:
@@ -488,7 +489,7 @@ class PortfolioBacktester:
                 else:
                     bench_ann_return = 0.05
                     
-                    rf = 0.02
+                    rf = RISK_FREE_RATE
                     alpha = float(ann_ret - (rf + beta * (bench_ann_return - rf)))
                     treynor = float((ann_ret - rf) / beta) if beta != 0 else 0.0
                     
@@ -716,20 +717,6 @@ class PortfolioBacktester:
                 sorted_symbols = sorted(valid_symbols, key=lambda s: mc_cross.get(s, 2000.0), reverse=True)
                 target_symbols = sorted_symbols[:5]
                 pending_rebalance = True
-                
-            current_equity = cash
-            for sym in symbols:
-                if positions[sym] > 0:
-                    price = current_prices.get(sym, 0.0)
-                    if not pd.isna(price):
-                        current_equity += positions[sym] * price
-            
-            snapshots.append({
-                "date": d_str,
-                "total_equity": float(current_equity),
-                "cash": float(cash)
-            })
-            portfolio_values.append(current_equity)
 
         final_value = portfolio_values[-1] if portfolio_values else initial_capital
         total_ret = (final_value - initial_capital) / initial_capital
@@ -737,7 +724,11 @@ class PortfolioBacktester:
         eq_series = pd.Series(portfolio_values)
         daily_returns = eq_series.pct_change().dropna()
         
-        ann_ret = ((1 + total_ret) ** (365.25 / max(len(closes.index), 1)) - 1)
+        # Calculate annualized return using actual time span
+        start_dt = pd.Timestamp(start_date)
+        end_dt = pd.Timestamp(end_date)
+        days = (end_dt - start_dt).days
+        ann_ret = ((1 + total_ret) ** (365.25 / max(days, 1)) - 1) if days > 0 else 0.0
         sharpe = RiskMetrics.compute_sharpe(daily_returns)
         
         running_max = eq_series.cummax()

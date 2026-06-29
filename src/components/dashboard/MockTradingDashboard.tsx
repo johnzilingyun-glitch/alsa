@@ -63,12 +63,9 @@ export function MockTradingDashboard() {
     try {
       const accs = await listMockAccounts(activeUserId);
       setAccounts(accs);
-      if (accs.length > 0 && !selectedAccount) {
-        setSelectedAccount(accs[0]);
-      }
     } catch (e) { console.error(e); }
     finally { setLoading(false); }
-  }, [activeUserId, selectedAccount]);
+  }, [activeUserId]);
 
   const loadAccountData = useCallback(async (acc: MockAccount) => {
     try {
@@ -106,6 +103,12 @@ export function MockTradingDashboard() {
   }, []);
 
   useEffect(() => { loadAccounts(); }, [loadAccounts]);
+
+  useEffect(() => {
+    if (accounts.length > 0 && !selectedAccount) {
+      setSelectedAccount(accounts[0]);
+    }
+  }, [accounts]);
 
   useEffect(() => {
     if (selectedAccount) loadAccountData(selectedAccount);
@@ -229,16 +232,24 @@ export function MockTradingDashboard() {
       setShowCreate(false);
       setNewName('');
       setNewInitialBalance('');
+      useUIStore.getState().showToast('模拟账号创建成功', 'success');
       await loadAccounts();
-    } catch (e) { console.error(e); }
+    } catch (e: any) {
+      console.error(e);
+      useUIStore.getState().showToast(`创建失败: ${e.message || '未知错误'}`, 'error');
+    }
   };
 
   const handleDelete = async (accId: string) => {
     try {
       await deleteMockAccount(accId);
       if (selectedAccount?.account_id === accId) setSelectedAccount(null);
+      useUIStore.getState().showToast('账号已删除', 'success');
       await loadAccounts();
-    } catch (e) { console.error(e); }
+    } catch (e: any) {
+      console.error(e);
+      useUIStore.getState().showToast(`删除失败: ${e.message || '未知错误'}`, 'error');
+    }
   };
 
   const fmt = (val: number, currency = 'CNY') => new Intl.NumberFormat('zh-CN', { style: 'currency', currency, minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(val);

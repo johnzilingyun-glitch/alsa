@@ -13,6 +13,7 @@ from enum import Enum
 
 from .data_sync_service import data_sync_service
 from ..quant.risk_metrics import RiskMetrics
+from ..config import RISK_FREE_RATE
 
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 
@@ -497,7 +498,7 @@ class BacktestEngine:
                     if bench_var > 0:
                         beta = float(cov[0, 1] / bench_var)
 
-                    rf = 0.02
+                    rf = RISK_FREE_RATE
                     # Benchmark annualized return
                     bench_total_ret = (bench_close.iloc[-1] - bench_close.iloc[0]) / bench_close.iloc[0] if len(bench_close) > 0 else 0.0
                     bench_ann_ret = ((1 + bench_total_ret) ** (365.25 / max(days, 1)) - 1) if days > 0 else 0.0
@@ -739,7 +740,7 @@ class BacktestEngine:
                     else:
                         bench_ann_return = 0.05
                     
-                    rf = 0.02
+                    rf = RISK_FREE_RATE
                     alpha = float(ann_ret - (rf + beta * (bench_ann_return - rf)))
                     treynor = float((ann_ret - rf) / beta) if beta != 0 else 0.0
                     

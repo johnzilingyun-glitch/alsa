@@ -12,6 +12,9 @@ T = TypeVar("T")
 # Fast-fail keywords: don't waste time retrying these
 _NO_RETRY_KEYWORDS = ("Too Many Requests", "Rate limited", "429", "Forbidden")
 
+# Data-parsing errors: upstream returned bad data, retrying won't help
+_DATA_ERROR_KEYWORDS = ("NoneType", "KeyError", "IndexError", "KeyError", "list index out of range")
+
 async def safe_ak_call(func: Callable[..., T], *args, max_retries: int = 2, initial_delay: float = 1.0, **kwargs) -> T:
     """
     Safely execute an AkShare call with retries and exponential backoff.
@@ -36,6 +39,11 @@ async def safe_ak_call(func: Callable[..., T], *args, max_retries: int = 2, init
             if any(kw in err_msg for kw in _NO_RETRY_KEYWORDS):
                 logger.warning(f"Rate limited/blocked, not retrying AkShare call: {e}")
                 break
+
+            # Data errors: upstream returned empty/null data, retrying won't help
+            if any(kw in err_msg for kw in _DATA_ERROR_KEYWORDS):
+                logger.warning(f"Data error from AkShare (not retrying): {e}")
+                return None
 
             is_network = "RemoteDisconnected" in err_msg or "Connection aborted" in err_msg or "Connection reset" in err_msg
             if is_network:

@@ -94,10 +94,10 @@ def _fetch_batch_info(batch: List[str]) -> List[Tuple[str, Dict]]:
         for sym in batch:
             try:
                 res.append((sym, tickers_obj.tickers[sym].info))
-            except Exception:
-                pass
-    except Exception:
-        pass
+            except Exception as e:
+                logger.debug(f"Failed to fetch info for {sym}: {e}")
+    except Exception as e:
+        logger.warning(f"Batch fetch failed: {e}")
     return res
 
 async def _filter_tickers_by_criteria_async(tickers: List[str], criteria: Dict, limit: int) -> List[Dict]:
@@ -152,10 +152,11 @@ def _fetch_batch_momentum(batch: List[str]) -> List[Dict]:
                         "ma50_above_ma200": bool(ma50 > ma200),
                         "score": round(float(pct_6m + (current/ma200 - 1) * 50), 1)
                     })
-            except Exception:
+            except Exception as e:
+                logger.debug(f"Momentum calc failed for {symbol}: {e}")
                 continue
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"Batch momentum fetch failed: {e}")
     return res
 
 async def _filter_by_momentum_async(tickers: List[str], criteria: Dict, limit: int) -> List[Dict]:
@@ -217,7 +218,8 @@ def _matches_criteria(info: Dict, criteria: Dict) -> bool:
             return False
 
         return True
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Criteria check failed: {e}")
         return False
 
 
@@ -291,11 +293,33 @@ def _extract_screen_metrics(symbol: str, info: Dict) -> Dict:
 async def _screen_ashare(screen_type: str, criteria: Dict, sector: Optional[str], limit: int) -> List[Dict]:
     """Screen A-Share stocks using AkShare."""
     loop = asyncio.get_event_loop()
-    return await loop.run_in_executor(_executor, _screen_ashare_sync, screen_type, criteria, sector, limit)
+    
+    # Step 1: Fetch A-share data in executor (blocking AkShare call)
+    candidates_data = await loop.run_in_executor(_executor, _fetch_ashare_candidates, screen_type)
+    
+    if not candidates_data:
+        return []
+    
+    yf_tickers = candidates_data["yf_tickers"]
+    symbol_to_name = candidates_data["symbol_to_name"]
+    
+    # Step 2: Run async yfinance criteria screening directly (no nested asyncio.run)
+    if screen_type == "momentum":
+        results = await _filter_by_momentum_async(yf_tickers, criteria, limit)
+    else:
+        results = await _filter_tickers_by_criteria_async(yf_tickers, criteria, limit)
+    
+    # Restore original A-share name for output
+    for r in results:
+        yf_sym = r["symbol"]
+        if yf_sym in symbol_to_name:
+            r["name"] = symbol_to_name[yf_sym]
+    
+    return results
 
 
-def _screen_ashare_sync(screen_type: str, criteria: Dict, sector: Optional[str], limit: int) -> List[Dict]:
-    """Synchronous A-Share screening via AkShare & yfinance."""
+def _fetch_ashare_candidates(screen_type: str) -> Optional[Dict]:
+    """Synchronous A-Share data fetch via AkShare (runs in executor)."""
     try:
         import akshare as ak
         import pandas as pd
@@ -303,7 +327,7 @@ def _screen_ashare_sync(screen_type: str, criteria: Dict, sector: Optional[str],
         # Get real-time A-share market data
         df = ak.stock_zh_a_spot_em()
         if df is None or df.empty:
-            return []
+            return None
 
         # Map columns
         col_map = {
@@ -328,16 +352,13 @@ def _screen_ashare_sync(screen_type: str, criteria: Dict, sector: Optional[str],
                 df[col] = pd.to_numeric(df[col], errors='coerce')
 
         # Apply screen-type specific rough filters
-        # These pre-filter before the deep yfinance criteria check
         if screen_type == "value":
             df = df[(df["pe"] > 0) & (df["pe"] < 35)]
             df = df[(df["pb"] > 0) & (df["pb"] < 3.5)]
         elif screen_type == "growth":
-            # Growth stocks: moderate PE (high PE = overvalued, not growth)
-            # Also require positive PE (profitable) and market_cap > 5B (established)
             df = df[(df["pe"] > 0) & (df["pe"] < 50)]
             if "market_cap" in df.columns:
-                df = df[df["market_cap"] > 5e9]  # >50亿市值
+                df = df[df["market_cap"] > 5e9]
         elif screen_type == "quality":
             df = df[(df["pe"] > 0) & (df["pe"] < 60)]
             if "market_cap" in df.columns:
@@ -347,13 +368,13 @@ def _screen_ashare_sync(screen_type: str, criteria: Dict, sector: Optional[str],
         elif screen_type == "momentum":
             df = df[df["change_pct"] > 0]
 
-        # Sort by market cap descending (prefer larger companies)
+        # Sort by market cap descending
         if "market_cap" in df.columns:
             df = df.sort_values("market_cap", ascending=False)
 
         candidates = df.head(40)
         if candidates.empty:
-            return []
+            return None
 
         # Map A-share symbols to yfinance format
         yf_tickers = []
@@ -366,23 +387,10 @@ def _screen_ashare_sync(screen_type: str, criteria: Dict, sector: Optional[str],
             yf_tickers.append(yf_sym)
             symbol_to_name[yf_sym] = row["name"]
 
-        # Run deep yfinance criteria screening
-        import asyncio
-        if screen_type == "momentum":
-            results = asyncio.run(_filter_by_momentum_async(yf_tickers, criteria, limit))
-        else:
-            results = asyncio.run(_filter_tickers_by_criteria_async(yf_tickers, criteria, limit))
-
-        # Restore original A-share name for output
-        for r in results:
-            yf_sym = r["symbol"]
-            if yf_sym in symbol_to_name:
-                r["name"] = symbol_to_name[yf_sym]
-
-        return results
+        return {"yf_tickers": yf_tickers, "symbol_to_name": symbol_to_name}
     except Exception as e:
-        logger.error(f"A-Share screening error: {e}")
-        return []
+        logger.error(f"A-Share candidate fetch error: {e}")
+        return None
 
 
 # Singleton-style access

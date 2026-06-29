@@ -8,6 +8,7 @@ import type { StockAnalysis, Market } from '../../types';
 import { alertsClient } from '../../services/api/alertsClient';
 import { useUIStore } from '../../stores/useUIStore';
 import { useConfigStore } from '../../stores/useConfigStore';
+import { useMarketStore } from '../../stores/useMarketStore';
 
 interface SidebarSummaryProps {
   analysis: StockAnalysis;
@@ -23,8 +24,15 @@ export function SidebarSummary({ analysis }: SidebarSummaryProps) {
   const [isEnablingMonitor, setIsEnablingMonitor] = useState(false);
   const showToast = useUIStore(s => s.showToast);
   const feishuWebhookUrl = useConfigStore(s => s.feishuWebhookUrl);
+  const setAlerts = useMarketStore(s => s.setAlerts);
   const isNotRecommended = String(analysis.tradingPlan?.entryPrice || '').includes('不推荐') || 
                           String(analysis.tradingPlan?.entryPrice || '').includes('Not Recommended');
+
+  // Entry display: surface a "现价 / 区间待定" hint when the model leaves entryPrice blank.
+  const _entryPx = analysis.stockInfo?.price;
+  const entryDisplay = /\d/.test(String(analysis.tradingPlan?.entryPrice ?? ''))
+    ? analysis.tradingPlan?.entryPrice
+    : (_entryPx ? `现价 ${_entryPx} / 区间待定` : '现价 / 区间待定');
 
   const handleAddToSignalCenter = async () => {
     if (!analysis.tradingPlan || !analysis.stockInfo) return;
@@ -52,6 +60,12 @@ export function SidebarSummary({ analysis }: SidebarSummaryProps) {
         setAdded(true);
         setCreatedAlertId(result.alert_id);
         setShowMonitorConfirm(true);
+        // Optimistically push the created alert into the store so Signal Center shows it
+        // instantly, even if the user opens it before a fresh GET completes.
+        const cur = useMarketStore.getState().searchAlerts || [];
+        setAlerts([result, ...cur.filter((a: any) => a.alert_id !== result.alert_id)]);
+        // Reconcile with backend (authoritative list)
+        alertsClient.list().then(r => setAlerts(r.items || [])).catch(() => {});
         showToast('已添加至信号中心，请确认是否启动实时监控', 'success');
       } else {
         showToast('交易计划中未能提取有效的数值，无法添加', 'error');
@@ -130,7 +144,7 @@ export function SidebarSummary({ analysis }: SidebarSummaryProps) {
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
               <div className="p-3 rounded-2xl bg-white border border-zinc-200">
                 <p className="text-[10px] font-medium uppercase tracking-widest text-zinc-400 mb-1">{t('analysis.conference.entry_price')}</p>
-                <p className="text-sm font-medium text-indigo-600">{analysis.tradingPlan.entryPrice}</p>
+                <p className="text-sm font-medium text-indigo-600">{entryDisplay}</p>
               </div>
               <div className="p-3 rounded-2xl bg-white border border-zinc-200">
                 <p className="text-[10px] font-medium uppercase tracking-widest text-zinc-400 mb-1">{t('analysis.conference.target_price')}</p>

@@ -95,7 +95,7 @@ export function useAnalysisJob() {
         if (!(window as any).__alsaKeyCached) {
           const savedConfig = (() => {
             try {
-              const raw = localStorage.getItem('gemini_config');
+              const raw = localStorage.getItem('llm_config');
               return raw ? JSON.parse(raw) : {};
               } catch {
                 console.warn('[useAnalysisJob] Failed to parse saved config for API key:');
@@ -143,7 +143,7 @@ export function useAnalysisJob() {
           if (stage === 'need_api_key') {
             const savedConfig = (() => {
               try {
-                const raw = localStorage.getItem('gemini_config');
+                const raw = localStorage.getItem('llm_config');
                 return raw ? JSON.parse(raw) : {};
             } catch {
               console.warn('[useAnalysisJob] Failed to parse saved config:');

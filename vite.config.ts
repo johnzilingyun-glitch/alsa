@@ -61,5 +61,19 @@ export default defineConfig(() => {
         ignored: ['**/.venv/**', '**/.venv_qlib/**', '**/node_modules/**', '**/data/**', '**/python_service/**', '**/server/**', '**/server.ts', '**/scratch/**', '**/logs/**', '**/docs/**', '**/sector_reports/**', '**/reports/**', '**/*.log', '**/*.db', '**/*.db-journal', '**/PaperTrading_System/**'],
       },
     },
+    preview: {
+      host: true,
+      port: 5173,
+      proxy: {
+        '/api': {
+          target: 'http://localhost:3000',
+          changeOrigin: true,
+        },
+        '/socket.io': {
+          target: 'http://localhost:3000',
+          ws: true,
+        },
+      },
+    },
   };
 });

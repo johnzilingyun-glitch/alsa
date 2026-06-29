@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { MarketOverview, Market } from '../types';
+import { MarketOverview, MarketDashboard, Market } from '../types';
 
 interface MarketState {
   marketOverviews: Record<string, MarketOverview | null>;
@@ -15,8 +15,17 @@ interface MarketState {
   alertPrices: Record<string, number>;
   activeAlertStatus: 'gold' | 'red' | 'indigo' | 'neutral';
 
+  // New dashboard store
+  marketDashboards: Record<string, MarketDashboard | null>;
+  marketSummary: Record<string, string>;
+  marketSentiment: Record<string, 'bullish' | 'bearish' | 'neutral' | ''>;
+  aiLoading: Record<string, boolean>;
+
   setMarketOverview: (market: string, overview: MarketOverview | null) => void;
   setMarketLastUpdated: (market: string, timestamp: number | null) => void;
+  setMarketDashboard: (market: string, dashboard: MarketDashboard | null) => void;
+  setMarketSummaryData: (market: string, summary: string, sentiment: 'bullish' | 'bearish' | 'neutral') => void;
+  setAiLoading: (market: string, loading: boolean) => void;
   setDailyReport: (report: string | null) => void;
   setHistoryItems: (items: any[]) => void;
   setWatchlist: (items: any[]) => void;
@@ -56,19 +65,38 @@ export const useMarketStore = create<MarketState>()(
       activeAlertStatus: 'neutral',
       _hasHydrated: false,
 
-      setMarketOverview: (market, overview) => 
-        set((state) => ({ 
-          marketOverviews: { ...state.marketOverviews, [market]: overview } 
+      marketDashboards: { "A-Share": null, "HK-Share": null, "US-Share": null },
+      marketSummary: { "A-Share": "", "HK-Share": "", "US-Share": "" },
+      marketSentiment: { "A-Share": "", "HK-Share": "", "US-Share": "" },
+      aiLoading: { "A-Share": false, "HK-Share": false, "US-Share": false },
+
+      setMarketOverview: (market, overview) =>
+        set((state) => ({
+          marketOverviews: { ...state.marketOverviews, [market]: overview }
         })),
-      setMarketLastUpdated: (market, timestamp) => 
-        set((state) => ({ 
-          marketLastUpdatedTimes: { ...state.marketLastUpdatedTimes, [market]: timestamp } 
+      setMarketLastUpdated: (market, timestamp) =>
+        set((state) => ({
+          marketLastUpdatedTimes: { ...state.marketLastUpdatedTimes, [market]: timestamp }
+        })),
+      setMarketDashboard: (market, dashboard) =>
+        set((state) => ({
+          marketDashboards: { ...state.marketDashboards, [market]: dashboard }
+        })),
+      setMarketSummaryData: (market, summary, sentiment) =>
+        set((state) => ({
+          marketSummary: { ...state.marketSummary, [market]: summary },
+          marketSentiment: { ...state.marketSentiment, [market]: sentiment },
+        })),
+      setAiLoading: (market, loading) =>
+        set((state) => ({
+          aiLoading: { ...state.aiLoading, [market]: loading }
         })),
       setDailyReport: (dailyReport) => set({ dailyReport }),
       setHistoryItems: (historyItems) => set({ historyItems }),
       setWatchlist: (watchlist) => set({ watchlist }),
       setRecentSearches: (recentSearches) => set({ recentSearches }),
       addRecentSearch: (search) => set((state) => {
+        if (!search || typeof search.symbol !== 'string' || typeof search.name !== 'string') return state;
         const filtered = state.recentSearches.filter(s => s.symbol !== search.symbol);
         return { recentSearches: [search, ...filtered].slice(0, 10) };
       }),
@@ -100,11 +128,14 @@ export const useMarketStore = create<MarketState>()(
           const price = alertPrices[alert.symbol];
           if (!price) continue;
 
-          if (price >= alert.target_price) {
+          const isShort = alert.target_price < alert.entry_price;
+          const targetHit = isShort ? price <= alert.target_price : price >= alert.target_price;
+          const stopHit = isShort ? price >= alert.stop_loss : price <= alert.stop_loss;
+          if (targetHit) {
             highestStatus = 'gold'; // Gold takes priority
             break; 
           }
-          if (price <= alert.stop_loss) {
+          if (stopHit) {
             if ((highestStatus as string) !== 'gold') highestStatus = 'red';
           } else {
             const entryDiff = Math.abs(price - alert.entry_price) / alert.entry_price;
@@ -128,7 +159,16 @@ export const useMarketStore = create<MarketState>()(
         // Exclude historyItems, optimizationLogs to keep localStorage small and hydration fast
       }),
       onRehydrateStorage: () => (state) => {
-        state?.setHasHydrated(true);
+        if (state) {
+          state.setHasHydrated(true);
+          if (Array.isArray(state.recentSearches)) {
+            const valid = state.recentSearches.filter(s => s && typeof s.symbol === 'string' && typeof s.name === 'string');
+            if (valid.length !== state.recentSearches.length) {
+              // Defer state update until hydration is complete
+              setTimeout(() => state.setRecentSearches(valid), 0);
+            }
+          }
+        }
       },
     }
   )

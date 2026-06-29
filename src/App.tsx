@@ -36,6 +36,7 @@ const HistoryModal = lazy(() => import('./components/HistoryModal').then(m => ({
 const AnalysisResult = lazy(() => import('./components/analysis/AnalysisResult').then(m => ({ default: m.AnalysisResult })));
 const AdminPanel = lazy(() => import('./components/admin/AdminPanel').then(m => ({ default: m.AdminPanel })));
 const SystemMonitor = lazy(() => import('./components/admin/SystemMonitor').then(m => ({ default: m.SystemMonitor })));
+const UserManagement = lazy(() => import('./components/admin/UserManagement').then(m => ({ default: m.UserManagement })));
 
 const AnalysisLoadingPulse = lazy(() => import('./components/analysis/AnalysisLoadingPulse').then(m => ({ default: m.AnalysisLoadingPulse })));
 const SignalCenter = lazy(() => import('./components/dashboard/SignalCenter').then(m => ({ default: m.SignalCenter })));
@@ -46,6 +47,7 @@ const IBKRDashboard = lazy(() => import('./components/dashboard/IBKRDashboard').
 const MockTradingDashboard = lazy(() => import('./components/dashboard/MockTradingDashboard').then(m => ({ default: m.MockTradingDashboard })));
 const BacktestPanel = lazy(() => import('./components/dashboard/BacktestPanel').then(m => ({ default: m.BacktestPanel })));
 const PredictionDashboard = lazy(() => import('./components/dashboard/PredictionDashboard').then(m => ({ default: m.PredictionDashboard })));
+const ThsAnalysis = lazy(() => import('./components/dashboard/ThsAnalysis').then(m => ({ default: m.ThsAnalysis })));
 
 export default function App() {
   console.log('App is rendering');
@@ -72,6 +74,7 @@ export default function App() {
   const showMockTradingDashboard = useUIStore(s => s.showMockTradingDashboard);
   const showBacktestPanel = useUIStore(s => s.showBacktestPanel);
   const showPredictionDashboard = useUIStore(s => s.showPredictionDashboard);
+  const showThsAnalysis = useUIStore(s => s.showThsAnalysis);
   const setShowDiscussion = useUIStore(s => s.setShowDiscussion);
   const setIsSettingsOpen = useUIStore(s => s.setIsSettingsOpen);
 
@@ -93,7 +96,7 @@ export default function App() {
   const { handleSearch, resetToHome, fetchAdminData, historyDialogOpen, historyDialogItems, pendingSearchSymbol, setHistoryDialogOpen, doStartAnalysis, loadHistoryResult, loadBackgroundResult } = useStockAnalysis();
   const { handleDiscussionQuestion, handleGenerateNewConclusion } = useDiscussion(fetchAdminData);
   const { handleChat } = useChat(fetchAdminData);
-  const { fetchMarketOverview } = useMarketData(fetchAdminData);
+  const { fetchMarketDashboard: fetchMarketOverview } = useMarketData(fetchAdminData);
   const {
     handleTriggerDailyReport,
     handleSendStockReport,
@@ -148,7 +151,7 @@ export default function App() {
 
       if (changed && !analysis) {
         console.log('[App] Settings saved with model/key changes, triggering AI enrichment');
-        void fetchMarketOverview(true, true);
+        void fetchMarketOverview(true);
       }
     }
     prevSettingsOpen.current = isSettingsOpen;
@@ -200,7 +203,7 @@ export default function App() {
 
       <div className="relative z-10 mx-auto max-w-7xl px-6 py-12 md:px-12">
         {/* Admin management page (hash route) */}
-        {hashRoute === '/admin' ? (
+        {hashRoute === '/admin' || hashRoute.startsWith('/admin/') ? (
           <div className="space-y-8">
             <div className="flex items-center gap-4 mb-4">
               <button onClick={() => { window.location.hash = '#/'; }} className="text-sm text-indigo-600 hover:text-indigo-700 font-medium">
@@ -208,12 +211,43 @@ export default function App() {
               </button>
               <h1 className="text-xl font-bold text-zinc-900">后台管理</h1>
             </div>
-            <Suspense fallback={<div className="flex items-center justify-center py-12"><Loader2 size={24} className="animate-spin text-indigo-500" /></div>}>
-              <SystemMonitor />
-            </Suspense>
-            <Suspense fallback={null}>
-              <AdminPanel />
-            </Suspense>
+            {/* Admin sub-navigation */}
+            <div className="flex items-center gap-2 border-b border-zinc-200 pb-3">
+              <button
+                onClick={() => { window.location.hash = '#/admin'; }}
+                className={`text-xs font-medium px-3 py-1.5 rounded-lg transition-colors ${
+                  hashRoute === '/admin'
+                    ? 'bg-indigo-100 text-indigo-700'
+                    : 'text-zinc-500 hover:text-zinc-700 hover:bg-zinc-100'
+                }`}
+              >
+                系统监控
+              </button>
+              <button
+                onClick={() => { window.location.hash = '#/admin/users'; }}
+                className={`text-xs font-medium px-3 py-1.5 rounded-lg transition-colors ${
+                  hashRoute === '/admin/users'
+                    ? 'bg-indigo-100 text-indigo-700'
+                    : 'text-zinc-500 hover:text-zinc-700 hover:bg-zinc-100'
+                }`}
+              >
+                用户管理
+              </button>
+            </div>
+            {hashRoute === '/admin' ? (
+              <>
+                <Suspense fallback={<div className="flex items-center justify-center py-12"><Loader2 size={24} className="animate-spin text-indigo-500" /></div>}>
+                  <SystemMonitor />
+                </Suspense>
+                <Suspense fallback={null}>
+                  <AdminPanel />
+                </Suspense>
+              </>
+            ) : (
+              <Suspense fallback={<div className="flex items-center justify-center py-12"><Loader2 size={24} className="animate-spin text-indigo-500" /></div>}>
+                <UserManagement />
+              </Suspense>
+            )}
           </div>
         ) : (
         <>
@@ -342,7 +376,7 @@ export default function App() {
               </div>
             }>
             <MarketOverview
-              onFetchMarketOverview={(force) => void fetchMarketOverview(force, force)}
+              onFetchMarketOverview={(force) => void fetchMarketOverview(force)}
               onTriggerDailyReport={handleTriggerDailyReport}
             />
             </Suspense>
@@ -358,6 +392,7 @@ export default function App() {
         {showMockTradingDashboard && <Suspense fallback={null}><MockTradingDashboard /></Suspense>}
         {showBacktestPanel && <Suspense fallback={null}><BacktestPanel isOpen={showBacktestPanel} onClose={() => useUIStore.getState().setShowBacktestPanel(false)} /></Suspense>}
         {showPredictionDashboard && <Suspense fallback={null}><PredictionDashboard isOpen={showPredictionDashboard} onClose={() => useUIStore.getState().setShowPredictionDashboard(false)} /></Suspense>}
+        {showThsAnalysis && <Suspense fallback={null}><ThsAnalysis /></Suspense>}
         
         <Suspense fallback={null}><AnalysisLoadingPulse /></Suspense>
         </>
@@ -388,7 +423,7 @@ export default function App() {
             symbol={pendingSearchSymbol}
             items={historyDialogItems}
             onSelect={loadHistoryResult}
-            onForceNew={doStartAnalysis}
+            onForceNew={() => doStartAnalysis(pendingSearchSymbol)}
             onClose={() => setHistoryDialogOpen(false)}
           />
         </Suspense>

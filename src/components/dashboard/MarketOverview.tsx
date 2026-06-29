@@ -17,6 +17,7 @@ import { InstitutionalAlertPanel } from './InstitutionalAlertPanel';
 import { SectorScanner } from './SectorScanner';
 import { SerenityAlphaAnalyst } from './SerenityAlphaAnalyst';
 import { alertsClient } from '../../services/api/alertsClient';
+import { formatFundFlow, formatNumbersInText } from '../../services/formatUtils';
 import { Target, Activity, Star as StarIcon, Heart, Trash2, Plus, X } from 'lucide-react';
 
 function cn(...inputs: ClassValue[]) {
@@ -35,9 +36,10 @@ export const MarketOverview = memo(function MarketOverview({ onFetchMarketOvervi
     autoRefreshInterval, setAutoRefreshInterval, setIsSettingsOpen,
     showConfirm, showToast
   } = useUIStore();
-  const { 
+  const {
     marketOverviews, marketLastUpdatedTimes, overviewMarket, setOverviewMarket,
-    searchAlerts, alertPrices, watchlist, recentSearches, 
+    marketDashboards, marketSummary, marketSentiment, aiLoading,
+    searchAlerts, alertPrices, watchlist, recentSearches,
     updateAlertPrice, refreshActiveAlertStatus, setWatchlist, removeRecentSearch
   } = useMarketStore();
   const { setSymbol, setMarket } = useAnalysisStore();
@@ -249,21 +251,22 @@ export const MarketOverview = memo(function MarketOverview({ onFetchMarketOvervi
     }
   };
 
-  // Deterministic News & Sectors State
+  // Deterministic News & Sectors State — prefer dashboard data, fallback to independent fetch
   const [hotNews, setHotNews] = useState<any[]>([]);
   const [newsLoading, setNewsLoading] = useState(false);
-  const [sectorFlow, setSectorFlow] = useState<any>(null);
-  const [northboundFlow, setNorthboundFlow] = useState<any>(null);
+  const [_sectorFlowLocal, setSectorFlowLocal] = useState<any>(null);
+  const [_northboundLocal, setNorthboundLocal] = useState<any>(null);
   const [flowsLoading, setFlowsLoading] = useState(false);
   const [trendingStocks, setTrendingStocks] = useState<any[]>([]);
 
   const isHistoryMode = selectedDate !== '';
 
-  // Fetch deterministic hot news independently (slight delay to let indices load first)
+  // Fetch deterministic hot news independently (skip if dashboard provides news)
   useEffect(() => {
     let cancelled = false;
     async function fetchNews() {
       if (isHistoryMode) return;
+      if (dashboard?.news?.length) return;
       setNewsLoading(true);
       try {
         const res = await fetch(`/api/stock/news?market=${overviewMarket}`);
@@ -286,6 +289,8 @@ export const MarketOverview = memo(function MarketOverview({ onFetchMarketOvervi
     let cancelled = false;
     async function fetchFlows() {
       if (isHistoryMode) return;
+      // Skip if dashboard already provides sectorFlow + northbound
+      if (dashboard?.sectorFlow && dashboard?.northbound) return;
       setFlowsLoading(true);
       try {
         const [sectorsRes, northboundRes, trendingRes] = await Promise.all([
@@ -293,8 +298,8 @@ export const MarketOverview = memo(function MarketOverview({ onFetchMarketOvervi
           overviewMarket === 'A-Share' ? fetch(`/api/stock/northbound`) : Promise.resolve(null),
           fetch(`/api/stock/trending?market=${overviewMarket}`)
         ]);
-        if (sectorsRes.ok && !cancelled) setSectorFlow(await sectorsRes.json());
-        if (northboundRes && northboundRes.ok && !cancelled) setNorthboundFlow(await northboundRes.json());
+        if (sectorsRes.ok && !cancelled) setSectorFlowLocal(await sectorsRes.json());
+        if (northboundRes && northboundRes.ok && !cancelled) setNorthboundLocal(await northboundRes.json());
         if (trendingRes.ok && !cancelled) setTrendingStocks(await trendingRes.json());
       } catch (e) {
         console.warn("Quantitative Data Fetch failed", e);
@@ -345,7 +350,17 @@ export const MarketOverview = memo(function MarketOverview({ onFetchMarketOvervi
   const displayLoading = isHistoryMode ? historyLoading : overviewLoading;
 
   const marketOverview = displayOverview;
+  const dashboard = isHistoryMode ? null : marketDashboards[overviewMarket];
+  const summaryText = isHistoryMode ? '' : marketSummary[overviewMarket];
+  const sentimentText = isHistoryMode ? '' : marketSentiment[overviewMarket];
+  const isLoadingAI = isHistoryMode ? false : aiLoading[overviewMarket];
   const marketLastUpdated = isHistoryMode ? undefined : marketLastUpdatedTimes[overviewMarket];
+
+  // Derived data — prefer dashboard, fallback to local state
+  const sectorFlow = dashboard?.sectorFlow || _sectorFlowLocal;
+  const northboundFlow = (dashboard?.northbound || _northboundLocal)?.[0] ?? null;
+  const hotSectorsData = dashboard?.hotSectors;
+  const newsData = dashboard?.news || hotNews;
 
   const getSentimentText = (summary?: string) => {
     if (!summary) return t('common.neutral');
@@ -624,11 +639,12 @@ export const MarketOverview = memo(function MarketOverview({ onFetchMarketOvervi
                   let statusColor = 'text-zinc-600 bg-zinc-50';
                   
                   if (alert && price) {
-                    if (price >= alert.target_price) {
+                    const isShort = alert.target_price < alert.entry_price;
+                    if (isShort ? price <= alert.target_price : price >= alert.target_price) {
                       status = 'gold';
                       hint = t('marketOverview.hint_target_hit');
                       statusColor = 'text-yellow-700 bg-yellow-100 border-yellow-200';
-                    } else if (price <= alert.stop_loss) {
+                    } else if (isShort ? price >= alert.stop_loss : price <= alert.stop_loss) {
                       status = 'red';
                       hint = t('marketOverview.hint_stop_loss');
                       statusColor = 'text-rose-700 bg-rose-100 border-rose-200';
@@ -782,9 +798,9 @@ export const MarketOverview = memo(function MarketOverview({ onFetchMarketOvervi
 
 
         <div className="grid grid-cols-2 gap-4 md:grid-cols-5">
-          {(!marketOverview?.indices?.length && displayLoading) ? Array(5).fill(0).map((_, i) => (
+          {(!(dashboard?.indices?.length || marketOverview?.indices?.length) && displayLoading) ? Array(5).fill(0).map((_, i) => (
             <div key={`skeleton-index-${i}`} className="h-24 skeleton rounded-2xl border border-zinc-200" />
-          )) : marketOverview?.indices?.length ? marketOverview.indices.map((index, i) => (
+          )) : (dashboard?.indices?.length || marketOverview?.indices?.length) ? (dashboard?.indices || marketOverview?.indices || []).map((index, i) => (
             <div key={`index-${index.symbol || index.name}-${i}`} className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm hover:shadow-md transition-all">
               <p className="mb-1 text-xs font-medium text-zinc-400">{index.name}</p>
               <p className="text-lg font-medium tracking-tight text-zinc-950">{(index.price ?? 0).toLocaleString()}</p>
@@ -799,16 +815,13 @@ export const MarketOverview = memo(function MarketOverview({ onFetchMarketOvervi
           )}
         </div>
 
-        {/* AI-enriched sections: summary, sectors, commodities, recommendations */}
-        {(displayLoading && !marketOverview?.marketSummary) ? (
+        {/* Main content: summary, sectors, commodities, recommendations */}
+        {(displayLoading && !summaryText && !dashboard) ? (
           <div className="space-y-8 stagger-children">
-            {/* Summary & Sentiment Skeleton */}
             <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
               <div className="h-32 skeleton rounded-2xl border border-zinc-200/50 md:col-span-2" />
               <div className="h-32 skeleton rounded-2xl border border-zinc-200/50" />
             </div>
-            
-            {/* Recommendations Skeleton */}
             <div className="space-y-4 rounded-2xl border border-zinc-200/50 bg-white/30 p-6">
               <div className="h-4 w-32 skeleton mb-4" />
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -817,8 +830,6 @@ export const MarketOverview = memo(function MarketOverview({ onFetchMarketOvervi
                 ))}
               </div>
             </div>
-
-            {/* Sectors & Commodities Skeleton */}
             <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
               <div className="space-y-4 rounded-2xl border border-zinc-200/50 bg-white/30 p-6">
                 <div className="h-4 w-32 skeleton mb-4" />
@@ -838,20 +849,32 @@ export const MarketOverview = memo(function MarketOverview({ onFetchMarketOvervi
               </div>
             </div>
           </div>
-        ) : marketOverview?.marketSummary ? (
+        ) : (summaryText || dashboard || marketOverview?.marketSummary) ? (
           <div className="space-y-8 stagger-children">
             <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
               <div className="premium-card p-8 md:col-span-2">
-                <p className="text-base italic leading-relaxed text-zinc-500 font-medium">"{marketOverview.marketSummary}"</p>
+                {isLoadingAI && !summaryText ? (
+                  <div className="h-20 skeleton rounded-xl" />
+                ) : (
+                  <p className="text-base italic leading-relaxed text-zinc-500 font-medium">"{summaryText || marketOverview?.marketSummary || ''}"</p>
+                )}
               </div>
               <div className="flex flex-col items-center justify-center premium-card p-8 text-center">
                 <h3 className="mb-4 text-[10px] font-medium uppercase tracking-[0.2em] text-zinc-400">{t('analysis.sentiment')}</h3>
-                <div className={cn("text-4xl font-semibold tracking-tighter", 
-                  getSentimentText(marketOverview.marketSummary) === t('common.bullish') ? "text-indigo-600" :
-                  getSentimentText(marketOverview.marketSummary) === t('common.bearish') ? "text-rose-500" : "text-zinc-600"
-                )}>
-                  {getSentimentText(marketOverview.marketSummary)}
-                </div>
+                {(() => {
+                  const displaySentiment = sentimentText || '';
+                  const sentimentLabel = displaySentiment === 'bullish' ? t('common.bullish') :
+                    displaySentiment === 'bearish' ? t('common.bearish') :
+                    getSentimentText(summaryText || marketOverview?.marketSummary || '');
+                  return (
+                    <div className={cn("text-4xl font-semibold tracking-tighter",
+                      sentimentLabel === t('common.bullish') ? "text-indigo-600" :
+                      sentimentLabel === t('common.bearish') ? "text-rose-500" : "text-zinc-600"
+                    )}>
+                      {sentimentLabel}
+                    </div>
+                  );
+                })()}
                 <p className="mt-3 text-[10px] font-medium text-zinc-400 uppercase tracking-widest">{t('header.brand')}</p>
               </div>
             </div>
@@ -862,13 +885,13 @@ export const MarketOverview = memo(function MarketOverview({ onFetchMarketOvervi
                 {t('market.recommendations')}
               </h3>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                {marketOverview.recommendations?.length ? marketOverview.recommendations.map((rec, i) => (
+                {(dashboard?.recommendations?.length || marketOverview?.recommendations?.length) ? (dashboard?.recommendations || marketOverview?.recommendations || []).map((rec, i) => (
                   <div key={`${rec.type}-${rec.name}-${i}`} className="rounded-xl bg-zinc-50/30 p-4 border border-zinc-200/30">
                     <div className="flex items-center gap-2 mb-2">
                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-600 font-medium uppercase">{rec.type}</span>
                        <span className="font-medium text-zinc-950">{rec.name}</span>
                     </div>
-                    <p className="text-xs text-zinc-500 leading-relaxed">{rec.reason}</p>
+                    <p className="text-xs text-zinc-500 leading-relaxed">{formatNumbersInText(rec.reason, overviewMarket)}</p>
                   </div>
                 )) : (
                   <div className="col-span-full py-6 text-center text-zinc-400 text-xs italic bg-zinc-50/50 rounded-xl border border-dashed border-zinc-200">
@@ -885,8 +908,35 @@ export const MarketOverview = memo(function MarketOverview({ onFetchMarketOvervi
                   {t('market.hot_sectors')}
                 </h3>
                 <div className="space-y-3">
-                  {marketOverview.sectorAnalysis?.length ? marketOverview.sectorAnalysis.map((sector, i) => (
-                    <div key={`sector-${sector.name}-${i}`} className="rounded-xl bg-zinc-50/50 p-4 border border-zinc-200/60 shadow-sm hover:shadow-md transition-all group">
+                  {sectorFlow?.topInflows?.length ? sectorFlow.topInflows.slice(0, 5).map((sector: any, i: number) => {
+                    const inflow = sector['主力净流入-净额'];
+                    const chg = sector['涨跌幅'];
+                    const pct = sector['主力净流入-净占比'];
+                    const isUp = Number(chg) > 0;
+                    return (
+                      <div key={`sector-api-${sector['行业']}-${i}`} className="rounded-xl bg-zinc-50/50 p-4 border border-zinc-200/60 shadow-sm hover:shadow-md transition-all group">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="font-bold text-zinc-950">{sector['行业']}</span>
+                          <span className={cn("text-[9px] px-2 py-0.5 rounded-full font-bold shadow-sm", isUp ? "bg-indigo-600 text-white" : "bg-rose-500 text-white")}>
+                            {isUp ? '+' : ''}{chg}%
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] text-zinc-400 font-medium">主力净流入</span>
+                          <span className={cn("text-xs font-bold", inflow > 0 ? "text-rose-500" : "text-emerald-500")}>
+                            {formatFundFlow(inflow, overviewMarket)}
+                          </span>
+                        </div>
+                        {pct != null && (
+                          <div className="flex items-center justify-between mt-1">
+                            <span className="text-[10px] text-zinc-400 font-medium">占成交额</span>
+                            <span className="text-[10px] text-zinc-500 font-medium">{pct}%</span>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  }) : marketOverview?.sectorAnalysis?.length ? marketOverview.sectorAnalysis.map((sector, i) => (
+                    <div key={`sector-ai-${sector.name}-${i}`} className="rounded-xl bg-zinc-50/50 p-4 border border-zinc-200/60 shadow-sm hover:shadow-md transition-all group">
                       <div className="flex items-start justify-between mb-3">
                         <div className="space-y-1">
                           <span className="font-bold text-zinc-950 block">{sector.name}</span>
@@ -902,26 +952,24 @@ export const MarketOverview = memo(function MarketOverview({ onFetchMarketOvervi
                             </span>
                           )}
                         </div>
-                        <span className={cn("text-[9px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wider shadow-sm", 
+                        <span className={cn("text-[9px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wider shadow-sm",
                           sector.trend?.includes('涨') || sector.trend?.includes('强') || sector.trend?.includes('Up') || sector.trend?.includes('Strong') ? "bg-indigo-600 text-white" : "bg-rose-500 text-white"
                         )}>{sector.trend}</span>
                       </div>
-                      
                       <div className="space-y-3">
-                        <p className="text-xs text-zinc-600 leading-relaxed font-medium">{sector.conclusion}</p>
-                        
+                        <p className="text-xs text-zinc-600 leading-relaxed font-medium">{formatNumbersInText(sector.conclusion, overviewMarket)}</p>
                         {(sector.upstreamImpact || sector.downstreamImpact) && (
                           <div className="grid grid-cols-2 gap-3 pt-3 border-t border-zinc-100">
                             {sector.upstreamImpact && (
                               <div>
                                 <p className="text-[8px] font-bold text-zinc-400 uppercase tracking-widest mb-1">Upstream</p>
-                                <p className="text-[10px] text-zinc-500 leading-tight italic">{sector.upstreamImpact}</p>
+                                <p className="text-[10px] text-zinc-500 leading-tight italic">{formatNumbersInText(sector.upstreamImpact, overviewMarket)}</p>
                               </div>
                             )}
                             {sector.downstreamImpact && (
                               <div>
                                 <p className="text-[8px] font-bold text-zinc-400 uppercase tracking-widest mb-1">Downstream</p>
-                                <p className="text-[10px] text-zinc-500 leading-tight italic">{sector.downstreamImpact}</p>
+                                <p className="text-[10px] text-zinc-500 leading-tight italic">{formatNumbersInText(sector.downstreamImpact, overviewMarket)}</p>
                               </div>
                             )}
                           </div>
@@ -942,17 +990,22 @@ export const MarketOverview = memo(function MarketOverview({ onFetchMarketOvervi
                   {t('market.commodity_trends')}
                 </h3>
                 <div className="space-y-3">
-                  {marketOverview.commodityAnalysis?.length ? marketOverview.commodityAnalysis.map((item, i) => (
+                  {(dashboard?.commodities?.length || marketOverview?.commodityAnalysis?.length) ? (dashboard?.commodities || marketOverview?.commodityAnalysis || []).map((item: any, i: number) => {
+                    const chg = item.changePercent ?? item.change ?? 0;
+                    const trend = item.trend || (chg > 0 ? '上涨' : chg < 0 ? '下跌' : '持平');
+                    const expectation = item.expectation || `${item.price ?? ''} ${item.unit || ''} (${chg > 0 ? '+' : ''}${chg}%)`;
+                    return (
                     <div key={`commodity-${item.name}-${i}`} className="rounded-xl bg-zinc-50/30 p-3 border border-zinc-200/30">
                       <div className="flex items-center justify-between mb-1">
                         <span className="font-medium text-zinc-950">{item.name}</span>
-                        <span className={cn("text-[10px] px-1.5 py-0.5 rounded-full font-medium uppercase", 
-                          item.trend?.includes('涨') || item.trend?.includes('强') || item.trend?.includes('Up') || item.trend?.includes('Strong') ? "bg-indigo-100 text-indigo-600" : "bg-rose-500/20 text-rose-400"
-                        )}>{item.trend}</span>
+                        <span className={cn("text-[10px] px-1.5 py-0.5 rounded-full font-medium uppercase",
+                          chg > 0 ? "bg-indigo-100 text-indigo-600" : "bg-rose-500/20 text-rose-400"
+                        )}>{trend}</span>
                       </div>
-                      <p className="text-xs text-zinc-500 leading-relaxed">{item.expectation}</p>
+                      <p className="text-xs text-zinc-500 leading-relaxed">{formatNumbersInText(expectation, overviewMarket)}</p>
                     </div>
-                  )) : (
+                  );
+                  }) : (
                     <div className="py-6 text-center text-zinc-400 text-xs italic bg-zinc-50/50 rounded-xl border border-dashed border-zinc-200">
                       {t('marketOverview.no_commodities', '暂无商品数据')}
                     </div>
@@ -975,9 +1028,9 @@ export const MarketOverview = memo(function MarketOverview({ onFetchMarketOvervi
             {newsLoading && <Loader2 className="w-4 h-4 animate-spin text-zinc-400 ml-2" />}
           </h2>
           <div className="space-y-4">
-            {(newsLoading && !hotNews.length) ? Array(5).fill(0).map((_, i) => (
+            {(newsLoading && !newsData.length) ? Array(5).fill(0).map((_, i) => (
               <div key={`news-skeleton-${i}`} className="h-20 skeleton rounded-2xl border border-zinc-200" />
-            )) : hotNews?.map((news, i) => (
+            )) : newsData?.map((news, i) => (
               <a key={`news-${i}-${news.url || news.title}`} href={news.url} target="_blank" rel="noopener noreferrer" className="group block rounded-2xl border border-zinc-200 bg-white p-5 transition-all hover:border-indigo-600/30 hover:shadow-md">
                 <div className="flex items-start justify-between gap-4">
                   <h3 className="text-sm font-medium text-zinc-950 transition-colors group-hover:text-indigo-600 leading-snug">{news.title}</h3>
@@ -1003,10 +1056,10 @@ export const MarketOverview = memo(function MarketOverview({ onFetchMarketOvervi
             {northboundFlow && overviewMarket === 'A-Share' && (
               <div className="mb-5 flex items-center justify-between p-3 bg-white rounded-xl border border-zinc-100">
                 <span className="text-xs font-medium text-zinc-500">{t('marketOverview.northbound', 'Northbound Flow')}</span>
-                <span className={cn("text-xs font-semibold px-2 py-1 rounded bg-zinc-50", 
+                <span className={cn("text-xs font-semibold px-2 py-1 rounded bg-zinc-50",
                   String(northboundFlow['净买额']).includes('-') ? "text-rose-500" : "text-emerald-500"
                 )}>
-                  {northboundFlow['净买额']} {t('marketOverview.unit_yi')}
+                  {formatFundFlow(northboundFlow['净买额'], overviewMarket)}
                 </span>
               </div>
             )}
@@ -1017,8 +1070,8 @@ export const MarketOverview = memo(function MarketOverview({ onFetchMarketOvervi
                 <div key={`sector-flow-${sector['行业'] || 'unknown'}-${i}`} className="flex items-center justify-between">
                   <span className="text-sm font-medium text-zinc-700">{sector['行业']}</span>
                   <div className="flex flex-col items-end">
-                    <span className="text-xs font-bold text-rose-500">{sector['主力净流入-净额']}</span>
-                    <span className="text-[10px] text-zinc-400">{sector['涨跌幅']}%</span>
+                    <span className="text-xs font-bold text-rose-500">{formatFundFlow(sector['主力净流入-净额'], overviewMarket)}</span>
+                    <span className="text-[10px] text-zinc-400">{sector['涨跌幅'] != null ? `${sector['涨跌幅']}%` : ''}</span>
                   </div>
                 </div>
               )) : marketOverview?.sectorAnalysis?.slice(0, 5).map((sector: any, i: number) => (

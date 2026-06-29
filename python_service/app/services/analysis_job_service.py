@@ -70,14 +70,28 @@ class AnalysisJobService:
         # Wake the specific job if it's waiting
         if job_id in self._api_key_events:
             self._api_key_events[job_id].set()
-            return True
-        return True  # Key cached even if no job waiting
+        
+        # Share key via Redis for Celery worker processes
+        try:
+            import redis
+            r = redis.Redis(host='localhost', port=6379, db=0, decode_responses=True)
+            r.set(f"alsa:apikey:{provider}", api_key, ex=1800)
+            r.set(f"alsa:job:{job_id}:apikey:{provider}", api_key, ex=300)
+        except Exception as e:
+            logger.warning(f"[AnalysisJobService] Failed to share API key to Redis: {e}")
+        return True
 
     def set_api_key(self, provider: str, api_key: str):
         """Proactively register/update an API key in memory cache (user settings change)."""
         import time
         self._api_keys[provider] = api_key
         self._key_timestamps[provider] = time.time()
+        try:
+            import redis
+            r = redis.Redis(host='localhost', port=6379, db=0, decode_responses=True)
+            r.set(f"alsa:apikey:{provider}", api_key, ex=1800)
+        except Exception as e:
+            logger.warning(f"[AnalysisJobService] Failed to share set API key to Redis: {e}")
 
     def _clear_stale_keys(self):
         """Clear API keys that have been idle longer than KEY_TTL to prevent leakage."""
@@ -87,6 +101,12 @@ class AnalysisJobService:
         for provider in stale:
             self._api_keys.pop(provider, None)
             self._key_timestamps.pop(provider, None)
+            try:
+                import redis
+                r = redis.Redis(host='localhost', port=6379, db=0)
+                r.delete(f"alsa:apikey:{provider}")
+            except Exception:
+                pass
 
     def get_key_status(self) -> Dict[str, Any]:
         """Return which providers have cached keys and when they expire."""
@@ -108,9 +128,23 @@ class AnalysisJobService:
         if provider:
             self._api_keys.pop(provider, None)
             self._key_timestamps.pop(provider, None)
+            try:
+                import redis
+                r = redis.Redis(host='localhost', port=6379, db=0)
+                r.delete(f"alsa:apikey:{provider}")
+            except Exception:
+                pass
         else:
             self._api_keys.clear()
             self._key_timestamps.clear()
+            try:
+                import redis
+                r = redis.Redis(host='localhost', port=6379, db=0)
+                keys = r.keys("alsa:apikey:*")
+                if keys:
+                    r.delete(*keys)
+            except Exception:
+                pass
 
     def _refresh_key_timestamp(self, provider: str):
         """Update the last-used timestamp for a key (called when key is used)."""
@@ -118,13 +152,39 @@ class AnalysisJobService:
         if provider in self._api_keys:
             self._key_timestamps[provider] = time.time()
 
-    async def _wait_for_api_key(self, job_id: str, provider: str, timeout: int = 120) -> Optional[str]:
+    async def _wait_for_api_key(self, job_id: str, provider: str, timeout: int = 120, config: Optional[Dict[str, Any]] = None) -> Optional[str]:
         """Pause the job and wait for the frontend to send an API key.
            If key is already cached from a previous job, return it immediately."""
         # Clear stale keys before checking cache
         self._clear_stale_keys()
-        # Check cache first — reuse key across jobs
+
+        # Check if the config object provided with the job has the key first
+        if config:
+            # Check both deepseekApiKey and generic apiKey
+            key_from_config = config.get(f"{provider}ApiKey") or config.get("apiKey")
+            if key_from_config:
+                # Proactively update the global cache with this fresh key
+                self.set_api_key(provider, key_from_config)
+                self.update_job_progress(job_id, "discussion", 50, message="使用任务最新 API Key")
+                return key_from_config
+
+        # Check cache second — reuse key across jobs
         cached = self._api_keys.get(provider)
+        
+        # Try to pull from Redis if memory is empty (e.g. Celery worker startup)
+        if not cached:
+            try:
+                from ..db.redis_client import get_redis
+                r_client = await get_redis()
+                cached_val = await r_client.get(f"alsa:apikey:{provider}")
+                if cached_val:
+                    cached = cached_val if isinstance(cached_val, str) else cached_val.decode('utf-8')
+                    self._api_keys[provider] = cached
+                    import time
+                    self._key_timestamps[provider] = time.time()
+            except Exception as e:
+                logger.debug(f"[AnalysisJobService] Failed to check Redis cache: {e}")
+
         if cached:
             self._refresh_key_timestamp(provider)
             self.update_job_progress(job_id, "discussion", 50, message="使用缓存的 API Key")
@@ -141,15 +201,43 @@ class AnalysisJobService:
         self._api_key_events[job_id] = event
         # Signal frontend via progress that we need a key
         self.update_job_progress(job_id, "need_api_key", 50, message=f"需要{provider} API Key")
+        
+        # Poll Redis and wait for event concurrently
         try:
-            await asyncio.wait_for(event.wait(), timeout=timeout)
-            key = self._api_keys.get(provider)
-            return key
-        except asyncio.TimeoutError:
-            logger.warning(f"Timeout waiting for API key for job {job_id}")
-            return None
+            from ..db.redis_client import get_redis
+            r_client = await get_redis()
+        except Exception:
+            r_client = None
+
+        key = None
+        start_time = asyncio.get_event_loop().time()
+        try:
+            while asyncio.get_event_loop().time() - start_time < timeout:
+                if event.is_set():
+                    key = self._api_keys.get(provider)
+                    break
+                if r_client:
+                    try:
+                        val = await r_client.get(f"alsa:job:{job_id}:apikey:{provider}")
+                        if not val:
+                            val = await r_client.get(f"alsa:apikey:{provider}")
+                        if val:
+                            key = val if isinstance(val, str) else val.decode('utf-8')
+                            self._api_keys[provider] = key
+                            import time
+                            self._key_timestamps[provider] = time.time()
+                            break
+                    except Exception as e:
+                        logger.warning(f"Error polling Redis for key: {e}")
+                await asyncio.sleep(1.0)
+            if not key:
+                logger.warning(f"Timeout waiting for API key for job {job_id}")
+        except Exception as e:
+            logger.error(f"Error in wait_for_api_key loop: {e}")
         finally:
             self._api_key_events.pop(job_id, None)
+            
+        return key
 
     async def _run_job(self, job_id: str, symbol: str, market: str, config: Optional[Dict[str, Any]] = None):
         from .discussion_service import discussion_service
@@ -165,9 +253,37 @@ class AnalysisJobService:
         async with self._concurrency_limit:
             # Mark job as running in the database immediately
             self.job_repo.update_status(job_id, "running")
-            self.update_job_progress(job_id, "snapshot", 10)
+            self.update_job_progress(job_id, "need_api_key", 5, message="正在校验 API 密钥...")
+            # Watchdog heartbeat: keep the frontend idle timer alive during silent phases
+            # (critic review, finalizing, LLM retry/backoff) so a busy-but-quiet job is
+            # never mistaken for "AI stopped responding".
+            heartbeat_task = asyncio.create_task(self._heartbeat(job_id))
+            
             try:
+                # 0. Retrieve and validate API key first
+                job = self.job_repo.get_by_id(job_id)
+                requested_model = job.requested_model if job else None
+                if not requested_model and config:
+                    requested_model = config.get("model")
+                provider = "deepseek" if (requested_model or "").lower().startswith("deepseek") else "gemini"
+                
+                api_key = await self._wait_for_api_key(job_id, provider, config=config)
+                if not api_key:
+                    raise ValueError("未收到 API Key，研判任务取消")
+                
+                # Check key validity
+                self.update_job_progress(job_id, "need_api_key", 8, message="正在校验 API Key...")
+                from .llm_gateway import llm_gateway
+                is_valid = await llm_gateway.validate_api_key(provider, api_key)
+                if not is_valid:
+                    raise ValueError(f"API Key 校验失败，无效的 {provider} API Key")
+                    
+                # Inject key into config for the discussion service
+                safe_config = dict(config or {})
+                safe_config[f"{provider}ApiKey"] = api_key
+                
                 # 1. Create snapshot (saves to Parquet)
+                self.update_job_progress(job_id, "snapshot", 10)
                 snapshot = await self.snapshot_service.create_snapshot(market, symbol)
                 if not snapshot:
                     raise ValueError("Failed to fetch market data")
@@ -175,23 +291,14 @@ class AnalysisJobService:
                 
                 self.update_job_progress(job_id, "quant", 30)
                 # 2. Compute quantitative factors using Polars
-                indicator_df = compute_indicator_frame(snapshot["history"])
-                indicators = indicator_df.tail(1).to_dicts()[0]
+                if snapshot.get("history"):
+                    indicator_df = compute_indicator_frame(snapshot["history"])
+                    indicators = indicator_df.tail(1).to_dicts()[0] if len(indicator_df) > 0 else {}
+                else:
+                    indicators = {}
                 snapshot["indicators"] = indicators
                 
                 self.update_job_progress(job_id, "discussion", 50)
-                # 3. Determine which provider is needed from the model name
-                job = self.job_repo.get_by_id(job_id)
-                requested_model = job.requested_model if job else None
-                if not requested_model and config:
-                    requested_model = config.get("model")
-                provider = "deepseek" if (requested_model or "").lower().startswith("deepseek") else "gemini"
-                api_key = await self._wait_for_api_key(job_id, provider)
-                if not api_key:
-                    raise ValueError("未收到 API Key，研判任务取消")
-                # Inject key into config for the discussion service
-                safe_config = dict(config or {})
-                safe_config[f"{provider}ApiKey"] = api_key
                 
                 # 3b. Run Expert Discussion
                 level = job.analysis_level if job else "standard"
@@ -276,7 +383,16 @@ class AnalysisJobService:
                 }
                 
                 # Extract structured fields for Flash UI (sentiment, recommendation, risks, etc.)
-                structured = self._extract_structured_fields(discussion_messages)
+                try:
+                    structured = self._extract_structured_fields(discussion_messages)
+                except ValueError as e:
+                    logger.warning(f"[AnalysisJobService] Structured field extraction failed (non-fatal): {e}")
+                    structured = {
+                        "sentiment": "Neutral",
+                        "recommendation": "Hold",
+                        "tradingPlan": {"strategy": "分析完成，但结构化提取失败"},
+                        "keyRisks": [],
+                    }
                 result.update(structured)
                 
                 # Validate trading fields — reject garbage regex output, enforce numeric sanity
@@ -381,6 +497,8 @@ class AnalysisJobService:
                     self.job_repo.update_status(job_id, "failed", json.dumps({"error": error_msg}))
             
             finally:
+                # Stop the watchdog heartbeat
+                heartbeat_task.cancel()
                 # Only clean up the event — the key stays cached globally for reuse
                 self._api_key_events.pop(job_id, None)
     
@@ -566,6 +684,36 @@ class AnalysisJobService:
             "error_type": error_type or prev.get("error_type")
         }
 
+    async def _heartbeat(self, job_id: str, interval: int = 15):
+        """Emit a lightweight progress pulse while a job is running so the frontend
+        idle-timeout never trips during legitimately silent phases (critic review,
+        finalizing, LLM retry/backoff). Preserves the current stage/percent/count and
+        only refreshes the message with elapsed time to signal liveness."""
+        import time
+        start = time.monotonic()
+        try:
+            while True:
+                await asyncio.sleep(interval)
+                prev = self._progress.get(job_id)
+                if not prev:
+                    continue
+                stage = prev.get("stage")
+                if stage in ("completed", "failed"):
+                    break
+                elapsed = int(time.monotonic() - start)
+                base = (prev.get("message") or "").split(" · 运行")[0]
+                self.update_job_progress(
+                    job_id,
+                    stage or "running",
+                    prev.get("percent") or 0,
+                    round=prev.get("round"),
+                    total_rounds=prev.get("total_rounds"),
+                    message=f"{base} · 运行 {elapsed}s",
+                    count=prev.get("count"),
+                )
+        except asyncio.CancelledError:
+            pass
+
     def get_status(self, job_id: str):
         job = self.job_repo.get_by_id(job_id)
         return job
@@ -595,10 +743,13 @@ class AnalysisJobService:
         if "sentiment" not in result or "recommendation" not in result:
             discussion = result.get("discussion", [])
             if discussion:
-                structured = self._extract_structured_fields(discussion)
-                for k, v in structured.items():
-                    if k not in result or result[k] is None:
-                        result[k] = v
+                try:
+                    structured = self._extract_structured_fields(discussion)
+                    for k, v in structured.items():
+                        if k not in result or result[k] is None:
+                            result[k] = v
+                except ValueError as e:
+                    logger.warning(f"[AnalysisJobService] Backfill structured fields failed: {e}")
                 # Also backfill summary
                 if not result.get("summary"):
                     result["summary"] = self._extract_summary(discussion)

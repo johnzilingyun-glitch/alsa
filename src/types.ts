@@ -92,6 +92,26 @@ export interface Recommendation {
   reason: string;
 }
 
+export interface HotSector {
+  name: string;
+  inflow: number;
+  changePct: number;
+  companyCount?: number;
+  leadStock?: string;
+  leadStockPct?: number;
+}
+
+export interface MarketDashboard {
+  indices: IndexInfo[];
+  commodities: CommodityAnalysis[];
+  news: NewsItem[];
+  sectorFlow: { topInflows: any[]; topOutflows: any[] };
+  northbound: any[];
+  hotSectors: HotSector[];
+  recommendations: Recommendation[];
+  updatedAt: string;
+}
+
 export interface MarketOverview {
   id?: string;
   generatedAt?: number;

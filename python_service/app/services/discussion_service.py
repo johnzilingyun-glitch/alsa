@@ -227,6 +227,10 @@ class DiscussionService:
                         new_state = {expert_role: parsed}
                     except Exception:
                         new_state = {expert_role: content_to_save}
+                    
+                    # Include reflection in history_states if available
+                    if "reflection" in msg:
+                        new_state[f"{expert_role}_reflection"] = msg["reflection"]
                 
                 return {"messages": [msg], "history_states": new_state}
             return node_func
@@ -639,7 +643,11 @@ class DiscussionService:
 
         if has_search_tools:
             # Gemini has native Google Search — use standard call (tools handled by model)
-            content = await llm_gateway.generate_content(prompt, model=model, on_chunk=_on_chunk, gemini_api_key=config.get("geminiApiKey") if config else None, deepseek_api_key=config.get("deepseekApiKey") if config else None, cache_key=cache_key, prompt_version_id=pv_id, response_schema=response_schema)
+            try:
+                content = await llm_gateway.generate_content(prompt, model=model, on_chunk=_on_chunk, gemini_api_key=config.get("geminiApiKey") if config else None, deepseek_api_key=config.get("deepseekApiKey") if config else None, cache_key=cache_key, prompt_version_id=pv_id, response_schema=response_schema)
+            except Exception as e:
+                logger.error(f"[DiscussionService] Gemini LLM generation failed for {role}: {e}")
+                content = f"{role} 专家暂时无法提供分析。原因: 大语言模型请求异常 ({str(e)[:100]})。请其他专家忽略此错误并根据已有数据自行补全缺失视角的分析逻辑。"
         else:
             # No artificial limit on tool rounds — let the model decide when it has enough data
             effective_max_rounds = 20
@@ -653,7 +661,8 @@ class DiscussionService:
                         on_progress(round_num, total_rounds, f"⚠️ API 余额不足 — {role} 生成中断", error_type="insufficient_balance")
                     content = ""
                 else:
-                    raise
+                    logger.error(f"[DiscussionService] Orchestrator LLM generation failed for {role}: {e}")
+                    content = f"{role} 专家暂时无法提供分析。原因: 大语言模型请求异常 ({error_msg[:100]})。请其他专家忽略此错误并根据已有数据自行补全缺失视角的分析逻辑。"
         latency = (datetime.now() - start_time).total_seconds() * 1000
 
         # Store analysis result in agent memory for future recall

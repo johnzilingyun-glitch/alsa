@@ -14,6 +14,7 @@ from .reflections import router as reflections_router
 from .trade_intents import router as trade_intents_router
 from .stock import router as stock_router
 from .predictions import router as predictions_router
+from .ths import router as ths_router
 
 api_router = APIRouter()
 api_router.include_router(analysis_router)
@@ -31,3 +32,4 @@ api_router.include_router(reflections_router)
 api_router.include_router(trade_intents_router)
 api_router.include_router(stock_router)
 api_router.include_router(predictions_router)
+api_router.include_router(ths_router)

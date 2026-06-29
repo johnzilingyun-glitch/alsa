@@ -12,6 +12,7 @@ class User(SQLModel, table=True):
     display_name: str
     role: str = "viewer"  # admin/researcher/viewer
     status: str = "active"
+    last_login: Optional[datetime] = None
     created_at: datetime = Field(default_factory=utc_now)
 
 class Watchlist(SQLModel, table=True):
@@ -317,11 +318,6 @@ class PendingOrder(SQLModel, table=True):
     stop_price: Optional[float] = None
     status: str = "pending"  # pending/executed/cancelled
     created_at: datetime = Field(default_factory=utc_now)
-from sqlmodel import SQLModel, Field, Column
-from sqlalchemy import JSON
-from typing import Dict, Any, Optional
-from datetime import datetime
-from app.time_utils import utc_now
 
 class PipelineVersion(SQLModel, table=True):
     id: str = Field(primary_key=True)
@@ -357,3 +353,4 @@ class AgentMemoryRecord(SQLModel, table=True):
     confidence: float = 0.5
     outcome: str = "unknown"  # win/lose/unknown/pending
     created_at: datetime = Field(default_factory=utc_now)
+

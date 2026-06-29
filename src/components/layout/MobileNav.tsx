@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { motion, AnimatePresence, useMotionValue, useTransform, animate } from 'motion/react';
-import { X, Languages, Bell, History, Monitor, BarChart3, Activity, TrendingUp, BarChart2, Settings, BrainCircuit } from 'lucide-react';
+import { X, Languages, Bell, History, Monitor, BarChart3, Activity, TrendingUp, BarChart2, Settings, BrainCircuit, Search } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useUIStore } from '../../stores/useUIStore';
 import { useMarketStore } from '../../stores/useMarketStore';
@@ -17,7 +17,7 @@ interface MobileNavProps {
 
 export function MobileNav({ isOpen, onClose, onTriggerDailyReport, onOpenHistory, onFetchAdminData, onShowBrainEvolution }: MobileNavProps) {
   const { t } = useTranslation();
-  const { isTriggeringReport, showAdminPanel, setShowAdminPanel, setIsSettingsOpen, setShowIBKRDashboard, setShowMockTradingDashboard, setShowBacktestPanel, setShowPredictionDashboard } = useUIStore();
+  const { isTriggeringReport, showAdminPanel, setShowAdminPanel, setIsSettingsOpen, setShowIBKRDashboard, setShowMockTradingDashboard, setShowBacktestPanel, setShowPredictionDashboard, setShowThsAnalysis } = useUIStore();
   const { language, setLanguage } = useConfigStore();
   const { activeAlertStatus } = useMarketStore();
   const x = useMotionValue(320);
@@ -54,7 +54,9 @@ export function MobileNav({ isOpen, onClose, onTriggerDailyReport, onOpenHistory
     { icon: BarChart3, label: 'IBKR 实盘', onClick: () => { setShowIBKRDashboard(true); close(); } },
     { icon: Activity, label: '模拟交易', onClick: () => { setShowMockTradingDashboard(true); close(); } },
     { icon: TrendingUp, label: '预测准确率', onClick: () => { setShowPredictionDashboard(true); close(); } },
+    { icon: Search, label: '同花顺分析', onClick: () => { useUIStore.getState().setShowThsAnalysis(true); close(); } },
     { icon: BarChart2, label: '量化回测', onClick: () => { setShowBacktestPanel(true); close(); } },
+    { icon: BarChart3, label: '同花顺分析', onClick: () => { setShowThsAnalysis(true); close(); } },
     { icon: Settings, label: t('header.settings'), onClick: () => { setIsSettingsOpen(true); close(); } },
     { icon: BrainCircuit, label: '进化 AI', onClick: () => { onShowBrainEvolution(); close(); }, accent: true },
   ];

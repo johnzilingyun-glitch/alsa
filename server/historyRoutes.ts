@@ -217,6 +217,7 @@ router.post('/history/save', (req, res) => {
   }
   try {
     saveAnalysis(type, data);
+    _historyCache = null;
     console.log(`Successfully saved ${type} analysis to history`);
     res.json({ success: true });
   } catch (err) {
@@ -254,6 +255,7 @@ router.delete('/history/:id', (req, res) => {
     }
 
     if (deleted) {
+      _historyCache = null;
       res.json({ success: true, message: `History item ${id} deleted` });
     } else {
       res.status(404).json({ error: `History item ${id} not found` });

@@ -10,7 +10,7 @@ services:
     environment:
       - HOST=0.0.0.0
       - PORT=8000
-      - DATABASE_URL=postgresql://alsa:alsa@postgres:5432/alsadb
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-alsa}:${POSTGRES_PASSWORD:-alsa}@postgres:5432/${POSTGRES_DB:-alsadb}
       - REDIS_URL=redis://redis:6379/0
     depends_on:
       postgres:
@@ -79,7 +79,7 @@ services:
       dockerfile: Dockerfile
     command: celery -A app.worker.celery_app worker --loglevel=info
     environment:
-      - DATABASE_URL=postgresql://alsa:alsa@postgres:5432/alsadb
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-alsa}:${POSTGRES_PASSWORD:-alsa}@postgres:5432/${POSTGRES_DB:-alsadb}
       - REDIS_URL=redis://redis:6379/0
     volumes:
       - ./.env:/app/.env
@@ -98,6 +98,7 @@ services:
 
   redis:
     image: redis:7-alpine
+    command: redis-server --requirepass ${REDIS_PASSWORD:-}
     ports:
       - "6379:6379"
     volumes:
@@ -108,9 +109,9 @@ services:
   postgres:
     image: postgres:15-alpine
     environment:
-      POSTGRES_USER: alsa
-      POSTGRES_PASSWORD: alsa
-      POSTGRES_DB: alsadb
+      POSTGRES_USER: ${POSTGRES_USER:-alsa}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-alsa}
+      POSTGRES_DB: ${POSTGRES_DB:-alsadb}
     ports:
       - "5432:5432"
     volumes:
@@ -118,7 +119,7 @@ services:
     networks:
       - alsa_network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U alsa -d alsadb"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-alsa} -d ${POSTGRES_DB:-alsadb}"]
       interval: 10s
       timeout: 5s
       retries: 5

@@ -136,6 +136,65 @@ def _eastmoney_datacenter(
     return []
 
 
+async def fetch_a_share_ownership(code: str) -> Dict[str, float]:
+    """Best-effort A-share ownership ratios from EastMoney F10 (with datacenter
+    fallback for top holders). Returns a dict with any of
+    {heldPercentInsiders, heldPercentInstitutions} that could be resolved, else {}.
+
+    Kept module-level so the router can backfill ownership regardless of which
+    provider won the concurrent financials race (e.g. yfinance, which lacks
+    A-share holder data).
+    """
+    out: Dict[str, float] = {}
+    prefix = "SH" if code.startswith("6") else "SZ"
+
+    def _fetch_holders():
+        url = "https://emweb.securities.eastmoney.com/PC_HSF10/ShareholderResearch/PageAjax"
+        r = requests.get(url, params={"code": f"{prefix}{code}"},
+                         headers={"User-Agent": UA}, timeout=8)
+        return r.json()
+
+    try:
+        holders = await asyncio.to_thread(_fetch_holders)
+    except Exception as e:
+        logger.warning(f"[Ownership] F10 fetch failed for {code}: {type(e).__name__}")
+        holders = None
+
+    if holders:
+        sdgd = holders.get("sdgd") or holders.get("sdltgd") or []
+        if isinstance(sdgd, list) and sdgd:
+            top_sum = sum((h.get("HOLD_NUM_RATIO") or 0) for h in sdgd)
+            if top_sum > 0:
+                out["heldPercentInsiders"] = top_sum / 100  # decimal
+        jgcc = holders.get("jgcc") or []
+        if isinstance(jgcc, list) and jgcc:
+            inst_ratio = jgcc[0].get("TOTAL_SHARES_RATIO") or jgcc[0].get("ALL_SHARES_RATIO")
+            if inst_ratio:
+                out["heldPercentInstitutions"] = inst_ratio / 100  # decimal
+
+    # Fallback: F10 PageAjax can return empty for some boards (ChiNext/STAR).
+    # Use the datacenter top-10 circulating holders if insiders still missing.
+    if "heldPercentInsiders" not in out:
+        try:
+            top = await asyncio.to_thread(
+                lambda: _eastmoney_datacenter(
+                    "RPT_F10_EH_FREEHOLDERS",
+                    filter_str=f'(SECURITY_CODE="{code}")',
+                    page_size=10, sort_columns="END_DATE",
+                )
+            )
+            if top:
+                latest = top[0].get("END_DATE")
+                top_sum = sum((h.get("HOLD_RATIO") or h.get("FREE_HOLDNUM_RATIO") or 0)
+                              for h in top if h.get("END_DATE") == latest)
+                if top_sum > 0:
+                    out["heldPercentInsiders"] = top_sum / 100  # decimal
+        except Exception:
+            pass
+
+    return out
+
+
 class AStockDirectProvider(DataProvider):
     """
     Primary A-Share data provider using direct HTTP APIs.
@@ -159,9 +218,9 @@ class AStockDirectProvider(DataProvider):
         # Map period string to number of bars
         period_bars = {
             "1mo": 22, "3mo": 66, "6mo": 132,
-            "1y": 252, "2y": 504, "5y": 1260, "max": 5000,
+            "1y": 252, "2y": 504, "5y": 1260, "10y": 2520, "max": 6000,
         }
-        limit = period_bars.get(period, 66)
+        limit = period_bars.get(period, 2520)
 
         # Map interval to klt parameter
         interval_map = {
@@ -725,29 +784,12 @@ class AStockDirectProvider(DataProvider):
           except Exception as e:
             logger.warning(f"[{self.name}] Deduct profit fetch failed for {code}: {e}")
 
-        # 3c. Shareholder & institutional ownership — EastMoney F10
+        # 3c. Shareholder & institutional ownership — EastMoney F10 (+ datacenter fallback)
         try:
-            def _fetch_holders():
-                url = "https://emweb.securities.eastmoney.com/PC_HSF10/ShareholderResearch/PageAjax"
-                prefix = "SH" if code.startswith("6") else "SZ"
-                r = requests.get(url, params={"code": f"{prefix}{code}"},
-                                  headers={"User-Agent": UA}, timeout=8)
-                return r.json()
-
-            holders = await loop.run_in_executor(None, _fetch_holders)
-            if holders:
-                sdgd = holders.get("sdgd") or holders.get("sdltgd") or []
-                if isinstance(sdgd, list) and sdgd:
-                    top_sum = sum((h.get("HOLD_NUM_RATIO") or 0) for h in sdgd)
-                    if top_sum > 0:
-                        result["heldPercentInsiders"] = top_sum / 100  # decimal
-                jgcc = holders.get("jgcc") or []
-                if isinstance(jgcc, list) and jgcc:
-                    inst_ratio = jgcc[0].get("TOTAL_SHARES_RATIO") or jgcc[0].get("ALL_SHARES_RATIO")
-                    if inst_ratio:
-                        result["heldPercentInstitutions"] = inst_ratio / 100  # decimal
+            own = await fetch_a_share_ownership(code)
+            result.update(own)
         except Exception as e:
-            logger.debug(f"[{self.name}] Shareholder fetch unavailable for {code}: {type(e).__name__}")
+            logger.warning(f"[{self.name}] Shareholder fetch unavailable for {code}: {type(e).__name__}: {e}")
 
         # 4. Dividend history
         try:

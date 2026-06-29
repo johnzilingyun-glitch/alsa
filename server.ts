@@ -60,7 +60,7 @@ async function startServer() {
       // Auth endpoints use JWT, not API token — skip check
       if (req.path.startsWith('/auth')) return next();
       // Proxy-routed endpoints and Node routes get bypassed for API token check as frontend uses JWT
-      if (req.path.startsWith('/backtest') || req.path.startsWith('/sector') || req.path.startsWith('/analysis') || req.path.startsWith('/mock-trading') || req.path.startsWith('/alerts') || req.path.startsWith('/brain') || req.path.startsWith('/journal') || req.path.startsWith('/market') || req.path.startsWith('/watchlist') || req.path.startsWith('/predictions') || req.path.startsWith('/stock') || req.path.startsWith('/history') || req.path.startsWith('/feishu') || req.path.startsWith('/diagnostics') || req.path.startsWith('/admin')) return next();
+      if (req.path.startsWith('/backtest') || req.path.startsWith('/sector') || req.path.startsWith('/analysis') || req.path.startsWith('/mock-trading') || req.path.startsWith('/alerts') || req.path.startsWith('/brain') || req.path.startsWith('/journal') || req.path.startsWith('/market') || req.path.startsWith('/watchlist') || req.path.startsWith('/predictions') || req.path.startsWith('/stock') || req.path.startsWith('/history') || req.path.startsWith('/feishu') || req.path.startsWith('/diagnostics') || req.path.startsWith('/admin') || req.path.startsWith('/ths')) return next();
       if (!validateApiToken(req.header('authorization'))) {
         return res.status(401).json({ success: false, error: 'Unauthorized' });
       }
@@ -129,6 +129,7 @@ async function startServer() {
         '/api/analysis',
         '/api/sector',
         '/api/mock-trading',
+        '/api/ths',
         '/api/backtest',
         '/api/auth',
         '/api/admin',
@@ -154,11 +155,19 @@ async function startServer() {
     on: {
       proxyReq: (proxyReq, req: any) => {
         // Inject API_TOKEN for Python service auth (skip auth routes — they use user JWT)
-        const isAuthRoute = req.path.startsWith('/api/auth');
+        const isAuthRoute = req.path.includes('/auth') || req.originalUrl.includes('/auth');
         if (!isAuthRoute) {
           const pyToken = process.env.API_TOKEN;
           if (pyToken) {
             proxyReq.setHeader('Authorization', `Bearer ${pyToken}`);
+          }
+        }
+        // Inject ADMIN_TOKEN for admin routes
+        const isAdminRoute = req.path.includes('/admin') || req.originalUrl.includes('/admin');
+        if (isAdminRoute) {
+          const adminToken = process.env.ADMIN_TOKEN;
+          if (adminToken) {
+            proxyReq.setHeader('x-admin-token', adminToken);
           }
         }
         // express body parsers consume the stream before proxy can forward it.

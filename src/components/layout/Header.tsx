@@ -217,6 +217,14 @@ export const Header = memo(function Header({
                 <TrendingUp size={20} strokeWidth={1.5} />
               </button>
               <button
+                onClick={() => useUIStore.getState().setShowThsAnalysis(true)}
+                className="btn-secondary w-12 h-12 p-0 flex items-center justify-center rounded-xl"
+                aria-label="同花顺分析"
+                title="同花顺高级分析"
+              >
+                <Search size={20} strokeWidth={1.5} />
+              </button>
+              <button
                 onClick={() => setShowBacktestPanel(true)}
                 className="btn-secondary w-12 h-12 p-0 flex items-center justify-center rounded-xl relative overflow-hidden group"
                 aria-label="回测"
@@ -324,6 +332,9 @@ export const Header = memo(function Header({
                   </button>
                   <button onClick={() => { useUIStore.getState().setShowPredictionDashboard(true); setShowMobileMenu(false); }} className="flex w-full items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-zinc-600 hover:bg-zinc-50 transition-colors">
                     <TrendingUp size={18} /> 预测准确率
+                  </button>
+                  <button onClick={() => { useUIStore.getState().setShowThsAnalysis(true); setShowMobileMenu(false); }} className="flex w-full items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-zinc-600 hover:bg-zinc-50 transition-colors">
+                    <Search size={18} /> 同花顺分析
                   </button>
                   <button onClick={() => { setShowBacktestPanel(true); setShowMobileMenu(false); }} className="flex w-full items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-zinc-600 hover:bg-zinc-50 transition-colors">
                     <BarChart2 size={18} /> 量化回测

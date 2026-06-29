@@ -185,20 +185,35 @@ def run_bridge():
     metrics_df = portfolio_metric_dict["1day"][0]
     
     final_equity = metrics_df["account"].iloc[-1]
+    initial_equity = metrics_df["account"].iloc[0]
     
-    try:
-        analysis_df = risk_analysis(metrics_df)
-        ann_ret = analysis_df.loc["annualized_return", "risk"]
-        max_dd = analysis_df.loc["max_drawdown", "risk"]
-        sharpe = analysis_df.loc["information_ratio", "risk"]
-        
-        if isinstance(ann_ret, pd.Series): ann_ret = ann_ret.iloc[0]
-        if isinstance(max_dd, pd.Series): max_dd = max_dd.iloc[0]
-        if isinstance(sharpe, pd.Series): sharpe = sharpe.iloc[0]
-    except Exception:
+    # ── Compute metrics manually from equity curve instead of relying on
+    #    Qlib's risk_analysis(), which returns wildly wrong values when
+    #    benchmark=None (e.g. annualized_return = 193 billion %).
+    total_return = (final_equity - initial_equity) / initial_equity if initial_equity > 0 else 0.0
+    trading_days = len(metrics_df)
+    n_years = trading_days / 252.0
+
+    # Annualized return
+    if n_years > 0 and (1 + total_return) > 0:
+        ann_ret = float((1 + total_return) ** (1.0 / n_years) - 1)
+    else:
         ann_ret = 0.0
-        max_dd = 0.0
+
+    # Max drawdown from equity curve
+    equity_series = metrics_df["account"]
+    running_max = equity_series.cummax()
+    drawdown = (equity_series - running_max) / running_max
+    max_dd = float(drawdown.min()) if len(drawdown) > 0 else 0.0
+
+    # Sharpe ratio from daily returns
+    daily_returns = equity_series.pct_change().dropna()
+    if len(daily_returns) > 1 and daily_returns.std() > 0:
+        rf_daily = 0.03 / 252  # 3% annual risk-free rate
+        sharpe = float((daily_returns.mean() - rf_daily) / daily_returns.std() * np.sqrt(252))
+    else:
         sharpe = 0.0
+
 
     # Build snapshots
     snapshots = []

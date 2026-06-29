@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 import logging
+from ..config import RISK_FREE_RATE
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +24,7 @@ class RiskMetrics:
         return dist.inv_cdf(1 - confidence)
 
     @staticmethod
-    def compute_sharpe(returns: pd.Series, rf: float = 0.03, periods_per_year: int = 252) -> float:
+    def compute_sharpe(returns: pd.Series, rf: float = RISK_FREE_RATE, periods_per_year: int = 252) -> float:
         """
         Compute Annualized Sharpe Ratio.
         rf: Annualized risk-free rate
@@ -50,7 +51,7 @@ class RiskMetrics:
         return drawdown.min()
 
     @staticmethod
-    def compute_sortino(returns: pd.Series, rf: float = 0.03, periods_per_year: int = 252) -> float:
+    def compute_sortino(returns: pd.Series, rf: float = RISK_FREE_RATE, periods_per_year: int = 252) -> float:
         """
         Compute Annualized Sortino Ratio.
         rf: Annualized risk-free rate

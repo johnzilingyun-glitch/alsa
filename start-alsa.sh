@@ -56,10 +56,10 @@ nohup npx tsx server.ts > "$LOGS_DIR/api.log" 2>&1 &
 echo $! > "$PROJECT_DIR/.alsa-api.pid"
 echo "API started (PID $(cat "$PROJECT_DIR/.alsa-api.pid"))"
 
-# --- Start Vite dev server (port 5173) ---
-nohup npx vite --host 0.0.0.0 > "$LOGS_DIR/vite.log" 2>&1 &
+# --- Start Vite preview server (port 5173) ---
+nohup npx vite preview --host 0.0.0.0 --port 5173 > "$LOGS_DIR/vite.log" 2>&1 &
 echo $! > "$PROJECT_DIR/.alsa-vite.pid"
-echo "Vite started (PID $(cat "$PROJECT_DIR/.alsa-vite.pid"))"
+echo "Vite preview started (PID $(cat "$PROJECT_DIR/.alsa-vite.pid"))"
 
 # --- Start Python FastAPI service (port 8001) ---
 AKSHARE_ENABLED=true nohup "$PROJECT_DIR/run_py_service_with_env.sh" > "$LOGS_DIR/py_api.log" 2>&1 &

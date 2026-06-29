@@ -644,21 +644,32 @@ def get_openai_tools(role: str = None) -> list:
 
     for tool_def in unique_defs:
         # Removed allowed_tools filtering to allow LLM to use any tool when data is missing
+        raw_params = tool_def.get("parameters", {})
+        # Normalize if it's already in OpenAI format (has 'properties' key)
+        if "properties" in raw_params and isinstance(raw_params["properties"], dict):
+            # Extract required list if provided at the top level
+            required = raw_params.get("required", [])
+            raw_params = raw_params["properties"]
+        else:
+            required = []
+            
         properties = {}
-        required = []
-        for param_name, param_info in tool_def.get("parameters", {}).items():
+        for param_name, param_info in raw_params.items():
+            if not isinstance(param_info, dict):
+                continue
             prop = {
-                "type": param_info["type"],
-                "description": param_info["description"]
+                "type": param_info.get("type", "string"),
+                "description": param_info.get("description", "")
             }
             # Provide detailed items schema for array types
-            if param_info["type"] == "array":
+            if prop["type"] == "array":
                 prop["items"] = ARRAY_ITEMS_SCHEMA.get(param_name, {"type": "object"})
             # Provide detailed properties for object types
-            elif param_info["type"] == "object" and param_name in OBJECT_SCHEMA:
+            elif prop["type"] == "object" and param_name in OBJECT_SCHEMA:
                 prop.update(OBJECT_SCHEMA[param_name])
             properties[param_name] = prop
-            if param_info.get("required"):
+            # Add to required list if marked as required in the param_info (simplified format)
+            if param_info.get("required") and param_name not in required:
                 required.append(param_name)
 
         tools.append({

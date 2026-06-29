@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 from ..db.repositories.watchlist_repo import WatchlistRepository
 
@@ -26,6 +26,6 @@ async def list_watchlist(repo: WatchlistRepository = Depends(get_repo)):
     return {"items": items}
 
 @router.delete("/{symbol}")
-async def remove_from_watchlist(symbol: str, market: str, repo: WatchlistRepository = Depends(get_repo)):
+async def remove_from_watchlist(symbol: str, market: str = Query(...), repo: WatchlistRepository = Depends(get_repo)):
     repo.delete_by_symbol(symbol, market)
     return {"success": True}

@@ -72,6 +72,19 @@ class JobRepository:
                 session.commit()
             return count
 
+    def delete_by_job_id(self, job_id: str) -> bool:
+        with self.session_factory() as session:
+            job = session.get(AnalysisJob, job_id)
+            if not job:
+                return False
+            runs = session.exec(select(AnalysisRun).where(AnalysisRun.job_id == job_id)).all()
+            for run in runs:
+                session.delete(run)
+            artifacts = session.exec(select(AnalysisJob).where(AnalysisJob.job_id == job_id)).all()
+            session.delete(job)
+            session.commit()
+            return True
+
     def list_completed_by_symbol(self, symbol: str, limit: int = 10) -> list:
         """Get completed analysis jobs for a given symbol, most recent first."""
         with self.session_factory() as session:

@@ -151,6 +151,14 @@ export function SignalCenter({ isOpen, onClose }: SignalCenterProps) {
     }
   }, [isOpen, tab]);
 
+  // Refresh active signals from backend whenever the panel opens, so alerts created
+  // elsewhere (e.g. "执行监控" in the report view) appear without a full page reload.
+  useEffect(() => {
+    if (isOpen) {
+      alertsClient.list().then(res => setAlerts(res.items || [])).catch(() => {});
+    }
+  }, [isOpen, setAlerts]);
+
   const handlePostmortemSubmit = async () => {
     if (!postmortemTarget) return;
     setPmSubmitting(true);

@@ -87,41 +87,46 @@ class MarketSnapshotService:
             history_result = await _fetch_history()
             
             df = history_result
-            if df is None or df.empty:
-                print(f"Snapshot: no history data for {symbol}")
-                return {}
+            if df is None:
+                df = pd.DataFrame()
 
-            # Data quality validation before storing
-            try:
-                from .data_quality import data_quality_pipeline
-                quality_report = data_quality_pipeline.validate(df, symbol)
-                print(f"[DataQuality] {symbol}: score={quality_report.score:.2f}, passed={quality_report.overall_passed}")
-                if not quality_report.overall_passed:
-                    critical_checks = [c for c in quality_report.checks if not c.passed and c.severity == "critical"]
-                    for c in critical_checks:
-                        print(f"[DataQuality] CRITICAL: {c}")
-            except Exception as e:
-                print(f"[DataQuality] Validation failed for {symbol}: {e}")
+            if df.empty:
+                print(f"Snapshot: no history data for {symbol}, continuing with empty history")
+            else:
+                # Data quality validation before storing
+                try:
+                    from .data_quality import data_quality_pipeline
+                    quality_report = data_quality_pipeline.validate(df, symbol)
+                    print(f"[DataQuality] {symbol}: score={quality_report.score:.2f}, passed={quality_report.overall_passed}")
+                    if not quality_report.overall_passed:
+                        critical_checks = [c for c in quality_report.checks if not c.passed and c.severity == "critical"]
+                        for c in critical_checks:
+                            print(f"[DataQuality] CRITICAL: {c}")
+                except Exception as e:
+                    print(f"[DataQuality] Validation failed for {symbol}: {e}")
 
             # Run secondary fetches (use AkShare's own connection pool, not concurrent)
             valuation = await _fetch_valuation()
             financials = await _fetch_financials()
             quote = await _fetch_quotes()
 
-            rows = df.tail(120).to_dict(orient="records")
+            rows = df.tail(120).to_dict(orient="records") if not df.empty else []
             data_cutoff = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
             vendor = "akshare" if market == "A-Share" and AKSHARE_ENABLED else "yfinance"
-            ohlc_observation = self.store.write_ohlc(
-                "ohlc",
-                market,
-                symbol,
-                rows,
-                vendor=vendor,
-                observed_at=data_cutoff,
-                ingested_at=data_cutoff,
-                published_at=data_cutoff,
-                effective_from=data_cutoff,
-            )
+            
+            ohlc_observation = None
+            if rows:
+                ohlc_observation = self.store.write_ohlc(
+                    "ohlc",
+                    market,
+                    symbol,
+                    rows,
+                    vendor=vendor,
+                    observed_at=data_cutoff,
+                    ingested_at=data_cutoff,
+                    published_at=data_cutoff,
+                    effective_from=data_cutoff,
+                )
 
             # A+H cross-listing check (depends on quote name, so runs after)
             cross_listing = None

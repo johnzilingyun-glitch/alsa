@@ -13,24 +13,24 @@ logger = logging.getLogger(__name__)
 # Patterns that match common financial figure mentions in Chinese/English
 NUMERIC_PATTERNS = [
     # Chinese: "PE约XX倍" "市盈率为XX" "ROE达到XX%"
-    (r'(?:PE|市盈率|P/E)[^\d]{0,10}(?:约为?|是|为|达到|在)?\s*(\d+\.?\d*)\s*(?:倍|x|X)?', 'pe'),
-    (r'(?:PB|市净率|P/B)[^\d]{0,10}(?:约为?|是|为|达到|在)?\s*(\d+\.?\d*)\s*(?:倍|x|X)?', 'pb'),
-    (r'(?:ROE|净资产收益率)[^\d]{0,10}(?:约为?|是|为|达到|在)?\s*(\d+\.?\d*)\s*%?', 'roe'),
-    (r'(?:营收|营业收入|收入)[^\d]{0,15}(?:约为?|是|为|达到|在)?\s*(\d+\.?\d*)\s*(?:亿|万|百万|B|M|K)?', 'revenue'),
-    (r'(?:净利润|归母净利润)[^\d]{0,15}(?:约为?|是|为|达到|在)?\s*(\d+\.?\d*)\s*(?:亿|万|百万|B|M|K)?', 'net_income'),
-    (r'(?:市值|总市值)[^\d]{0,10}(?:约为?|是|为|达到|在)?\s*(\d+\.?\d*)\s*(?:亿|万|百万|B|M|K)?', 'market_cap'),
-    (r'(?:股息率|分红率)[^\d]{0,10}(?:约为?|是|为|达到|在)?\s*(\d+\.?\d*)\s*%?', 'dividend_yield'),
-    (r'(?:毛利率)[^\d]{0,10}(?:约为?|是|为|达到|在)?\s*(\d+\.?\d*)\s*%?', 'gross_margin'),
-    (r'(?:净利率)[^\d]{0,10}(?:约为?|是|为|达到|在)?\s*(\d+\.?\d*)\s*%?', 'net_margin'),
-    (r'(?:资产负债率)[^\d]{0,10}(?:约为?|是|为|达到|在)?\s*(\d+\.?\d*)\s*%?', 'debt_ratio'),
-    (r'(?:EPS|每股收益)[^\d]{0,10}(?:约为?|是|为|达到|在)?\s*(\d+\.?\d*)', 'eps'),
+    (r'(?:PE|市盈率|P/E)[^\d]{0,10}(?:约为?|是|为|达到|在)?\s*(\d+\.?\d*)\s*(倍|x|X)?', 'pe'),
+    (r'(?:PB|市净率|P/B)[^\d]{0,10}(?:约为?|是|为|达到|在)?\s*(\d+\.?\d*)\s*(倍|x|X)?', 'pb'),
+    (r'(?:ROE|净资产收益率)[^\d]{0,10}(?:约为?|是|为|达到|在)?\s*(\d+\.?\d*)\s*(%)?', 'roe'),
+    (r'(?:总营收|营业总收入|营业收入)[^\d]{0,15}(?:约为?|是|为|达到|在)?\s*(\d+\.?\d*)\s*(亿|万|百万|B|M|K)?', 'revenue'),
+    (r'(?:净利润|归母净利润|扣非净利润)[^\d]{0,15}(?:约为?|是|为|达到|在)?\s*(\d+\.?\d*)\s*(亿|万|百万|B|M|K)?', 'net_income'),
+    (r'(?:市值|总市值)[^\d]{0,10}(?:约为?|是|为|达到|在)?\s*(\d+\.?\d*)\s*(亿|万|百万|B|M|K)?', 'market_cap'),
+    (r'(?:股息率|分红率)[^\d]{0,10}(?:约为?|是|为|达到|在)?\s*(\d+\.?\d*)\s*(%)?', 'dividend_yield'),
+    (r'(?:毛利率)[^\d]{0,10}(?:约为?|是|为|达到|在)?\s*(\d+\.?\d*)\s*(%)?', 'gross_margin'),
+    (r'(?:净利率)[^\d]{0,10}(?:约为?|是|为|达到|在)?\s*(\d+\.?\d*)\s*(%)?', 'net_margin'),
+    (r'(?:资产负债率)[^\d]{0,10}(?:约为?|是|为|达到|在)?\s*(\d+\.?\d*)\s*(%)?', 'debt_ratio'),
+    (r'(?:EPS|每股收益)[^\d]{0,10}(?:约为?|是|为|达到|在)?\s*(\d+\.?\d*)()?', 'eps'),
     # English patterns
-    (r'(?:PE|P/E)\s*(?:ratio)?\s*(?:of|at|is|=)?\s*(\d+\.?\d*)', 'pe'),
-    (r'(?:PB|P/B)\s*(?:ratio)?\s*(?:of|at|is|=)?\s*(\d+\.?\d*)', 'pb'),
-    (r'ROE\s*(?:of|at|is|=)?\s*(\d+\.?\d*)\s*%?', 'roe'),
-    (r'(?:revenue|Revenue)\s*(?:of|at|is|=)?\s*(\d+\.?\d*)\s*(?:B|M|bn|mn)?', 'revenue'),
-    (r'(?:net income|Net Income)\s*(?:of|at|is|=)?\s*(\d+\.?\d*)\s*(?:B|M|bn|mn)?', 'net_income'),
-    (r'(?:market cap|Market Cap|marketcap)\s*(?:of|at|is|=)?\s*(\d+\.?\d*)\s*(?:B|T|M|bn|tn)?', 'market_cap'),
+    (r'(?:PE|P/E)\s*(?:ratio)?\s*(?:of|at|is|=)?\s*(\d+\.?\d*)()?', 'pe'),
+    (r'(?:PB|P/B)\s*(?:ratio)?\s*(?:of|at|is|=)?\s*(\d+\.?\d*)()?', 'pb'),
+    (r'ROE\s*(?:of|at|is|=)?\s*(\d+\.?\d*)\s*(%)?', 'roe'),
+    (r'(?:revenue|Revenue)\s*(?:of|at|is|=)?\s*(\d+\.?\d*)\s*(B|M|bn|mn)?', 'revenue'),
+    (r'(?:net income|Net Income)\s*(?:of|at|is|=)?\s*(\d+\.?\d*)\s*(B|M|bn|mn)?', 'net_income'),
+    (r'(?:market cap|Market Cap|marketcap)\s*(?:of|at|is|=)?\s*(\d+\.?\d*)\s*(B|T|M|bn|tn)?', 'market_cap'),
 ]
 
 # Unit conversion factors (to standard units)
@@ -44,13 +44,20 @@ UNIT_MULTIPLIERS = {
 # Tolerance for verification (5% relative error)
 DEFAULT_TOLERANCE = 0.05
 
+# Fields expressed as percentages in prose. API stores them as fractions
+# (e.g. ROE -0.03 == -3%); normalize so unit & magnitude match the displayed value.
+PERCENT_FIELDS = {'roe', 'dividend_yield', 'gross_margin', 'net_margin', 'debt_ratio'}
+
 
 @dataclass
 class NumericClaim:
     """A numeric claim extracted from LLM output."""
     field: str           # e.g. "pe", "roe", "revenue"
-    raw_value: float     # value as extracted from text
+    raw_value: float     # value as extracted from text (e.g. 4.17)
+    normalized_value: float # value adjusted by unit multiplier (e.g. 4.17e8)
     text_context: str    # surrounding text for context
+    start_idx: int = -1  # start index in the original text
+    end_idx: int = -1    # end index in the original text
     verified: bool = False
     actual: Optional[float] = None
     tolerance: float = DEFAULT_TOLERANCE
@@ -116,13 +123,16 @@ class GroundingVerifier:
         for claim in claims:
             actual = self._lookup_field(claim.field, snapshot)
             if actual is not None:
+                # Align units: % fields are stored as fractions in the API → scale to %
+                if claim.field in PERCENT_FIELDS and abs(actual) <= 1:
+                    actual = actual * 100
                 claim.actual = actual
                 if actual != 0:
-                    claim.error_pct = abs(claim.raw_value - actual) / abs(actual)
+                    claim.error_pct = abs(claim.normalized_value - actual) / abs(actual)
                     claim.verified = claim.error_pct <= claim.tolerance
                 else:
                     # If actual is 0, only match if claim is also near 0
-                    claim.verified = abs(claim.raw_value) < 1.0
+                    claim.verified = abs(claim.normalized_value) < 1.0
                     claim.error_pct = 0.0 if claim.verified else 1.0
             else:
                 # No data to verify against — mark as unverified (not necessarily wrong)
@@ -148,18 +158,37 @@ class GroundingVerifier:
             return llm_output
 
         annotated = llm_output
-        for claim in verification.claims:
+        
+        # Sort claims by start_idx descending to replace from back to front
+        # This ensures text replacements don't shift indices for preceding claims
+        sorted_claims = sorted(
+            [c for c in verification.claims if c.start_idx >= 0 and c.end_idx >= 0], 
+            key=lambda x: x.start_idx, 
+            reverse=True
+        )
+
+        for claim in sorted_claims:
             if not claim.verified and claim.actual is not None:
-                # Replace the claimed value with annotated version
-                pattern = re.escape(str(int(claim.raw_value) if claim.raw_value == int(claim.raw_value) else claim.raw_value))
-                # Find and annotate the first occurrence
-                match = re.search(pattern, annotated)
-                if match:
-                    annotated = (
-                        annotated[:match.start()]
-                        + f"**{match.group()}** [⚠️实际={claim.actual:.2f}]"
-                        + annotated[match.end():]
-                    )
+                num_str = annotated[claim.start_idx:claim.end_idx]
+                # Skip range/list values (e.g. "10-20%", "3~5%") — these are
+                # structural descriptions, not single verifiable claims.
+                around = annotated[max(0, claim.start_idx - 1):min(len(annotated), claim.end_idx + 2)]
+                if re.search(r'[-~\u2013\u2014\uff5e]\s*\d', around):
+                    continue
+                # Format actual in the SAME unit as the displayed claim
+                if claim.field in PERCENT_FIELDS:
+                    actual_fmt = f"{claim.actual:.2f}%"
+                elif abs(claim.actual) >= 1e8:
+                    actual_fmt = f"{claim.actual / 1e8:.2f}\u4ebf"
+                elif abs(claim.actual) >= 1e4:
+                    actual_fmt = f"{claim.actual / 1e4:.2f}\u4e07"
+                else:
+                    actual_fmt = f"{claim.actual:.2f}"
+                annotated = (
+                    annotated[:claim.start_idx]
+                    + f"{num_str}\uff08\u5b9e\u9645{actual_fmt}\uff09"
+                    + annotated[claim.end_idx:]
+                )
             elif not claim.verified and claim.actual is None:
                 # No data to verify — add general warning
                 pass  # Don't annotate these — they might be correct but unverifiable
@@ -169,23 +198,21 @@ class GroundingVerifier:
     def _extract_claims(self, text: str) -> List[NumericClaim]:
         """Extract numeric claims from LLM output text."""
         claims = []
-        seen = set()
 
         for pattern, field_name in NUMERIC_PATTERNS:
             for match in re.finditer(pattern, text, re.IGNORECASE):
                 try:
-                    value = float(match.group(1))
+                    raw_val = float(match.group(1))
+                    unit = match.group(2) if len(match.groups()) >= 2 else None
+                    value = raw_val
+                    if unit and unit in UNIT_MULTIPLIERS:
+                        value *= UNIT_MULTIPLIERS[unit]
+                    
                     # Skip implausible values
-                    if value <= 0 and field_name in ('pe', 'pb', 'roe', 'market_cap'):
+                    if raw_val <= 0 and field_name in ('pe', 'pb', 'roe', 'market_cap'):
                         continue
-                    if value > 10000 and field_name in ('pe', 'pb', 'roe', 'dividend_yield'):
+                    if raw_val > 10000 and field_name in ('pe', 'pb', 'roe', 'dividend_yield'):
                         continue
-
-                    # Deduplicate by field + rounded value
-                    key = f"{field_name}_{round(value, 1)}"
-                    if key in seen:
-                        continue
-                    seen.add(key)
 
                     # Get surrounding context (50 chars before/after)
                     start = max(0, match.start() - 50)
@@ -194,8 +221,11 @@ class GroundingVerifier:
 
                     claims.append(NumericClaim(
                         field=field_name,
-                        raw_value=value,
+                        raw_value=raw_val,
+                        normalized_value=value,
                         text_context=context,
+                        start_idx=match.start(1),
+                        end_idx=match.end(1)
                     ))
                 except (ValueError, IndexError):
                     continue

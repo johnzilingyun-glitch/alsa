@@ -43,9 +43,9 @@ async def get_technicals(
             df = await safe_ak_call(ak.stock_zh_a_hist, symbol=symbol[:6], period="daily", start_date=start_date, end_date=end_date, adjust="qfq")
         except Exception:
             logger.exception("Failed to fetch A-Share history data for symbol '%s'", symbol)
-            df = pd.DataFrame()
-            
-        if df.empty:
+            df = None
+
+        if df is None or df.empty:
             return error_response("SYMBOL_NOT_FOUND", f"No data found for {symbol}")
             
         # Rename columns to standard english

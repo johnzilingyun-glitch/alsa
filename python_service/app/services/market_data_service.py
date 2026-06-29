@@ -424,7 +424,10 @@ class MarketDataService:
         for sym in symbols:
             # Determine prefix
             if sym.startswith("^"):
-                prefix_map = {"^HSI": "hkHSI", "^HSTECH": "hkHSTECH", "^HSCE": "hkHSCEI", "^HSCCI": "hkHSCCI"}
+                prefix_map = {
+                    "^HSI": "hkHSI", "^HSTECH": "hkHSTECH", "^HSCE": "hkHSCEI", "^HSCCI": "hkHSCCI",
+                    "^GSPC": "usGSPC", "^IXIC": "usIXIC", "^DJI": "usDJI",
+                }
                 qt = prefix_map.get(sym, f"hk{sym[1:]}")
             elif sym.startswith("0") or sym.startswith("3"):
                 prefix = "sh" if sym.startswith("0") else "sz"
@@ -510,7 +513,9 @@ class MarketDataService:
                     })
                 return items
             else:
-                search = await loop.run_in_executor(None, lambda: yf.search("SPY", newsCount=8))
+                from yfinance import Search
+                search_obj = await loop.run_in_executor(None, lambda: Search("SPY"))
+                search = {"news": search_obj.news or []}
                 items = []
                 for n in search.get("news", []):
                     items.append({

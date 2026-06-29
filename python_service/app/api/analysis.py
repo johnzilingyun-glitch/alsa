@@ -184,6 +184,15 @@ async def get_analysis_history(symbol: str, service: AnalysisJobService = Depend
     return success_response(items)
 
 
+@router.delete("/history/{job_id}")
+async def delete_analysis_history(job_id: str, service: AnalysisJobService = Depends(get_job_service)):
+    """Delete an analysis job and its runs from the database."""
+    deleted = service.job_repo.delete_by_job_id(job_id)
+    if deleted:
+        return success_response({"job_id": job_id})
+    return error_response("NOT_FOUND", f"Job {job_id} not found")
+
+
 class ReportRequest(BaseModel):
     deepseekApiKey: Optional[str] = None
     geminiApiKey: Optional[str] = None
@@ -356,12 +365,6 @@ async def get_analysis_settings():
             "id": "deepseek-v4-pro",
             "name": "DeepSeek V4 Pro",
             "description": "Default DeepSeek internal model",
-            "status": "available"
-        },
-        {
-            "id": "deepseek-reasoner",
-            "name": "DeepSeek Reasoner",
-            "description": "DeepSeek with reasoning",
             "status": "available"
         },
         {

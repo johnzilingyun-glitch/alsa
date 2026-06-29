@@ -1029,38 +1029,11 @@ CONTENT:
         # Apply Python repr → markdown conversion before rendering
         stripped = self._replace_python_reprs_in_text(stripped)
 
-        has_chatter = any(content.strip().startswith(prefix) for prefix in
-            ["好的", "好的，", "Here is", "As a", "As an", "收到", "OK", "Okay,",
-             "Now I have", "Now I need", "Now I will", "Let me ", "Based on my",
-             "Actually, let me", "I have comprehensive", "I'll ",
-             "现在我已", "让我", "根据分析", "我将对", "根据对上述", "接下来", "收到，"])
-
-        if not has_chatter:
-            result = markdown2.markdown(stripped, extras=["tables", "fenced-code-blocks"])
-            return result + trailing_json_md if trailing_json_md else result
-
-        prompt = """Reformat the following analyst report. STRICT RULES:
-1. REMOVE ALL conversational openings and thinking prefixes (e.g. "好的", "Now I have comprehensive data", "Let me compile", "Based on my analysis, here are", "OK, let me write").
-2. DO NOT remove, summarize, or change any other text. KEEP ALL tables, bullets, and details EXACTLY AS IS.
-3. Return ONLY the cleaned markdown content — no code blocks.
-"""
-        try:
-            if not model:
-                provider = os.getenv("DEFAULT_LLM_PROVIDER", "deepseek").lower()
-                model = os.getenv("DEEPSEEK_MODEL", "deepseek-v4-pro") if provider == "deepseek" else os.getenv("GEMINI_MODEL", "gemini-3.1-pro-preview")
-            res = await llm_gateway.generate_content(f"{prompt}\n\nCONTENT:\n{stripped}", model=model, temperature=0.2, deepseek_api_key=deepseek_api_key, gemini_api_key=gemini_api_key)
-            if not res:
-                result = markdown2.markdown(stripped, extras=["tables", "fenced-code-blocks"])
-                return result + trailing_json_md if trailing_json_md else result
-
-            res = re.sub(r"^```markdown\n", "", res)
-            res = re.sub(r"\n```$", "", res)
-            result = markdown2.markdown(res.strip(), extras=["tables", "fenced-code-blocks"])
-            return result + trailing_json_md if trailing_json_md else result
-        except Exception:
-            logger.exception("LLM markdown generation failed, using fallback")
-            result = markdown2.markdown(stripped, extras=["tables", "fenced-code-blocks"])
-            return result + trailing_json_md if trailing_json_md else result
+        # Use fast local regex to remove chatter instead of blocking on LLM calls
+        stripped = self._strip_thinking_prefix(stripped)
+        
+        result = markdown2.markdown(stripped, extras=["tables", "fenced-code-blocks"])
+        return result + trailing_json_md if trailing_json_md else result
 
     def _extract_balanced_json(self, text: str) -> str:
         """Extract a balanced JSON object from the start of text by counting braces."""
@@ -1884,17 +1857,28 @@ CONTENT:
             def _fv(v, suffix=""):
                 if v is None or v == "N/A": return "N/A"
                 return f"{v}{suffix}"
+            def _alt(p, *keys):
+                # Accept multiple key spellings (LLM emits descriptive names like
+                # net_margin_pct / market_cap_cny_bn / roe_fy2025_pct / pe_ttm)
+                for k in keys:
+                    v = p.get(k)
+                    if v is not None and v != "N/A":
+                        return v
+                return None
             for p in peers:
                 if not isinstance(p, dict): continue
+                mc = _alt(p, "marketCap", "market_cap_cny_bn", "market_cap")
+                if isinstance(mc, (int, float)):
+                    mc = f"{mc}亿"  # market_cap_cny_bn is in 亿元
                 peer_rows += f'''<tr>
-                    <td>{p.get("name", "")}</td>
+                    <td>{p.get("name") or p.get("company", "")}</td>
                     <td>{p.get("symbol", "")}</td>
-                    <td>{_fv(p.get("pe"))}</td>
-                    <td>{_fv(p.get("pb"))}</td>
-                    <td>{_fv(p.get("roe"), "%")}</td>
-                    <td>{_fv(p.get("margin"), "%")}</td>
-                    <td>{_fv(p.get("marketCap"))}</td>
-                    <td>{p.get("vs_target", "")}</td>
+                    <td>{_fv(_alt(p, "pe", "pe_ttm"))}</td>
+                    <td>{_fv(_alt(p, "pb"))}</td>
+                    <td>{_fv(_alt(p, "roe", "roe_fy2025_pct"), "%")}</td>
+                    <td>{_fv(_alt(p, "margin", "net_margin_pct", "net_margin"), "%")}</td>
+                    <td>{_fv(mc)}</td>
+                    <td>{p.get("vs_target") or p.get("rationale", "")}</td>
                 </tr>'''
             peer_section_html = f'''
             <div class="comps-wrapper">

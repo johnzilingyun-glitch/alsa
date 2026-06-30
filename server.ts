@@ -60,7 +60,7 @@ async function startServer() {
       // Auth endpoints use JWT, not API token — skip check
       if (req.path.startsWith('/auth')) return next();
       // Proxy-routed endpoints and Node routes get bypassed for API token check as frontend uses JWT
-      if (req.path.startsWith('/backtest') || req.path.startsWith('/sector') || req.path.startsWith('/analysis') || req.path.startsWith('/mock-trading') || req.path.startsWith('/alerts') || req.path.startsWith('/brain') || req.path.startsWith('/journal') || req.path.startsWith('/market') || req.path.startsWith('/watchlist') || req.path.startsWith('/predictions') || req.path.startsWith('/stock') || req.path.startsWith('/history') || req.path.startsWith('/feishu') || req.path.startsWith('/diagnostics') || req.path.startsWith('/admin') || req.path.startsWith('/ths')) return next();
+      if (req.path.startsWith('/backtest') || req.path.startsWith('/sector') || req.path.startsWith('/analysis') || req.path.startsWith('/mock-trading') || req.path.startsWith('/alerts') || req.path.startsWith('/brain') || req.path.startsWith('/journal') || req.path.startsWith('/market') || req.path.startsWith('/watchlist') || req.path.startsWith('/predictions') || req.path.startsWith('/stock') || req.path.startsWith('/history') || req.path.startsWith('/feishu') || req.path.startsWith('/diagnostics') || req.path.startsWith('/admin') || req.path.startsWith('/ths') || req.path.startsWith('/llm')) return next();
       if (!validateApiToken(req.header('authorization'))) {
         return res.status(401).json({ success: false, error: 'Unauthorized' });
       }

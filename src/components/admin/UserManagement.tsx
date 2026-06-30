@@ -1,10 +1,39 @@
-import { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Users, Plus, X, RefreshCw, Search, ChevronDown, MoreHorizontal,
   UserCog, Ban, CheckCircle, AlertTriangle, Clock, Activity,
   Shield, Eye, EyeOff, Trash2, Loader2, UserPlus
 } from 'lucide-react';
 import { useAuthStore } from '../../stores/useAuthStore';
+
+// Inner error boundary to prevent table rendering crashes from taking down the whole admin page
+class TableErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean }> {
+  constructor(props: { children: React.ReactNode }) {
+    super(props);
+    this.state = { hasError: false };
+  }
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="flex flex-col items-center justify-center py-16 text-zinc-400">
+          <AlertTriangle size={28} className="text-red-400 mb-3" />
+          <span className="text-sm text-red-500">用户列表渲染出错</span>
+          <button
+            onClick={() => this.setState({ hasError: false })}
+            className="mt-3 text-xs text-indigo-500 hover:text-indigo-600 font-medium"
+          >
+            点击重试
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 
 interface UserInfo {
   user_id: string;
@@ -61,12 +90,17 @@ function formatRelativeTime(dateStr: string | null): string {
   return `${Math.floor(diff / 2_592_000_000)}月前`;
 }
 
-function formatDate(dateStr: string): string {
-  return new Date(dateStr).toLocaleString('zh-CN', {
-    year: 'numeric', month: '2-digit', day: '2-digit',
-    hour: '2-digit', minute: '2-digit',
-    timeZone: 'Asia/Shanghai',
-  });
+function formatDate(dateStr: string | null | undefined): string {
+  if (!dateStr) return '—';
+  try {
+    return new Date(dateStr).toLocaleString('zh-CN', {
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit',
+      timeZone: 'Asia/Shanghai',
+    });
+  } catch {
+    return dateStr;
+  }
 }
 
 function RoleBadge({ role }: { role: string }) {
@@ -134,8 +168,8 @@ export function UserManagement() {
   const [queriesLoading, setQueriesLoading] = useState(false);
   const [queriesError, setQueriesError] = useState<string | null>(null);
 
-  // Auth redirect
-  const [redirectToLogin, setRedirectToLogin] = useState(false);
+  // Auth status
+  const [unauthorized, setUnauthorized] = useState(false);
 
   const fetchUsers = useCallback(async () => {
     setLoading(true);
@@ -143,7 +177,7 @@ export function UserManagement() {
     try {
       const res = await fetch('/api/auth/users', { headers: getAuthHeaders() });
       if (res.status === 401 || res.status === 403) {
-        setRedirectToLogin(true);
+        setUnauthorized(true);
         return;
       }
       if (!res.ok) {
@@ -170,14 +204,6 @@ export function UserManagement() {
     document.addEventListener('click', handler);
     return () => document.removeEventListener('click', handler);
   }, [openActionMenu]);
-
-  // Redirect if unauthorized
-  useEffect(() => {
-    if (redirectToLogin) {
-      localStorage.removeItem('auth_token');
-      window.location.href = '/';
-    }
-  }, [redirectToLogin]);
 
   // Clear feedback after timeout
   useEffect(() => {
@@ -214,7 +240,7 @@ export function UserManagement() {
         body: JSON.stringify(body),
       });
       if (res.status === 401 || res.status === 403) {
-        setRedirectToLogin(true);
+        setUnauthorized(true);
         return;
       }
       if (!res.ok) {
@@ -502,7 +528,19 @@ export function UserManagement() {
 
       {/* ── User Table ── */}
       <div className="bg-white rounded-2xl border border-zinc-100 shadow-sm overflow-hidden">
-        {loading ? (
+        {unauthorized ? (
+          <div className="flex flex-col items-center justify-center py-16 text-zinc-400">
+            <Ban size={32} className="mb-3 text-amber-400" />
+            <span className="text-sm font-medium text-zinc-600">无权限访问</span>
+            <p className="text-xs text-zinc-400 mt-1">您需要管理员权限才能查看用户管理</p>
+            <button
+              onClick={() => { window.location.hash = '#/admin'; }}
+              className="mt-4 px-4 py-2 text-xs font-medium text-indigo-600 bg-indigo-50 rounded-xl hover:bg-indigo-100 transition-colors"
+            >
+              返回系统监控
+            </button>
+          </div>
+        ) : loading ? (
           <div className="flex flex-col items-center justify-center py-16 text-zinc-400">
             <Loader2 size={28} className="animate-spin text-indigo-500 mb-3" />
             <span className="text-sm">加载用户列表...</span>
@@ -535,6 +573,7 @@ export function UserManagement() {
             </button>
           </div>
         ) : (
+          <TableErrorBoundary>
           <div className="overflow-x-auto">
             <table className="w-full text-xs">
               <thead>
@@ -589,6 +628,7 @@ export function UserManagement() {
               </tbody>
             </table>
           </div>
+          </TableErrorBoundary>
         )}
       </div>
 

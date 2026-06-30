@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, memo, useRef } from 'react';
-import { 
-  Globe, Settings, Loader2, ExternalLink, TrendingUp, Share2, CheckCircle2,
+import {
+  Globe, Settings, Loader2, ExternalLink, TrendingUp, X,
   LayoutGrid, Coins, Star, Newspaper, Search, RefreshCw, Calendar, BarChart3, ChevronRight
 } from 'lucide-react';
 import { motion } from 'motion/react';
@@ -16,9 +16,10 @@ import { getMarketHistoryByDate, getAvailableMarketDates } from '../../services/
 import { InstitutionalAlertPanel } from './InstitutionalAlertPanel';
 import { SectorScanner } from './SectorScanner';
 import { SerenityAlphaAnalyst } from './SerenityAlphaAnalyst';
+import { UserExpertAnalysis } from './UserExpertAnalysis';
 import { alertsClient } from '../../services/api/alertsClient';
 import { formatFundFlow, formatNumbersInText } from '../../services/formatUtils';
-import { Target, Activity, Star as StarIcon, Heart, Trash2, Plus, X } from 'lucide-react';
+import { Target, Activity, Star as StarIcon, Heart, Trash2, Plus } from 'lucide-react';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -26,14 +27,13 @@ function cn(...inputs: ClassValue[]) {
 
 interface MarketOverviewProps {
   onFetchMarketOverview: (force?: boolean) => void;
-  onTriggerDailyReport: () => void;
 }
 
-export const MarketOverview = memo(function MarketOverview({ onFetchMarketOverview, onTriggerDailyReport }: MarketOverviewProps) {
+export const MarketOverview = memo(function MarketOverview({ onFetchMarketOverview }: MarketOverviewProps) {
   const { t, i18n } = useTranslation();
-  const { 
+  const {
     overviewLoading, overviewError, isGeneratingReport, isSendingReport, reportStatus,
-    autoRefreshInterval, setAutoRefreshInterval, setIsSettingsOpen,
+    autoRefreshInterval, setAutoRefreshInterval, setIsSettingsOpen, setOverviewError,
     showConfirm, showToast
   } = useUIStore();
   const {
@@ -451,45 +451,18 @@ export const MarketOverview = memo(function MarketOverview({ onFetchMarketOvervi
               <Settings size={20} />
             </button>
             {overviewLoading && <Loader2 className="animate-spin text-emerald-500" size={20} />}
-            <button
-              onClick={onTriggerDailyReport}
-              disabled={overviewLoading || isGeneratingReport || isSendingReport || !marketOverview || isHistoryMode}
-              className={cn(
-                "flex items-center gap-2 px-6 py-2.5 rounded-2xl text-sm font-medium transition-all shadow-sm",
-                reportStatus === 'success' 
-                  ? "bg-emerald-100 text-emerald-600 border border-emerald-600/50"
-                  : reportStatus === 'error'
-                  ? "bg-rose-500/20 text-rose-400 border border-rose-500/50"
-                  : "bg-zinc-50 border border-zinc-200 hover:bg-zinc-100 text-zinc-600"
-              )}
-            >
-              {isGeneratingReport ? (
-                <>
-                  <Loader2 className="animate-spin" size={16} />
-                  {t('analysis.actions.generating_report')}
-                </>
-              ) : isSendingReport ? (
-                <>
-                  <Loader2 className="animate-spin" size={16} />
-                  {t('analysis.actions.sending_to_feishu')}
-                </>
-              ) : reportStatus === 'success' ? (
-                <>
-                  <CheckCircle2 size={16} />
-                  {t('analysis.actions.sent')}
-                </>
-              ) : (
-                <>
-                  <Share2 size={16} />
-                  {t('header.triggerBrief')}
-                </>
-              )}
-            </button>
           </div>
         </div>
 
         {overviewError && !isHistoryMode && (
-          <div className="flex flex-col gap-4">
+          <div className="relative flex flex-col gap-4">
+            <button
+              onClick={() => setOverviewError(null)}
+              className="absolute top-2 right-2 z-10 p-1 rounded-lg text-zinc-400 hover:text-zinc-600 hover:bg-zinc-200/50 transition-colors"
+              aria-label="关闭错误提示"
+            >
+              <X size={16} />
+            </button>
             <ErrorNotice
               title={t('common.error')}
               message={overviewError}
@@ -1122,6 +1095,11 @@ export const MarketOverview = memo(function MarketOverview({ onFetchMarketOvervi
       {/* Serenity Alpha Analyst */}
       {!isHistoryMode && (
         <SerenityAlphaAnalyst />
+      )}
+
+      {/* User-Selected Expert Analysis */}
+      {!isHistoryMode && (
+        <UserExpertAnalysis />
       )}
     </motion.div>
   );

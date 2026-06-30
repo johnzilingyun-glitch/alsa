@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, memo, lazy, Suspense } from 'react';
-import { Download, Bell, History, Clock, Settings, Loader2, Search, TrendingUp, Zap, BarChart3, Microscope, Languages, Menu, X, Target, Activity, BrainCircuit, Wrench, BarChart2, Users, LogOut } from 'lucide-react';
+import { Download, History, Clock, Settings, Loader2, Search, TrendingUp, Zap, BarChart3, Microscope, Languages, Menu, X, Target, Activity, BrainCircuit, Wrench, BarChart2, Users, LogOut } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useTranslation } from 'react-i18next';
 import { Market, AnalysisLevel } from '../../types';
@@ -21,18 +21,17 @@ function cn(...inputs: ClassValue[]) {
 interface HeaderProps {
   onSearch: (e: React.FormEvent) => void;
   onResetToHome: () => void;
-  onTriggerDailyReport: () => void;
   onOpenHistory: () => void;
   onOpenSignals: () => void;
   onFetchAdminData: () => void;
 }
 
 export const Header = memo(function Header({
-  onSearch, onResetToHome, onTriggerDailyReport, onOpenHistory, onOpenSignals, onFetchAdminData
+  onSearch, onResetToHome, onOpenHistory, onOpenSignals, onFetchAdminData
 }: HeaderProps) {
   const { t, i18n } = useTranslation();
   const loading = useUIStore(selectLoading);
-  const { isTriggeringReport, showAdminPanel, setShowAdminPanel, showAdminManagement, setShowAdminManagement, setIsSettingsOpen, analysisLevel, setAnalysisLevel, serviceStatus, setShowIBKRDashboard, setShowMockTradingDashboard, setShowBacktestPanel } = useUIStore();
+  const { showAdminPanel, setShowAdminPanel, showAdminManagement, setShowAdminManagement, setIsSettingsOpen, analysisLevel, setAnalysisLevel, serviceStatus, setShowIBKRDashboard, setShowMockTradingDashboard, setShowBacktestPanel } = useUIStore();
   const { dailyReport, activeAlertStatus } = useMarketStore();
   const { symbol, setSymbol, market, setMarket } = useAnalysisStore();
   const { language, setLanguage } = useConfigStore();
@@ -159,15 +158,6 @@ export const Header = memo(function Header({
                   <Download size={20} strokeWidth={1.5} />
                 </button>
               )}
-              <button
-                onClick={onTriggerDailyReport}
-                disabled={isTriggeringReport}
-                className="btn-secondary h-12 px-5 rounded-xl disabled:opacity-50"
-                aria-label={t('header.triggerBrief')}
-              >
-                {isTriggeringReport ? <Loader2 size={16} className="animate-spin" /> : <Bell size={16} strokeWidth={1.5} />}
-                <span className="text-sm">{t('header.triggerBrief')}</span>
-              </button>
               <button
                 onClick={onOpenHistory}
                 className="btn-secondary w-12 h-12 p-0 flex items-center justify-center rounded-xl"
@@ -309,9 +299,6 @@ export const Header = memo(function Header({
                 <div className="absolute top-14 right-0 z-50 bg-white rounded-2xl shadow-2xl border border-zinc-200 p-3 min-w-[200px] space-y-1 animate-in fade-in slide-in-from-top-2">
                   <button onClick={() => { toggleLanguage(); setShowMobileMenu(false); }} className="flex w-full items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-zinc-600 hover:bg-zinc-50 transition-colors">
                     <Languages size={18} /> {t('header.toggleLanguage')}
-                  </button>
-                  <button onClick={() => { onTriggerDailyReport(); setShowMobileMenu(false); }} disabled={isTriggeringReport} className="flex w-full items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-zinc-600 hover:bg-zinc-50 transition-colors disabled:opacity-50">
-                    <Bell size={18} /> {t('header.triggerBrief')}
                   </button>
                   <button onClick={() => { onOpenHistory(); setShowMobileMenu(false); }} className="flex w-full items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-zinc-600 hover:bg-zinc-50 transition-colors">
                     <History size={18} /> {t('header.history')}

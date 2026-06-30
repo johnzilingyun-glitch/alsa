@@ -9,7 +9,7 @@ from sqlmodel import Session, select
 from sqlalchemy import text as sa_text
 from sqlalchemy.exc import OperationalError, ProgrammingError
 from ..db.database import get_session
-from ..db.models import User
+from ..db.models import User, LoginHistory
 from .limiter import limiter
 import os
 import secrets
@@ -172,6 +172,16 @@ def admin_create_user(payload: AdminUserCreate, current_user: User = Depends(req
 def login_for_access_token(request: Request, form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_session)):
     user = db.exec(select(User).where(User.username == form_data.username)).first()
     if not user or not verify_password(form_data.password, user.hashed_password):
+        # Record failed login attempt
+        if user:
+            login_record = LoginHistory(
+                user_id=user.user_id,
+                ip_address=request.client.host if request.client else None,
+                user_agent=request.headers.get("user-agent"),
+                success=False,
+            )
+            db.add(login_record)
+            db.commit()
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect username or password",
@@ -179,9 +189,22 @@ def login_for_access_token(request: Request, form_data: OAuth2PasswordRequestFor
         )
     if user.status != "active":
         raise HTTPException(status_code=403, detail="Account is deactivated")
+
+    # Update user login info
     user.last_login = datetime.utcnow()
+    user.login_count = (user.login_count or 0) + 1
     db.add(user)
+
+    # Record successful login
+    login_record = LoginHistory(
+        user_id=user.user_id,
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+        success=True,
+    )
+    db.add(login_record)
     db.commit()
+
     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(
         data={"sub": user.username, "role": user.role, "user_id": user.user_id},
@@ -231,6 +254,7 @@ def list_users(current_user: User = Depends(require_role(["admin"])), db: Sessio
             "status": u.status,
             "created_at": u.created_at.isoformat() + "Z" if u.created_at else None,
             "last_login": u.last_login.isoformat() + "Z" if u.last_login else None,
+            "login_count": u.login_count or 0,
         }
         for u in users
     ]

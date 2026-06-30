@@ -1000,7 +1000,7 @@ ${JSON.stringify(payload)}
 
 你只允许输出：
 {
-  "marketSummary": "100字以内的市场总结",
+  "marketSummary": "300字以内的市场总结",
   "marketSentiment": "bullish | bearish | neutral"
 }
 

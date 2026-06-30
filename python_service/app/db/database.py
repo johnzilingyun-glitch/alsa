@@ -61,6 +61,7 @@ def init_db():
         _migrate_mocktrade(engine)
         _migrate_agent_memory(engine)
         _migrate_user_last_login(engine)
+        _migrate_login_history(engine)
 
 def get_session():
     with Session(engine) as session:
@@ -226,6 +227,28 @@ def _migrate_user_last_login(eng):
     existing = {row[1] for row in cursor.fetchall()}
     if "last_login" not in existing:
         cursor.execute("ALTER TABLE user ADD COLUMN last_login TIMESTAMP")
+    if "login_count" not in existing:
+        cursor.execute("ALTER TABLE user ADD COLUMN login_count INTEGER DEFAULT 0")
+    conn.commit()
+    conn.close()
+
+def _migrate_login_history(eng):
+    """Create login_history table if missing."""
+    import sqlite3
+    db_path = str(eng.url).replace("sqlite:///", "")
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS loginhistory (
+            login_id VARCHAR PRIMARY KEY,
+            user_id VARCHAR,
+            login_time TIMESTAMP,
+            ip_address VARCHAR,
+            user_agent VARCHAR,
+            success BOOLEAN DEFAULT 1,
+            FOREIGN KEY (user_id) REFERENCES user(user_id)
+        )
+    """)
     conn.commit()
     conn.close()
 

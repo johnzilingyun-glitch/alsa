@@ -5,10 +5,13 @@ Records every LLM invocation as a PromptRun with metrics for observability.
 """
 import hashlib
 import uuid
+import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Dict, List, Optional
+
+logger = logging.getLogger(__name__)
 
 
 class PromptStatus(str, Enum):
@@ -112,8 +115,14 @@ class PromptVersionRegistry:
         latency_ms: int,
         tool_calls: int,
         schema_validation_passed: bool,
+        job_id: str = "",
+        analysis_id: str = "",
     ) -> PromptRun:
-        """Record a single LLM invocation with metrics."""
+        """Record a single LLM invocation with metrics.
+
+        Persists to both in-memory list AND database for durability.
+        Database write is best-effort — failures are logged but don't block the caller.
+        """
         run = PromptRun(
             run_id=f"pr_{uuid.uuid4().hex[:12]}",
             prompt_version_id=prompt_version_id,
@@ -126,6 +135,33 @@ class PromptVersionRegistry:
             schema_validation_passed=schema_validation_passed,
         )
         self._runs.append(run)
+
+        # Persist to database for durability
+        try:
+            from ..db.database import session_factory
+            from ..db.models import PromptRun as PromptRunModel
+
+            db = session_factory()
+            try:
+                db_run = PromptRunModel(
+                    prompt_run_id=run.run_id,
+                    job_id=job_id or "unknown",
+                    prompt_version_id=prompt_version_id,
+                    model=model,
+                    provider=provider,
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                    latency_ms=latency_ms,
+                    parse_success=1 if schema_validation_passed else 0,
+                    tool_calls=tool_calls,
+                )
+                db.add(db_run)
+                db.commit()
+            finally:
+                db.close()
+        except Exception as e:
+            logger.warning("Failed to persist PromptRun to database: %s", e)
+
         return run
 
     def list_runs(self, prompt_version_id: str) -> List[PromptRun]:

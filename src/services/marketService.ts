@@ -25,10 +25,12 @@ export interface SummaryPayload {
 }
 
 export async function generateMarketSummary(payload: SummaryPayload): Promise<{ summary: string; sentiment: 'bullish' | 'bearish' | 'neutral' }> {
+  const storeConfig = useConfigStore.getState().config as any;
+  const model = storeConfig?.model || DEFAULT_LLM_MODEL;
   const ai = createAI();
   const prompt = getMarketSummaryPrompt(payload);
   const raw = await generateAndParseJsonWithRetry<{ marketSummary?: string; marketSentiment?: string }>(ai, {
-    model: DEFAULT_LLM_MODEL,
+    model,
     contents: prompt,
     config: { responseMimeType: "application/json" },
   }, { transportRetries: 1, parseRetries: 1 });

@@ -306,7 +306,9 @@ class AnalysisJobService:
                     self.update_job_progress(job_id, "discussion", 50 + int((round/total) * 40), round=round, total_rounds=total, message=msg, count=count, error_type=error_type)
     
                 # Determine language: explicit config > market-based auto-detection
-                language = (config or {}).get("language") or ("en" if market == "us" else "zh-CN")
+                # NOTE: US-Share intentionally uses zh-CN (Chinese) — the entire report system
+                # is Chinese-primary, and LLMs handle Chinese financial analysis well.
+                language = (config or {}).get("language") or "zh-CN"
     
                 # Initialize ContextVar for precise token tracking during this job
                 job_usage = {"promptTokens": 0, "candidatesTokens": 0, "totalTokens": 0}

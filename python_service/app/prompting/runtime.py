@@ -128,7 +128,9 @@ class PromptRuntimeService:
                 output_tokens=metrics.get("output_tokens", 0),
                 latency_ms=metrics.get("latency_ms", 0),
                 tool_calls=metrics.get("tool_calls", 0),
-                schema_validation_passed=metrics.get("schema_validation_passed", True)
+                schema_validation_passed=metrics.get("schema_validation_passed", True),
+                job_id=metrics.get("job_id", ""),
+                analysis_id=metrics.get("analysis_id", ""),
             )
         except Exception as e:
             logger.error(f"Failed to record run metrics in registry: {e}")

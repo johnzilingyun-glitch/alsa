@@ -68,16 +68,30 @@ function getServiceMode(config?: { serviceMode?: ServiceMode }): ServiceMode {
 }
 
 function createBackendBridgeClient(config?: { model?: string; serviceMode?: ServiceMode; apiKey?: string }) {
-  const fallbackModel = config?.model || DEFAULT_LLM_MODEL;
   const storeConfig = useConfigStore.getState().config as any;
   const genericApiKey = config?.apiKey || storeConfig?.apiKey || '';
-  const deepseekApiKey = storeConfig?.deepseekApiKey || (fallbackModel.startsWith('deepseek') ? genericApiKey : '');
-  const geminiApiKey = fallbackModel.startsWith('gemini') ? genericApiKey : '';
-  
+  const deepseekApiKey = storeConfig?.deepseekApiKey || '';
+  const geminiApiKey = storeConfig?.apiKey || '';
+
+  // Resolve model, auto-correcting if model doesn't match available keys
+  const resolvedModel = (() => {
+    const userModel = config?.model || storeConfig?.model || '';
+    if (!userModel) {
+      // No model set at all — auto-detect by key
+      return deepseekApiKey ? 'deepseek-v4-pro' : DEFAULT_LLM_MODEL;
+    }
+    const isGemini = userModel.startsWith('gemini');
+    const isDeepseek = userModel.startsWith('deepseek');
+    if (isGemini && geminiApiKey) return userModel;
+    if (isDeepseek && deepseekApiKey) return userModel;
+    if (isGemini && !geminiApiKey && deepseekApiKey) return 'deepseek-v4-pro';
+    if (isDeepseek && !deepseekApiKey && geminiApiKey) return DEFAULT_LLM_MODEL;
+    return userModel;
+  })();
   return {
     models: {
       generateContent: async (params: any) => {
-        const requestedModel = params?.model || fallbackModel;
+        const requestedModel = params?.model || resolvedModel;
         const startTime = Date.now();
         const response = await fetch('/api/llm/generate', {
           method: 'POST',
@@ -114,22 +128,27 @@ export function getApiKey(config?: { apiKey?: string; serviceMode?: ServiceMode 
     const apiKey = config?.apiKey || storeConfig?.apiKey || '';
     if (apiKey.trim()) return apiKey;
     if (typeof process !== 'undefined' && process.env?.NODE_ENV === 'test') return 'test-api-key';
-    throw new Error('??? Gemini API Key???????????????? Key ???');
+    throw new Error('未设置 API Key，请在「系统设置」页面输入您的 API Key');
   }
 
-  throw new Error('???? Key ???????????????????????? LLM ???????');
+  throw new Error('免 Key 托管模式不可用，请切换到自定义 Key 模式');
 }
 
 export function createAI(config?: { apiKey?: string; model?: string; serviceMode?: ServiceMode }) {
   const serviceMode = getServiceMode(config);
   const storeConfig = useConfigStore.getState().config as any;
-  const requestedModel = config?.model || storeConfig?.model || DEFAULT_LLM_MODEL;
 
-  if (serviceMode !== 'byok' || requestedModel.startsWith('deepseek') || storeConfig?.deepseekApiKey) {
-    return createBackendBridgeClient(config);
+  // BYOK mode: use direct Gemini client if user provided a key
+  if (serviceMode === 'byok') {
+    const geminiKey = (config?.apiKey || storeConfig?.apiKey || '').trim();
+    if (geminiKey) {
+      return new GoogleGenAI({ apiKey: geminiKey });
+    }
+    // No Gemini key — fall through to backend bridge (handles deepseek, server-side providers)
   }
 
-  return new GoogleGenAI({ apiKey: getApiKey(config) });
+  // Managed mode or fallback: route through Node backend
+  return createBackendBridgeClient(config);
 }
 
 export async function generateAndParseJsonWithRetry<T>(

@@ -68,7 +68,7 @@ class SerenityAnalyzeRequest(BaseModel):
     gemini_api_key: Optional[str] = None
     deepseek_api_key: Optional[str] = None
     pipeline_version: Optional[str] = "production"
-
+    experts: Optional[list[str]] = None
 
 def _resolve_model(requested: Optional[str] = None) -> str:
     if requested:
@@ -426,8 +426,8 @@ async def start_serenity_analysis(req: SerenityAnalyzeRequest):
     except ValueError as e:
         return error_response("INVALID_PARAM", str(e))
 
-    # Cache check
-    if not req.force:
+    # Cache check — skip when specific experts are selected or force is set
+    if not req.force and not req.experts:
         with session_factory() as session:
             statement = select(AnalysisJob).where(
                 AnalysisJob.market == "sector",
@@ -438,7 +438,6 @@ async def start_serenity_analysis(req: SerenityAnalyzeRequest):
             ).order_by(AnalysisJob.finished_at.desc())
             existing_job = session.exec(statement).first()
             if existing_job:
-                # Register in-memory reference
                 _scan_jobs[f"analyze_{existing_job.job_id}"] = {
                     "service": service,
                     "job_repo": job_repo,
@@ -452,7 +451,8 @@ async def start_serenity_analysis(req: SerenityAnalyzeRequest):
         sector_name, model=model, target_date=target_date, level="serenity_alpha",
         config={
             "geminiApiKey": req.gemini_api_key,
-            "deepseekApiKey": req.deepseek_api_key
+            "deepseekApiKey": req.deepseek_api_key,
+            "experts": req.experts,
         }
     )
 

@@ -14,6 +14,27 @@ export function useMarketData(_fetchAdminData: () => Promise<void>) {
   const _hasHydrated = useMarketStore(s => s._hasHydrated);
   const autoRefresh = useUIStore(s => s.autoRefreshInterval);
 
+  const fetchMarketSummary = useCallback(async (market: string) => {
+    const state = useMarketStore.getState();
+    if (state.aiLoading[market]) return;
+
+    const dashboard = state.marketDashboards[market];
+    if (!dashboard) return;
+
+    setAiLoading(market, true);
+    try {
+      const payload = compressForAI(dashboard);
+      const result = await generateMarketSummary(payload);
+      setMarketSummaryData(market, result.summary, result.sentiment);
+      setOverviewError(null); // clear any previous error on success
+    } catch (err) {
+      console.warn('[Market] AI summary failed:', err);
+      setOverviewError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setAiLoading(market, false);
+    }
+  }, [setAiLoading, setMarketSummaryData, setOverviewError]);
+
   const fetchMarketDashboard = useCallback(async (forceRefresh = false) => {
     const state = useMarketStore.getState();
     const currentDashboard = state.marketDashboards[overviewMarket];
@@ -37,29 +58,11 @@ export function useMarketData(_fetchAdminData: () => Promise<void>) {
       setOverviewLoading(false);
     }
 
-    // Async non-blocking: AI summary + sentiment
-    void fetchMarketSummary(overviewMarket);
-  }, [overviewMarket, setMarketDashboard, setMarketLastUpdated, setOverviewLoading, setOverviewError]);
-
-  const fetchMarketSummary = useCallback(async (market: string) => {
-    const state = useMarketStore.getState();
-    if (state.aiLoading[market]) return;
-
-    const dashboard = state.marketDashboards[market];
-    if (!dashboard) return;
-
-    setAiLoading(market, true);
-    try {
-      const payload = compressForAI(dashboard);
-      const result = await generateMarketSummary(payload);
-      setMarketSummaryData(market, result.summary, result.sentiment);
-    } catch (err) {
-      console.warn('[Market] AI summary failed (page unaffected):', err);
-    } finally {
-      setAiLoading(market, false);
+    // AI summary only on explicit force refresh
+    if (forceRefresh) {
+      void fetchMarketSummary(overviewMarket);
     }
-  }, [setAiLoading, setMarketSummaryData]);
-
+  }, [overviewMarket, setMarketDashboard, setMarketLastUpdated, setOverviewLoading, setOverviewError, fetchMarketSummary]);
   useEffect(() => {
     if (_hasHydrated) {
       void fetchMarketDashboard(false);

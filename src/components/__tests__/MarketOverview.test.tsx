@@ -100,7 +100,6 @@ describe('MarketOverview', () => {
     const { container } = render(
       <MarketOverview
         onFetchMarketOverview={vi.fn()}
-        onTriggerDailyReport={vi.fn()}
       />
     );
     expect(container).toBeTruthy();
@@ -110,7 +109,6 @@ describe('MarketOverview', () => {
     render(
       <MarketOverview
         onFetchMarketOverview={vi.fn()}
-        onTriggerDailyReport={vi.fn()}
       />
     );
     expect(screen.getByText('上证综指')).toBeTruthy();
@@ -121,9 +119,9 @@ describe('MarketOverview', () => {
     render(
       <MarketOverview
         onFetchMarketOverview={vi.fn()}
-        onTriggerDailyReport={vi.fn()}
       />
     );
     expect(screen.getByText('market.overview')).toBeTruthy();
   });
 });
+

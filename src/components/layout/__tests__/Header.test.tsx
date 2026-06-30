@@ -34,13 +34,13 @@ vi.mock('../../shared/StockSearchInput', () => ({
 import { Header } from '../Header';
 
 const defaultProps = {
-  onSearch: vi.fn(), onResetToHome: vi.fn(), onTriggerDailyReport: vi.fn(),
+  onSearch: vi.fn(), onResetToHome: vi.fn(),
   onOpenHistory: vi.fn(), onOpenSignals: vi.fn(), onFetchAdminData: vi.fn(),
 };
 
 beforeEach(() => {
   useUIStore.setState({
-    analysisActivity: 'idle', isTriggeringReport: false, showAdminPanel: false,
+    analysisActivity: 'idle', showAdminPanel: false,
     analysisLevel: 'standard', serviceStatus: 'available',
   });
   useMarketStore.setState({ dailyReport: null, activeAlertStatus: 'neutral' });

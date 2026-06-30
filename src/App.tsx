@@ -98,7 +98,6 @@ export default function App() {
   const { handleChat } = useChat(fetchAdminData);
   const { fetchMarketDashboard: fetchMarketOverview } = useMarketData(fetchAdminData);
   const {
-    handleTriggerDailyReport,
     handleSendStockReport,
     handleSendChatReport,
     handleSendDiscussionReport,
@@ -236,17 +235,23 @@ export default function App() {
             </div>
             {hashRoute === '/admin' ? (
               <>
-                <Suspense fallback={<div className="flex items-center justify-center py-12"><Loader2 size={24} className="animate-spin text-indigo-500" /></div>}>
-                  <SystemMonitor />
-                </Suspense>
-                <Suspense fallback={null}>
-                  <AdminPanel />
-                </Suspense>
+                <ErrorBoundary fallback="系统监控加载失败，请刷新后重试">
+                  <Suspense fallback={<div className="flex items-center justify-center py-12"><Loader2 size={24} className="animate-spin text-indigo-500" /></div>}>
+                    <SystemMonitor />
+                  </Suspense>
+                </ErrorBoundary>
+                <ErrorBoundary fallback="管理面板加载失败，请刷新后重试">
+                  <Suspense fallback={null}>
+                    <AdminPanel />
+                  </Suspense>
+                </ErrorBoundary>
               </>
             ) : (
-              <Suspense fallback={<div className="flex items-center justify-center py-12"><Loader2 size={24} className="animate-spin text-indigo-500" /></div>}>
-                <UserManagement />
-              </Suspense>
+              <ErrorBoundary fallback="用户管理加载失败，请刷新后重试">
+                <Suspense fallback={<div className="flex items-center justify-center py-12"><Loader2 size={24} className="animate-spin text-indigo-500" /></div>}>
+                  <UserManagement />
+                </Suspense>
+              </ErrorBoundary>
             )}
           </div>
         ) : (
@@ -316,7 +321,6 @@ export default function App() {
         <Header
           onSearch={handleSearch}
           onResetToHome={resetToHome}
-          onTriggerDailyReport={handleTriggerDailyReport}
           onOpenHistory={() => setIsHistoryOpen(true)}
           onOpenSignals={() => setIsSignalsOpen(true)}
           onFetchAdminData={fetchAdminData}
@@ -377,7 +381,6 @@ export default function App() {
             }>
             <MarketOverview
               onFetchMarketOverview={(force) => void fetchMarketOverview(force)}
-              onTriggerDailyReport={handleTriggerDailyReport}
             />
             </Suspense>
             </ErrorBoundary>

@@ -394,13 +394,13 @@ async function tryDefault(prompt: string, log: LogFn, requestedModel?: string): 
 
 // ── Provider routing ───────────────────────────────────────────────────────
 
-export function getPreferredProvider(requestedModel: string): GatewayProvider | null {
+export function getPreferredProvider(requestedModel: string, config?: { geminiApiKey?: string; deepseekApiKey?: string }): GatewayProvider | null {
   const m = requestedModel.toLowerCase();
   
-  if (m.startsWith('gemini') && process.env.GEMINI_API_KEY) return 'gemini';
+  if (m.startsWith('gemini') && (config?.geminiApiKey || process.env.GEMINI_API_KEY)) return 'gemini';
   if ((m.startsWith('gpt-') || /^o\d/.test(m)) && process.env.OPENAI_API_KEY) return 'openai';
   if (m.startsWith('claude') && process.env.ANTHROPIC_API_KEY) return 'anthropic';
-  if (m.startsWith('deepseek') && process.env.DEEPSEEK_API_KEY) return 'deepseek';
+  if (m.startsWith('deepseek') && (config?.deepseekApiKey || process.env.DEEPSEEK_API_KEY)) return 'deepseek';
   
   // Route all models through xbrain by default (supports qwen, kimi, glm, etc.)
   if (process.env.DEFAULT_LLM_API_KEY) return 'default';
@@ -435,7 +435,7 @@ export async function gatewayGenerate(
 ): Promise<GatewayResponse> {
   // Resolve to default model if empty/unspecified
   const model = requestedModel || getDefaultModel();
-  const provider = getPreferredProvider(model);
+  const provider = getPreferredProvider(model, config);
 
   if (!provider) {
     throw new Error(

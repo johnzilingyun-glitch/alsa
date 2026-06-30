@@ -48,9 +48,9 @@ class ReportGeneratorService:
         try:
             # UI Data Expert Pass - REFINED CONTENT (RESTORING RAW LOGS)
             ui_data = await self._run_ui_data_expert(symbol, market, snapshot, full_discussion, model=model, deepseek_api_key=deepseek_api_key, gemini_api_key=gemini_api_key)
-            
-            # If UI data expert failed (empty dict) OR critical fields are empty, build fallback
-            if not ui_data:
+
+            # If UI data expert failed (empty dict) OR quality is too low, build fallback
+            if not ui_data or self._is_low_quality_ui_data(ui_data):
                 ui_data = self._build_fallback_ui_data(symbol, cleaned_msgs, snapshot)
             else:
                 # Validate critical fields — backfill from discussion if LLM returned empty/thinking text
@@ -303,23 +303,50 @@ Now extract from the following discussion:
                 if not model:
                     provider = os.getenv("DEFAULT_LLM_PROVIDER", "deepseek").lower()
                     model = os.getenv("DEEPSEEK_MODEL", "deepseek-v4-pro") if provider == "deepseek" else os.getenv("GEMINI_MODEL", "gemini-3.1-pro-preview")
-                
-                # Truncate discussion if extremely long to avoid prompt explosions in extraction
-                # (Take the last 30,000 characters which usually contain the final conclusions)
-                discussion_safe = discussion[-30000:] if len(discussion) > 30000 else discussion
-                
-                res = await llm_gateway.generate_content(prompt + f"\n\nEXPERT DISCUSSION (Trailing context):\n{discussion_safe}", model=model, deepseek_api_key=deepseek_api_key, gemini_api_key=gemini_api_key)
-                
-                # Clean markdown code blocks and extract JSON
+
+                # Preprocess discussion: strip markdown formatting noise for cleaner extraction
+                discussion_clean = self._preprocess_discussion_for_extraction(discussion)
+
+                # Smart truncation: take beginning (context) + end (conclusions) for long discussions
+                # This preserves the stock overview from early experts AND final conclusions
+                if len(discussion_clean) > 25000:
+                    # First 8000 chars: stock overview, key data from early experts
+                    # Last 17000 chars: final conclusions, recommendations from later experts
+                    discussion_safe = discussion_clean[:8000] + "\n\n... [中间内容已省略] ...\n\n" + discussion_clean[-17000:]
+                else:
+                    discussion_safe = discussion_clean
+
+                # Add retry-specific instruction to prevent lazy copying
+                retry_hints = ""
+                if attempt > 0:
+                    retry_hints = (
+                        "\n\n⚠️ PREVIOUS ATTEMPT FAILED. You MUST output ONLY a valid JSON object. "
+                        "DO NOT copy the discussion text into any field. "
+                        "Each text field must be a SHORT summary (≤50 words), not the full discussion."
+                    )
+
+                res = await llm_gateway.generate_content(
+                    prompt + f"\n\nEXPERT DISCUSSION (Trailing context):\n{discussion_safe}{retry_hints}",
+                    model=model, deepseek_api_key=deepseek_api_key, gemini_api_key=gemini_api_key
+                )
+
+                # Robust JSON extraction: try balanced-brace parser first, then regex fallback
                 cleaned = re.sub(r'```(?:json)?\s*\n?', '', res)
                 cleaned = re.sub(r'\n?```\s*$', '', cleaned)
                 cleaned = cleaned.strip()
-                match = re.search(r'\{.*\}', cleaned, re.DOTALL)
-                if match:
-                    json_str = match.group(0)
+
+                json_str = self._extract_balanced_json(cleaned)
+                if not json_str:
+                    # Regex fallback: find first {...} block
+                    match = re.search(r'\{.*\}', cleaned, re.DOTALL)
+                    if match:
+                        json_str = match.group(0)
+
+                if json_str:
                     # Robust JSON parsing with repair for common LLM output issues
                     try:
-                        return json.loads(json_str)
+                        result = json.loads(json_str)
+                        return result
                     except json.JSONDecodeError:
                         # Fix common LLM JSON issues: trailing commas
                         fixed = re.sub(r',(\s*[}\]])', r'\1', json_str)
@@ -327,15 +354,47 @@ Now extract from the following discussion:
                             return json.loads(fixed)
                         except json.JSONDecodeError:
                             pass
-                
+
                 print(f"UI Data Expert Pass Attempt {attempt+1} Failed to parse JSON. Result: {res[:100]}...")
             except Exception as e:
                 print(f"UI Data Expert Pass Attempt {attempt+1} Failed Exception: {e}")
-                
+
             await asyncio.sleep(2) # short backoff before retry
 
         print("UI Data Expert Pass exhausted all retries. Falling back...")
         return {}
+
+    def _preprocess_discussion_for_extraction(self, discussion: str) -> str:
+        """Clean up discussion text to improve LLM extraction quality.
+
+        Removes markdown formatting noise that confuses JSON extraction:
+        - HTML tags (from rendered markdown)
+        - Excessive whitespace / blank lines
+        - Table pipe characters that break JSON parsing
+        - Code block markers
+        """
+        if not discussion:
+            return discussion
+
+        text = discussion
+
+        # Remove HTML tags (from rendered markdown in discussion)
+        text = re.sub(r'<[^>]+>', '', text)
+
+        # Remove markdown code block markers
+        text = re.sub(r'```(?:json|python|py)?\s*\n?', '', text)
+        text = re.sub(r'\n?```\s*', '', text)
+
+        # Remove inline code backticks
+        text = re.sub(r'`([^`]+)`', r'\1', text)
+
+        # Collapse excessive blank lines (3+ → 2)
+        text = re.sub(r'\n{3,}', '\n\n', text)
+
+        # Remove trailing whitespace per line
+        text = '\n'.join(line.rstrip() for line in text.split('\n'))
+
+        return text.strip()
 
     # --- Thinking prefix patterns common in DeepSeek/LLM outputs ---
     _THINKING_PREFIXES = [
@@ -387,6 +446,48 @@ Now extract from the following discussion:
         if not stripped or (len(stripped) < 50 and len(stripped) < len(content.strip()) * 0.1):
             return content.strip()
         return stripped
+
+    def _is_low_quality_ui_data(self, ui_data: dict) -> bool:
+        """Detect garbage/low-quality UI data extracted by LLM that should trigger fallback.
+
+        Returns True if the extracted data is too poor to use, even though the dict is non-empty.
+        This prevents markdown separators, overly long dumps, and empty critical fields
+        from reaching the HTML renderer.
+        """
+        if not ui_data or not isinstance(ui_data, dict):
+            return True
+
+        GARBAGE_VALUES = {"---", "—", "N/A", "n/a", "TBD", "tbd", "TODO", "todo", "None", "null", ""}
+
+        # Check verdict: must be substantive, not a separator or placeholder
+        # Minimum 3 chars: Chinese like "买入" or "观望" is valid
+        verdict = str(ui_data.get("verdict", "")).strip()
+        if not verdict or verdict in GARBAGE_VALUES or len(verdict) < 3:
+            return True
+
+        # Check investment_thesis: must be concise (≤500 chars), not a full document dump
+        thesis = str(ui_data.get("investment_thesis", "")).strip()
+        if not thesis or thesis in GARBAGE_VALUES:
+            return True
+        if len(thesis) > 500:
+            return True
+
+        # Check the_call: must be substantive (min 3 chars for Chinese)
+        the_call = str(ui_data.get("the_call", "")).strip()
+        if not the_call or the_call in GARBAGE_VALUES or len(the_call) < 3:
+            return True
+
+        # Check tagline: must be substantive (min 3 chars for Chinese)
+        tagline = str(ui_data.get("tagline", "")).strip()
+        if not tagline or tagline in GARBAGE_VALUES or len(tagline) < 3:
+            return True
+
+        # Check recommendation: must be valid
+        rec = str(ui_data.get("recommendation", "")).strip().upper()
+        if rec not in ("BUY", "HOLD", "SELL", "STRONG BUY", "STRONG SELL", "WATCH"):
+            return True
+
+        return False
 
     def _validate_and_backfill_ui_data(self, ui_data: dict, discussion_msgs: list, snapshot: dict):
         """Validate critical UI fields; backfill from discussion if LLM returned empty or thinking text."""
@@ -1740,8 +1841,16 @@ CONTENT:
         def esc(t): return html.escape(str(t)) if t else ""
 
         # Raw variable extractions with safe defaults
+        GARBAGE_VALUES = {"---", "—", "N/A", "n/a", "TBD", "tbd", "TODO", "todo", "None", "null", ""}
+
         tagline = d.get("tagline") or f"{info.get('name', '')} ({info.get('symbol', '')}) 投资分析报告"
+        if str(tagline).strip() in GARBAGE_VALUES or len(str(tagline).strip()) < 5:
+            tagline = f"{info.get('name', '')} ({info.get('symbol', '')}) 深度投资分析报告"
+
         verdict = d.get("verdict", "")
+        if str(verdict).strip() in GARBAGE_VALUES or len(str(verdict).strip()) < 5:
+            verdict = ""
+
         rec = d.get("recommendation", "WATCH")
         rec_lower = rec.lower() if rec else "hold"
         rec_class = "buy" if rec_lower in ("buy", "strong buy") else ("sell" if rec_lower in ("sell", "strong sell") else "hold")
@@ -1753,10 +1862,19 @@ CONTENT:
         action_html = f'<div class="action-stance">{action_stance}</div>' if action_stance else ""
 
         # 1-Pager Dashboard Elements
-        thesis = d.get("investment_thesis") or d.get("summary") or "分析整理中..."
+        thesis_raw = d.get("investment_thesis") or d.get("summary") or "分析整理中..."
+        # Safety net: truncate thesis if still too long (prevents markdown document dumps)
+        if len(thesis_raw) > 500:
+            # Take first 500 chars and find a sentence boundary
+            truncated = thesis_raw[:500]
+            last_period = max(truncated.rfind('。'), truncated.rfind('. '), truncated.rfind('！'), truncated.rfind('?'))
+            thesis = truncated[:last_period + 1] if last_period > 100 else truncated + "..."
+        else:
+            thesis = thesis_raw
         factor = d.get("factor_profile") or {}
         consensus = d.get("consensus_vs_non_consensus") or {}
-        the_call = d.get("the_call") or verdict or "暂无明确决断建议"
+        the_call_raw = d.get("the_call") or verdict or "暂无明确决断建议"
+        the_call = the_call_raw if str(the_call_raw).strip() not in GARBAGE_VALUES and len(str(the_call_raw).strip()) >= 5 else "暂无明确决断建议"
         
         # Catalyst Calendar
         catalysts = d.get("catalyst_calendar") or []

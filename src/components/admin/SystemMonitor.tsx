@@ -29,10 +29,11 @@ interface ApiJobInfo {
   progress?: any;
 }
 
-function formatTokens(n: number) {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(2)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
-  return n.toString();
+function formatTokens(n: unknown): string {
+  const num = typeof n === 'number' && !Number.isNaN(n) ? n : 0;
+  if (num >= 1_000_000) return `${(num / 1_000_000).toFixed(2)}M`;
+  if (num >= 1_000) return `${(num / 1_000).toFixed(1)}K`;
+  return num.toString();
 }
 
 function formatTime(ms: number | undefined) {
@@ -197,7 +198,8 @@ export function SystemMonitor() {
     return { ...task, status };
   });
 
-  const dailyPct = dailyTokenBudget > 0 ? Math.min(100, (tokenUsage.dailyTotal / dailyTokenBudget) * 100) : 0;
+  const dailyPct = dailyTokenBudget > 0 && typeof tokenUsage?.dailyTotal === 'number'
+    ? Math.min(100, (tokenUsage.dailyTotal / dailyTokenBudget) * 100) : 0;
   const runningAiJobs = apiJobs.filter(j => j.status === 'running' || j.status === 'pending');
 
   return (

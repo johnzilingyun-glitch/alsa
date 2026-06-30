@@ -50,10 +50,23 @@ interface StatsState {
 function loadStats(): VisitStats {
   try {
     const raw = localStorage.getItem(STATS_KEY);
-    if (raw) return JSON.parse(raw) as VisitStats;
+    if (raw) {
+      const parsed = JSON.parse(raw) as Partial<VisitStats>;
+      // Validate that all required fields exist to guard against corrupt data
+      return {
+        totalSessions: Number(parsed.totalSessions) || 0,
+        weeklySessions: Number(parsed.weeklySessions) || 0,
+        weeklyResetId: typeof parsed.weeklyResetId === 'string' ? parsed.weeklyResetId : makeEmptyStats().weeklyResetId,
+        monthlySessions: Number(parsed.monthlySessions) || 0,
+        monthlyResetId: typeof parsed.monthlyResetId === 'string' ? parsed.monthlyResetId : makeEmptyStats().monthlyResetId,
+        dailySessions: Number(parsed.dailySessions) || 0,
+        dailyResetDate: typeof parsed.dailyResetDate === 'string' ? parsed.dailyResetDate : makeEmptyStats().dailyResetDate,
+        firstVisit: typeof parsed.firstVisit === 'string' ? parsed.firstVisit : makeEmptyStats().firstVisit,
+        lastVisit: typeof parsed.lastVisit === 'string' ? parsed.lastVisit : makeEmptyStats().lastVisit,
+      };
+    }
   } catch {
     console.warn('[useStatsStore] Failed to load stats from localStorage:');
-    /* ignore */
   }
   return makeEmptyStats();
 }

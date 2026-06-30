@@ -13,7 +13,16 @@ class User(SQLModel, table=True):
     role: str = "viewer"  # admin/researcher/viewer
     status: str = "active"
     last_login: Optional[datetime] = None
+    login_count: int = 0
     created_at: datetime = Field(default_factory=utc_now)
+
+class LoginHistory(SQLModel, table=True):
+    login_id: str = Field(primary_key=True, default_factory=lambda: f"login_{uuid.uuid4().hex[:8]}")
+    user_id: str = Field(index=True, foreign_key="user.user_id")
+    login_time: datetime = Field(default_factory=utc_now)
+    ip_address: Optional[str] = None
+    user_agent: Optional[str] = None
+    success: bool = True
 
 class Watchlist(SQLModel, table=True):
     watchlist_id: str = Field(primary_key=True, default_factory=lambda: f"wl_{uuid.uuid4().hex[:8]}")

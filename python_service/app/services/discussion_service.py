@@ -73,7 +73,10 @@ class DiscussionService:
     def __init__(self):
         pass
 
-    def build_topology(self, level: str, asset_type: str = "equity") -> List[Dict[str, Any]]:
+    def build_topology(self, level: str, asset_type: str = "equity", custom_experts: Optional[List[str]] = None) -> List[Dict[str, Any]]:
+        if custom_experts:
+            return [{"round": i + 1, "experts": [expert], "parallel": False} for i, expert in enumerate(custom_experts)]
+
         if level == "sector":
             template = SECTOR_TOPOLOGY
         elif level == "serenity_alpha":
@@ -85,7 +88,6 @@ class DiscussionService:
         else:
             template = DEEP_TOPOLOGY
 
-        # Apply skip rules (basic implementation)
         skip_roles = []
         if asset_type in ["etf", "index"]:
             skip_roles = ["Deep Research Specialist", "Fundamental Analyst"]
@@ -97,15 +99,15 @@ class DiscussionService:
             experts = [e for e in round_data["experts"] if e not in skip_roles]
             if experts:
                 filtered.append({**round_data, "experts": experts})
-        
+
         return filtered
 
-    async def run_discussion(self, symbol: str, name: str, snapshot: Dict[str, Any], level: str = "standard", language: str = "zh-CN", model: str = None, on_progress: Optional[callable] = None, job_id: str = "temp_job_id", config: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+    async def run_discussion(self, symbol: str, name: str, snapshot: Dict[str, Any], level: str = "standard", language: str = "zh-CN", model: str = None, on_progress: Optional[callable] = None, job_id: str = "temp_job_id", config: Optional[Dict[str, Any]] = None, market: str = "us") -> List[Dict[str, Any]]:
         """
         Runs the full expert discussion flow using LangGraph.
         """
-        topology = self.build_topology(level)
-        market = snapshot.get("market", "us")
+        custom_experts = (config or {}).get("experts")
+        topology = self.build_topology(level, custom_experts=custom_experts)
         self._cumulative_count = 0  # Track total chars across all experts
         
         # Clear tool executor cache from previous jobs

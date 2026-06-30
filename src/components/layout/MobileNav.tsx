@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { motion, AnimatePresence, useMotionValue, useTransform, animate } from 'motion/react';
-import { X, Languages, Bell, History, Monitor, BarChart3, Activity, TrendingUp, BarChart2, Settings, BrainCircuit, Search } from 'lucide-react';
+import { X, Languages, History, Monitor, BarChart3, Activity, TrendingUp, BarChart2, Settings, BrainCircuit, Search } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useUIStore } from '../../stores/useUIStore';
 import { useMarketStore } from '../../stores/useMarketStore';
@@ -9,15 +9,14 @@ import { useConfigStore } from '../../stores/useConfigStore';
 interface MobileNavProps {
   isOpen: boolean;
   onClose: () => void;
-  onTriggerDailyReport: () => void;
   onOpenHistory: () => void;
   onFetchAdminData: () => void;
   onShowBrainEvolution: () => void;
 }
 
-export function MobileNav({ isOpen, onClose, onTriggerDailyReport, onOpenHistory, onFetchAdminData, onShowBrainEvolution }: MobileNavProps) {
+export function MobileNav({ isOpen, onClose, onOpenHistory, onFetchAdminData, onShowBrainEvolution }: MobileNavProps) {
   const { t } = useTranslation();
-  const { isTriggeringReport, showAdminPanel, setShowAdminPanel, setIsSettingsOpen, setShowIBKRDashboard, setShowMockTradingDashboard, setShowBacktestPanel, setShowPredictionDashboard, setShowThsAnalysis } = useUIStore();
+  const { showAdminPanel, setShowAdminPanel, setIsSettingsOpen, setShowIBKRDashboard, setShowMockTradingDashboard, setShowBacktestPanel, setShowPredictionDashboard, setShowThsAnalysis } = useUIStore();
   const { language, setLanguage } = useConfigStore();
   const { activeAlertStatus } = useMarketStore();
   const x = useMotionValue(320);
@@ -48,7 +47,6 @@ export function MobileNav({ isOpen, onClose, onTriggerDailyReport, onOpenHistory
 
   const navItems = [
     { icon: Languages, label: t('header.toggleLanguage'), onClick: () => { toggleLanguage(); close(); } },
-    { icon: Bell, label: t('header.triggerBrief'), onClick: () => { onTriggerDailyReport(); close(); }, disabled: isTriggeringReport },
     { icon: History, label: t('header.history'), onClick: () => { onOpenHistory(); close(); } },
     { icon: Monitor, label: '系统监控', onClick: () => { setShowAdminPanel(!showAdminPanel); if (!showAdminPanel) onFetchAdminData(); close(); } },
     { icon: BarChart3, label: 'IBKR 实盘', onClick: () => { setShowIBKRDashboard(true); close(); } },
@@ -97,12 +95,11 @@ export function MobileNav({ isOpen, onClose, onTriggerDailyReport, onOpenHistory
                 <button
                   key={item.label}
                   onClick={item.onClick}
-                  disabled={item.disabled}
                   className={`flex w-full items-center gap-3 px-4 py-3.5 rounded-xl text-sm font-medium transition-colors min-h-[44px] ${
                     item.accent
                       ? 'text-purple-600 hover:bg-purple-50'
                       : 'text-zinc-600 hover:bg-zinc-50'
-                  } disabled:opacity-50`}
+                  }`}
                 >
                   <item.icon size={18} strokeWidth={1.5} />
                   {item.label}

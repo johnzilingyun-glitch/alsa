@@ -58,4 +58,14 @@ describe('API boundary contract', () => {
 
     expect(violations).toEqual([]);
   });
+
+  it('keeps THS chart legend rendering free of raw HTML injection', () => {
+    const chart = fs.readFileSync('src/components/dashboard/ThsKlineChart.tsx', 'utf8');
+
+    expect(chart).not.toContain('innerHTML');
+    expect(chart).not.toContain('buildLegendHtml');
+    expect(chart).toContain('textContent');
+    expect(chart).toContain('replaceChildren');
+  });
+
 });

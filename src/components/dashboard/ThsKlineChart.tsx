@@ -108,7 +108,7 @@ export function ThsKlineChart({ data, interval, onIntervalChange, loading, heigh
         let prev: any = null;
         const idx = candleList.findIndex((c) => c.time === param.time);
         if (idx > 0) prev = candleList[idx - 1];
-        el.innerHTML = buildLegendHtml(d, prev, m5?.value, m20?.value);
+        renderLegend(el, d, prev, m5?.value, m20?.value);
         el.style.opacity = '1';
       } else {
         const candleList = chartRef.current?._candleData ?? [];
@@ -118,7 +118,7 @@ export function ThsKlineChart({ data, interval, onIntervalChange, loading, heigh
           const ma = chartRef.current?._maData;
           const last5 = ma?.ma5?.at(-1);
           const last20 = ma?.ma20?.at(-1);
-          el.innerHTML = buildLegendHtml(latest, prev, last5?.value, last20?.value);
+          renderLegend(el, latest, prev, last5?.value, last20?.value);
           el.style.opacity = '1';
         } else {
           el.style.opacity = '0';
@@ -264,7 +264,7 @@ export function ThsKlineChart({ data, interval, onIntervalChange, loading, heigh
       const prev = candleData.length > 1 ? candleData[candleData.length - 2] : null;
       const last5 = ma5Data.at(-1);
       const last20 = ma20Data.at(-1);
-      legendRef.current.innerHTML = buildLegendHtml(latest, prev, last5?.value, last20?.value);
+      renderLegend(legendRef.current, latest, prev, last5?.value, last20?.value);
       legendRef.current.style.opacity = '1';
     }
   }, [data, interval]);
@@ -323,15 +323,19 @@ export function ThsKlineChart({ data, interval, onIntervalChange, loading, heigh
 
 // ── Helpers ────────────────────────────────────────────────────
 
-function buildLegendHtml(
+function renderLegend(
+  el: HTMLDivElement,
   data: { open: number; high: number; low: number; close: number } | undefined | null,
   prevData?: { close: number } | null,
   ma5Val?: number,
   ma20Val?: number,
-): string {
-  if (!data) return '';
+): void {
+  el.replaceChildren();
+  if (!data) return;
 
-  const safe = (v: number | undefined | null, d = '--') => (v != null && !isNaN(v) ? v.toFixed(2) : d);
+  const safe = (value: number | undefined | null, fallback = '--') => (
+    value != null && Number.isFinite(value) ? value.toFixed(2) : fallback
+  );
   const open = safe(data.open);
   const high = safe(data.high);
   const low = safe(data.low);
@@ -339,31 +343,51 @@ function buildLegendHtml(
 
   let change = 0;
   let pct = 0;
-  if (data.close != null && data.open != null && !isNaN(data.close) && !isNaN(data.open)) {
+  if (Number.isFinite(data.close) && Number.isFinite(data.open)) {
     change = data.close - data.open;
-    pct = (change / data.open) * 100;
-    if (prevData?.close && !isNaN(prevData.close)) {
+    pct = data.open !== 0 ? (change / data.open) * 100 : 0;
+    if (prevData?.close && Number.isFinite(prevData.close)) {
       change = data.close - prevData.close;
-      pct = (change / prevData.close) * 100;
+      pct = prevData.close !== 0 ? (change / prevData.close) * 100 : 0;
     }
   }
 
   const isUp = change >= 0;
   const sign = isUp ? '+' : '';
-  const cls = isUp ? 'text-red-500' : 'text-emerald-500';
+  const valueClass = isUp ? 'text-red-500' : 'text-emerald-500';
+  const wrapper = document.createElement('div');
+  wrapper.className = 'flex items-center gap-3 bg-white/80 backdrop-blur-md px-3 py-1.5 rounded-lg border border-zinc-200 shadow-sm text-[11px] md:text-[13px] font-medium flex-wrap';
 
-  let maHtml = '';
-  if (ma5Val != null && !isNaN(ma5Val)) maHtml += `<span class="text-[#f59e0b] ml-2">MA5: ${ma5Val.toFixed(2)}</span>`;
-  if (ma20Val != null && !isNaN(ma20Val)) maHtml += `<span class="text-[#8b5cf6] ml-2">MA20: ${ma20Val.toFixed(2)}</span>`;
+  appendLegendMetric(wrapper, '?', open, valueClass);
+  appendLegendMetric(wrapper, '?', high, valueClass);
+  appendLegendMetric(wrapper, '?', low, valueClass);
+  appendLegendMetric(wrapper, '?', close, `${valueClass} font-bold`);
+  appendMovingAverage(wrapper, 'MA5', ma5Val, 'text-[#f59e0b] ml-2');
+  appendMovingAverage(wrapper, 'MA20', ma20Val, 'text-[#8b5cf6] ml-2');
 
-  return (
-    `<div class="flex items-center gap-3 bg-white/80 backdrop-blur-md px-3 py-1.5 rounded-lg border border-zinc-200 shadow-sm text-[11px] md:text-[13px] font-medium flex-wrap">` +
-    `<span><span class="text-zinc-400 mr-1">开</span><span class="${cls}">${open}</span></span>` +
-    `<span><span class="text-zinc-400 mr-1">高</span><span class="${cls}">${high}</span></span>` +
-    `<span><span class="text-zinc-400 mr-1">低</span><span class="${cls}">${low}</span></span>` +
-    `<span><span class="text-zinc-400 mr-1">收</span><span class="${cls} font-bold">${close}</span></span>` +
-    maHtml +
-    `<span class="${cls} ml-1 font-semibold">${sign}${pct.toFixed(2)}%</span>` +
-    `</div>`
-  );
+  const pctNode = document.createElement('span');
+  pctNode.className = `${valueClass} ml-1 font-semibold`;
+  pctNode.textContent = `${sign}${pct.toFixed(2)}%`;
+  wrapper.appendChild(pctNode);
+  el.appendChild(wrapper);
+}
+
+function appendLegendMetric(parent: HTMLElement, label: string, value: string, valueClass: string): void {
+  const item = document.createElement('span');
+  const labelNode = document.createElement('span');
+  labelNode.className = 'text-zinc-400 mr-1';
+  labelNode.textContent = label;
+  const valueNode = document.createElement('span');
+  valueNode.className = valueClass;
+  valueNode.textContent = value;
+  item.append(labelNode, valueNode);
+  parent.appendChild(item);
+}
+
+function appendMovingAverage(parent: HTMLElement, label: string, value: number | undefined, className: string): void {
+  if (value == null || !Number.isFinite(value)) return;
+  const node = document.createElement('span');
+  node.className = className;
+  node.textContent = `${label}: ${value.toFixed(2)}`;
+  parent.appendChild(node);
 }

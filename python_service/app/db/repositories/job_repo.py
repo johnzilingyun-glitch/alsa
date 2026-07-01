@@ -99,8 +99,9 @@ class JobRepository:
     def find_recent_running(self, symbol: str, market: str, within_seconds: int = 60) -> Optional[str]:
         """Find a recently created running/queued job for the same symbol+market.
         Returns job_id if found, None otherwise. Used to deduplicate rapid-fire submits."""
-        from datetime import datetime, timedelta
-        cutoff = datetime.utcnow() - timedelta(seconds=within_seconds)
+        from datetime import timedelta
+        from ...time_utils import utc_now
+        cutoff = utc_now() - timedelta(seconds=within_seconds)
         with self.session_factory() as session:
             statement = (
                 select(AnalysisJob)

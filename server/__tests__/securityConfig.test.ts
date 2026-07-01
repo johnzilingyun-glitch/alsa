@@ -3,6 +3,7 @@ import {
   buildSocketCorsOptions,
   getServerHost,
   isDiagnosticsEnabled,
+  resolveApiToken,
   shouldBypassGatewayApiToken,
   shouldRequireApiToken,
   validateApiToken,
@@ -17,6 +18,14 @@ describe('securityConfig', () => {
     expect(shouldRequireApiToken({ NODE_ENV: 'production', API_TOKEN: 'secret' })).toBe(true);
     expect(validateApiToken('Bearer secret', { NODE_ENV: 'production', API_TOKEN: 'secret' })).toBe(true);
     expect(validateApiToken('Bearer wrong', { NODE_ENV: 'production', API_TOKEN: 'secret' })).toBe(false);
+  });
+
+  it('fails fast when production API_TOKEN is missing', () => {
+    expect(() => resolveApiToken({ NODE_ENV: 'production' })).toThrow(/API_TOKEN/);
+  });
+
+  it('returns configured API_TOKEN without generating a runtime secret', () => {
+    expect(resolveApiToken({ NODE_ENV: 'production', API_TOKEN: 'configured-token' })).toBe('configured-token');
   });
 
   it('keeps diagnostics disabled unless explicitly enabled', () => {

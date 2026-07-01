@@ -267,8 +267,13 @@ class MarketSnapshotService:
             adx = dx.rolling(14).mean().iloc[-1]
             
             # 6. Hurst Exponent (simplified)
-            lags = np.arange(2, 20)
-            tau = np.array([np.sqrt(np.std(np.subtract(close.values[lag:], close.values[:-lag]))) for lag in lags], dtype=float)
+            lags = np.arange(2, min(20, len(close) // 2))
+            tau_values = []
+            for lag in lags:
+                lagged_diff = np.subtract(close.values[lag:], close.values[:-lag])
+                std = np.std(lagged_diff)
+                tau_values.append(np.sqrt(std) if np.isfinite(std) and std > 0 else np.nan)
+            tau = np.array(tau_values, dtype=float)
             valid = np.isfinite(tau) & (tau > 0)
             if valid.sum() >= 2:
                 poly = np.polyfit(np.log(lags[valid]), np.log(tau[valid]), 1)

@@ -276,5 +276,5 @@ async def get_market_dashboard(market: str = "A-Share") -> Dict[str, Any]:
         "northbound": northbound,
         "hotSectors": hot_sectors,
         "recommendations": recommendations,
-        "updatedAt": datetime.datetime.utcnow().isoformat(),
+        "updatedAt": datetime.datetime.now(datetime.UTC).isoformat(),
     })

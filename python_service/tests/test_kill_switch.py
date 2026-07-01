@@ -21,8 +21,9 @@ from python_service.app.risk.kill_switch import (
 
 
 @pytest.fixture(autouse=True)
-def cleanup_kill_switch_db():
+def cleanup_kill_switch_db(monkeypatch):
     import os
+    monkeypatch.setenv("KILL_SWITCH_SECRET", "test-kill-switch-secret")
     for db in ["kill_switch_state.db", "python_service/kill_switch_state.db"]:
         if os.path.exists(db):
             try:
@@ -100,3 +101,17 @@ class TestKillSwitch:
     def test_active_state_allows_orders(self):
         ks = KillSwitch()
         assert ks.can_submit_order() is True
+
+    def test_signature_requires_configured_secret(self, monkeypatch):
+        monkeypatch.delenv("KILL_SWITCH_SECRET", raising=False)
+        monkeypatch.delenv("API_TOKEN", raising=False)
+
+        with pytest.raises(RuntimeError, match="KILL_SWITCH_SECRET or API_TOKEN"):
+            KillSwitch()
+
+    def test_signature_can_fall_back_to_api_token(self, monkeypatch):
+        monkeypatch.delenv("KILL_SWITCH_SECRET", raising=False)
+        monkeypatch.setenv("API_TOKEN", "test-api-token")
+
+        ks = KillSwitch()
+        assert ks.state == KillSwitchState.ACTIVE

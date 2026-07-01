@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Request, Response
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
@@ -17,18 +17,27 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+def _is_production() -> bool:
+    return os.getenv("ENV") == "production" or os.getenv("NODE_ENV") == "production"
+
+
 def get_or_create_jwt_secret():
     secret = os.getenv("JWT_SECRET_KEY")
     if secret:
         return secret
-    
+
+    if _is_production():
+        raise RuntimeError("JWT_SECRET_KEY must be explicitly configured in production")
+
     runtime_env = ".env.runtime"
     if os.path.exists(runtime_env):
         with open(runtime_env, "r") as f:
             for line in f:
                 if line.startswith("JWT_SECRET_KEY="):
-                    return line.strip().split("=", 1)[1]
-                    
+                    secret = line.strip().split("=", 1)[1]
+                    if secret:
+                        return secret
+
     new_secret = secrets.token_hex(32)
     try:
         with open(runtime_env, "a") as f:
@@ -59,9 +68,9 @@ def get_password_hash(password):
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     to_encode = data.copy()
     if expires_delta:
-        expire = datetime.utcnow() + expires_delta
+        expire = datetime.now(timezone.utc) + expires_delta
     else:
-        expire = datetime.utcnow() + timedelta(minutes=15)
+        expire = datetime.now(timezone.utc) + timedelta(minutes=15)
     to_encode.update({"exp": expire})
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
@@ -200,7 +209,7 @@ def login_for_access_token(request: Request, response: Response, form_data: OAut
         raise HTTPException(status_code=403, detail="Account is deactivated")
 
     # Update user login info
-    user.last_login = datetime.utcnow()
+    user.last_login = datetime.now(timezone.utc)
     user.login_count = (user.login_count or 0) + 1
     db.add(user)
 

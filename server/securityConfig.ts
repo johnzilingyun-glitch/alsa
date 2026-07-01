@@ -2,33 +2,37 @@ import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 
-function _ensureApiToken() {
-  let token = process.env.API_TOKEN;
-  if (!token) {
-    const runtimeEnvPath = path.resolve(process.cwd(), '.env.runtime');
-    if (fs.existsSync(runtimeEnvPath)) {
-      const content = fs.readFileSync(runtimeEnvPath, 'utf8');
-      const match = content.match(/^API_TOKEN=(.*)$/m);
-      if (match) {
-        token = match[1].trim();
-        process.env.API_TOKEN = token;
-      }
-    }
+export type ServerEnv = Partial<Record<string, string | undefined>>;
 
-    if (!token) {
-      token = crypto.randomBytes(32).toString('base64url');
-      process.env.API_TOKEN = token;
-      fs.appendFileSync(runtimeEnvPath, `\nAPI_TOKEN=${token}\n`);
-      console.log('\n' + '='.repeat(50));
-      console.log(`🔒 Generated secure API_TOKEN: ${token}`);
-      console.log(`   (Saved to ${runtimeEnvPath})`);
-      console.log('='.repeat(50) + '\n');
+function isProductionEnv(env: ServerEnv = process.env): boolean {
+  return env.NODE_ENV === 'production';
+}
+
+export function resolveApiToken(env: ServerEnv = process.env): string | undefined {
+  if (env.API_TOKEN) return env.API_TOKEN;
+
+  if (isProductionEnv(env)) {
+    throw new Error('API_TOKEN must be explicitly configured in production');
+  }
+
+  const runtimeEnvPath = path.resolve(process.cwd(), '.env.runtime');
+  if (fs.existsSync(runtimeEnvPath)) {
+    const content = fs.readFileSync(runtimeEnvPath, 'utf8');
+    const match = content.match(/^API_TOKEN=(.*)$/m);
+    if (match?.[1]?.trim()) {
+      return match[1].trim();
     }
   }
+
+  const token = crypto.randomBytes(32).toString('base64url');
+  fs.appendFileSync(runtimeEnvPath, `\nAPI_TOKEN=${token}\n`);
+  return token;
+}
+
+function _ensureApiToken() {
+  process.env.API_TOKEN = resolveApiToken();
 }
 _ensureApiToken();
-
-export type ServerEnv = Partial<Record<string, string | undefined>>;
 
 function parseBoolean(value: string | undefined): boolean {
   return value === 'true' || value === '1' || value === 'yes';

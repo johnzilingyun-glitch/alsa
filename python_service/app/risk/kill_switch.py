@@ -47,8 +47,11 @@ class KillSwitch:
         import hmac
         import hashlib
         import os
-        key = os.getenv("API_TOKEN", "fallback_secret_key").encode()
+        key = os.getenv("KILL_SWITCH_SECRET") or os.getenv("API_TOKEN")
+        if not key:
+            raise RuntimeError("KILL_SWITCH_SECRET or API_TOKEN must be configured for kill switch signatures")
         message = f"{state}:{reason}".encode()
+        key = key.encode()
         return hmac.new(key, message, hashlib.sha256).hexdigest()
 
     def _load_state(self) -> KillSwitchState:

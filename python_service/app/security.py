@@ -7,27 +7,37 @@ from fastapi import Request
 logger = logging.getLogger(__name__)
 
 
-def _ensure_api_token():
+def _is_production() -> bool:
+    return os.getenv("ENV") == "production" or os.getenv("NODE_ENV") == "production"
+
+
+def resolve_api_token() -> str:
     token = os.getenv("API_TOKEN")
-    if not token:
-        runtime_env = ".env.runtime"
-        if os.path.exists(runtime_env):
-            with open(runtime_env, "r") as f:
-                for line in f:
-                    if line.startswith("API_TOKEN="):
-                        token = line.split("=", 1)[1].strip()
-                        os.environ["API_TOKEN"] = token
-                        break
-        
-        if not token:
-            token = secrets.token_urlsafe(32)
-            os.environ["API_TOKEN"] = token
-            with open(runtime_env, "a") as f:
-                f.write(f"\nAPI_TOKEN={token}\n")
-            logger.info("\n" + "="*50)
-            logger.info(f"🔒 Generated secure API_TOKEN: {token}")
-            logger.info(f"   (Saved to {runtime_env})")
-            logger.info("="*50 + "\n")
+    if token:
+        return token
+
+    if _is_production():
+        raise RuntimeError("API_TOKEN must be explicitly configured in production")
+
+    runtime_env = ".env.runtime"
+    if os.path.exists(runtime_env):
+        with open(runtime_env, "r") as f:
+            for line in f:
+                if line.startswith("API_TOKEN="):
+                    token = line.split("=", 1)[1].strip()
+                    if token:
+                        return token
+
+    token = secrets.token_urlsafe(32)
+    with open(runtime_env, "a") as f:
+        f.write(f"\nAPI_TOKEN={token}\n")
+    logger.info("Generated development API_TOKEN and saved it to .env.runtime")
+    return token
+
+
+def _ensure_api_token():
+    os.environ["API_TOKEN"] = resolve_api_token()
+
 
 _ensure_api_token()
 

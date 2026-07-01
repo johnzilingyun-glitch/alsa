@@ -31,6 +31,11 @@ class ApprovalPayload(BaseModel):
     approved_by: str
 
 
+class SubmitPayload(BaseModel):
+    confirm_live_trading: bool = False
+    confirmed_by: str
+
+
 def _serialize(intent: TradeIntent) -> dict:
     return {
         "intent_id": intent.intent_id,
@@ -101,15 +106,21 @@ def approve_trade_intent(intent_id: str, payload: ApprovalPayload):
 
 
 @router.post("/{intent_id}/submit")
-def submit_trade_intent(intent_id: str):
+def submit_trade_intent(intent_id: str, payload: SubmitPayload):
     if os.getenv("ENABLE_LIVE_TRADING") != "true":
         raise HTTPException(status_code=400, detail="Live trading is disabled")
+    if not payload.confirm_live_trading:
+        raise HTTPException(status_code=400, detail="Live trading submission requires explicit confirmation")
     with session_factory() as session:
         intent = session.get(TradeIntent, intent_id)
         if not intent:
             raise HTTPException(status_code=404, detail="Trade intent not found")
+        if intent.approval_state == "submitted":
+            raise HTTPException(status_code=400, detail="Trade intent has already been submitted")
         if intent.approval_state != "human_approved":
             raise HTTPException(status_code=400, detail="Human approval is required before submission")
+        if intent.approved_by != payload.confirmed_by:
+            raise HTTPException(status_code=400, detail="Submit confirmation must be performed by the approving user")
         intent.approval_state = "submitted"
         intent.submitted_at = utc_now()
         session.add(intent)

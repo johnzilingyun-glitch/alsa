@@ -68,4 +68,14 @@ describe('API boundary contract', () => {
     expect(chart).toContain('replaceChildren');
   });
 
+  it('keeps IBKR local chart legend rendering free of raw HTML injection', () => {
+    const chart = fs.readFileSync('src/components/dashboard/IBKRDashboard.tsx', 'utf8');
+    const localChartSection = chart.slice(chart.indexOf('function LocalChartTab'), chart.indexOf('function TradingViewChartTab'));
+
+    expect(localChartSection).not.toContain('innerHTML');
+    expect(localChartSection).not.toContain('formatLegendText');
+    expect(localChartSection).toContain('textContent');
+    expect(localChartSection).toContain('replaceChildren');
+  });
+
 });

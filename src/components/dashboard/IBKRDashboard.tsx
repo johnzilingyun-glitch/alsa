@@ -373,43 +373,6 @@ function LocalChartTab({ symbol, onSymbolChange }: { symbol: string; onSymbolCha
     const ma20Series = chart.addSeries(LineSeries, { color: '#8b5cf6', lineWidth: 2, crosshairMarkerVisible: false });
     const ma100Series = chart.addSeries(LineSeries, { color: '#ec4899', lineWidth: 2, crosshairMarkerVisible: false });
 
-    const formatLegendText = (data: any, prevData?: any, maData?: {ma5: any, ma20: any, ma100: any}) => {
-      const open = data.open.toFixed(2);
-      const high = data.high.toFixed(2);
-      const low = data.low.toFixed(2);
-      const close = data.close.toFixed(2);
-      let changeText = '';
-      let colorClass = 'text-zinc-600';
-      
-      let change = data.close - data.open;
-      let percent = ((change / data.open) * 100);
-      if (prevData && prevData.close) {
-        change = data.close - prevData.close;
-        percent = ((change / prevData.close) * 100);
-      }
-      
-      const sign = change > 0 ? '+' : '';
-      colorClass = change > 0 ? 'text-red-500' : (change < 0 ? 'text-emerald-500' : 'text-zinc-600');
-      changeText = `<span class="${colorClass} ml-2 font-semibold">${sign}${percent.toFixed(2)}%</span>`;
-
-      let maHtml = '';
-      if (maData?.ma5) maHtml += `<span class="text-[#f59e0b] ml-2">MA5: ${maData.ma5.value.toFixed(2)}</span>`;
-      if (maData?.ma20) maHtml += `<span class="text-[#8b5cf6] ml-2">MA20: ${maData.ma20.value.toFixed(2)}</span>`;
-      if (maData?.ma100) maHtml += `<span class="text-[#ec4899] ml-2">MA100: ${maData.ma100.value.toFixed(2)}</span>`;
-
-      return `
-        <div class="flex items-center gap-3 bg-white/80 backdrop-blur-md px-3 py-1.5 rounded-lg border border-zinc-200 shadow-sm text-[11px] md:text-[13px] font-medium tracking-wide flex-wrap">
-          <span><span class="text-zinc-400 mr-1">高</span><span class="${colorClass}">${high}</span></span>
-          <span><span class="text-zinc-400 mr-1">开</span><span class="${colorClass}">${open}</span></span>
-          <span><span class="text-zinc-400 mr-1">低</span><span class="${colorClass}">${low}</span></span>
-          <span><span class="text-zinc-400 mr-1">收</span><span class="${colorClass} font-bold">${close}</span></span>
-          <span><span class="text-zinc-400 mr-1">当前价</span><span class="${colorClass}">${close}</span></span>
-          ${changeText}
-          ${maHtml}
-        </div>
-      `;
-    };
-
     chart.subscribeCrosshairMove((param) => {
       if (!legendRef.current) return;
       
@@ -428,7 +391,7 @@ function LocalChartTab({ symbol, onSymbolChange }: { symbol: string; onSymbolCha
           ma20: param.seriesData.get(ma20Series),
           ma100: param.seriesData.get(ma100Series)
         };
-        legendRef.current.innerHTML = formatLegendText(data, prevData, maData);
+        renderIbkrLegend(legendRef.current, data, prevData, maData);
         legendRef.current.style.opacity = '1';
       } else {
         // When mouse leaves, show the latest candle
@@ -442,7 +405,7 @@ function LocalChartTab({ symbol, onSymbolChange }: { symbol: string; onSymbolCha
             ma20: ma20 && ma20.length > 0 ? ma20[ma20.length - 1] : undefined,
             ma100: ma100 && ma100.length > 0 ? ma100[ma100.length - 1] : undefined
           };
-          legendRef.current.innerHTML = formatLegendText(latest, prev, latestMaData);
+          renderIbkrLegend(legendRef.current, latest, prev, latestMaData);
           legendRef.current.style.opacity = '1';
         } else {
           legendRef.current.style.opacity = '0';
@@ -450,7 +413,7 @@ function LocalChartTab({ symbol, onSymbolChange }: { symbol: string; onSymbolCha
       }
     });
 
-    chartRef.current = { chart, candleSeries, volumeSeries, ma5Series, ma20Series, ma100Series, formatLegendText };
+    chartRef.current = { chart, candleSeries, volumeSeries, ma5Series, ma20Series, ma100Series };
 
     return () => {
       console.log("[LightweightCharts] Disposing chart...");
@@ -627,7 +590,7 @@ function LocalChartTab({ symbol, onSymbolChange }: { symbol: string; onSymbolCha
                 if (legendRef.current) {
                   const latest = candleData[candleData.length - 1];
                   const prev = candleData.length > 1 ? candleData[candleData.length - 2] : null;
-                  legendRef.current.innerHTML = chartRef.current.formatLegendText(latest, prev);
+                  renderIbkrLegend(legendRef.current, latest, prev);
                   legendRef.current.style.opacity = '1';
                 }
               }
@@ -753,6 +716,78 @@ function LocalChartTab({ symbol, onSymbolChange }: { symbol: string; onSymbolCha
     </div>
   );
 }
+function renderIbkrLegend(
+  el: HTMLDivElement,
+  data: { open: number; high: number; low: number; close: number } | undefined | null,
+  prevData?: { close: number } | null,
+  maData?: { ma5?: unknown; ma20?: unknown; ma100?: unknown },
+): void {
+  el.replaceChildren();
+  if (!data) return;
+
+  const safe = (value: number | undefined | null) => (
+    value != null && Number.isFinite(value) ? value.toFixed(2) : '--'
+  );
+  const open = safe(data.open);
+  const high = safe(data.high);
+  const low = safe(data.low);
+  const close = safe(data.close);
+
+  let change = data.close - data.open;
+  let percent = data.open !== 0 ? (change / data.open) * 100 : 0;
+  if (prevData?.close && Number.isFinite(prevData.close)) {
+    change = data.close - prevData.close;
+    percent = prevData.close !== 0 ? (change / prevData.close) * 100 : 0;
+  }
+
+  const sign = change > 0 ? '+' : '';
+  const colorClass = change > 0 ? 'text-red-500' : (change < 0 ? 'text-emerald-500' : 'text-zinc-600');
+  const wrapper = document.createElement('div');
+  wrapper.className = 'flex items-center gap-3 bg-white/80 backdrop-blur-md px-3 py-1.5 rounded-lg border border-zinc-200 shadow-sm text-[11px] md:text-[13px] font-medium tracking-wide flex-wrap';
+
+  appendIbkrLegendMetric(wrapper, 'High', high, colorClass);
+  appendIbkrLegendMetric(wrapper, 'Open', open, colorClass);
+  appendIbkrLegendMetric(wrapper, 'Low', low, colorClass);
+  appendIbkrLegendMetric(wrapper, 'Close', close, `${colorClass} font-bold`);
+  appendIbkrLegendMetric(wrapper, 'Last', close, colorClass);
+  appendIbkrLegendText(wrapper, `${sign}${percent.toFixed(2)}%`, `${colorClass} ml-2 font-semibold`);
+  appendIbkrMovingAverage(wrapper, 'MA5', getSeriesValue(maData?.ma5), 'text-[#f59e0b] ml-2');
+  appendIbkrMovingAverage(wrapper, 'MA20', getSeriesValue(maData?.ma20), 'text-[#8b5cf6] ml-2');
+  appendIbkrMovingAverage(wrapper, 'MA100', getSeriesValue(maData?.ma100), 'text-[#ec4899] ml-2');
+
+  el.appendChild(wrapper);
+}
+
+function appendIbkrLegendMetric(parent: HTMLElement, label: string, value: string, valueClass: string): void {
+  const item = document.createElement('span');
+  const labelNode = document.createElement('span');
+  labelNode.className = 'text-zinc-400 mr-1';
+  labelNode.textContent = label;
+  const valueNode = document.createElement('span');
+  valueNode.className = valueClass;
+  valueNode.textContent = value;
+  item.append(labelNode, valueNode);
+  parent.appendChild(item);
+}
+
+function appendIbkrLegendText(parent: HTMLElement, value: string, className: string): void {
+  const node = document.createElement('span');
+  node.className = className;
+  node.textContent = value;
+  parent.appendChild(node);
+}
+
+function getSeriesValue(point: unknown): number | undefined {
+  if (typeof point !== 'object' || point === null || !('value' in point)) return undefined;
+  const value = (point as { value?: unknown }).value;
+  return typeof value === 'number' ? value : undefined;
+}
+
+function appendIbkrMovingAverage(parent: HTMLElement, label: string, value: number | undefined, className: string): void {
+  if (value == null || !Number.isFinite(value)) return;
+  appendIbkrLegendText(parent, `${label}: ${value.toFixed(2)}`, className);
+}
+
 // ===== TradingView Chart Tab =====
 function TradingViewChartTab({ symbol, onSymbolChange }: { symbol: string; onSymbolChange: (s: string) => void }) {
   const { t } = useTranslation();

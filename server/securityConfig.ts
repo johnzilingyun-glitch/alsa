@@ -59,6 +59,41 @@ export function isDiagnosticsEnabled(env: ServerEnv = process.env): boolean {
   return parseBoolean(env.ENABLE_DIAGNOSTICS);
 }
 
+
+const PUBLIC_API_PATHS = new Set(['/health', '/ping-early']);
+const JWT_OR_PROXY_API_PREFIXES = [
+  '/auth',
+  '/admin',
+  '/alerts',
+  '/analysis',
+  '/backtest',
+  '/brain',
+  '/diagnostics',
+  '/feishu',
+  '/history',
+  '/journal',
+  '/llm',
+  '/market',
+  '/mock-trading',
+  '/predictions',
+  '/sector',
+  '/stock',
+  '/ths',
+  '/watchlist',
+];
+
+export function isPublicApiPath(pathname: string): boolean {
+  return PUBLIC_API_PATHS.has(pathname);
+}
+
+export function isUserOrProxyAuthenticatedApiPath(pathname: string): boolean {
+  return JWT_OR_PROXY_API_PREFIXES.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
+}
+
+export function shouldBypassGatewayApiToken(pathname: string): boolean {
+  return isPublicApiPath(pathname) || isUserOrProxyAuthenticatedApiPath(pathname);
+}
+
 export function shouldRequireApiToken(env: ServerEnv = process.env): boolean {
   return Boolean(env.API_TOKEN) && env.NODE_ENV !== 'test';
 }

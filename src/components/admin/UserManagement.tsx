@@ -4,7 +4,7 @@ import {
   UserCog, Ban, CheckCircle, AlertTriangle, Clock, Activity,
   Shield, Eye, EyeOff, Trash2, Loader2, UserPlus
 } from 'lucide-react';
-import { useAuthStore } from '../../stores/useAuthStore';
+import { authFetch, useAuthStore } from '../../stores/useAuthStore';
 
 // Inner error boundary to prevent table rendering crashes from taking down the whole admin page
 class TableErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean }> {
@@ -72,9 +72,7 @@ const STATUS_LABELS: Record<string, string> = {
 };
 
 function getAuthHeaders(): HeadersInit {
-  const token = localStorage.getItem('auth_token');
   return {
-    'Authorization': `Bearer ${token}`,
     'Content-Type': 'application/json',
   };
 }
@@ -175,7 +173,7 @@ export function UserManagement() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch('/api/auth/users', { headers: getAuthHeaders() });
+      const res = await authFetch('/api/auth/users', { headers: getAuthHeaders() });
       if (res.status === 401 || res.status === 403) {
         setUnauthorized(true);
         return;
@@ -234,7 +232,7 @@ export function UserManagement() {
       };
       if (addForm.display_name.trim()) body.display_name = addForm.display_name.trim();
 
-      const res = await fetch('/api/auth/admin-create-user', {
+      const res = await authFetch('/api/auth/admin-create-user', {
         method: 'POST',
         headers: getAuthHeaders(),
         body: JSON.stringify(body),
@@ -360,7 +358,7 @@ export function UserManagement() {
     setQueriesLoading(true);
     setQueriesError(null);
     try {
-      const res = await fetch(`/api/auth/users/${user.user_id}/queries`, { headers: getAuthHeaders() });
+      const res = await authFetch(`/api/auth/users/${user.user_id}/queries`, { headers: getAuthHeaders() });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
         throw new Error(data.detail || data.error || '获取查询记录失败');

@@ -7,9 +7,6 @@ import {
   CheckCircle2, ShieldCheck, ShieldAlert, Cpu, Layers, Target, History, RotateCcw, Database, 
   Calculator, Table, Activity, Clock, ArrowRight, Info, Share2, ChevronDown, ChevronUp
 } from 'lucide-react';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
-import rehypeRaw from 'rehype-raw';
 import { useTranslation } from 'react-i18next';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';

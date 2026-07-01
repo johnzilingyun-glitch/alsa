@@ -100,6 +100,11 @@ describe('useAuthStore', () => {
       expect(state.isAuthenticated).toBe(true);
       expect(state.token).toBe('new-token');
       expect(state.user?.username).toBe('test');
+      expect(localStorageMock.removeItem).toHaveBeenCalledWith('auth_token');
+      expect(global.fetch).toHaveBeenCalledWith(
+        '/api/auth/token',
+        expect.objectContaining({ credentials: 'include' }),
+      );
     });
 
     it('should throw on failed login', async () => {
@@ -133,14 +138,17 @@ describe('useAuthStore', () => {
       expect(useAuthStore.getState().user).toBeNull();
     });
 
-    it('should skip when no token', async () => {
+    it('should request current user with cookie credentials when no legacy token exists', async () => {
       useAuthStore.setState({ token: null });
       localStorageMock.getItem.mockReturnValue(null as unknown as string);
-      const fetchSpy = vi.fn();
+      const fetchSpy = vi.fn().mockResolvedValue({ ok: false, status: 401 });
       global.fetch = fetchSpy;
 
       await useAuthStore.getState().fetchMe();
-      expect(fetchSpy).not.toHaveBeenCalled();
+      expect(fetchSpy).toHaveBeenCalledWith(
+        '/api/auth/me',
+        expect.objectContaining({ credentials: 'include' }),
+      );
     });
   });
 });
@@ -151,7 +159,7 @@ describe('authFetch', () => {
     vi.clearAllMocks();
   });
 
-  it('should attach Authorization header when token exists', async () => {
+  it('should attach legacy Authorization header and include credentials when token exists', async () => {
     localStorageMock.getItem.mockReturnValue('my-token');
     global.fetch = vi.fn().mockResolvedValue({ ok: true });
 
@@ -167,9 +175,10 @@ describe('authFetch', () => {
     const callArgs = (global.fetch as any).mock.calls[0];
     const headers = callArgs[1].headers as Headers;
     expect(headers.get('Authorization')).toBe('Bearer my-token');
+    expect(callArgs[1].credentials).toBe('include');
   });
 
-  it('should not attach header when no token', async () => {
+  it('should include credentials and omit Authorization when no token exists', async () => {
     localStorageMock.getItem.mockReturnValue(null as unknown as string);
     global.fetch = vi.fn().mockResolvedValue({ ok: true });
 
@@ -178,5 +187,6 @@ describe('authFetch', () => {
     const callArgs = (global.fetch as any).mock.calls[0];
     const headers = callArgs[1].headers as Headers;
     expect(headers.get('Authorization')).toBeNull();
+    expect(callArgs[1].credentials).toBe('include');
   });
 });

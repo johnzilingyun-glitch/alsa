@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, status, Request
+from fastapi import APIRouter, Depends, HTTPException, status, Request, Response
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from jose import JWTError, jwt
 from passlib.context import CryptContext
@@ -41,6 +41,9 @@ def get_or_create_jwt_secret():
 SECRET_KEY = get_or_create_jwt_secret()
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 15  # 15 minutes (financial security best practice)
+AUTH_COOKIE_NAME = os.getenv("AUTH_COOKIE_NAME", "alsa_access_token")
+AUTH_COOKIE_SECURE = os.getenv("AUTH_COOKIE_SECURE", "false").lower() in {"1", "true", "yes"}
+AUTH_COOKIE_SAMESITE = os.getenv("AUTH_COOKIE_SAMESITE", "lax")
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/auth/token", auto_error=False)
@@ -63,36 +66,42 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
 
-async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_session)) -> User:
+def _resolve_auth_token(request: Request, bearer_token: Optional[str]) -> Optional[str]:
+    return bearer_token or request.cookies.get(AUTH_COOKIE_NAME)
+
+
+def _decode_token_username(token: str) -> Optional[str]:
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        return payload.get("sub")
+    except JWTError:
+        return None
+
+
+async def get_current_user(request: Request, token: str = Depends(oauth2_scheme), db: Session = Depends(get_session)) -> User:
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
         headers={"WWW-Authenticate": "Bearer"},
     )
-    if token is None:
+    resolved_token = _resolve_auth_token(request, token)
+    if resolved_token is None:
         raise credentials_exception
-    try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        username: str = payload.get("sub")
-        if username is None:
-            raise credentials_exception
-    except JWTError:
+    username = _decode_token_username(resolved_token)
+    if username is None:
         raise credentials_exception
-    
+
     user = db.exec(select(User).where(User.username == username)).first()
     if user is None:
         raise credentials_exception
     return user
 
-async def get_optional_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_session)) -> Optional[User]:
-    if token is None:
+async def get_optional_user(request: Request, token: str = Depends(oauth2_scheme), db: Session = Depends(get_session)) -> Optional[User]:
+    resolved_token = _resolve_auth_token(request, token)
+    if resolved_token is None:
         return None
-    try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        username: str = payload.get("sub")
-        if username is None:
-            return None
-    except JWTError:
+    username = _decode_token_username(resolved_token)
+    if username is None:
         return None
     user = db.exec(select(User).where(User.username == username)).first()
     return user
@@ -169,7 +178,7 @@ def admin_create_user(payload: AdminUserCreate, current_user: User = Depends(req
 
 @router.post("/token", response_model=dict)
 @limiter.limit("10/minute")
-def login_for_access_token(request: Request, form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_session)):
+def login_for_access_token(request: Request, response: Response, form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_session)):
     user = db.exec(select(User).where(User.username == form_data.username)).first()
     if not user or not verify_password(form_data.password, user.hashed_password):
         # Record failed login attempt
@@ -210,6 +219,15 @@ def login_for_access_token(request: Request, form_data: OAuth2PasswordRequestFor
         data={"sub": user.username, "role": user.role, "user_id": user.user_id},
         expires_delta=access_token_expires
     )
+    response.set_cookie(
+        key=AUTH_COOKIE_NAME,
+        value=access_token,
+        max_age=ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        httponly=True,
+        secure=AUTH_COOKIE_SECURE,
+        samesite=AUTH_COOKIE_SAMESITE,
+        path="/",
+    )
     return {
         "access_token": access_token,
         "token_type": "bearer",
@@ -220,6 +238,11 @@ def login_for_access_token(request: Request, form_data: OAuth2PasswordRequestFor
             "role": user.role
         }
     }
+
+@router.post("/logout", response_model=dict)
+def logout(response: Response):
+    response.delete_cookie(key=AUTH_COOKIE_NAME, path="/")
+    return {"msg": "Logged out"}
 
 @router.get("/me", response_model=dict)
 def read_users_me(current_user: User = Depends(get_current_user)):

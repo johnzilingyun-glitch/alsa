@@ -40,6 +40,7 @@ export const useAuthStore = create<AuthState>()(
             method: 'POST',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
             body: formData.toString(),
+            credentials: 'include',
           });
 
           if (!res.ok) {
@@ -55,9 +56,9 @@ export const useAuthStore = create<AuthState>()(
           const data = await res.json();
           const { access_token, user } = data;
 
-          localStorage.setItem('auth_token', access_token);
+          localStorage.removeItem('auth_token');
           set({
-            token: access_token,
+            token: access_token || null,
             user: user,
             isAuthenticated: true,
             isLoading: false,
@@ -74,6 +75,7 @@ export const useAuthStore = create<AuthState>()(
           const res = await fetch('/api/auth/register', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
             body: JSON.stringify({
               username,
               password,
@@ -100,6 +102,7 @@ export const useAuthStore = create<AuthState>()(
 
       logout: () => {
         localStorage.removeItem('auth_token');
+        Promise.resolve(fetch('/api/auth/logout', { method: 'POST', credentials: 'include' })).catch(() => undefined);
         set({
           user: null,
           token: null,
@@ -108,17 +111,22 @@ export const useAuthStore = create<AuthState>()(
       },
 
       fetchMe: async () => {
-        const token = get().token || localStorage.getItem('auth_token');
-        if (!token) return;
+        const legacyToken = get().token || localStorage.getItem('auth_token');
+        const headers = new Headers();
+        if (legacyToken) {
+          headers.set('Authorization', `Bearer ${legacyToken}`);
+        }
 
         try {
           const res = await fetch('/api/auth/me', {
-            headers: { Authorization: `Bearer ${token}` },
+            headers,
+            credentials: 'include',
           });
 
           if (res.ok) {
             const user = await res.json();
-            set({ user, token, isAuthenticated: true });
+            localStorage.removeItem('auth_token');
+            set({ user, token: legacyToken || null, isAuthenticated: true });
           } else {
             localStorage.removeItem('auth_token');
             set({ user: null, token: null, isAuthenticated: false });
@@ -129,26 +137,26 @@ export const useAuthStore = create<AuthState>()(
       },
 
       initFromStorage: () => {
-        const token = localStorage.getItem('auth_token');
-        if (token) {
-          set({ token, isAuthenticated: true });
-          get().fetchMe();
+        const legacyToken = localStorage.getItem('auth_token');
+        if (legacyToken) {
+          set({ token: legacyToken, isAuthenticated: true });
         }
+        void get().fetchMe();
       },
     }),
     {
       name: 'auth-storage',
-      partialize: (state) => ({ token: state.token, user: state.user, isAuthenticated: state.isAuthenticated }),
+      partialize: (state) => ({ user: state.user, isAuthenticated: state.isAuthenticated }),
     }
   )
 );
 
 // Utility: attach auth header to fetch calls
 export function authFetch(url: string, options: RequestInit = {}): Promise<Response> {
-  const token = localStorage.getItem('auth_token');
+  const legacyToken = useAuthStore.getState().token || localStorage.getItem('auth_token');
   const headers = new Headers(options.headers);
-  if (token) {
-    headers.set('Authorization', `Bearer ${token}`);
+  if (legacyToken) {
+    headers.set('Authorization', `Bearer ${legacyToken}`);
   }
-  return fetch(url, { ...options, headers });
+  return fetch(url, { ...options, headers, credentials: options.credentials ?? 'include' });
 }

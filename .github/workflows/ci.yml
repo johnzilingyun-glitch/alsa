@@ -40,7 +40,7 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
-      - run: npm audit --audit-level=high || true
+      - run: npm audit --audit-level=high
 
   python-test:
     runs-on: ubuntu-latest
@@ -56,10 +56,11 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install uv
-          uv pip install --system -r python_service/pyproject.toml -r python_service/requirements.txt
+          cd python_service
+          uv sync --frozen
 
       - name: Run Python unit tests
         run: |
           cd python_service
-          PYTHONPATH=. pytest tests/
+          PYTHONPATH=. uv run pytest tests/
 

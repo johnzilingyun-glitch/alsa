@@ -3,6 +3,7 @@ import {
   buildSocketCorsOptions,
   getServerHost,
   isDiagnosticsEnabled,
+  shouldBypassGatewayApiToken,
   shouldRequireApiToken,
   validateApiToken,
 } from '../securityConfig';
@@ -21,6 +22,14 @@ describe('securityConfig', () => {
   it('keeps diagnostics disabled unless explicitly enabled', () => {
     expect(isDiagnosticsEnabled({ NODE_ENV: 'production' })).toBe(false);
     expect(isDiagnosticsEnabled({ NODE_ENV: 'production', ENABLE_DIAGNOSTICS: 'true' })).toBe(true);
+  });
+
+
+  it('keeps gateway token bypass explicit for public and user-authenticated routes', () => {
+    expect(shouldBypassGatewayApiToken('/health')).toBe(true);
+    expect(shouldBypassGatewayApiToken('/auth/token')).toBe(true);
+    expect(shouldBypassGatewayApiToken('/analysis/jobs')).toBe(true);
+    expect(shouldBypassGatewayApiToken('/unknown')).toBe(false);
   });
 
   it('restricts Socket.IO origins to configured allowlist', () => {

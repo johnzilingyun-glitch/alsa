@@ -75,3 +75,23 @@ def test_trade_intent_can_be_human_approved_then_submitted(monkeypatch):
         json={"confirm_live_trading": True, "confirmed_by": "pm"},
     )
     assert duplicate.status_code == 400
+
+
+def test_trade_intent_rejects_invalid_schema_before_risk_gateway():
+    client = _client()
+    payload = {
+        "symbol": "AAPL",
+        "market": "US-Share",
+        "side": "HOLD",
+        "quantity": 10,
+        "notional": 1500,
+        "source_analysis_run_id": "ana_test",
+        "thesis": "quality compounder",
+        "data_quality_score": 0.90,
+        "evidence_quality": 0.90,
+        "conflict_level": "C9",
+    }
+
+    response = client.post("/api/trade-intents", json=payload)
+
+    assert response.status_code == 422

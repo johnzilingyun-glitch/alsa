@@ -1,9 +1,11 @@
 import json
 import os
+from typing import Literal
+
 from ..time_utils import utc_now
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from ..db.models import TradeIntent
 from ..db.database import session_factory
@@ -14,17 +16,22 @@ router = APIRouter(prefix="/trade-intents", tags=["trade-intents"])
 
 
 class TradeIntentCreate(BaseModel):
-    symbol: str
-    market: str
-    side: str
+    symbol: str = Field(min_length=1, max_length=32)
+    market: Literal["A-Share", "HK-Share", "US-Share"]
+    side: Literal["BUY", "SELL", "SHORT", "COVER"]
     quantity: float = Field(gt=0)
     notional: float = Field(gt=0)
-    source_analysis_run_id: str | None = None
-    thesis: str
+    source_analysis_run_id: str | None = Field(default=None, max_length=128)
+    thesis: str = Field(min_length=8, max_length=4000)
     data_quality_score: float = Field(ge=0.0, le=1.0)
     evidence_quality: float = Field(ge=0.0, le=1.0)
-    conflict_level: str = "C0"
-    portfolio_id: str = "default_portfolio"
+    conflict_level: Literal["C0", "C1", "C2", "C3", "C4"] = "C0"
+    portfolio_id: str = Field(default="default_portfolio", min_length=1, max_length=128)
+
+    @field_validator("symbol", "portfolio_id")
+    @classmethod
+    def normalize_identifier(cls, value: str) -> str:
+        return value.strip()
 
 
 class ApprovalPayload(BaseModel):
@@ -60,14 +67,14 @@ def create_trade_intent(payload: TradeIntentCreate):
         signal_id=payload.source_analysis_run_id or "manual",
         symbol=payload.symbol,
         market=payload.market,
-        side=payload.side,  # type: ignore[arg-type]
+        side=payload.side,
         requested_quantity=payload.quantity,
         requested_notional=payload.notional,
         order_type="MARKET",
         as_of_date=utc_now().date().isoformat(),
         evidence_quality=payload.evidence_quality,
         data_quality_score=payload.data_quality_score,
-        conflict_level=payload.conflict_level,  # type: ignore[arg-type]
+        conflict_level=payload.conflict_level,
     )
     risk_result = PreTradeRiskGateway().check(request)
     approval_state = "risk_approved" if risk_result.status.value == "PASS" else "risk_rejected"

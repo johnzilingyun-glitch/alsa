@@ -796,12 +796,12 @@ function TradingViewChartTab({ symbol, onSymbolChange }: { symbol: string; onSym
 
   useEffect(() => {
     if (!containerRef.current) return;
-    containerRef.current.innerHTML = '';
+    containerRef.current.replaceChildren();
     const script = document.createElement('script');
     script.src = 'https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js';
     script.type = 'text/javascript';
     script.async = true;
-    script.innerHTML = JSON.stringify({
+    script.textContent = JSON.stringify({
       autosize: true,
       symbol: symbol,
       interval: 'D',
@@ -827,7 +827,7 @@ function TradingViewChartTab({ symbol, onSymbolChange }: { symbol: string; onSym
 
     return () => {
       if (containerRef.current) {
-        containerRef.current.innerHTML = '';
+        containerRef.current.replaceChildren();
       }
     };
   }, [symbol]);

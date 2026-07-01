@@ -78,4 +78,14 @@ describe('API boundary contract', () => {
     expect(localChartSection).toContain('replaceChildren');
   });
 
+
+  it('does not use raw HTML assignment in browser production source files', () => {
+    const violations = readSourceFiles('src')
+      .filter(({ file }) => !file.includes(`${path.sep}__tests__${path.sep}`) && !file.includes(`${path.sep}test${path.sep}`))
+      .filter(({ content }) => content.includes('innerHTML') || content.includes('dangerouslySetInnerHTML') || content.includes('insertAdjacentHTML'))
+      .map(({ file }) => file);
+
+    expect(violations).toEqual([]);
+  });
+
 });

@@ -7,6 +7,7 @@ import {
   shouldBypassGatewayApiToken,
   shouldRequireApiToken,
   validateApiToken,
+  validateSocketToken,
 } from '../securityConfig';
 
 describe('securityConfig', () => {
@@ -38,7 +39,21 @@ describe('securityConfig', () => {
     expect(shouldBypassGatewayApiToken('/health')).toBe(true);
     expect(shouldBypassGatewayApiToken('/auth/token')).toBe(true);
     expect(shouldBypassGatewayApiToken('/analysis/jobs')).toBe(true);
+    expect(shouldBypassGatewayApiToken('/diagnostics/logs/debug')).toBe(false);
     expect(shouldBypassGatewayApiToken('/unknown')).toBe(false);
+  });
+
+  it('validates Socket.IO handshake tokens when gateway token auth is enabled', () => {
+    const env = { NODE_ENV: 'production', API_TOKEN: 'socket-secret' };
+
+    expect(validateSocketToken('socket-secret', env)).toBe(true);
+    expect(validateSocketToken('Bearer socket-secret', env)).toBe(true);
+    expect(validateSocketToken('wrong', env)).toBe(false);
+    expect(validateSocketToken(undefined, env)).toBe(false);
+  });
+
+  it('allows Socket.IO without token only when gateway token auth is disabled', () => {
+    expect(validateSocketToken(undefined, { NODE_ENV: 'test' })).toBe(true);
   });
 
   it('restricts Socket.IO origins to configured allowlist', () => {

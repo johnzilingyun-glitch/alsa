@@ -59,6 +59,12 @@ export function buildSocketCorsOptions(env: ServerEnv = process.env): { origin: 
   return { origin: getAllowedOrigins(env), credentials: true };
 }
 
+export function validateSocketToken(token: string | undefined, env: ServerEnv = process.env): boolean {
+  if (!shouldRequireApiToken(env)) return true;
+  if (!token) return false;
+  return validateApiToken(token.startsWith('Bearer ') ? token : `Bearer ${token}`, env);
+}
+
 export function isDiagnosticsEnabled(env: ServerEnv = process.env): boolean {
   return parseBoolean(env.ENABLE_DIAGNOSTICS);
 }
@@ -72,7 +78,6 @@ const JWT_OR_PROXY_API_PREFIXES = [
   '/analysis',
   '/backtest',
   '/brain',
-  '/diagnostics',
   '/feishu',
   '/history',
   '/journal',

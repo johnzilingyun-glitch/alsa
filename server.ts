@@ -13,7 +13,8 @@ import analysisRoutes from './server/routes/analysisRoutes.js';
 import ibkrRoutes from './server/routes/ibkrRoutes.js';
 import llmRoutes from './server/routes/llmRoutes.js';
 import { monitor } from './server/dataSourceHealth.js';
-import { buildSocketCorsOptions, getServerHost, getServerPort, isDiagnosticsEnabled, shouldBypassGatewayApiToken, shouldRequireApiToken, validateApiToken } from './server/securityConfig.js';
+import { buildSocketCorsOptions, getServerHost, getServerPort, isDiagnosticsEnabled, shouldBypassGatewayApiToken, shouldRequireApiToken, validateApiToken, validateSocketToken } from './server/securityConfig.js';
+import { applySecurityHeaders } from './server/securityHeaders.js';
 
 dotenv.config();
 dotenv.config({ path: '.env.runtime' });
@@ -29,14 +30,7 @@ async function startServer() {
   app.use(express.json({ limit: '2mb' }));
   app.use(express.urlencoded({ limit: '2mb', extended: true }));
 
-  // Security headers
-  app.use((req, res, next) => {
-    res.setHeader('X-Content-Type-Options', 'nosniff');
-    res.setHeader('X-Frame-Options', 'DENY');
-    res.setHeader('X-XSS-Protection', '1; mode=block');
-    res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
-    next();
-  });
+  app.use(applySecurityHeaders);
   
   // Performance logging middleware
   app.use((req, res, next) => {
@@ -90,9 +84,11 @@ async function startServer() {
     console.log('Diagnostics routes disabled. Set ENABLE_DIAGNOSTICS=true to enable them.');
   }
 
-  app.get('/api/ping-debug', (req, res) => {
-    res.json({ ok: true, msg: 'Direct route check works' });
-  });
+  if (isDiagnosticsEnabled()) {
+    app.get('/api/ping-debug', (req, res) => {
+      res.json({ ok: true, msg: 'Direct route check works' });
+    });
+  }
 
   app.use('/api', (req, res, next) => {
     console.log(`API Request: ${req.method} ${req.url}`);
@@ -214,6 +210,13 @@ async function startServer() {
 
   const io = new Server(server, { cors: buildSocketCorsOptions() });
   app.set('io', io);
+
+  io.use((socket, next) => {
+    const authToken = typeof socket.handshake.auth?.token === 'string' ? socket.handshake.auth.token : undefined;
+    const queryToken = typeof socket.handshake.query?.token === 'string' ? socket.handshake.query.token : undefined;
+    if (validateSocketToken(authToken || queryToken)) return next();
+    next(new Error('Unauthorized'));
+  });
 
   io.on('connection', (socket) => {
     console.log('Client connected:', socket.id);

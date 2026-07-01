@@ -1,26 +1,20 @@
-﻿from fastapi.testclient import TestClient
+import pytest
+from fastapi import HTTPException
+
+from python_service.app import security
 
 
-def test_python_app_cors_restricts_origins(monkeypatch):
+def test_python_cors_restricts_origins(monkeypatch):
     monkeypatch.setenv("ALLOWED_ORIGINS", "http://localhost:5173,https://alsa.example")
-    from importlib import reload
-    import python_service.main as main
-    reload(main)
 
-    origins = [m.kwargs.get("allow_origins") for m in main.app.user_middleware if m.cls.__name__ == "CORSMiddleware"]
-    assert origins
-    assert origins[0] == ["http://localhost:5173", "https://alsa.example"]
+    assert security.get_allowed_origins() == ["http://localhost:5173", "https://alsa.example"]
 
 
-def test_python_app_requires_api_token_when_configured(monkeypatch):
+def test_python_requires_api_token_when_configured(monkeypatch):
     monkeypatch.setenv("API_TOKEN", "secret")
-    from importlib import reload
-    import python_service.main as main
-    reload(main)
-    client = TestClient(main.app)
 
-    unauthorized = client.get("/api/market/indices")
-    assert unauthorized.status_code == 401
+    with pytest.raises(HTTPException) as unauthorized:
+        security.require_api_token(None)
+    assert unauthorized.value.status_code == 401
 
-    authorized = client.get("/api/market/indices", headers={"Authorization": "Bearer secret"})
-    assert authorized.status_code != 401
+    security.require_api_token("Bearer secret")

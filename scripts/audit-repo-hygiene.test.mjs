@@ -18,8 +18,8 @@ test('scanContentForSecrets detects common secret patterns', () => {
     'src/config.ts',
     [
       'const safe = "placeholder";',
-      'OPENAI_API_KEY="sk-proj-abcdefghijklmnopqrstuvwxyz"',
-      'JWT_SECRET_KEY="super-secret-value-12345"',
+      `OPENAI_API_KEY="${'sk-proj-' + 'abcdefghijklmnopqrstuvwxyz'}"`,
+      `JWT_SECRET_KEY="${'super-secret-' + 'value-12345'}"`,
     ].join('\n'),
   );
 

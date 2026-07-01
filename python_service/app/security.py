@@ -43,8 +43,16 @@ _ensure_api_token()
 
 
 def get_allowed_origins() -> list[str]:
-    configured = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173")
-    return [origin.strip() for origin in configured.split(",") if origin.strip()]
+    configured = os.getenv("ALLOWED_ORIGINS")
+    if not configured:
+        if _is_production():
+            raise RuntimeError("ALLOWED_ORIGINS must be explicitly configured in production")
+        configured = "http://localhost:5173,http://127.0.0.1:5173"
+
+    origins = [origin.strip() for origin in configured.split(",") if origin.strip()]
+    if _is_production() and "*" in origins:
+        raise RuntimeError("Wildcard CORS origin is not allowed in production")
+    return origins
 
 
 def authenticate(request: Request):

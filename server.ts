@@ -16,6 +16,7 @@ import { monitor } from './server/dataSourceHealth.js';
 import { buildSocketCorsOptions, getServerHost, getServerPort, isDiagnosticsEnabled, shouldBypassGatewayApiToken, shouldRequireApiToken, validateApiToken, validateSocketToken } from './server/securityConfig.js';
 import { applySecurityHeaders } from './server/securityHeaders.js';
 import { createRateLimiter } from './server/rateLimiter.js';
+import { formatHttpLog } from './server/logSanitizer.js';
 
 dotenv.config();
 dotenv.config({ path: '.env.runtime' });
@@ -40,7 +41,7 @@ async function startServer() {
     res.on('finish', () => {
       const duration = Date.now() - start;
       if (duration > 500) { // Only log slow requests
-        console.log(`[PERF] ${req.method} ${req.originalUrl} - ${duration}ms`);
+        console.log(`[PERF] ${formatHttpLog(req.method, req.originalUrl, res.locals.requestId, duration)}`);
       }
     });
     next();
@@ -93,7 +94,7 @@ async function startServer() {
   }
 
   app.use('/api', (req, res, next) => {
-    console.log(`API Request: ${req.method} ${req.url}`);
+    console.log(`API Request: ${formatHttpLog(req.method, req.url, res.locals.requestId)}`);
     next();
   }, historyRoutes);
   app.use('/api', feishuRoutes);

@@ -15,6 +15,7 @@ import llmRoutes from './server/routes/llmRoutes.js';
 import { monitor } from './server/dataSourceHealth.js';
 import { buildSocketCorsOptions, getServerHost, getServerPort, isDiagnosticsEnabled, shouldBypassGatewayApiToken, shouldRequireApiToken, validateApiToken, validateSocketToken } from './server/securityConfig.js';
 import { applySecurityHeaders } from './server/securityHeaders.js';
+import { createRateLimiter } from './server/rateLimiter.js';
 
 dotenv.config();
 dotenv.config({ path: '.env.runtime' });
@@ -31,6 +32,7 @@ async function startServer() {
   app.use(express.urlencoded({ limit: '2mb', extended: true }));
 
   app.use(applySecurityHeaders);
+  app.use('/api', createRateLimiter());
   
   // Performance logging middleware
   app.use((req, res, next) => {

@@ -34,7 +34,10 @@ export default defineConfig(() => {
             if (id.includes('motion') || id.includes('framer-motion')) return 'vendor-motion';
             if (id.includes('lucide-react')) return 'vendor-icons';
             if (id.includes('recharts') || id.includes('d3-')) return 'vendor-charts';
+            if (id.includes('lightweight-charts')) return 'vendor-lightweight-charts';
             if (id.includes('@google/genai')) return 'vendor-genai';
+            if (id.includes('i18next') || id.includes('react-i18next')) return 'vendor-i18n';
+            if (id.includes('zod')) return 'vendor-schema';
             if (id.includes('react') || id.includes('scheduler')) return undefined;
             return 'vendor-misc';
           },

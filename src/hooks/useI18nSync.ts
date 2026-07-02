@@ -3,10 +3,8 @@ import { useTranslation } from 'react-i18next';
 import { useConfigStore } from '../stores/useConfigStore';
 import { useAnalysisStore } from '../stores/useAnalysisStore';
 import { useDiscussionStore } from '../stores/useDiscussionStore';
-import { translateAnalysis } from '../services/analysisService';
-import { translateDiscussion } from '../services/discussionService';
 import { useUIStore } from '../stores/useUIStore';
-import { AgentDiscussion } from '../types';
+import type { AgentDiscussion } from '../types';
 
 /**
  * Hook to automatically synchronize AI-generated state with the UI language.
@@ -34,6 +32,7 @@ export function useI18nSync() {
       if (analysis) {
         setAnalysisStatus(targetLang === 'zh-CN' ? "正在同步语言分析..." : "Syncing language content...");
         try {
+          const { translateAnalysis } = await import('../services/analysisService');
           const translated = await translateAnalysis(analysis, targetLang);
           setAnalysis(translated);
         } catch (err) {
@@ -56,6 +55,7 @@ export function useI18nSync() {
              scenarios: []
           };
           
+          const { translateDiscussion } = await import('../services/discussionService');
           const translated = await translateDiscussion(discussionObj, targetLang);
           
           // Full store update

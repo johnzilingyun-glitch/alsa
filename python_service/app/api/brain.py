@@ -2,6 +2,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 from typing import Optional
 from ..services.brain_manager import brain_manager
+from ..utils.responses import error_response, success_response
 
 router = APIRouter(prefix="/brain", tags=["brain"])
 
@@ -15,9 +16,9 @@ async def get_brain_context(user_id: str = "default", query: Optional[str] = Non
     """
     try:
         context = brain_manager.get_brain_context(user_id, query)
-        return {"success": True, "data": context}
+        return success_response(context)
     except Exception as e:
-        return {"success": False, "error": str(e)}
+        return error_response("BRAIN_CONTEXT_FAILED", str(e))
 
 class FeedbackPayload(BaseModel):
     role: Optional[str] = None
@@ -32,9 +33,9 @@ async def process_brain_feedback(payload: FeedbackPayload):
     """
     try:
         brain_manager.process_feedback(payload.model_dump())
-        return {"success": True, "message": "Feedback processed and brain evolved."}
+        return success_response({"message": "Feedback processed and brain evolved."})
     except Exception as e:
-        return {"success": False, "error": str(e)}
+        return error_response("BRAIN_FEEDBACK_FAILED", str(e))
 
 @router.get("/evolution/instructions")
 async def get_evolution_instructions():
@@ -43,9 +44,9 @@ async def get_evolution_instructions():
     """
     try:
         instructions = brain_manager.get_evolved_instructions()
-        return {"success": True, "data": instructions}
+        return success_response(instructions)
     except Exception as e:
-        return {"success": False, "error": str(e)}
+        return error_response("BRAIN_INSTRUCTIONS_FAILED", str(e))
 
 @router.get("/evolution/history")
 async def get_evolution_history(role: str):
@@ -54,9 +55,9 @@ async def get_evolution_history(role: str):
     """
     try:
         history = brain_manager.get_evolution_history(role)
-        return {"success": True, "data": history}
+        return success_response(history)
     except Exception as e:
-        return {"success": False, "error": str(e)}
+        return error_response("BRAIN_HISTORY_FAILED", str(e))
 
 @router.put("/evolution/instructions")
 async def update_evolution_instructions(payload: EvolutionInstructionsUpdate):
@@ -65,6 +66,6 @@ async def update_evolution_instructions(payload: EvolutionInstructionsUpdate):
     """
     try:
         brain_manager.update_instructions(payload.instructions)
-        return {"success": True, "message": "Instructions updated successfully."}
+        return success_response({"message": "Instructions updated successfully."})
     except Exception as e:
-        return {"success": False, "error": str(e)}
+        return error_response("BRAIN_UPDATE_FAILED", str(e))

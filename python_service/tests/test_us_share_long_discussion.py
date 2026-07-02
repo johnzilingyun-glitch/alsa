@@ -7,7 +7,7 @@ import pytest
 import json
 import re
 from unittest.mock import AsyncMock, patch
-from python_service.app.services.report_generator_service import ReportGeneratorService
+from python_service.app.services.report_generator_service import ReportGeneratorService, ReportSchemaValidationError
 
 
 class TestLongDiscussionExtraction:
@@ -212,6 +212,26 @@ class TestLongDiscussionExtraction:
             # Result should either be empty dict (triggering fallback) or low quality
             if result:
                 assert self.service._is_low_quality_ui_data(result) is True
+
+    @pytest.mark.asyncio
+    async def test_formal_report_blocks_invalid_ui_schema(self, tmp_path):
+        output_path = tmp_path / "invalid_report.html"
+
+        with patch.object(self.service, "_run_ui_data_expert", AsyncMock(return_value={"verdict": "---"})):
+            with pytest.raises(ReportSchemaValidationError) as exc_info:
+                await self.service.generate_html_report_async(
+                    {
+                        "symbol": "PDD",
+                        "market": "US-Share",
+                        "stockInfo": {"symbol": "PDD", "market": "US-Share"},
+                        "snapshot": {"quote": {"symbol": "PDD", "price": 100}},
+                        "discussion": [{"role": "Chief Strategist", "content": "建议观望，等待更多数据。"}],
+                    },
+                    str(output_path),
+                )
+
+        assert "LLM report schema validation failed" in str(exc_info.value)
+        assert not output_path.exists()
 
 
 class TestHTMLRenderingSafety:

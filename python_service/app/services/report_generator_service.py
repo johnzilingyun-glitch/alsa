@@ -11,6 +11,13 @@ from ..logging import get_logger
 
 logger = get_logger(__name__)
 
+
+class ReportSchemaValidationError(ValueError):
+    def __init__(self, reason: str):
+        super().__init__(f"LLM report schema validation failed: {reason}")
+        self.reason = reason
+
+
 class ReportGeneratorService:
     def generate_report(self, run, outputs: List) -> str:
         loop = asyncio.get_event_loop()
@@ -51,10 +58,9 @@ class ReportGeneratorService:
 
             # If UI data expert failed (empty dict) OR quality is too low, build fallback
             if not ui_data or self._is_low_quality_ui_data(ui_data):
-                ui_data = self._build_fallback_ui_data(symbol, cleaned_msgs, snapshot)
-            else:
-                # Validate critical fields — backfill from discussion if LLM returned empty/thinking text
-                self._validate_and_backfill_ui_data(ui_data, cleaned_msgs, snapshot)
+                raise ReportSchemaValidationError(self._describe_ui_data_schema_failure(ui_data))
+
+            self._validate_and_backfill_ui_data(ui_data, cleaned_msgs, snapshot)
             
             # Backfill empty upside/downside from discussion text
             if not ui_data.get("upside") or not ui_data.get("downside"):
@@ -488,6 +494,24 @@ Now extract from the following discussion:
             return True
 
         return False
+
+    def _describe_ui_data_schema_failure(self, ui_data: dict) -> str:
+        if not ui_data or not isinstance(ui_data, dict):
+            return "missing_ui_data"
+
+        missing = []
+        for field in ("verdict", "investment_thesis", "the_call", "tagline", "recommendation"):
+            if not str(ui_data.get(field, "")).strip():
+                missing.append(field)
+
+        recommendation = str(ui_data.get("recommendation", "")).strip().upper()
+        if recommendation and recommendation not in ("BUY", "HOLD", "SELL", "STRONG BUY", "STRONG SELL", "WATCH"):
+            missing.append("recommendation.invalid")
+
+        if len(str(ui_data.get("investment_thesis", "")).strip()) > 500:
+            missing.append("investment_thesis.too_long")
+
+        return ",".join(missing) or "low_quality_ui_data"
 
     def _validate_and_backfill_ui_data(self, ui_data: dict, discussion_msgs: list, snapshot: dict):
         """Validate critical UI fields; backfill from discussion if LLM returned empty or thinking text."""

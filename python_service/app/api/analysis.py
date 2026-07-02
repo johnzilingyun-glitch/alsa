@@ -200,7 +200,7 @@ class ReportRequest(BaseModel):
 @router.post("/jobs/{job_id}/report")
 async def generate_report(job_id: str, body: ReportRequest = None, service: AnalysisJobService = Depends(get_job_service)):
     """Generate a professional HTML report from a completed analysis job."""
-    from ..services.report_generator_service import ReportGeneratorService
+    from ..services.report_generator_service import ReportGeneratorService, ReportSchemaValidationError
     import os
 
     if body is None:
@@ -236,6 +236,8 @@ async def generate_report(job_id: str, body: ReportRequest = None, service: Anal
         with open(report_path, "r", encoding="utf-8") as f:
             html_content = f.read()
         return Response(content=html_content, media_type="text/html")
+    except ReportSchemaValidationError as e:
+        return error_response("REPORT_SCHEMA_INVALID", str(e))
     except Exception as e:
         return error_response("REPORT_FAILED", f"Report generation failed: {str(e)}")
 
@@ -243,7 +245,7 @@ async def generate_report(job_id: str, body: ReportRequest = None, service: Anal
 @router.post("/jobs/{job_id}/export/pdf")
 async def export_pdf(job_id: str, body: ReportRequest = None, service: AnalysisJobService = Depends(get_job_service)):
     """Export analysis report as PDF."""
-    from ..services.report_generator_service import ReportGeneratorService
+    from ..services.report_generator_service import ReportGeneratorService, ReportSchemaValidationError
     from ..services.export_service import export_service
     import os
 
@@ -293,6 +295,8 @@ async def export_pdf(job_id: str, body: ReportRequest = None, service: AnalysisJ
             media_type="application/pdf",
             headers={"Content-Disposition": f'attachment; filename="{filename}"'},
         )
+    except ReportSchemaValidationError as e:
+        return error_response("REPORT_SCHEMA_INVALID", str(e))
     except Exception as e:
         return error_response("PDF_EXPORT_FAILED", f"PDF export failed: {str(e)}")
 

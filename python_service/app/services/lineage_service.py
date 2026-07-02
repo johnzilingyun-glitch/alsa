@@ -28,6 +28,18 @@ def build_analysis_lineage(session: Session, analysis_id: str) -> dict[str, Any]
         return None
     snapshot = session.get(DataSnapshot, run.snapshot_id) if run.snapshot_id else None
     artifacts = session.exec(select(AnalysisArtifact).where(AnalysisArtifact.analysis_id == analysis_id)).all()
+    artifact_payload = [
+        {
+            "artifact_id": item.artifact_id,
+            "artifact_type": item.artifact_type,
+            "storage_path": item.storage_path,
+            "content_hash": item.content_hash,
+        }
+        for item in artifacts
+    ]
+    missing_fields = _missing_lineage_fields(run, snapshot, artifact_payload)
+    is_complete = not missing_fields
+    as_of = snapshot.as_of if snapshot else None
     return {
         "analysis_id": run.analysis_id,
         "job_id": run.job_id,
@@ -42,6 +54,20 @@ def build_analysis_lineage(session: Session, analysis_id: str) -> dict[str, Any]
         "approval_state": run.approval_state,
         "human_reviewer": run.human_reviewer,
         "created_at": run.created_at.isoformat(),
+        "as_of": as_of,
+        "display_metadata": {
+            "snapshotId": run.snapshot_id,
+            "asOf": as_of,
+            "modelName": run.model_name,
+            "modelVersion": run.model_version,
+            "promptVersion": run.prompt_version,
+            "schemaVersion": run.schema_version,
+        },
+        "completeness": {
+            "is_complete": is_complete,
+            "missing_fields": missing_fields,
+            "publishable": is_complete and run.approval_state in {"approved", "published"},
+        },
         "snapshot": None if not snapshot else {
             "snapshot_id": snapshot.snapshot_id,
             "source": snapshot.source,
@@ -50,13 +76,25 @@ def build_analysis_lineage(session: Session, analysis_id: str) -> dict[str, Any]
             "confidence": snapshot.confidence,
             "payload": json.loads(snapshot.payload_json or "{}"),
         },
-        "artifacts": [
-            {
-                "artifact_id": item.artifact_id,
-                "artifact_type": item.artifact_type,
-                "storage_path": item.storage_path,
-                "content_hash": item.content_hash,
-            }
-            for item in artifacts
-        ],
+        "artifacts": artifact_payload,
     }
+
+
+def _missing_lineage_fields(run: AnalysisRun, snapshot: DataSnapshot | None, artifacts: list[dict[str, Any]]) -> list[str]:
+    missing = []
+    required_run_fields = {
+        "snapshot_id": run.snapshot_id,
+        "prompt_version": run.prompt_version,
+        "model_name": run.model_name,
+        "schema_version": run.schema_version,
+    }
+    for field, value in required_run_fields.items():
+        if not value or value == "unknown":
+            missing.append(field)
+    if snapshot is None:
+        missing.append("snapshot")
+    elif not snapshot.as_of:
+        missing.append("snapshot.as_of")
+    if not artifacts:
+        missing.append("artifacts")
+    return missing

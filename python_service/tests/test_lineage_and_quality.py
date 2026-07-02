@@ -28,7 +28,7 @@ def test_analysis_lineage_includes_snapshot_prompt_model_and_artifacts(session_f
             model_provider="gemini",
             model_name="gemini-3.1-pro-preview",
             schema_version="analysis.v1",
-            approval_state="draft",
+            approval_state="approved",
         )
         artifact = AnalysisArtifact(analysis_id="ana_1", artifact_type="output_json", storage_path="memory://ana_1")
         session.add(snapshot)
@@ -43,6 +43,16 @@ def test_analysis_lineage_includes_snapshot_prompt_model_and_artifacts(session_f
     assert lineage["prompt_version"] == "chief-v1"
     assert lineage["model_name"] == "gemini-3.1-pro-preview"
     assert lineage["artifacts"][0]["artifact_type"] == "output_json"
+    assert lineage["as_of"] == "2026-06-01T00:00:00Z"
+    assert lineage["display_metadata"] == {
+        "snapshotId": "snap_1",
+        "asOf": "2026-06-01T00:00:00Z",
+        "modelName": "gemini-3.1-pro-preview",
+        "modelVersion": None,
+        "promptVersion": "chief-v1",
+        "schemaVersion": "analysis.v1",
+    }
+    assert lineage["completeness"] == {"is_complete": True, "missing_fields": [], "publishable": True}
 
 
 def test_data_quality_conflicts_downgrade_strong_recommendations():
@@ -51,3 +61,37 @@ def test_data_quality_conflicts_downgrade_strong_recommendations():
     assert classify_data_quality("100", stale=False, conflicting=True) == "conflicting"
     assert should_downgrade_recommendation("Buy", ["verified", "conflicting"]) == "Needs Review"
     assert should_downgrade_recommendation("Hold", ["missing"]) == "Hold"
+
+
+def test_analysis_lineage_reports_missing_publish_requirements(session_factory):
+    with session_factory() as session:
+        run = AnalysisRun(
+            analysis_id="ana_missing",
+            job_id="job_missing",
+            symbol="MSFT",
+            market="US-Share",
+            snapshot_id=None,
+            summary_verdict="hold",
+            score=50,
+            risk_level="high",
+            prompt_version="",
+            model_provider="unknown",
+            model_name="unknown",
+            schema_version="",
+            approval_state="draft",
+        )
+        session.add(run)
+        session.commit()
+
+        lineage = build_analysis_lineage(session, "ana_missing")
+
+    assert lineage["completeness"]["is_complete"] is False
+    assert lineage["completeness"]["publishable"] is False
+    assert lineage["completeness"]["missing_fields"] == [
+        "snapshot_id",
+        "prompt_version",
+        "model_name",
+        "schema_version",
+        "snapshot",
+        "artifacts",
+    ]

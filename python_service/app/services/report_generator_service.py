@@ -1712,6 +1712,49 @@ CONTENT:
             return "\n".join(lines)
         return sensitivity_str
 
+    @staticmethod
+    def _render_evidence_taxonomy(d: dict, info: dict, thesis: str, verdict: str, recommendation: str, the_call: str) -> str:
+        import html
+
+        def esc(value: Any) -> str:
+            return html.escape(str(value)) if value is not None else ""
+
+        data_completeness = d.get("data_completeness") if isinstance(d.get("data_completeness"), dict) else {}
+        score = data_completeness.get("score", 100)
+        missing = data_completeness.get("missing") or []
+        missing_text = "、".join([str(item) for item in missing[:3]]) if missing else "未标记关键缺口"
+        consensus = d.get("consensus_vs_non_consensus") if isinstance(d.get("consensus_vs_non_consensus"), dict) else {}
+        cards = [
+            (
+                "fact",
+                "事实 Fact",
+                f"{info.get('symbol', 'UNKNOWN')} 最新价格 {info.get('price', 'N/A')} {info.get('currency', '')}；数据完整度 {score}%，缺口：{missing_text}。",
+            ),
+            (
+                "inference",
+                "推理 Inference",
+                thesis or consensus.get("our_alpha") or "基于多专家讨论形成的因果链仍需结合原始日志复核。",
+            ),
+            (
+                "opinion",
+                "观点 Opinion",
+                verdict or d.get("summary") or "暂无可发布观点。",
+            ),
+            (
+                "recommendation",
+                "建议 Recommendation",
+                f"评级：{recommendation or 'WATCH'}；操作口径：{the_call or '等待进一步确认'}。",
+            ),
+        ]
+        rendered = "".join(
+            f'<div class="claim-card claim-{kind}" data-claim-type="{kind}">'
+            f'<div class="claim-label">{label}</div>'
+            f'<div class="claim-text">{esc(text)}</div>'
+            "</div>"
+            for kind, label, text in cards
+        )
+        return f'<section class="evidence-taxonomy" aria-label="facts inference opinions recommendations">{rendered}</section>'
+
     def _get_locale(self, market: str) -> dict:
         """Return localized labels based on market."""
         if market == "US-Share":
@@ -1899,6 +1942,7 @@ CONTENT:
         consensus = d.get("consensus_vs_non_consensus") or {}
         the_call_raw = d.get("the_call") or verdict or "暂无明确决断建议"
         the_call = the_call_raw if str(the_call_raw).strip() not in GARBAGE_VALUES and len(str(the_call_raw).strip()) >= 5 else "暂无明确决断建议"
+        evidence_taxonomy_html = self._render_evidence_taxonomy(d, info, thesis, verdict, rec, the_call)
         
         # Catalyst Calendar
         catalysts = d.get("catalyst_calendar") or []
@@ -2431,6 +2475,16 @@ CONTENT:
         }}
         .action-stance::before {{ content: '🎯'; margin-right: 12px; font-size: 18px; }}
 
+
+        .evidence-taxonomy {{ display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin: 18px 0 30px; }}
+        .claim-card {{ border: 1px solid var(--border); border-radius: 12px; padding: 16px; background: #fff; min-height: 130px; }}
+        .claim-label {{ font-size: 12px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; margin-bottom: 8px; }}
+        .claim-text {{ font-size: 13px; line-height: 1.6; color: #334155; }}
+        .claim-fact {{ border-top: 4px solid #2563eb; }}
+        .claim-inference {{ border-top: 4px solid #7c3aed; }}
+        .claim-opinion {{ border-top: 4px solid #f59e0b; }}
+        .claim-recommendation {{ border-top: 4px solid #10b981; }}
+
         /* Dashboard Container */
         .dashboard-grid {{
             display: grid;
@@ -2765,7 +2819,7 @@ CONTENT:
         }}
 
         @media (max-width: 900px) {{
-            .dashboard-grid, .consensus-split, .valuation-top-row, .wind-control-grid, .thesis-grid {{
+            .dashboard-grid, .consensus-split, .valuation-top-row, .wind-control-grid, .thesis-grid, .evidence-taxonomy {{
                 grid-template-columns: 1fr !important;
             }}
             .fund-category-grid, .trading-grid {{
@@ -2804,6 +2858,7 @@ CONTENT:
         {verdict_html}
         {data_warning_html}
         {action_html}
+        {evidence_taxonomy_html}
 
         <!-- {locale["layer1_title"]} -->
         <h2 class="layer-title">{locale["layer1_title"]} <span class="layer-num">L1</span></h2>

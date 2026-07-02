@@ -184,6 +184,12 @@ def test_restructured_html_rendering():
     # 1. Render and Validate A-Share
     data["info"]["market"] = "A-Share"
     html_a = service._render_html(data)
+    assert 'class="claim-card claim-fact"' in html_a
+    assert 'class="claim-card claim-inference"' in html_a
+    assert 'class="claim-card claim-opinion"' in html_a
+    assert 'class="claim-card claim-recommendation"' in html_a
+    assert 'data-claim-type="fact"' in html_a
+    assert 'data-claim-type="recommendation"' in html_a
     assert "第一层：核心决策包" in html_a
     assert "第二层：逻辑链条与数据实证" in html_a
     assert "第三层：交易执行单与风险防线" in html_a

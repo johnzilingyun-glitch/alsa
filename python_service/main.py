@@ -28,6 +28,7 @@ from app.services.market_snapshot_service import MarketSnapshotService
 from app.lake.parquet_store import ParquetMarketStore
 from app.services.signal_monitor_service import SignalMonitorService
 from app.services.prediction_service import PredictionService
+from app.middleware import add_request_id_middleware
 
 # Institutional modules
 from app.risk.kill_switch import KillSwitch
@@ -105,6 +106,7 @@ app = FastAPI(
 
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+add_request_id_middleware(app)
 
 # Enable CORS
 app.add_middleware(
@@ -125,6 +127,7 @@ async def record_api_metrics(request: Request, call_next):
         "endpoint": request.url.path,
         "method": request.method,
         "status": str(response.status_code),
+        "request_id": getattr(request.state, "request_id", ""),
     })
     return response
 

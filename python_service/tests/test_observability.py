@@ -57,6 +57,34 @@ class TestMetricsCollector:
         assert stats["count"] == 1
         assert stats["avg"] == 500.0
 
+    def test_prometheus_export_aggregates_metric_points(self):
+        mc = MetricsCollector()
+        mc.record(
+            "api_latency_ms",
+            100.0,
+            tags={"endpoint": "/api/analysis", "method": "GET", "status": "200", "request_id": "req_1"},
+        )
+        mc.record(
+            "api_latency_ms",
+            300.0,
+            tags={"endpoint": "/api/analysis", "method": "GET", "status": "200", "request_id": "req_2"},
+        )
+
+        text = mc.to_prometheus()
+
+        assert "# TYPE alsa_api_latency_ms_count gauge" in text
+        assert 'alsa_api_latency_ms_count{endpoint="/api/analysis",method="GET",status="200"} 2' in text
+        assert 'alsa_api_latency_ms_sum{endpoint="/api/analysis",method="GET",status="200"} 400.0' in text
+        assert "request_id" not in text
+
+    def test_prometheus_export_escapes_labels(self):
+        mc = MetricsCollector()
+        mc.record("llm.call", 1.0, tags={"model": 'deepseek "v4"'})
+
+        text = mc.to_prometheus()
+
+        assert 'alsa_llm_call_count{model="deepseek \\"v4\\""} 1' in text
+
 
 class TestAuditLogger:
     """Audit logging for critical system actions."""

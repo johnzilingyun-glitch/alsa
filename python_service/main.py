@@ -10,6 +10,7 @@ import asyncio
 import time
 from contextlib import asynccontextmanager
 from fastapi import Depends, FastAPI, Request
+from fastapi.responses import Response
 from fastapi.middleware.cors import CORSMiddleware
 from app.api.router import api_router
 from app.security import get_allowed_origins, require_api_token
@@ -130,6 +131,15 @@ async def record_api_metrics(request: Request, call_next):
         "request_id": getattr(request.state, "request_id", ""),
     })
     return response
+
+
+@app.get("/metrics", include_in_schema=False)
+async def prometheus_metrics():
+    """Prometheus-compatible metrics endpoint."""
+    return Response(
+        content=metrics_collector.to_prometheus(),
+        media_type="text/plain; version=0.0.4; charset=utf-8",
+    )
 
 # Initialize Singletons
 # session_factory is imported from database.py

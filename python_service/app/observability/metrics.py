@@ -6,6 +6,7 @@ In production, this would emit to Prometheus/StatsD; here it's in-memory.
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
+import re
 from typing import Any, Dict, List, Optional
 
 
@@ -96,3 +97,61 @@ class MetricsCollector:
             return 0.0
         matched = sum(1 for p in points if p.tags.get(success_tag) == success_value)
         return matched / len(points)
+
+    def to_prometheus(self, namespace: str = "alsa") -> str:
+        """Render buffered metrics in Prometheus text exposition format."""
+        groups: Dict[tuple[str, tuple[tuple[str, str], ...]], List[float]] = {}
+        for point in self._points:
+            metric_name = _sanitize_metric_name(f"{namespace}_{point.name}")
+            labels = tuple(
+                sorted(
+                    (key, value)
+                    for key, value in point.tags.items()
+                    if key != "request_id" and value is not None and value != ""
+                )
+            )
+            groups.setdefault((metric_name, labels), []).append(float(point.value))
+
+        lines = [
+            "# HELP alsa_metrics_points Number of in-memory metric points by metric and label set.",
+            "# TYPE alsa_metrics_points gauge",
+        ]
+        for (metric_name, labels), values in sorted(groups.items()):
+            label_text = _format_labels(labels)
+            lines.extend(
+                [
+                    f"# HELP {metric_name}_count Aggregated sample count for {metric_name}.",
+                    f"# TYPE {metric_name}_count gauge",
+                    f"{metric_name}_count{label_text} {len(values)}",
+                    f"# HELP {metric_name}_sum Aggregated sample sum for {metric_name}.",
+                    f"# TYPE {metric_name}_sum gauge",
+                    f"{metric_name}_sum{label_text} {sum(values)}",
+                    f"# HELP {metric_name}_min Aggregated sample minimum for {metric_name}.",
+                    f"# TYPE {metric_name}_min gauge",
+                    f"{metric_name}_min{label_text} {min(values)}",
+                    f"# HELP {metric_name}_max Aggregated sample maximum for {metric_name}.",
+                    f"# TYPE {metric_name}_max gauge",
+                    f"{metric_name}_max{label_text} {max(values)}",
+                ]
+            )
+
+        lines.append(f"alsa_metrics_points {sum(len(values) for values in groups.values())}")
+        return "\n".join(lines) + "\n"
+
+
+def _sanitize_metric_name(name: str) -> str:
+    sanitized = re.sub(r"[^a-zA-Z0-9_:]", "_", name)
+    if not re.match(r"^[a-zA-Z_:]", sanitized):
+        sanitized = f"_{sanitized}"
+    return sanitized
+
+
+def _format_labels(labels: tuple[tuple[str, str], ...]) -> str:
+    if not labels:
+        return ""
+    rendered = ",".join(f'{_sanitize_metric_name(key)}="{_escape_label_value(value)}"' for key, value in labels)
+    return f"{{{rendered}}}"
+
+
+def _escape_label_value(value: str) -> str:
+    return str(value).replace("\\", "\\\\").replace("\n", "\\n").replace('"', '\\"')

@@ -1,6 +1,11 @@
 ﻿
 from python_service.app.db.models import AnalysisArtifact, AnalysisRun, DataSnapshot
-from python_service.app.services.lineage_service import build_analysis_lineage, classify_data_quality, should_downgrade_recommendation
+from python_service.app.services.lineage_service import (
+    apply_data_quality_review_gate,
+    build_analysis_lineage,
+    classify_data_quality,
+    should_downgrade_recommendation,
+)
 
 
 def test_analysis_lineage_includes_snapshot_prompt_model_and_artifacts(session_factory):
@@ -61,6 +66,44 @@ def test_data_quality_conflicts_downgrade_strong_recommendations():
     assert classify_data_quality("100", stale=False, conflicting=True) == "conflicting"
     assert should_downgrade_recommendation("Buy", ["verified", "conflicting"]) == "Needs Review"
     assert should_downgrade_recommendation("Hold", ["missing"]) == "Hold"
+
+
+def test_data_quality_gate_marks_strong_recommendation_for_manual_review():
+    result = {
+        "recommendation": "Buy",
+        "summary_verdict": "buy",
+        "data_quality": {
+            "score": 0.7,
+            "blocking_errors": [],
+            "warnings": [{"code": "MISSING_PRICE", "severity": "high", "message": "Latest quote price is missing."}],
+        },
+        "tradingPlan": {"strategy": "breakout", "_validated": True},
+    }
+
+    gated = apply_data_quality_review_gate(result)
+
+    assert gated["recommendation"] == "Needs Review"
+    assert gated["summary_verdict"] == "watch"
+    assert gated["manual_review"]["required"] is True
+    assert gated["manual_review"]["state"] == "needs_review"
+    assert gated["manual_review"]["original_recommendation"] == "Buy"
+    assert "missing" in gated["manual_review"]["quality_labels"]
+    assert gated["tradingPlan"]["_validated"] is False
+    assert gated["tradingPlan"]["_manual_review_required"] is True
+
+
+def test_data_quality_gate_keeps_hold_without_manual_review():
+    result = {
+        "recommendation": "Hold",
+        "summary_verdict": "watch",
+        "data_quality": {"score": 0.9, "blocking_errors": [], "warnings": []},
+    }
+
+    gated = apply_data_quality_review_gate(result)
+
+    assert gated["recommendation"] == "Hold"
+    assert gated["manual_review"]["required"] is False
+    assert gated["manual_review"]["state"] == "not_required"
 
 
 def test_analysis_lineage_reports_missing_publish_requirements(session_factory):

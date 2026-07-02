@@ -22,6 +22,45 @@ def should_downgrade_recommendation(recommendation: str, qualities: list[str]) -
     return "Needs Review" if strong and weak_quality else recommendation
 
 
+def apply_data_quality_review_gate(result: dict[str, Any]) -> dict[str, Any]:
+    data_quality = result.get("data_quality") or {}
+    warnings = data_quality.get("warnings") or []
+    blocking_errors = data_quality.get("blocking_errors") or []
+    qualities = _quality_labels_from_snapshot(data_quality)
+    original_recommendation = str(result.get("recommendation") or "Hold")
+    reviewed_recommendation = should_downgrade_recommendation(original_recommendation, qualities)
+    requires_review = reviewed_recommendation != original_recommendation or bool(blocking_errors)
+
+    if requires_review:
+        result["recommendation"] = reviewed_recommendation
+        result["summary_verdict"] = "watch"
+        result["manual_review"] = {
+            "required": True,
+            "state": "needs_review",
+            "reason": "data_quality_issue",
+            "quality_labels": qualities,
+            "warnings": warnings,
+            "blocking_errors": blocking_errors,
+            "original_recommendation": original_recommendation,
+        }
+        trading_plan = result.get("tradingPlan")
+        if isinstance(trading_plan, dict):
+            trading_plan["_validated"] = False
+            trading_plan["_manual_review_required"] = True
+    else:
+        result.setdefault(
+            "manual_review",
+            {
+                "required": False,
+                "state": "not_required",
+                "quality_labels": qualities,
+                "warnings": warnings,
+                "blocking_errors": blocking_errors,
+            },
+        )
+    return result
+
+
 def build_analysis_lineage(session: Session, analysis_id: str) -> dict[str, Any] | None:
     run = session.get(AnalysisRun, analysis_id)
     if not run:
@@ -98,3 +137,18 @@ def _missing_lineage_fields(run: AnalysisRun, snapshot: DataSnapshot | None, art
     if not artifacts:
         missing.append("artifacts")
     return missing
+
+
+def _quality_labels_from_snapshot(data_quality: dict[str, Any]) -> list[str]:
+    labels = ["verified"]
+    warning_codes = {str(item.get("code", "")).upper() for item in data_quality.get("warnings", []) if isinstance(item, dict)}
+    warning_severities = {
+        str(item.get("severity", "")).lower() for item in data_quality.get("warnings", []) if isinstance(item, dict)
+    }
+    if data_quality.get("blocking_errors"):
+        labels.append("conflicting")
+    if "MISSING_PRICE" in warning_codes or "high" in warning_severities:
+        labels.append("missing")
+    if "SHORT_HISTORY" in warning_codes:
+        labels.append("delayed")
+    return labels

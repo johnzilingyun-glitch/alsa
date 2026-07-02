@@ -11,6 +11,7 @@ from typing import Optional, Dict, Any, List
 from ..db.repositories.job_repo import JobRepository
 from ..decision.trading_fields_validator import TradingFieldsValidator
 from .market_snapshot_service import MarketSnapshotService
+from .lineage_service import apply_data_quality_review_gate
 from ..quant.polars_indicators import compute_indicator_frame
 
 class AnalysisJobService:
@@ -410,11 +411,12 @@ class AnalysisJobService:
                     structured["tradingPlan"]["_validation_errors"] = validation.errors
                 elif validation.signal_eligible:
                     structured["tradingPlan"]["_validated"] = True
+                apply_data_quality_review_gate(result)
                 
                 # 5. Create Analysis Run and Update Job
                 with self.job_repo.session_factory() as session:
                     # Derive verdict from structured extraction
-                    rec = structured.get("recommendation", "Hold")
+                    rec = result.get("recommendation", structured.get("recommendation", "Hold"))
                     if rec in ("Buy",): verdict = "buy"
                     elif rec in ("Overweight",): verdict = "buy"
                     elif rec in ("Sell",): verdict = "sell"
@@ -539,6 +541,7 @@ class AnalysisJobService:
             "summary": self._extract_summary(valid_messages),
             "partial": True  # Flag indicating partial results
         }
+        apply_data_quality_review_gate(result)
         
         with self.job_repo.session_factory() as session:
             last_msg = valid_messages[-1]["content"] if valid_messages else ""
@@ -755,6 +758,7 @@ class AnalysisJobService:
                 # Also backfill summary
                 if not result.get("summary"):
                     result["summary"] = self._extract_summary(discussion)
+        apply_data_quality_review_gate(result)
         
         return result
 

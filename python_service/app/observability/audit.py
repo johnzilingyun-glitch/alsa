@@ -18,6 +18,7 @@ class AuditAction(str, Enum):
     HUMAN_APPROVAL = "HUMAN_APPROVAL"
     ORDER_INTENT_CREATED = "ORDER_INTENT_CREATED"
     ORDER_SUBMITTED = "ORDER_SUBMITTED"
+    ORDER_SUBMISSION_REJECTED = "ORDER_SUBMISSION_REJECTED"
     KILL_SWITCH_TRIGGERED = "KILL_SWITCH_TRIGGERED"
     RISK_LIMIT_MODIFIED = "RISK_LIMIT_MODIFIED"
 
@@ -49,3 +50,6 @@ class AuditLogger:
         if action is None:
             return list(self._entries)
         return [e for e in self._entries if e.action == action]
+
+
+audit_logger = AuditLogger()

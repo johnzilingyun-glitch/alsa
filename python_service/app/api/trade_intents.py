@@ -10,9 +10,14 @@ from pydantic import BaseModel, Field, field_validator
 from ..db.models import TradeIntent
 from ..db.database import session_factory
 from ..risk.pre_trade import PreTradeRiskGateway, PreTradeRiskRequest
+from ..observability.audit import AuditAction, AuditLogger, audit_logger
 from ..utils.responses import success_response
 
 router = APIRouter(prefix="/trade-intents", tags=["trade-intents"])
+
+
+def get_audit_logger() -> AuditLogger:
+    return audit_logger
 
 
 class TradeIntentCreate(BaseModel):
@@ -93,6 +98,19 @@ def create_trade_intent(payload: TradeIntentCreate):
         session.add(intent)
         session.commit()
         session.refresh(intent)
+        get_audit_logger().log(
+            action=AuditAction.ORDER_INTENT_CREATED,
+            actor="api_token",
+            details={
+                "intent_id": intent.intent_id,
+                "symbol": intent.symbol,
+                "market": intent.market,
+                "side": intent.side,
+                "notional": intent.notional,
+                "approval_state": intent.approval_state,
+                "risk_status": risk_result.status.value,
+            },
+        )
         return success_response(_serialize(intent))
 
 
@@ -109,6 +127,15 @@ def approve_trade_intent(intent_id: str, payload: ApprovalPayload):
         session.add(intent)
         session.commit()
         session.refresh(intent)
+        get_audit_logger().log(
+            action=AuditAction.HUMAN_APPROVAL,
+            actor=payload.approved_by,
+            details={
+                "intent_id": intent.intent_id,
+                "symbol": intent.symbol,
+                "approval_state": intent.approval_state,
+            },
+        )
         return success_response(_serialize(intent))
 
 
@@ -123,14 +150,42 @@ def submit_trade_intent(intent_id: str, payload: SubmitPayload):
         if not intent:
             raise HTTPException(status_code=404, detail="Trade intent not found")
         if intent.approval_state == "submitted":
+            _log_submission_rejected(intent, payload.confirmed_by, "already_submitted")
             raise HTTPException(status_code=400, detail="Trade intent has already been submitted")
         if intent.approval_state != "human_approved":
+            _log_submission_rejected(intent, payload.confirmed_by, "missing_human_approval")
             raise HTTPException(status_code=400, detail="Human approval is required before submission")
         if intent.approved_by != payload.confirmed_by:
+            _log_submission_rejected(intent, payload.confirmed_by, "approver_mismatch")
             raise HTTPException(status_code=400, detail="Submit confirmation must be performed by the approving user")
         intent.approval_state = "submitted"
         intent.submitted_at = utc_now()
         session.add(intent)
         session.commit()
         session.refresh(intent)
+        get_audit_logger().log(
+            action=AuditAction.ORDER_SUBMITTED,
+            actor=payload.confirmed_by,
+            details={
+                "intent_id": intent.intent_id,
+                "symbol": intent.symbol,
+                "market": intent.market,
+                "side": intent.side,
+                "notional": intent.notional,
+                "submitted_at": intent.submitted_at.isoformat() if intent.submitted_at else None,
+            },
+        )
         return success_response(_serialize(intent))
+
+
+def _log_submission_rejected(intent: TradeIntent, actor: str, reason: str) -> None:
+    get_audit_logger().log(
+        action=AuditAction.ORDER_SUBMISSION_REJECTED,
+        actor=actor or "unknown",
+        details={
+            "intent_id": intent.intent_id,
+            "symbol": intent.symbol,
+            "approval_state": intent.approval_state,
+            "reason": reason,
+        },
+    )

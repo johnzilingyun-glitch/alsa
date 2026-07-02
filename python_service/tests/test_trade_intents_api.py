@@ -1,7 +1,9 @@
 ﻿from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+import python_service.app.api.trade_intents as trade_intents
 from python_service.app.api.trade_intents import router
+from python_service.app.observability.audit import AuditAction, AuditLogger
 
 
 def _client() -> TestClient:
@@ -95,3 +97,44 @@ def test_trade_intent_rejects_invalid_schema_before_risk_gateway():
     response = client.post("/api/trade-intents", json=payload)
 
     assert response.status_code == 422
+
+
+def test_trade_intent_writes_audit_entries_for_lifecycle(monkeypatch):
+    monkeypatch.setenv("ENABLE_LIVE_TRADING", "true")
+    audit = AuditLogger()
+    monkeypatch.setattr(trade_intents, "get_audit_logger", lambda: audit)
+    client = _client()
+    payload = {
+        "symbol": "NVDA",
+        "market": "US-Share",
+        "side": "BUY",
+        "quantity": 2,
+        "notional": 1000,
+        "source_analysis_run_id": "ana_audit",
+        "thesis": "audit covered setup",
+        "data_quality_score": 0.95,
+        "evidence_quality": 0.90,
+        "conflict_level": "C0",
+    }
+
+    created = client.post("/api/trade-intents", json=payload).json()["data"]
+    client.post(f"/api/trade-intents/{created['intent_id']}/approve", json={"approved_by": "pm"})
+    client.post(
+        f"/api/trade-intents/{created['intent_id']}/submit",
+        json={"confirm_live_trading": True, "confirmed_by": "pm"},
+    )
+    client.post(
+        f"/api/trade-intents/{created['intent_id']}/submit",
+        json={"confirm_live_trading": True, "confirmed_by": "pm"},
+    )
+
+    actions = [entry.action for entry in audit.get_entries()]
+    assert actions == [
+        AuditAction.ORDER_INTENT_CREATED,
+        AuditAction.HUMAN_APPROVAL,
+        AuditAction.ORDER_SUBMITTED,
+        AuditAction.ORDER_SUBMISSION_REJECTED,
+    ]
+    rejected = audit.get_entries(AuditAction.ORDER_SUBMISSION_REJECTED)[0]
+    assert rejected.details["reason"] == "already_submitted"
+    assert rejected.details["intent_id"] == created["intent_id"]

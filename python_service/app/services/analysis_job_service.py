@@ -14,6 +14,8 @@ from .market_snapshot_service import MarketSnapshotService
 from .lineage_service import apply_data_quality_review_gate
 from ..quant.polars_indicators import compute_indicator_frame
 
+PROGRESS_REDIS_PREFIX = "analysis_progress"
+
 class AnalysisJobService:
     def __init__(self, job_repo: JobRepository, snapshot_service: MarketSnapshotService):
         self.job_repo = job_repo
@@ -679,7 +681,7 @@ class AnalysisJobService:
 
     def update_job_progress(self, job_id: str, stage: str, percent: int, round: Optional[int] = None, total_rounds: Optional[int] = None, message: Optional[str] = None, count: Optional[int] = None, error_type: Optional[str] = None):
         prev = self._progress.get(job_id, {})
-        self._progress[job_id] = {
+        progress = {
             "stage": stage, 
             "percent": percent,
             "round": round,
@@ -688,6 +690,34 @@ class AnalysisJobService:
             "count": count if count is not None else prev.get("count"),
             "error_type": error_type or prev.get("error_type")
         }
+        self._progress[job_id] = progress
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(self._write_shared_progress(job_id, progress))
+        except RuntimeError:
+            pass
+
+    async def get_job_progress(self, job_id: str) -> Optional[Dict[str, Any]]:
+        progress = self._progress.get(job_id)
+        if progress:
+            return progress
+        try:
+            from ..db.redis_client import get_redis
+            r_client = await get_redis()
+            raw = await r_client.get(f"{PROGRESS_REDIS_PREFIX}:{job_id}")
+            if raw:
+                return json.loads(raw if isinstance(raw, str) else raw.decode("utf-8"))
+        except Exception as e:
+            logger.debug(f"[AnalysisJobService] Failed to read shared progress for {job_id}: {e}")
+        return None
+
+    async def _write_shared_progress(self, job_id: str, progress: Dict[str, Any]) -> None:
+        try:
+            from ..db.redis_client import get_redis
+            r_client = await get_redis()
+            await r_client.set(f"{PROGRESS_REDIS_PREFIX}:{job_id}", json.dumps(progress, ensure_ascii=False), ex=86400)
+        except Exception as e:
+            logger.debug(f"[AnalysisJobService] Failed to persist shared progress for {job_id}: {e}")
 
     async def _heartbeat(self, job_id: str, interval: int = 15):
         """Emit a lightweight progress pulse while a job is running so the frontend

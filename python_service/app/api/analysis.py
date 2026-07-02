@@ -77,8 +77,8 @@ async def get_job(job_id: str, service: AnalysisJobService = Depends(get_job_ser
             logger.exception("Failed to parse analysis job result payload for job %s", job_id)
             result = job.result_payload
 
-    # Use live in-memory progress from the service if available
-    progress_data = service._progress.get(job_id)
+    # Use live in-memory/shared progress from the service if available
+    progress_data = await service.get_job_progress(job_id)
     if progress_data:
         progress = progress_data
     elif job.status == "completed":

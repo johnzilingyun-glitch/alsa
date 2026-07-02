@@ -4,6 +4,8 @@ logger = logging.getLogger(__name__)
 import json
 import asyncio
 import time
+import threading
+import queue
 from datetime import datetime
 from contextvars import ContextVar
 from google import genai
@@ -225,8 +227,36 @@ class LLMGateway:
                 raise ValueError("DEFAULT_LLM_API_KEY is missing.")
         return self._default_client
 
+    def _llm_stream_timeout_seconds(self) -> float:
+        return float(os.getenv("LLM_STREAM_TIMEOUT_SECONDS", "300"))
+
+    async def _run_blocking_llm_call(self, provider: str, func) -> str:
+        timeout_seconds = self._llm_stream_timeout_seconds()
+        result_queue: queue.Queue = queue.Queue(maxsize=1)
+
+        def _target():
+            try:
+                result_queue.put((True, func()), block=False)
+            except Exception as exc:
+                result_queue.put((False, exc), block=False)
+
+        thread = threading.Thread(target=_target, name=f"llm-{provider}-stream", daemon=True)
+        thread.start()
+        deadline = time.monotonic() + timeout_seconds
+        while thread.is_alive():
+            if os.path.exists(".stop"):
+                raise Exception("Analysis stopped by user.")
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError(f"{provider} streaming call timed out after {timeout_seconds:.0f}s")
+            await asyncio.sleep(min(0.5, remaining))
+
+        ok, value = result_queue.get_nowait()
+        if ok:
+            return value
+        raise value
+
     async def generate_content(self, prompt: str, model: str = None, temperature: float = 0.3, on_chunk: Optional[callable] = None, gemini_api_key: Optional[str] = None, deepseek_api_key: Optional[str] = None, cache_key: Optional[str] = None, prompt_version_id: Optional[str] = None, response_schema: Optional[Any] = None) -> str:
-        import time
         start_time = time.perf_counter()
         
         # Get token usage diff
@@ -474,7 +504,7 @@ class LLMGateway:
             try:
                 # Rate limit: wait for slot before sending request
                 async with self._default_rate_limiter:
-                    result = await asyncio.to_thread(_stream_generate)
+                    result = await self._run_blocking_llm_call("default", _stream_generate)
                 if not result:
                     raise ValueError("Default provider returned empty response")
                 return result
@@ -573,7 +603,7 @@ class LLMGateway:
                         
                     return text_res
 
-                result = await asyncio.to_thread(_stream_generate)
+                result = await self._run_blocking_llm_call("gemini", _stream_generate)
                 
                 if result:
                     return result
@@ -675,7 +705,7 @@ class LLMGateway:
         
         for attempt in range(max_retries):
             try:
-                result = await asyncio.to_thread(_stream_generate)
+                result = await self._run_blocking_llm_call("deepseek", _stream_generate)
                 if not result:
                     raise ValueError("DeepSeek returned empty streaming response")
                 return result

@@ -53,8 +53,21 @@ export function resetRateLimitBuckets(): void {
   buckets.clear();
 }
 
-export function createRateLimiter(policy: RateLimitPolicy = getRateLimitPolicy()) {
+/** Path prefixes that bypass the rate limiter (high-frequency polling). */
+const DEFAULT_EXEMPT_PREFIXES = [
+  '/analysis/jobs/',   // job status polling
+  '/watchlist/',       // watchlist auto-refresh
+  '/market/indices',   // market overview polling
+];
+
+export function createRateLimiter(policy: RateLimitPolicy = getRateLimitPolicy(), exemptPrefixes: string[] = DEFAULT_EXEMPT_PREFIXES) {
   return (req: Request, res: Response, next: NextFunction): void => {
+    // Bypass rate limit for high-frequency polling endpoints
+    const pathname = req.path || '';
+    if (exemptPrefixes.some(p => pathname.startsWith(p))) {
+      return next();
+    }
+
     const result = checkRateLimit(getRateLimitKey(req), policy);
     const retryAfterSeconds = Math.max(Math.ceil((result.resetAt - Date.now()) / 1000), 1);
 

@@ -230,7 +230,16 @@ class GroundingVerifier:
                 except (ValueError, IndexError):
                     continue
 
-        return claims
+        # Deduplicate claims by field and normalized_value
+        unique_claims = []
+        seen = set()
+        for claim in claims:
+            key = (claim.field, round(claim.normalized_value, 4))
+            if key not in seen:
+                seen.add(key)
+                unique_claims.append(claim)
+
+        return unique_claims
 
     def _lookup_field(self, field_name: str, snapshot: Dict) -> Optional[float]:
         """Look up a field value from the snapshot data."""

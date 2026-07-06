@@ -15,7 +15,7 @@ export function useAnalysisJob() {
   const setContentCount = useUIStore(s => s.setContentCount);
   const setRoundProgress = useDiscussionStore(s => s.setRoundProgress);
 
-  const startAnalysis = useCallback(async (symbol: string, market: string, analysisLevel: string, model: string | null = null, config: any = null) => {
+  const startAnalysis = useCallback(async (symbol: string, market: string, analysisLevel: string, model: string | null = null, config: any = null, verificationMode: 'extreme' | 'quick' | 'quality' = 'quick') => {
     // Prevent concurrent submissions — use ref to avoid stale closure on status state
     if (submittingRef.current) return;
     submittingRef.current = true;
@@ -35,7 +35,8 @@ export function useAnalysisJob() {
           market, 
           analysis_level: analysisLevel,
           model: config?.model || model,
-          config: config
+          config: config,
+          verification_mode: verificationMode
         }),
       });
 
@@ -59,7 +60,7 @@ export function useAnalysisJob() {
   }, []);
 
   const pollJob = async (id: string) => {
-    const pollInterval = 2000;
+    const pollInterval = 5000;
     const IDLE_TIMEOUT_MS = 300_000; // 300s — only timeout after 300s of ZERO activity
     let lastMsg = '';
     // Activity tracking: reset whenever progress changes

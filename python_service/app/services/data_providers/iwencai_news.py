@@ -34,11 +34,8 @@ SKILL_VERSION = "2.0.0"  # bumped from 1.0.0 — older versions may be rejected
 
 
 def _is_quota_error(status_code: int, body: str) -> bool:
-    """Check whether a 401 response indicates quota exhaustion vs. auth failure."""
-    if status_code != 401:
-        return False
-    lower = body.lower()
-    return any(kw in lower for kw in _QUOTA_EXHAUSTED_KEYWORDS)
+    """Check whether a 401/403 response indicates quota exhaustion vs. auth failure."""
+    return status_code in (401, 403)
 
 
 def _generate_trace_id() -> str:

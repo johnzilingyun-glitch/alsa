@@ -55,10 +55,13 @@ interface UIState {
   contentCount: number;
   analysisTarget: { symbol: string; market: string } | null;
   analysisStartedAt: number | null;
+  analysisLevel: AnalysisLevel;
+  verificationMode: 'extreme' | 'quick' | 'quality';
   setAnalysisStatus: (status: string) => void;
+  setVerificationMode: (mode: 'extreme' | 'quick' | 'quality') => void;
   setContentCount: (count: number) => void;
   setAnalysisTarget: (target: { symbol: string; market: string } | null) => void;
-  analysisLevel: AnalysisLevel;
+
 
   // Activity setters (update enum)
   setLoading: (loading: boolean) => void;
@@ -131,8 +134,10 @@ export const useUIStore = create<UIState>()(
       contentCount: 0,
       analysisTarget: null,
       analysisStartedAt: null,
+      verificationMode: 'quick',
       setContentCount: (contentCount) => set({ contentCount }),
       setAnalysisTarget: (analysisTarget) => set({ analysisTarget }),
+      setVerificationMode: (verificationMode) => set({ verificationMode }),
       setAnalysisStatus: (analysisStatus) => set((state) => {
         if (!analysisStatus) return { analysisStatus };
         return {
@@ -218,7 +223,7 @@ export const useUIStore = create<UIState>()(
     }),
     {
       name: 'ui-storage',
-      partialize: (state) => ({ autoRefreshInterval: state.autoRefreshInterval, analysisLevel: state.analysisLevel }),
+      partialize: (state) => ({ autoRefreshInterval: state.autoRefreshInterval, analysisLevel: state.analysisLevel, verificationMode: state.verificationMode }),
     }
   )
 );

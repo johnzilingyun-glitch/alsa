@@ -313,12 +313,12 @@ Now extract from the following discussion:
                 # Preprocess discussion: strip markdown formatting noise for cleaner extraction
                 discussion_clean = self._preprocess_discussion_for_extraction(discussion)
 
-                # Smart truncation: take beginning (context) + end (conclusions) for long discussions
-                # This preserves the stock overview from early experts AND final conclusions
-                if len(discussion_clean) > 25000:
-                    # First 8000 chars: stock overview, key data from early experts
-                    # Last 17000 chars: final conclusions, recommendations from later experts
-                    discussion_safe = discussion_clean[:8000] + "\n\n... [中间内容已省略] ...\n\n" + discussion_clean[-17000:]
+                # Smart truncation: take beginning (context) + end (conclusions) for extremely long discussions
+                # Modern models (Gemini/DeepSeek) have large context windows, so we raise the limit to 300,000 characters (approx 150k tokens)
+                if len(discussion_clean) > 300000:
+                    # First 100000 chars: stock overview, key data from early experts
+                    # Last 200000 chars: final conclusions, recommendations from later experts
+                    discussion_safe = discussion_clean[:100000] + "\n\n... [中间内容已省略] ...\n\n" + discussion_clean[-200000:]
                 else:
                     discussion_safe = discussion_clean
 
@@ -362,8 +362,10 @@ Now extract from the following discussion:
                             pass
 
                 print(f"UI Data Expert Pass Attempt {attempt+1} Failed to parse JSON. Result: {res[:100]}...")
+                last_exception = ValueError(f"Failed to parse JSON. Result preview: {res[:100]}...")
             except Exception as e:
                 print(f"UI Data Expert Pass Attempt {attempt+1} Failed Exception: {e}")
+                last_exception = e
 
             await asyncio.sleep(2) # short backoff before retry
 

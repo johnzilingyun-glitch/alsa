@@ -7,8 +7,8 @@ import numpy as np
 import uuid
 from datetime import datetime, timezone
 
-# Only import akshare if enabled (geo-blocked from non-China servers)
-AKSHARE_ENABLED = os.getenv("AKSHARE_ENABLED", "false").lower() == "true"
+# Import akshare (enabled by default for domestic China servers)
+AKSHARE_ENABLED = os.getenv("AKSHARE_ENABLED", "true").lower() == "true"
 if AKSHARE_ENABLED:
     import akshare as ak
 

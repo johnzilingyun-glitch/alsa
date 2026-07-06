@@ -5,15 +5,48 @@ from typing import Dict
 from datetime import datetime
 from .registry import tool_registry
 
+async def _iwencai_fallback_search(query: str, label: str) -> str:
+    """Fallback to web search when Iwencai is unavailable/exhausted."""
+    try:
+        from ..search_service import search_service
+        results = await search_service.search(query, max_results=5)
+        if not results:
+            return f"<tool_observation>\n{label} Fallback: No search results found for query '{query}'\n</tool_observation>"
+        
+        lines = ["<tool_observation>"]
+        lines.append(f"{label} (Fallback Web Search): {query}")
+        lines.append("")
+        for i, r in enumerate(results[:5], 1):
+            title = r.get("title", "N/A")[:100]
+            content = r.get("content", "")[:250]
+            url = r.get("url", "")
+            lines.append(f"{i}. {title}")
+            if content:
+                lines.append(f"   {content}")
+            if url:
+                lines.append(f"   {url}")
+        lines.append("</tool_observation>")
+        return "\n".join(lines)
+    except Exception as e:
+        return f"<tool_observation>\n{label} Fallback Error: {str(e)}\n</tool_observation>"
+
+
+_iwencai_disabled = False
+
 async def exec_iwencai_query(query: str, skill_id: str, label: str) -> str:
     """Generic Iwencai query2data API call for structured data skills."""
+    global _iwencai_disabled
+    if _iwencai_disabled:
+        return await _iwencai_fallback_search(query, label)
+
     MAX_ITEMS = 8
     MAX_FIELDS = 6
     MAX_VALUE_LEN = 50
 
     api_key = os.getenv("IWENCAI_API_KEY", "")
     if not api_key:
-        return f"<tool_observation>\n{label}: IWENCAI_API_KEY not configured.\n</tool_observation>"
+        _iwencai_disabled = True
+        return await _iwencai_fallback_search(query, label)
 
     url = "https://openapi.iwencai.com/v1/query2data"
     headers = {
@@ -45,7 +78,8 @@ async def exec_iwencai_query(query: str, skill_id: str, label: str) -> str:
             text_resp = data.get("text_response", "")
             if text_resp:
                 return f"<tool_observation>\n{label}: {query}\n{text_resp[:500]}\n</tool_observation>"
-            raise Exception(f"No {label.lower()} found.")
+            # Attempt search fallback if data is empty
+            return await _iwencai_fallback_search(query, label)
 
         lines = ["<tool_observation>"]
         lines.append(f"{label}: {query} ({len(datas)} items)")
@@ -66,16 +100,12 @@ async def exec_iwencai_query(query: str, skill_id: str, label: str) -> str:
         lines.append("</tool_observation>")
         return "\n".join(lines)
     except httpx.HTTPStatusError as e:
-        if e.response.status_code == 401:
-            body = e.response.text
-            # Detect quota exhaustion — return clean skip message
-            if "次数已用完" in body:
-                return f"<tool_observation>\n{label}: Iwencai 每日配额已用完，跳过。\n</tool_observation>"
-            if "Skill 版本过低" in body:
-                return f"<tool_observation>\n{label}: Iwencai Skill 版本过旧，跳过。\n</tool_observation>"
-        return f"<tool_observation>\n{label} error: HTTP {e.response.status_code}\n</tool_observation>"
+        # Fallback for quota limit (HTTP 401 / 403 / 429) or other errors
+        _iwencai_disabled = True
+        return await _iwencai_fallback_search(query, label)
     except Exception as e:
-        return f"<tool_observation>\n{label} error: {str(e)}\n</tool_observation>"
+        _iwencai_disabled = True
+        return await _iwencai_fallback_search(query, label)
 
 
 MACRO_QUERY_SCHEMA = {

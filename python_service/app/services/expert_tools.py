@@ -779,6 +779,7 @@ class ToolExecutor:
         self._search_service = None
         self._brain_manager = None
         self._financial_cache: Dict[str, str] = {}  # Cache: "symbol|query_hash" -> result
+        self._iwencai_disabled = False
 
     @property
     def search_service(self):
@@ -951,8 +952,8 @@ class ToolExecutor:
                 if r['content']:
                     lines.append(f"   {r['content']}")
 
-        # Supplement with SearXNG for broader/international coverage
-        searxng_results = await self.search_service.search_news(query, max_results=MAX_SEARXNG)
+        # Supplement with SearXNG for broader/international coverage (e.g. macro policies, US regulations)
+        searxng_results = await self.search_service.search_news(query, max_results=MAX_SEARXNG, global_only=True)
         if searxng_results:
             start_idx = len(iwencai_results) + 1
             for i, r in enumerate(searxng_results, start_idx):
@@ -1177,30 +1178,34 @@ class ToolExecutor:
         MAX_FIELDS = 6
         MAX_VALUE_LEN = 50
 
-        api_key = os.getenv("IWENCAI_API_KEY", "")
-        if not api_key:
-            return f"<tool_observation>\n{label}: IWENCAI_API_KEY not configured.\n</tool_observation>"
-
         url = "https://openapi.iwencai.com/v1/query2data"
-        headers = {
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-            "X-Claw-Call-Type": "normal",
-            "X-Claw-Skill-Id": skill_id,
-            "X-Claw-Skill-Version": "1.0.0",
-            "X-Claw-Plugin-Id": "none",
-            "X-Claw-Plugin-Version": "none",
-            "X-Claw-Trace-Id": secrets.token_hex(32),
-        }
-        payload = {
-            "query": query,
-            "page": "1",
-            "limit": str(MAX_ITEMS),
-            "is_cache": "1",
-            "expand_index": "true",
-        }
-
+        
         try:
+            if self._iwencai_disabled:
+                raise ValueError("Iwencai is disabled due to previous failures")
+            
+            api_key = os.getenv("IWENCAI_API_KEY", "")
+            if not api_key:
+                raise ValueError("IWENCAI_API_KEY not configured")
+
+            headers = {
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+                "X-Claw-Call-Type": "normal",
+                "X-Claw-Skill-Id": skill_id,
+                "X-Claw-Skill-Version": "1.0.0",
+                "X-Claw-Plugin-Id": "none",
+                "X-Claw-Plugin-Version": "none",
+                "X-Claw-Trace-Id": secrets.token_hex(32),
+            }
+            payload = {
+                "query": query,
+                "page": "1",
+                "limit": str(MAX_ITEMS),
+                "is_cache": "1",
+                "expand_index": "true",
+            }
+
             async with httpx.AsyncClient(timeout=30.0) as client:
                 response = await client.post(url, headers=headers, json=payload)
                 response.raise_for_status()
@@ -1233,6 +1238,7 @@ class ToolExecutor:
             lines.append("</tool_observation>")
             return "\n".join(lines)
         except Exception as e:
+            self._iwencai_disabled = True
             # FALLBACK to SearchService for all iwencai queries
             from .search_service import search_service
             try:

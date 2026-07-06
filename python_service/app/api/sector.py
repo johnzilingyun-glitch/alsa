@@ -58,6 +58,7 @@ class SectorAnalyzeRequest(BaseModel):
     gemini_api_key: Optional[str] = None
     deepseek_api_key: Optional[str] = None
     pipeline_version: Optional[str] = "production"
+    verification_mode: str = "quick"  # Modes: 'extreme', 'quick', 'quality'
 
 
 class SerenityAnalyzeRequest(BaseModel):
@@ -69,6 +70,7 @@ class SerenityAnalyzeRequest(BaseModel):
     deepseek_api_key: Optional[str] = None
     pipeline_version: Optional[str] = "production"
     experts: Optional[list[str]] = None
+    verification_mode: str = "quick"  # Modes: 'extreme', 'quick', 'quality'
 
 def _resolve_model(requested: Optional[str] = None) -> str:
     if requested:
@@ -391,7 +393,8 @@ async def start_sector_analysis(req: SectorAnalyzeRequest):
         config={
             "geminiApiKey": req.gemini_api_key,
             "deepseekApiKey": req.deepseek_api_key
-        }
+        },
+        verification_mode=req.verification_mode
     )
 
     # Keep reference so we can poll progress
@@ -453,7 +456,8 @@ async def start_serenity_analysis(req: SerenityAnalyzeRequest):
             "geminiApiKey": req.gemini_api_key,
             "deepseekApiKey": req.deepseek_api_key,
             "experts": req.experts,
-        }
+        },
+        verification_mode=req.verification_mode
     )
 
     # Keep reference so we can poll progress

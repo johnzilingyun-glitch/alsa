@@ -8,7 +8,7 @@ import aiohttp
 from typing import Dict, Any
 from datetime import datetime
 
-_AKSHARE_ENABLED = os.getenv("AKSHARE_ENABLED", "false").lower() in ("true", "1", "yes")
+_AKSHARE_ENABLED = os.getenv("AKSHARE_ENABLED", "true").lower() in ("true", "1", "yes")
 if _AKSHARE_ENABLED:
     import akshare as ak
     from ..utils.network import safe_ak_call

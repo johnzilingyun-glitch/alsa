@@ -17,6 +17,7 @@ class AnalysisJobCreate(BaseModel):
     analysis_level: str = "standard"
     requested_model: Optional[str] = None
     config: Optional[Dict[str, Any]] = None
+    verification_mode: str = "quick"  # Modes: 'extreme', 'quick', 'quality'
 
 class ApiKeySubmission(BaseModel):
     provider: str = "gemini"
@@ -55,7 +56,8 @@ async def create_job(payload: AnalysisJobCreate, request: Request, service: Anal
         level=payload.analysis_level,
         model=payload.requested_model,
         config=payload.config,
-        user_id=user_id
+        user_id=user_id,
+        verification_mode=payload.verification_mode
     )
     return success_response({
         "job_id": job_id, 

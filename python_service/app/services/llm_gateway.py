@@ -257,6 +257,40 @@ class LLMGateway:
         raise value
 
     async def generate_content(self, prompt: str, model: str = None, temperature: float = 0.3, on_chunk: Optional[callable] = None, gemini_api_key: Optional[str] = None, deepseek_api_key: Optional[str] = None, cache_key: Optional[str] = None, prompt_version_id: Optional[str] = None, response_schema: Optional[Any] = None) -> str:
+        try:
+            loop = asyncio.get_running_loop()
+            _original_on_chunk = on_chunk
+            _last_call_time = [0.0]
+            _accumulated_args = [0] # for accumulating char counts if args[0] is count
+            def _safe_on_chunk(*args, **kwargs):
+                if _original_on_chunk:
+                    now = time.monotonic()
+                    # If it's just a count update, accumulate it
+                    if not kwargs and len(args) == 1 and isinstance(args[0], int):
+                        _accumulated_args[0] += args[0]
+                    
+                    # Send if it has kwargs, or if 0.5s passed, or if it's not just a simple int update
+                    if kwargs or (now - _last_call_time[0] > 0.5) or len(args) != 1 or not isinstance(args[0], int):
+                        _last_call_time[0] = now
+                        if not kwargs and len(args) == 1 and isinstance(args[0], int):
+                            val = _accumulated_args[0]
+                            _accumulated_args[0] = 0
+                            loop.call_soon_threadsafe(_original_on_chunk, val)
+                        elif kwargs:
+                            # Pass accumulated value if first arg is int
+                            if len(args) > 0 and isinstance(args[0], int):
+                                val = _accumulated_args[0] + args[0]
+                                _accumulated_args[0] = 0
+                                new_args = (val,) + args[1:]
+                                loop.call_soon_threadsafe(lambda: _original_on_chunk(*new_args, **kwargs))
+                            else:
+                                loop.call_soon_threadsafe(lambda: _original_on_chunk(*args, **kwargs))
+                        else:
+                            loop.call_soon_threadsafe(_original_on_chunk, *args)
+            on_chunk = _safe_on_chunk
+        except RuntimeError:
+            pass
+
         start_time = time.perf_counter()
         
         # Get token usage diff

@@ -32,7 +32,7 @@ class AgentOrchestrator:
         model: str = "gemini-3.1-pro-preview",
         role: str = None,
         temperature: float = 0.3,
-        max_tool_rounds: int = 20,
+        max_tool_rounds: int = 30,
         on_chunk: Optional[callable] = None,
         gemini_api_key: Optional[str] = None,
         deepseek_api_key: Optional[str] = None,
@@ -165,7 +165,7 @@ class AgentOrchestrator:
         model: str,
         role: str = None,
         temperature: float = 0.3,
-        max_tool_rounds: int = 20,
+        max_tool_rounds: int = 30,
         on_chunk: Optional[callable] = None,
         deepseek_api_key: Optional[str] = None,
         cache_key: Optional[str] = None,
@@ -260,7 +260,7 @@ class AgentOrchestrator:
         model: str,
         role: str = None,
         temperature: float = 0.3,
-        max_tool_rounds: int = 20,
+        max_tool_rounds: int = 30,
         on_chunk: Optional[callable] = None,
         deepseek_api_key: Optional[str] = None,
         cache_key: Optional[str] = None,
@@ -427,6 +427,9 @@ class AgentOrchestrator:
                         reasoning_text = getattr(delta, "reasoning_content", None)
                         if reasoning_text:
                             reasoning_parts.append(reasoning_text)
+                            char_count += len(reasoning_text)
+                            if on_chunk:
+                                on_chunk(char_count)
 
                         # Accumulate content
                         if delta.content:

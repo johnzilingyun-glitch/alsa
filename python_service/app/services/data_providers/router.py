@@ -6,11 +6,12 @@ routes to the optimal data provider. Falls back gracefully on failure.
 
 Routing rules:
   A-Shares (6-digit/.SH/.SZ) → AStockDirectProvider (primary, Tencent+Sina)
+                                 AkShareFallbackProvider (secondary, EastMoney)
   HK (.HK / 4-5 digit)       → YFinanceProvider
   US (alpha / ^prefix)        → YFinanceProvider
 
-NOTE: AkShare fallback disabled — relies on EastMoney which is blocked
-from non-China IPs. AStockDirect now has Tencent kline fallback built-in.
+NOTE: AkShare fallback enabled by default for domestic (China) servers.
+Set AKSHARE_ENABLED=false if deploying overseas where EastMoney is geo-blocked.
 """
 
 import logging
@@ -33,6 +34,36 @@ from app.db.database import engine
 
 logger = logging.getLogger(__name__)
 
+_name_to_symbol_cache = {}
+_name_to_symbol_loaded = False
+
+async def _resolve_symbol(symbol: str) -> str:
+    """Resolve Chinese company name to stock code (e.g. 德业股份 -> 605117.SH)."""
+    global _name_to_symbol_loaded, _name_to_symbol_cache
+    
+    # If it already contains digits, it's likely a code, not a name
+    if any(c.isdigit() for c in symbol):
+        return symbol
+        
+    if not _name_to_symbol_loaded:
+        try:
+            import akshare as ak
+            df = await asyncio.to_thread(ak.stock_info_a_code_name)
+            for _, row in df.iterrows():
+                code = str(row['code']).zfill(6)
+                name = str(row['name'])
+                if code.startswith('6'):
+                    suffix = '.SH'
+                elif code.startswith('4') or code.startswith('8') or code.startswith('9'):
+                    suffix = '.BJ'
+                else:
+                    suffix = '.SZ'
+                _name_to_symbol_cache[name] = code + suffix
+        except Exception as e:
+            logger.warning(f"Failed to load name to symbol map: {e}")
+        _name_to_symbol_loaded = True
+        
+    return _name_to_symbol_cache.get(symbol, symbol)
 
 class DataRouter:
     """
@@ -48,8 +79,8 @@ class DataRouter:
         self._ths = THSDataProvider()
         self._sina = SinaDataProvider()
         self._iwencai = IwencaiDataProvider()
-        # AkShare fallback disabled by default from overseas (EastMoney geo-blocked)
-        self._akshare_enabled = os.environ.get("AKSHARE_ENABLED", "false").lower() in ("true", "1", "yes")
+        # AkShare fallback: enabled by default for domestic servers (EastMoney accessible in China)
+        self._akshare_enabled = os.environ.get("AKSHARE_ENABLED", "true").lower() in ("true", "1", "yes")
 
     def _get_providers(self, symbol: str) -> List[DataProvider]:
         """
@@ -76,25 +107,33 @@ class DataRouter:
         import asyncio
         providers = self._get_providers(symbol)
         
-        async def wrap(p):
+        async def wrap(idx, p):
             try:
                 res = await fetch_func(p)
                 if validation_func(res):
-                    return p.name, res
+                    return idx, p.name, res
             except Exception as e:
                 logger.warning(f"[Router] {p.name} failed for {symbol}: {e}")
-            return p.name, None
+            return idx, p.name, None
 
-        tasks = [asyncio.create_task(wrap(p)) for p in providers]
+        tasks = [asyncio.create_task(wrap(i, p)) for i, p in enumerate(providers)]
+        results_by_idx = {}
+        highest_pending_idx = 0
         
         try:
-            result = await asyncio.wait_for(
-                self._first_success(tasks),
-                timeout=self.CONCURRENT_TIMEOUT
-            )
-            if result is not None:
-                logger.info(f"[Router] Concurrent fetch successful for {symbol}")
-                return result
+            for fut in asyncio.as_completed(tasks, timeout=self.CONCURRENT_TIMEOUT):
+                idx, name, res = await fut
+                results_by_idx[idx] = res
+                
+                # Check if we can return the highest priority provider
+                while highest_pending_idx in results_by_idx:
+                    best_res = results_by_idx[highest_pending_idx]
+                    if best_res is not None:
+                        logger.info(f"[Router] Concurrent fetch successful for {symbol} (provider index {highest_pending_idx})")
+                        return best_res
+                    # The highest priority pending task failed, move to next
+                    highest_pending_idx += 1
+                    
         except asyncio.TimeoutError:
             logger.warning(f"[Router] Concurrent fetch timed out ({self.CONCURRENT_TIMEOUT}s) for {symbol}")
         finally:
@@ -102,23 +141,22 @@ class DataRouter:
                 if not t.done():
                     t.cancel()
                     
+        # If we reach here due to timeout, return the best available result
+        for i in range(len(providers)):
+            if results_by_idx.get(i) is not None:
+                return results_by_idx[i]
+                
         logger.error(f"[Router] All concurrent providers failed for {symbol}")
         return default_val
 
-    async def _first_success(self, tasks):
-        for fut in asyncio.as_completed(tasks):
-            name, res = await fut
-            if res is not None:
-                return res
-        return None
-
     async def get_history(
-        self, symbol: str, period: str = "10y", interval: str = "1d"
+        self, symbol: str, period: str = "3mo", interval: str = "1d"
     ) -> pd.DataFrame:
         """
-        Fetch historical OHLCV data with concurrent execution and fallback.
-        Includes a SQLite-based cache layer for 1d interval to speed up queries.
+        Fetch historical k-lines concurrently, return the fastest valid dataframe.
         """
+        symbol = await _resolve_symbol(symbol)
+        
         # --- Cache Check Layer ---
         if interval == "1d":
             # Run blocking DB operations in a thread
@@ -198,6 +236,8 @@ class DataRouter:
         """
         Fetch real-time quote concurrently.
         """
+        symbol = await _resolve_symbol(symbol)
+        
         async def fetch(p):
             return await p.get_quote(symbol)
             
@@ -210,6 +250,7 @@ class DataRouter:
         """
         Fetch comprehensive financial metrics concurrently.
         """
+        symbol = await _resolve_symbol(symbol)
         market = detect_market(symbol)
         
         async def fetch(p):
@@ -221,7 +262,13 @@ class DataRouter:
             return None
             
         def is_valid(r):
-            return r is not None
+            if r is None: return False
+            # Ensure the provider actually returned financial data, not just boilerplate
+            boilerplate = {"source", "symbol", "_routed_via", "_market", "currency", "financialCurrency", "name", "price"}
+            # Count keys that are not boilerplate
+            data_keys = [k for k in r.keys() if k not in boilerplate and r[k] is not None]
+            # A valid financial summary should have at least some fundamental metrics (e.g., marketCap, pe, roe)
+            return len(data_keys) > 0
             
         default_err = {"error": "All providers failed", "symbol": symbol}
         result = await self._fetch_concurrently(symbol, fetch, default_err, is_valid)

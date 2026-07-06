@@ -73,7 +73,23 @@ class DiscussionService:
     def __init__(self):
         pass
 
-    def build_topology(self, level: str, asset_type: str = "equity", custom_experts: Optional[List[str]] = None) -> List[Dict[str, Any]]:
+    def _has_external_facts(self, content: str) -> bool:
+        """
+        检测内容是否包含外部事实、具体数据或引用
+        用于决定是否需要进行事实验证
+        """
+        fact_indicators = [
+            "市盈率", "PE", "pb", "净利润", "营收", "数据显示",
+            "根据", "显示", "数据", "报告", "公开", "财报",
+            "季度", "%", "亿元", "万元", "百万", "收入",
+            "同比", "环比", "增长", "增速", "下降", "上升",
+            "专业", "研究", "分析师", "预期", "估值",
+            "价格", "股价", "年线", "月线", "支撑", "压力"
+        ]
+        content_lower = content.lower()
+        return any(indicator in content_lower for indicator in fact_indicators)
+
+    def build_topology(self, level: str, asset_type: str = "equity", custom_experts: Optional[List[str]] = None, verification_mode: str = "quick") -> List[Dict[str, Any]]:
         if custom_experts:
             return [{"round": i + 1, "experts": [expert], "parallel": False} for i, expert in enumerate(custom_experts)]
 
@@ -102,13 +118,17 @@ class DiscussionService:
 
         return filtered
 
-    async def run_discussion(self, symbol: str, name: str, snapshot: Dict[str, Any], level: str = "standard", language: str = "zh-CN", model: str = None, on_progress: Optional[callable] = None, job_id: str = "temp_job_id", config: Optional[Dict[str, Any]] = None, market: str = "us") -> List[Dict[str, Any]]:
+    async def run_discussion(self, symbol: str, name: str, snapshot: Dict[str, Any], level: str = "standard", language: str = "zh-CN", model: str = None, on_progress: Optional[callable] = None, job_id: str = "temp_job_id", config: Optional[Dict[str, Any]] = None, market: str = "us", verification_mode: str = "quick") -> List[Dict[str, Any]]:
         """
         Runs the full expert discussion flow using LangGraph.
+        
+        Args:
+            verification_mode: 'extreme' (skip all checks), 'quick' (smart checks), or 'quality' (all checks)
         """
         custom_experts = (config or {}).get("experts")
-        topology = self.build_topology(level, custom_experts=custom_experts)
+        topology = self.build_topology(level, custom_experts=custom_experts, verification_mode=verification_mode)
         self._cumulative_count = 0  # Track total chars across all experts
+        self._verification_mode = verification_mode  # Store as instance variable
         
         # Clear tool executor cache from previous jobs
         from .expert_tools import tool_executor
@@ -166,32 +186,21 @@ class DiscussionService:
                 msg = result
                 new_state = {}
                 is_final = expert_role in ("Chief Strategist", "Sector Chief Strategist")
-                if not is_final:
+                
+                if is_final:
+                    # 【Final Experts】Always enforce reflection and grounding verification
                     content = msg.get("content", "")
-
-                    # Grounding verification: validate numeric claims against snapshot data
-                    try:
-                        from .grounding_verifier import grounding_verifier
-                        verification = grounding_verifier.verify(content, snapshot)
-                        if verification.flagged_count > 0:
-                            print(f"[Grounding] {expert_role}: {verification.summary}")
-                            content = grounding_verifier.annotate_output(content, verification)
-                            msg["content"] = content
-                            msg["grounding"] = {
-                                "verified": verification.verified_count,
-                                "flagged": verification.flagged_count,
-                                "total": verification.total_count,
-                                "coverage": verification.coverage_score,
-                            }
-                    except Exception as e:
-                        print(f"[Grounding] Verification failed for {expert_role}: {e}")
-
-                    confidence = self._extract_confidence(content)
-                    # If confidence is lower than 0.6, trigger self-reflection
-                    if confidence < 0.6:
+                    v_mode = getattr(self, '_verification_mode', 'quick')
+                    if v_mode == 'extreme':
+                        print(f"[Final-Expert] {expert_role}: Skipping reflection and grounding (Extreme Speed Mode)")
+                    else:
+                        print(f"[Final-Expert] {expert_role}: Enforcing quality checks (reflection + grounding)")
+                        
+                        # 1. Always reflect for final expert (ensures final quality)
                         try:
                             from .self_reflection_agent import self_reflection_agent
                             ref_config = config or {}
+                            print(f"[Final-Reflection] {expert_role}: Triggering mandatory reflection")
                             reflection_res = await self_reflection_agent.reflect(
                                 expert_role=expert_role,
                                 analysis=content,
@@ -206,20 +215,124 @@ class DiscussionService:
                             if "reflection" in reflection_res:
                                 msg["reflection"] = reflection_res["reflection"]
                         except Exception as e:
-                            print(f"[DiscussionService] Self-reflection failed for {expert_role}: {e}")
+                            logger.debug(f"[Final-Reflection] Failed for {expert_role}: {e}")
+                        
+                        # 2. Always verify for final expert (ensures final accuracy)
+                        try:
+                            from .grounding_verifier import grounding_verifier
+                            print(f"[Final-Grounding] {expert_role}: Triggering mandatory verification")
+                            verification = grounding_verifier.verify(content, snapshot)
+                            if verification.flagged_count > 0:
+                                print(f"[Final-Grounding] {expert_role}: {verification.summary}")
+                                content = grounding_verifier.annotate_output(content, verification)
+                                msg["content"] = content
+                                msg["grounding"] = {
+                                    "verified": verification.verified_count,
+                                    "flagged": verification.flagged_count,
+                                    "total": verification.total_count,
+                                    "coverage": verification.coverage_score,
+                                }
+                        except Exception as e:
+                            logger.debug(f"[Final-Grounding] Verification failed for {expert_role}: {e}")
+                    
+                    try:
+                        import json
+                        import re
+                        content_to_save = content
+                        if len(content_to_save) > 2000:
+                            content_to_save = content_to_save[:2000] + "\n...[Auto-Truncated]"
+                        
+                        json_clean = content_to_save.strip()
+                        if json_clean.startswith("```"):
+                            json_clean = re.sub(r"^```(?:json)?\n", "", json_clean)
+                            json_clean = re.sub(r"\n```$", "", json_clean)
+                        parsed = json.loads(json_clean)
+                        new_state = {expert_role: parsed}
+                    except Exception:
+                        new_state = {expert_role: content_to_save}
+                    
+                    if "reflection" in msg:
+                        new_state[f"{expert_role}_reflection"] = msg["reflection"]
+                
+                elif not is_final:
+                    content = msg.get("content", "")
+
+                    # Phase 2 (2026-07-03): Intelligent selective verification and reflection
+                    # Strategy: Only verify when needed, only reflect when confidence is low
+                    # Modes: 'extreme' (skip all), 'quality' (force all), 'quick' (smart)
+                    
+                    confidence = self._extract_confidence(content)
+                    v_mode = getattr(self, '_verification_mode', 'quick')
+                    enable_all_checks = (v_mode == 'quality')
+                    
+                    if v_mode == 'extreme':
+                        should_verify = False
+                        should_reflect = False
+                        print(f"[{expert_role}] Skipping verification and reflection (Extreme Speed Mode)")
+                    else:
+                        should_verify = enable_all_checks or self._has_external_facts(content)
+                        should_reflect = enable_all_checks or confidence < 0.7
+                    
+                    # Intelligent Grounding Verification
+                    if should_verify:
+                        try:
+                            from .grounding_verifier import grounding_verifier
+                            verification = grounding_verifier.verify(content, snapshot)
+                            if verification.flagged_count > 0:
+                                check_type = "[All-Check]" if enable_all_checks else "[Grounding-Smart]"
+                                print(f"{check_type} {expert_role}: {verification.summary}")
+                                content = grounding_verifier.annotate_output(content, verification)
+                                msg["content"] = content
+                                msg["grounding"] = {
+                                    "verified": verification.verified_count,
+                                    "flagged": verification.flagged_count,
+                                    "total": verification.total_count,
+                                    "coverage": verification.coverage_score,
+                                }
+                        except Exception as e:
+                            logger.debug(f"[Grounding] Verification failed for {expert_role}: {e}")
+                    
+                    # Intelligent Self-Reflection
+                    if should_reflect:
+                        try:
+                            from .self_reflection_agent import self_reflection_agent
+                            ref_config = config or {}
+                            check_type = "[All-Check]" if enable_all_checks else "[Reflection-Smart]"
+                            print(f"{check_type} Triggering reflection for {expert_role} (confidence={confidence:.2f})")
+                            reflection_res = await self_reflection_agent.reflect(
+                                expert_role=expert_role,
+                                analysis=content,
+                                context=state.get("history_states", {}),
+                                round_num=r_num,
+                                total_rounds=total_rounds,
+                                gemini_api_key=ref_config.get("geminiApiKey"),
+                                deepseek_api_key=ref_config.get("deepseekApiKey"),
+                                model=model
+                            )
+                            # Attach reflection to the message
+                            if "reflection" in reflection_res:
+                                msg["reflection"] = reflection_res["reflection"]
+                        except Exception as e:
+                            logger.debug(f"[Reflection] Self-reflection failed for {expert_role}: {e}")
                     
                     try:
                         import json
                         import re
                         # Summarize long text to prevent context bloat (Phase 4 Fix)
+                        # DISABLED (2026-07-03): Performance optimization - use simple truncation instead
                         content_to_save = content
                         if len(content_to_save) > 2000:
-                            print(f"[DiscussionService] Expert '{expert_role}' output exceeds 2000 chars, triggering summarizer...")
-                            try:
-                                content_to_save = await self._summarize_expert_output(expert_role, content_to_save, model, config)
-                            except Exception as sum_e:
-                                print(f"[DiscussionService] Summarization failed, truncating manually: {sum_e}")
-                                content_to_save = content_to_save[:2000] + "\n...[Auto-Truncated]"
+                            print(f"[DiscussionService] Expert '{expert_role}' output exceeds 2000 chars, truncating (summarization disabled for performance)...")
+                            # Simple truncation instead of expensive LLM summarization
+                            content_to_save = content_to_save[:2000] + "\n...[Auto-Truncated]"
+                        
+                        # if len(content_to_save) > 2000:
+                        #     print(f"[DiscussionService] Expert '{expert_role}' output exceeds 2000 chars, triggering summarizer...")
+                        #     try:
+                        #         content_to_save = await self._summarize_expert_output(expert_role, content_to_save, model, config)
+                        #     except Exception as sum_e:
+                        #         print(f"[DiscussionService] Summarization failed, truncating manually: {sum_e}")
+                        #         content_to_save = content_to_save[:2000] + "\n...[Auto-Truncated]"
 
                         json_clean = content_to_save.strip()
                         if json_clean.startswith("```"):
@@ -652,7 +765,8 @@ class DiscussionService:
                 content = f"{role} 专家暂时无法提供分析。原因: 大语言模型请求异常 ({str(e)[:100]})。请其他专家忽略此错误并根据已有数据自行补全缺失视角的分析逻辑。"
         else:
             # No artificial limit on tool rounds — let the model decide when it has enough data
-            effective_max_rounds = 20
+            effective_max_rounds = 30
+            
             # Other models — use tool-calling loop (web_search, news_search, knowledge_search)
             try:
                 content = await agent_orchestrator.generate_with_tools(prompt, model=model, role=role, max_tool_rounds=effective_max_rounds, on_chunk=_on_chunk, gemini_api_key=config.get("geminiApiKey") if config else None, deepseek_api_key=config.get("deepseekApiKey") if config else None, cache_key=cache_key, prompt_version_id=pv_id, response_schema=response_schema)

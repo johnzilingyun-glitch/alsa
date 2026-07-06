@@ -167,8 +167,10 @@ export const useConfigStore = create<ConfigState>((set) => {
       
       const currentUsage = state.tokenUsage || initialTokenUsage;
       const isNewDay = currentUsage.dailyResetDate !== today;
-      const isNewWeek = currentUsage.weeklyResetDate !== thisWeek;
       const isNewMonth = currentUsage.monthlyResetDate !== thisMonth;
+      // Force reset weekly total when a new month starts, so that weekly usage 
+      // never exceeds monthly usage (e.g. when a calendar week spans two months)
+      const isNewWeek = currentUsage.weeklyResetDate !== thisWeek || isNewMonth;
       
       const added = usage.totalTokens || 0;
       const newTokenUsage = {

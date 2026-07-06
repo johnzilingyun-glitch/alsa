@@ -26,98 +26,24 @@ class SignalMonitorService:
         if not alerts:
             return
 
-        # Group by market for batch fetching
-        a_share_alerts = [a for a in alerts if a.market == "A-Share"]
-        hk_alerts = [a for a in alerts if a.market == "HK-Share"]
-        us_alerts = [a for a in alerts if a.market == "US-Share"]
+        # Use DataRouter for all markets — automatic fallback across providers
+        from .data_providers import data_router
+        tasks = []
+        for alert in alerts:
+            tasks.append(self._check_alert_via_router(alert, data_router))
+        
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
 
-        if a_share_alerts:
-            await self._check_a_share_batch(a_share_alerts)
-        if hk_alerts:
-            await self._check_hk_batch(hk_alerts)
-        if us_alerts:
-            await self._check_us_batch(us_alerts)
-
-    async def _check_a_share_batch(self, alerts: List[SearchAlert]):
-        """Check A-Share alerts using akshare spot data."""
+    async def _check_alert_via_router(self, alert: SearchAlert, router):
+        """Check a single alert using the DataRouter (multi-source with fallback)."""
         try:
-            import akshare as ak
-            from ..utils.network import safe_ak_call
-            df = await safe_ak_call(ak.stock_zh_a_spot_em)
-            if df is None or df.empty:
+            quote = await router.get_quote(alert.symbol)
+            if quote is None or quote.price <= 0:
                 return
-
-            for alert in alerts:
-                code = alert.symbol.replace(".SH", "").replace(".SZ", "")[:6]
-                row = df[df["代码"] == code]
-                if row.empty:
-                    continue
-                price = float(row.iloc[0].get("最新价", 0) or 0)
-                if price <= 0:
-                    continue
-                await self._evaluate_alert(alert, price)
+            await self._evaluate_alert(alert, quote.price)
         except Exception as e:
-            logger.error(f"[SignalMonitor] A-Share batch check error: {e}")
-
-    async def _check_hk_batch(self, alerts: List[SearchAlert]):
-        """Check HK-Share alerts using yfinance."""
-        try:
-            import yfinance as yf
-            symbols = []
-            for alert in alerts:
-                symbol = alert.symbol
-                if not symbol.endswith(".HK"):
-                    clean = symbol.replace(".HK", "").lstrip("0") or "0"
-                    symbol = f"{clean.zfill(4)}.HK"
-                symbols.append(symbol)
-                
-            if not symbols:
-                return
-
-            # batch download last 1d data
-            data = await asyncio.to_thread(yf.download, symbols, period="1d", progress=False)
-            if data.empty:
-                return
-                
-            for i, alert in enumerate(alerts):
-                symbol = symbols[i]
-                try:
-                    if len(symbols) > 1:
-                        price = data['Close'][symbol].dropna().iloc[-1]
-                    else:
-                        price = data['Close'].dropna().iloc[-1]
-                    if price and price > 0:
-                        await self._evaluate_alert(alert, float(price))
-                except Exception:
-                    continue
-        except Exception as e:
-            logger.error(f"[SignalMonitor] HK batch check error: {e}")
-
-    async def _check_us_batch(self, alerts: List[SearchAlert]):
-        """Check US-Share alerts using yfinance."""
-        try:
-            import yfinance as yf
-            symbols = [alert.symbol for alert in alerts]
-            if not symbols:
-                return
-                
-            data = await asyncio.to_thread(yf.download, symbols, period="1d", progress=False)
-            if data.empty:
-                return
-
-            for alert in alerts:
-                symbol = alert.symbol
-                try:
-                    if len(symbols) > 1:
-                        price = data['Close'][symbol].dropna().iloc[-1]
-                    else:
-                        price = data['Close'].dropna().iloc[-1]
-                    if price and price > 0:
-                        await self._evaluate_alert(alert, float(price))
-                except Exception:
-                    continue
-        except Exception as e:
-            logger.error(f"[SignalMonitor] US batch check error: {e}")
+            logger.warning(f"[SignalMonitor] Quote fetch failed for {alert.symbol}: {e}")
 
     async def _evaluate_alert(self, alert: SearchAlert, current_price: float):
         """Evaluate whether the current price triggers any signal for this alert."""

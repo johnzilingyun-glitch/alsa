@@ -231,6 +231,7 @@ class SearchService:
         Falls back to cached local results if akshare is unavailable."""
         try:
             import akshare as ak
+            from ..utils.network import safe_ak_call
         except ImportError:
             return []
 
@@ -244,7 +245,7 @@ class SearchService:
 
         if stock_code:
             try:
-                df = await asyncio.to_thread(ak.stock_news_em, symbol=stock_code)
+                df = await safe_ak_call(ak.stock_news_em, symbol=stock_code)
                 if df is not None and not df.empty:
                     for _, row in df.head(max_results).iterrows():
                         title = row.get("新闻标题", row.get("title", ""))
@@ -261,7 +262,7 @@ class SearchService:
 
             if len(results) < max_results:
                 try:
-                    df2 = await asyncio.to_thread(ak.stock_individual_notice_report, stock_code)
+                    df2 = await safe_ak_call(ak.stock_individual_notice_report, stock_code)
                     if df2 is not None and not df2.empty:
                         for _, row in df2.head(max_results - len(results)).iterrows():
                             results.append({
@@ -317,7 +318,7 @@ class SearchService:
 
         return []
 
-    async def search_news(self, query: str, max_results: int = 10) -> List[Dict[str, Any]]:
+    async def search_news(self, query: str, max_results: int = 10, global_only: bool = False) -> List[Dict[str, Any]]:
         """Search news with fallback chain: DDG → 同花顺问财 → AkShare → SearXNG."""
         from .tools_config import is_skill_enabled
 
@@ -330,19 +331,20 @@ class SearchService:
             if results:
                 return self._sanitize_results(results)
 
-        # 2. 同花顺问财 (primary source for Chinese financial news)
-        if _IS_CHINA_SERVER or self._is_chinese_stock_query(query):
-            results = await self._iwencai_search(query, max_results)
-            if results:
-                return self._sanitize_results(results)
+        if not global_only:
+            # 2. 同花顺问财 (primary source for Chinese financial news)
+            if _IS_CHINA_SERVER or self._is_chinese_stock_query(query):
+                results = await self._iwencai_search(query, max_results)
+                if results:
+                    return self._sanitize_results(results)
+    
+            # 3. AkShare fallback (for Chinese stock queries)
+            if _IS_CHINA_SERVER or self._is_chinese_stock_query(query):
+                results = await self._akshare_search(query, max_results)
+                if results:
+                    return self._sanitize_results(results)
 
-        # 3. AkShare fallback (for Chinese stock queries)
-        if _IS_CHINA_SERVER or self._is_chinese_stock_query(query):
-            results = await self._akshare_search(query, max_results)
-            if results:
-                return self._sanitize_results(results)
-
-        # 4. SearXNG fallback
+        # 4. SearXNG fallback (or global primary if global_only=True)
         if is_skill_enabled("searxng_backend"):
             results = await self._searxng_search(f"{query} latest news 2025", max_results, categories="news")
             if results:

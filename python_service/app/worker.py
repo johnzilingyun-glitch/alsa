@@ -31,12 +31,12 @@ celery_app.conf.update(
     enable_utc=True,
     # Task behavior
     task_track_started=True,
-    task_acks_late=True,  # Ack after completion, not before
+    task_acks_late=False,  # Ack on receive — stateful tasks can't be retried after restart
     task_reject_on_worker_lost=True,
     worker_prefetch_multiplier=1,  # One task at a time per worker
     # Time limits
-    task_soft_time_limit=600,   # 10 min soft limit (raises SoftTimeLimitExceeded)
-    task_time_limit=900,        # 15 min hard limit (kills worker)
+    task_soft_time_limit=0,     # No soft limit — chunk-level timeout handles blocking
+    task_time_limit=0,          # No hard limit — chunk-level timeout handles blocking
     # Retry policy
     task_default_retry_delay=60,
     task_max_retries=3,
@@ -52,23 +52,55 @@ celery_app.conf.beat_schedule = {}
 
 
 @celery_app.task(name="app.worker.run_analysis_task", bind=True, max_retries=3)
-def run_analysis_task(self, job_id: str, symbol: str, market: str, config: dict = None):
+def run_analysis_task(self, job_id: str, symbol: str, market: str, config: dict = None, verification_mode: str = "quick"):
     """
-    Celery task for running ALSA analysis workflow.
+    Celery task that runs the actual analysis job in the background.
+    - Handles status tracking using JobRepository.
+    - Executes the actual discussion graph.
+    - Captures artifacts (if any).
+    - Support for verification_mode flag to force/disable reflection/verification for all experts
+    """
+    import sys
+    import os
     
-    Features:
-    - Automatic retry on transient failures
-    - Proper error handling and job status updates
-    - Configurable timeout
-    """
-    from main import get_analysis_job_service
+    # Ensure proper path setup for Celery worker
+    # Current file: /home/ubuntu/work/alsa/python_service/app/worker.py
+    # We need to add: /home/ubuntu/work/alsa/python_service to sys.path
+    worker_file = os.path.abspath(__file__)
+    # Go up 2 directories: app/ -> python_service/
+    python_service_dir = os.path.dirname(os.path.dirname(worker_file))
+    
+    if python_service_dir not in sys.path:
+        sys.path.insert(0, python_service_dir)
+    
+    try:
+        from main import get_analysis_job_service
+    except (ModuleNotFoundError, ImportError) as e1:
+        logger.error(f"Failed to import from main using sys.path: {e1}")
+        logger.error(f"sys.path includes: {python_service_dir}")
+        raise
+    
     from app.db.database import session_factory
 
-    logger.info(f"[Celery] Starting analysis job {job_id} for {symbol} ({market})")
+    logger.info(f"[Celery] Starting analysis job {job_id} for {symbol} ({market}) [verification_mode={verification_mode}]")
+
+    # Guard: skip if the job was already marked failed/cancelled (e.g. by recover_orphaned_jobs)
+    try:
+        from app.db.models import AnalysisJob
+        with session_factory() as session:
+            job_record = session.get(AnalysisJob, job_id)
+            if job_record and job_record.status not in ("queued", "running"):
+                logger.warning(f"[Celery] Skipping job {job_id}: DB status is '{job_record.status}' (not queued/running). Likely a stale redelivered task.")
+                return
+            if not job_record:
+                logger.warning(f"[Celery] Skipping job {job_id}: not found in DB.")
+                return
+    except Exception as guard_err:
+        logger.warning(f"[Celery] DB guard check failed for {job_id}: {guard_err}. Proceeding anyway.")
 
     try:
         service = get_analysis_job_service()
-        asyncio.run(service._run_job(job_id, symbol, market, config))
+        asyncio.run(service._run_job(job_id, symbol, market, config, verification_mode=verification_mode))
         logger.info(f"[Celery] Completed analysis job {job_id}")
     except Exception as e:
         error_msg = str(e)
@@ -98,7 +130,8 @@ def run_sector_analysis_task(
     config: dict = None,
     target_date: str = None,
     level: str = "sector",
-    pipeline_version: str = "production"
+    pipeline_version: str = "production",
+    verification_mode: str = "quick"
 ):
     """
     Celery task for running sector-level multi-expert analysis workflow.
@@ -113,10 +146,24 @@ def run_sector_analysis_task(
         from app.services.sector_analysis_service import SectorAnalysisService
         service = SectorAnalysisService(JobRepository(session_factory))
 
-    logger.info(f"[Celery] Starting sector analysis job {job_id} for {sector_name} ({level}, pipeline={pipeline_version})")
+    logger.info(f"[Celery] Starting sector analysis job {job_id} for {sector_name} ({level}, pipeline={pipeline_version}, verification_mode={verification_mode})")
+
+    # Guard: skip if the job was already marked failed/cancelled (e.g. by recover_orphaned_jobs)
+    try:
+        from app.db.models import AnalysisJob
+        with session_factory() as session:
+            job_record = session.get(AnalysisJob, job_id)
+            if job_record and job_record.status not in ("queued", "running"):
+                logger.warning(f"[Celery] Skipping sector job {job_id}: DB status is '{job_record.status}'.")
+                return
+            if not job_record:
+                logger.warning(f"[Celery] Skipping sector job {job_id}: not found in DB.")
+                return
+    except Exception as guard_err:
+        logger.warning(f"[Celery] DB guard check failed for sector job {job_id}: {guard_err}. Proceeding anyway.")
 
     try:
-        asyncio.run(service._run_sector_job(job_id, sector_name, model=model, config=config, target_date=target_date, level=level))
+        asyncio.run(service._run_sector_job(job_id, sector_name, model=model, config=config, target_date=target_date, level=level, verification_mode=verification_mode))
         logger.info(f"[Celery] Completed sector analysis job {job_id}")
     except Exception as e:
         error_msg = str(e)

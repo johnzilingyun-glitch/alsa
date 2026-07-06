@@ -18,7 +18,8 @@ class SerenityGraphService(SectorAnalysisService):
         model: Optional[str] = None,
         config: Optional[Dict[str, Any]] = None,
         target_date: Optional[str] = None,
-        level: str = "sector"
+        level: str = "sector",
+        verification_mode: str = "quick"
     ) -> str:
         import os
         job_id = f"graph_{uuid.uuid4().hex[:8]}"
@@ -39,11 +40,12 @@ class SerenityGraphService(SectorAnalysisService):
                 config=config,
                 target_date=target_date,
                 level=level,
-                pipeline_version="development"
+                pipeline_version="development",
+                verification_mode=verification_mode
             )
         else:
             print(f"[SerenityGraph] Running development serenity job {job_id} in local asyncio pool (Graceful Degradation)")
-            task = asyncio.create_task(self._run_sector_job(job_id, sector_name, model=model, config=config, target_date=target_date, level=level))
+            task = asyncio.create_task(self._run_sector_job(job_id, sector_name, model=model, config=config, target_date=target_date, level=level, verification_mode=verification_mode))
             self._running_tasks[job_id] = task
             task.add_done_callback(lambda t: self._running_tasks.pop(job_id, None))
         return job_id
@@ -55,7 +57,8 @@ class SerenityGraphService(SectorAnalysisService):
         model: Optional[str] = None,
         config: Optional[Dict[str, Any]] = None,
         target_date: Optional[str] = None,
-        level: str = "sector"
+        level: str = "sector",
+        verification_mode: str = "quick"
     ):
         class GraphState(TypedDict):
             job_id: str
@@ -107,7 +110,8 @@ class SerenityGraphService(SectorAnalysisService):
                 model=state["model"],
                 on_progress=report_progress,
                 job_id=state["job_id"],
-                config=state["config"]
+                config=state["config"],
+                verification_mode=verification_mode
             )
             return {"discussion": discussion_messages}
 

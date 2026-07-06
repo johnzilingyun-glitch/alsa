@@ -96,7 +96,9 @@ async def test_full_analysis_job_lifecycle(mock_db, tmp_path):
         from unittest.mock import AsyncMock
         service._wait_for_api_key = AsyncMock(return_value="mock_gemini_api_key")
         service._extract_structured_fields = lambda msgs: {"tradingPlan": {"targetPrice": "1800.0"}}
-        with patch("app.services.critic_agent.critic_agent.critique", new_callable=AsyncMock) as mock_critique:
+        with patch("app.services.critic_agent.critic_agent.critique", new_callable=AsyncMock) as mock_critique, \
+             patch("python_service.app.services.llm_gateway.llm_gateway.validate_api_key", new_callable=AsyncMock) as mock_validate:
+            mock_validate.return_value = True
             mock_critique.return_value = {"critique": "looks good"}
             await service._run_job(job_id, symbol, market)
         

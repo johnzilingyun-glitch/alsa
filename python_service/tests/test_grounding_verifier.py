@@ -127,7 +127,7 @@ class TestAnnotateOutput:
         vr = v.verify(text, snapshot)
         annotated = v.annotate_output(text, vr)
         if vr.flagged_count > 0:
-            assert "⚠️" in annotated or annotated == text  # May depend on regex matching
+            assert "实际20.00" in annotated or annotated == text
 
 
 class TestLookupField:

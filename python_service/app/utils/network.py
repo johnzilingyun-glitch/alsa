@@ -7,6 +7,16 @@ from typing import Callable, TypeVar
 
 logger = logging.getLogger(__name__)
 
+# Monkey patch requests to always use a timeout.
+# AkShare frequently makes requests without a timeout, which can hang forever
+# and exhaust the Celery worker's asyncio thread pool.
+_original_request = requests.Session.request
+def _patched_request(self, method, url, **kwargs):
+    if kwargs.get("timeout") is None:
+        kwargs["timeout"] = 15.0
+    return _original_request(self, method, url, **kwargs)
+requests.Session.request = _patched_request
+
 T = TypeVar("T")
 
 # Fast-fail keywords: don't waste time retrying these
@@ -15,11 +25,11 @@ _NO_RETRY_KEYWORDS = ("Too Many Requests", "Rate limited", "429", "Forbidden")
 # Data-parsing errors: upstream returned bad data, retrying won't help
 _DATA_ERROR_KEYWORDS = ("NoneType", "KeyError", "IndexError", "KeyError", "list index out of range")
 
-async def safe_ak_call(func: Callable[..., T], *args, max_retries: int = 2, initial_delay: float = 1.0, **kwargs) -> T:
+async def safe_ak_call(func: Callable[..., T], *args, max_retries: int = 2, initial_delay: float = 0.3, **kwargs) -> T:
     """
     Safely execute an AkShare call with retries and exponential backoff.
     Handles RemoteDisconnected and other transient network issues.
-    Reduced from 3→2 retries with shorter delays for overseas servers.
+    Fast retry (0.3s base) for domestic servers where transient resets are common.
     """
     last_error = None
     delay = initial_delay

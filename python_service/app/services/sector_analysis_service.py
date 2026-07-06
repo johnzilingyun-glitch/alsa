@@ -14,7 +14,7 @@ from app.logging import get_logger
 
 logger = get_logger(__name__)
 
-_AKSHARE_ENABLED = os.getenv("AKSHARE_ENABLED", "false").lower() in ("true", "1", "yes")
+_AKSHARE_ENABLED = os.getenv("AKSHARE_ENABLED", "true").lower() in ("true", "1", "yes")
 
 
 class SectorAnalysisService:
@@ -30,7 +30,7 @@ class SectorAnalysisService:
         except RuntimeError:
             self._main_loop = None
 
-    async def start_sector_job(self, sector_name: str, model: Optional[str] = None, config: Optional[Dict[str, Any]] = None, target_date: Optional[str] = None, level: str = "sector") -> str:
+    async def start_sector_job(self, sector_name: str, model: Optional[str] = None, config: Optional[Dict[str, Any]] = None, target_date: Optional[str] = None, level: str = "sector", verification_mode: str = "quick") -> str:
         import os
         job_id = f"sector_{uuid.uuid4().hex[:8]}"
         # Create job in DB
@@ -88,7 +88,7 @@ class SectorAnalysisService:
             return json.loads(data)
         return {}
 
-    async def _run_sector_job(self, job_id: str, sector_name: str, model: Optional[str] = None, config: Optional[Dict[str, Any]] = None, target_date: Optional[str] = None, level: str = "sector"):
+    async def _run_sector_job(self, job_id: str, sector_name: str, model: Optional[str] = None, config: Optional[Dict[str, Any]] = None, target_date: Optional[str] = None, level: str = "sector", verification_mode: str = "quick"):
         from .discussion_service import discussion_service
         from ..db.models import AnalysisRun, AnalysisJob
         from .llm_gateway import current_token_usage
@@ -139,7 +139,8 @@ class SectorAnalysisService:
                 model=requested_model,
                 on_progress=report_progress,
                 job_id=job_id,
-                config=config
+                config=config,
+                verification_mode=verification_mode
             )
 
             # Run Critic Agent on the discussion messages

@@ -22,6 +22,7 @@ export function useStockAnalysis() {
   const analysisLevel = useUIStore(s => s.analysisLevel);
   const setAnalysisTarget = useUIStore(s => s.setAnalysisTarget);
   const showToast = useUIStore(s => s.showToast);
+  const verificationMode = useUIStore(s => s.verificationMode);
 
   const setAnalysis = useAnalysisStore(s => s.setAnalysis);
   const symbol = useAnalysisStore(s => s.symbol);
@@ -92,7 +93,8 @@ export function useStockAnalysis() {
           market: bgMarket, 
           analysis_level: analysisLevel,
           model: llmConfig?.model || null,
-          config: llmConfig
+          config: llmConfig,
+          verification_mode: verificationMode
         }),
       });
       const responseData = await res.json();
@@ -150,8 +152,9 @@ export function useStockAnalysis() {
       bgPollTimers.current.set(bgId, timer);
     } catch (err: any) {
       showToast(`${bgSymbol} 提交失败: ${err.message}`, 'error');
+      return false;
     }
-  }, [analysisLevel, llmConfig, addJob, updateJob, showToast, addRecentSearch]);
+  }, [analysisLevel, llmConfig, verificationMode, addJob, updateJob, showToast, addRecentSearch]);
 
   // Watch for job completion
   useEffect(() => {
@@ -214,6 +217,38 @@ export function useStockAnalysis() {
     }
   }, [setHistoryItems, setOptimizationLogs]);
 
+  const doStartAnalysis = useCallback((explicitSymbol?: string, explicitMarket?: string) => {
+    const s = explicitSymbol || symbol;
+    const m = explicitMarket || market;
+    
+    // Check if API Key is configured
+    const model = llmConfig?.model || '';
+    const isDeepSeek = model.toLowerCase().startsWith('deepseek');
+    const apiKey = isDeepSeek ? (llmConfig?.deepseekApiKey || '') : (llmConfig?.apiKey || '');
+    
+    if (!apiKey || !apiKey.trim()) {
+      setLoading(false);
+      setAnalysisError(
+        isDeepSeek 
+          ? '请先前往设置配置 DeepSeek API Key (Please configure DeepSeek API Key in settings)' 
+          : '请先前往设置配置 Gemini API Key (Please configure Gemini API Key in settings)'
+      );
+      showToast('API Key 未配置 (API Key not configured)', 'error');
+      return;
+    }
+
+    setHistoryDialogOpen(false);
+    setLoading(true);
+    resetAnalysis();
+    resetDiscussion();
+    resetScenario();
+    resetErrors();
+    setAnalysisTarget({ symbol: s, market: m });
+    // Record search immediately so it appears in recent searches even if analysis fails
+    addRecentSearch({ symbol: s, name: s, market: m as Market });
+    startAnalysis(s, m, analysisLevel, llmConfig?.model || null, llmConfig, verificationMode);
+  }, [symbol, market, analysisLevel, llmConfig, verificationMode, startAnalysis, setLoading, resetAnalysis, resetDiscussion, resetScenario, resetErrors, setAnalysisTarget, addRecentSearch, setAnalysisError, showToast]);
+
   const handleSearch = useCallback(async (e?: React.FormEvent, targetSymbol?: string, targetMarket?: string) => {
     if (e) e.preventDefault();
     const searchSymbol = targetSymbol || symbol;
@@ -245,39 +280,7 @@ export function useStockAnalysis() {
 
     // No history — start fresh analysis
     doStartAnalysis(searchSymbol, searchMarket);
-  }, [symbol, market, analysisLevel, llmConfig, startAnalysis, setLoading, resetAnalysis, resetDiscussion, resetScenario, resetErrors, setAnalysisTarget, isAnalyzing, startBackgroundJob]);
-
-  const doStartAnalysis = useCallback((explicitSymbol?: string, explicitMarket?: string) => {
-    const s = explicitSymbol || symbol;
-    const m = explicitMarket || market;
-    
-    // Check if API Key is configured
-    const model = llmConfig?.model || '';
-    const isDeepSeek = model.toLowerCase().startsWith('deepseek');
-    const apiKey = isDeepSeek ? (llmConfig?.deepseekApiKey || '') : (llmConfig?.apiKey || '');
-    
-    if (!apiKey || !apiKey.trim()) {
-      setLoading(false);
-      setAnalysisError(
-        isDeepSeek 
-          ? '请先前往设置配置 DeepSeek API Key (Please configure DeepSeek API Key in settings)' 
-          : '请先前往设置配置 Gemini API Key (Please configure Gemini API Key in settings)'
-      );
-      showToast('API Key 未配置 (API Key not configured)', 'error');
-      return;
-    }
-
-    setHistoryDialogOpen(false);
-    setLoading(true);
-    resetAnalysis();
-    resetDiscussion();
-    resetScenario();
-    resetErrors();
-    setAnalysisTarget({ symbol: s, market: m });
-    // Record search immediately so it appears in recent searches even if analysis fails
-    addRecentSearch({ symbol: s, name: s, market: m as Market });
-    startAnalysis(s, m, analysisLevel, llmConfig?.model || null, llmConfig);
-  }, [symbol, market, analysisLevel, llmConfig, startAnalysis, setLoading, resetAnalysis, resetDiscussion, resetScenario, resetErrors, setAnalysisTarget, addRecentSearch, setAnalysisError, showToast]);
+  }, [symbol, market, analysisLevel, llmConfig, startAnalysis, setLoading, resetAnalysis, resetDiscussion, resetScenario, resetErrors, setAnalysisTarget, isAnalyzing, startBackgroundJob, doStartAnalysis]);
 
   const loadHistoryResult = useCallback(async (analysisId: string) => {
     setHistoryDialogOpen(false);

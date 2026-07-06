@@ -23,9 +23,13 @@ done
 
 # --- Phase 2: Fallback pkill for any remaining processes ---
 pkill -f "tsx server.ts" 2>/dev/null && echo "  Stopped tsx server" || true
-pkill -f "vite --host" 2>/dev/null && echo "  Stopped vite" || true
+pkill -f "vite" 2>/dev/null && echo "  Stopped vite" || true
 pkill -f "run_py_service" 2>/dev/null && echo "  Stopped run_py_service" || true
 pkill -f "uvicorn" 2>/dev/null && echo "  Stopped uvicorn" || true
+# Purge pending Celery tasks from Redis BEFORE killing the worker
+# This prevents stale tasks from being redelivered on next startup
+PYTHONPATH="$PROJECT_DIR/python_service" "$PROJECT_DIR/python_service/.venv/bin/celery" \
+    -A app.worker.celery_app purge -f 2>/dev/null && echo "  Purged Celery queue" || true
 pkill -f "celery -A app.worker.celery_app" 2>/dev/null && echo "  Stopped celery worker" || true
 
 echo "All services stopped."

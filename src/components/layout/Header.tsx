@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, memo, lazy, Suspense } from 'react';
-import { Download, History, Clock, Settings, Loader2, Search, TrendingUp, Zap, BarChart3, Microscope, Languages, Menu, X, Target, Activity, BrainCircuit, Wrench, BarChart2, Users, LogOut } from 'lucide-react';
+import { Download, History, Clock, Settings, Loader2, Search, TrendingUp, Zap, BarChart3, Microscope, Languages, Menu, X, Target, Activity, BrainCircuit, Wrench, BarChart2, Users, LogOut, CheckCircle2, FastForward, ShieldCheck } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useTranslation } from 'react-i18next';
 import { Market, AnalysisLevel } from '../../types';
@@ -31,7 +31,7 @@ export const Header = memo(function Header({
 }: HeaderProps) {
   const { t, i18n } = useTranslation();
   const loading = useUIStore(selectLoading);
-  const { showAdminPanel, setShowAdminPanel, showAdminManagement, setShowAdminManagement, setIsSettingsOpen, analysisLevel, setAnalysisLevel, serviceStatus, setShowIBKRDashboard, setShowMockTradingDashboard, setShowBacktestPanel } = useUIStore();
+  const { showAdminPanel, setShowAdminPanel, showAdminManagement, setShowAdminManagement, setIsSettingsOpen, analysisLevel, setAnalysisLevel, serviceStatus, setShowIBKRDashboard, setShowMockTradingDashboard, setShowBacktestPanel, verificationMode, setVerificationMode } = useUIStore();
   const { dailyReport, activeAlertStatus } = useMarketStore();
   const { symbol, setSymbol, market, setMarket } = useAnalysisStore();
   const { language, setLanguage } = useConfigStore();
@@ -394,26 +394,69 @@ export const Header = memo(function Header({
               ))}
             </div>
 
-            <button
-              type="submit"
-              disabled={loading}
-              className="btn-primary h-14 px-10 rounded-xl shadow-indigo-600/10 shadow-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {loading ? (
-                <div className="flex items-center gap-2">
-                  <Loader2 className="animate-spin" size={18} />
-                  <span className="text-sm font-semibold">
-                    {t('header.addToQueue', '加入队列')}
-                  </span>
-                </div>
-              ) : (
-                <div className="flex flex-col items-center">
+            {/* Submit Button & Attached Quality Toggle */}
+            <div className="flex flex-col flex-shrink-0 w-full sm:w-auto mt-4 sm:mt-0">
+              <div className="flex w-full h-5 rounded-t-xl border border-zinc-200 dark:border-zinc-700 border-b-0 overflow-hidden divide-x divide-zinc-200 dark:divide-zinc-700">
+                <button
+                  type="button"
+                  onClick={() => setVerificationMode('extreme')}
+                  className={cn(
+                    "flex-1 flex items-center justify-center px-2 text-[9px] font-bold transition-all outline-none",
+                    verificationMode === 'extreme' 
+                      ? "bg-gradient-to-r from-amber-400 to-orange-500 text-white" 
+                      : "bg-white dark:bg-zinc-900 text-zinc-500 hover:bg-zinc-50 dark:hover:bg-zinc-800"
+                  )}
+                  title="极速模式: 关闭所有验证与反思"
+                >
+                  极速
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setVerificationMode('quick')}
+                  className={cn(
+                    "flex-1 flex items-center justify-center px-2 text-[9px] font-bold transition-all outline-none",
+                    verificationMode === 'quick' 
+                      ? "bg-zinc-800 text-white dark:bg-zinc-200 dark:text-zinc-800" 
+                      : "bg-white dark:bg-zinc-900 text-zinc-500 hover:bg-zinc-50 dark:hover:bg-zinc-800"
+                  )}
+                  title="标准模式: 智能选择性验证"
+                >
+                  标准
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setVerificationMode('quality')}
+                  className={cn(
+                    "flex-1 flex items-center justify-center px-2 text-[9px] font-bold transition-all outline-none",
+                    verificationMode === 'quality' 
+                      ? "bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white" 
+                      : "bg-white dark:bg-zinc-900 text-zinc-500 hover:bg-zinc-50 dark:hover:bg-zinc-800"
+                  )}
+                  title="深研模式: 开启所有专家的深度反思与核查"
+                >
+                  深研
+                </button>
+              </div>
+
+              <button
+                type="submit"
+                disabled={loading}
+                className="btn-primary !h-9 !py-0 px-8 sm:px-10 !rounded-t-none !rounded-b-xl shadow-indigo-600/10 shadow-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center border-t-0"
+              >
+                {loading ? (
+                  <div className="flex items-center gap-2">
+                    <Loader2 className="animate-spin" size={16} />
+                    <span className="text-sm font-semibold">
+                      {t('header.addToQueue', '加入队列')}
+                    </span>
+                  </div>
+                ) : (
                   <span className="text-sm font-semibold">
                     {t('header.startAnalysis')}
                   </span>
-                </div>
-              )}
-            </button>
+                )}
+              </button>
+            </div>
           </form>
         </div>
       </header>

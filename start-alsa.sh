@@ -52,14 +52,14 @@ rm -f "$PROJECT_DIR"/.alsa-*.pid
 cd "$PROJECT_DIR"
 
 # --- Start Express API gateway (port 3000) ---
-nohup npx tsx server.ts > "$LOGS_DIR/api.log" 2>&1 &
+HOST=0.0.0.0 nohup npx tsx server.ts > "$LOGS_DIR/api.log" 2>&1 &
 echo $! > "$PROJECT_DIR/.alsa-api.pid"
 echo "API started (PID $(cat "$PROJECT_DIR/.alsa-api.pid"))"
 
-# --- Start Vite preview server (port 5173) ---
-nohup npx vite preview --host 0.0.0.0 --port 5173 > "$LOGS_DIR/vite.log" 2>&1 &
+# --- Start Vite dev server (port 5173) ---
+nohup npx vite --host 0.0.0.0 --port 5173 > "$LOGS_DIR/vite.log" 2>&1 &
 echo $! > "$PROJECT_DIR/.alsa-vite.pid"
-echo "Vite preview started (PID $(cat "$PROJECT_DIR/.alsa-vite.pid"))"
+echo "Vite dev server started (PID $(cat "$PROJECT_DIR/.alsa-vite.pid"))"
 
 # --- Start Python FastAPI service (port 8001) ---
 AKSHARE_ENABLED=true nohup "$PROJECT_DIR/run_py_service_with_env.sh" > "$LOGS_DIR/py_api.log" 2>&1 &
@@ -67,6 +67,9 @@ echo $! > "$PROJECT_DIR/.alsa-python.pid"
 echo "Python API started (PID $(cat "$PROJECT_DIR/.alsa-python.pid"))"
 
 # --- Start Celery Worker (async task queue) ---
+# Purge any stale tasks left in Redis from a previous unclean shutdown
+PYTHONPATH="$PROJECT_DIR/python_service" "$PROJECT_DIR/python_service/.venv/bin/celery" \
+    -A app.worker.celery_app purge -f 2>/dev/null || true
 PYTHONPATH="$PROJECT_DIR/python_service" REDIS_URL=redis://localhost:6379/0 \
     nohup "$PROJECT_DIR/python_service/.venv/bin/celery" -A app.worker.celery_app worker --loglevel=info > "$LOGS_DIR/celery.log" 2>&1 &
 echo $! > "$PROJECT_DIR/.alsa-celery.pid"

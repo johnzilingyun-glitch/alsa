@@ -31,7 +31,7 @@ class AnalysisJobService:
         import os
         self._concurrency_limit = asyncio.Semaphore(int(os.getenv("MAX_CONCURRENT_JOBS", "5")))
 
-    async def start_job(self, symbol: str, market: str, level: str = "standard", model: Optional[str] = None, config: Optional[Dict[str, Any]] = None, user_id: str = "default_user") -> str:
+    async def start_job(self, symbol: str, market: str, level: str = "standard", model: Optional[str] = None, config: Optional[Dict[str, Any]] = None, user_id: str = "default_user", verification_mode: str = "quick") -> str:
         import re
         if not re.match(r"^[A-Za-z0-9.\-_]+$", symbol) or not re.match(r"^[A-Za-z0-9.\-_]+$", market):
             raise ValueError("Invalid symbol or market format. Must be alphanumeric.")
@@ -52,11 +52,11 @@ class AnalysisJobService:
         if redis_url:
             from app.worker import run_analysis_task
             logger.info(f"Dispatching job {job_id} to Celery worker")
-            run_analysis_task.delay(job_id, symbol, market, config)
+            run_analysis_task.delay(job_id, symbol, market, config, verification_mode=verification_mode)
         else:
-            logger.info(f"Running job {job_id} in local asyncio pool (Graceful Degradation)")
-            # Fire and forget the background task
-            task = asyncio.create_task(self._run_job(job_id, symbol, market, config=config))
+            # Fallback to local async execution
+            logger.warning("Celery not configured. Running job locally.")
+            task = asyncio.create_task(self._run_job(job_id, symbol, market, config=config, verification_mode=verification_mode))
             self._running_tasks[job_id] = task
             # Clean up task reference when done
             task.add_done_callback(lambda t: self._running_tasks.pop(job_id, None))
@@ -242,7 +242,7 @@ class AnalysisJobService:
             
         return key
 
-    async def _run_job(self, job_id: str, symbol: str, market: str, config: Optional[Dict[str, Any]] = None):
+    async def _run_job(self, job_id: str, symbol: str, market: str, config: Optional[Dict[str, Any]] = None, verification_mode: str = "quick"):
         from .discussion_service import discussion_service
         from ..db.models import AnalysisRun, AnalysisJob, PredictionRecord
         from .token_guard import token_guard
@@ -327,7 +327,8 @@ class AnalysisJobService:
                         model=requested_model,
                         on_progress=report_discussion_progress,
                         job_id=job_id,
-                        config=safe_config
+                        config=safe_config,
+                        verification_mode=verification_mode
                     )
                 finally:
                     current_token_usage.reset(token_ctx)
@@ -593,7 +594,7 @@ class AnalysisJobService:
         last = discussion_messages[-1]
         content = last.get("content", "")
         # Try to find a tagline or thesis section
-        for marker in ["Tagline", "Investment Thesis", "核心摘要", "核心结论"]:
+        for marker in ["Tagline", "Investment Thesis", "核心摘要", "核心结论", "趋势定性", "结论"]:
             idx = content.find(marker)
             if idx != -1:
                 # Grab the paragraph after the marker
@@ -606,7 +607,7 @@ class AnalysisJobService:
         # Fallback: first non-heading paragraph
         for line in content.split("\n"):
             stripped = line.strip()
-            if stripped and not stripped.startswith("#") and not stripped.startswith("|") and not stripped.startswith("---") and len(stripped) > 30:
+            if stripped and not stripped.startswith("#") and not stripped.startswith("|") and not stripped.startswith("---") and not stripped.startswith("**Professional Reviewer") and len(stripped) > 30:
                 return stripped[:400]
         return ""
 
@@ -669,14 +670,13 @@ class AnalysisJobService:
                 # Return early to skip fragile regex if we got the core fields
                 if fields.get("sentiment") and fields.get("tradingPlan"):
                     return fields
-                else:
-                    raise ValueError("Structured data missing essential fields (sentiment or tradingPlan)")
             except Exception as e:
                 logger.warning(f"[AnalysisJobService] Failed to parse <structured_data> JSON: {e}")
-                raise ValueError(f"Structured data missing or invalid: {e}")
+                fields["tradingPlan"] = {"strategy": "分析完成，但结构化JSON提取失败"}
         else:
-            raise ValueError("No <structured_data> JSON block found in LLM output")
-        
+            logger.warning("[AnalysisJobService] No <structured_data> JSON block found in LLM output")
+            fields["tradingPlan"] = {"strategy": "分析完成，未生成结构化数据"}
+            
         return fields
 
     def update_job_progress(self, job_id: str, stage: str, percent: int, round: Optional[int] = None, total_rounds: Optional[int] = None, message: Optional[str] = None, count: Optional[int] = None, error_type: Optional[str] = None):

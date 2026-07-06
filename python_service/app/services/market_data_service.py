@@ -12,12 +12,12 @@ from ..logging import get_logger
 
 logger = get_logger(__name__)
 
-# Only import akshare if enabled (geo-blocked from non-China servers)
+# Import akshare (enabled by default for domestic China servers)
 class DummyAkShare:
     def __getattr__(self, name):
         raise AttributeError(f"AkShare is disabled. Cannot call '{name}'")
 
-_AKSHARE_ENABLED = os.getenv("AKSHARE_ENABLED", "false").lower() == "true"
+_AKSHARE_ENABLED = os.getenv("AKSHARE_ENABLED", "true").lower() == "true"
 if _AKSHARE_ENABLED:
     import akshare as ak
 else:

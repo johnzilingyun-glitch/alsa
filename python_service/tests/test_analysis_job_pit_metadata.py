@@ -69,6 +69,10 @@ async def test_analysis_job_persists_snapshot_id(monkeypatch, tmp_path):
         AsyncMock(return_value="mock_gemini_api_key"),
     )
     monkeypatch.setattr(
+        "python_service.app.services.llm_gateway.llm_gateway.validate_api_key",
+        AsyncMock(return_value=True),
+    )
+    monkeypatch.setattr(
         service,
         "_extract_structured_fields",
         lambda msgs: {"tradingPlan": {"targetPrice": "150.0"}}

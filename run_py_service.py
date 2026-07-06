@@ -9,7 +9,12 @@ if not os.getenv("REDIS_URL"):
     os.environ["REDIS_URL"] = "redis://localhost:6379/0"
     print(f"[init] REDIS_URL not set, using default: {os.environ['REDIS_URL']}")
 
+from dotenv import load_dotenv
+load_dotenv()
+load_dotenv(".env.runtime")
+
 # Set default API_TOKEN if not already set (for development/testing)
+
 if not os.getenv("API_TOKEN"):
     os.environ["API_TOKEN"] = "alsa-dev-token-2026"
     print(f"[init] API_TOKEN not set, using default: {os.environ['API_TOKEN']}")

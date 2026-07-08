@@ -65,16 +65,45 @@ export const MarketOverview = memo(function MarketOverview({ onFetchMarketOvervi
         if (res.ok) {
           const result = await res.json();
           if (result.success && result.data) {
+            let updatedWatchlist = false;
+            let updatedRecent = false;
+            
+            const localWatchlist = useMarketStore.getState().watchlist || [];
+            const localRecent = useMarketStore.getState().recentSearches || [];
+            
+            const newWatchlist = [...localWatchlist];
+            const newRecent = [...localRecent];
+
             result.data.forEach((quote: any) => {
               if (quote.price) {
                 updateAlertPriceRef.current(quote.symbol, quote.price);
               } else if (quote.error) {
                 const errStr = String(quote.error);
-                // Log the error but DO NOT aggressively delete from watchlist.
-                // yfinance often returns "No data found, symbol may be delisted" for transient errors or rate limits.
                 console.warn(`[Price Sync] Data source issue for ${quote.symbol}: ${errStr}`);
               }
+              
+              if (quote.name && quote.name !== quote.symbol) {
+                const wIdx = newWatchlist.findIndex(w => w.symbol === quote.symbol || w.symbol === quote.symbol.replace(/\.(SS|SZ|HK)$/i, ''));
+                if (wIdx >= 0 && (!newWatchlist[wIdx].name || newWatchlist[wIdx].name === newWatchlist[wIdx].symbol || newWatchlist[wIdx].name !== quote.name)) {
+                  // Only update if it contains Chinese OR original is just symbol OR english
+                  if (/[\u4e00-\u9fa5]/.test(quote.name) || newWatchlist[wIdx].name === newWatchlist[wIdx].symbol) {
+                    newWatchlist[wIdx] = { ...newWatchlist[wIdx], name: quote.name };
+                    updatedWatchlist = true;
+                  }
+                }
+                const rIdx = newRecent.findIndex(r => r.symbol === quote.symbol || r.symbol === quote.symbol.replace(/\.(SS|SZ|HK)$/i, ''));
+                if (rIdx >= 0 && (!newRecent[rIdx].name || newRecent[rIdx].name === newRecent[rIdx].symbol || newRecent[rIdx].name !== quote.name)) {
+                  if (/[\u4e00-\u9fa5]/.test(quote.name) || newRecent[rIdx].name === newRecent[rIdx].symbol) {
+                    newRecent[rIdx] = { ...newRecent[rIdx], name: quote.name };
+                    updatedRecent = true;
+                  }
+                }
+              }
             });
+            
+            if (updatedWatchlist) useMarketStore.getState().setWatchlist(newWatchlist);
+            if (updatedRecent) useMarketStore.getState().setRecentSearches(newRecent);
+
             refreshAlertStatusRef.current();
           }
         }
@@ -83,7 +112,16 @@ export const MarketOverview = memo(function MarketOverview({ onFetchMarketOvervi
       }
     };
 
-    // Sync watchlist from backend on load to restore any accidentally deleted items
+    // Removed syncWatchlistFromBackend from here to a separate useEffect
+
+    // Defer initial price sync to avoid competing with critical indices/news fetches
+    const initTimer = setTimeout(syncPrices, 3000);
+    const interval = setInterval(syncPrices, 30000); // 30s poll
+    return () => { clearTimeout(initTimer); clearInterval(interval); };
+  }, [searchAlerts, watchlist, recentSearches]);
+
+  // Sync watchlist from backend on load to restore any accidentally deleted items
+  useEffect(() => {
     const syncWatchlistFromBackend = async () => {
       try {
         const res = await fetch('/api/watchlist/');
@@ -114,14 +152,9 @@ export const MarketOverview = memo(function MarketOverview({ onFetchMarketOvervi
       }
     };
 
-    // Trigger sync once on mount
     syncWatchlistFromBackend();
+  }, []);
 
-    // Defer initial price sync to avoid competing with critical indices/news fetches
-    const initTimer = setTimeout(syncPrices, 3000);
-    const interval = setInterval(syncPrices, 30000); // 30s poll
-    return () => { clearTimeout(initTimer); clearInterval(interval); };
-  }, [searchAlerts, watchlist, recentSearches]);
 
   // History date picker state
   const [selectedDate, setSelectedDate] = useState<string>('');

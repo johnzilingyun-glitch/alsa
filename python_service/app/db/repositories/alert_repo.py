@@ -116,8 +116,7 @@ class AlertRepository:
         """List all alerts with monitoring enabled and status active."""
         with self.session_factory() as session:
             statement = select(SearchAlert).where(
-                SearchAlert.monitoring_enabled == True,
-                SearchAlert.status == "active"
+                SearchAlert.status != "closed"
             )
             return session.exec(statement).all()
 
@@ -182,10 +181,58 @@ class AlertRepository:
                 session.commit()
 
     def increment_notify_count(self, alert_id: str):
-        """Increment the notification counter."""
+        """Increment the notification counter and update last_notified_at."""
         with self.session_factory() as session:
             alert = session.get(SearchAlert, alert_id)
             if alert:
                 alert.notify_count = (alert.notify_count or 0) + 1
+                alert.last_notified_at = utc_now()
                 session.add(alert)
                 session.commit()
+
+    def reset_daily_notify_count(self, alert_id: str):
+        """Reset the daily notification counter."""
+        with self.session_factory() as session:
+            alert = session.get(SearchAlert, alert_id)
+            if alert:
+                alert.notify_count = 0
+                session.add(alert)
+                session.commit()
+
+    def update_last_notified(self, alert_id: str):
+        """Update only the last_notified_at timestamp."""
+        with self.session_factory() as session:
+            alert = session.get(SearchAlert, alert_id)
+            if alert:
+                alert.last_notified_at = utc_now()
+                session.add(alert)
+                session.commit()
+
+    def acknowledge_alert(self, alert_id: str):
+        """Acknowledge an alert to permanently stop monitoring."""
+        with self.session_factory() as session:
+            alert = session.get(SearchAlert, alert_id)
+            if alert:
+                alert.acknowledged = True
+                alert.monitoring_enabled = False
+                alert.status = "acknowledged"
+                session.add(alert)
+                session.commit()
+                session.refresh(alert)
+                return alert
+        return None
+
+    def resume_alert(self, alert_id: str):
+        """Resume monitoring for an alert."""
+        with self.session_factory() as session:
+            alert = session.get(SearchAlert, alert_id)
+            if alert:
+                alert.acknowledged = False
+                alert.monitoring_enabled = True
+                alert.status = "active"
+                alert.trigger_type = None
+                session.add(alert)
+                session.commit()
+                session.refresh(alert)
+                return alert
+        return None

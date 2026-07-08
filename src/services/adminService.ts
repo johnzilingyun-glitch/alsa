@@ -113,6 +113,19 @@ export async function deleteHistoryItem(id: string): Promise<boolean> {
   }
 }
 
+export async function autoEvaluatePredictions(): Promise<{ evaluated: number; status: string }> {
+  try {
+    const response = await fetch('/api/predictions/auto_evaluate', { method: 'POST' });
+    if (response.ok) {
+      return await response.json();
+    }
+    return { evaluated: 0, status: 'failed' };
+  } catch (err) {
+    console.error('Failed to auto-evaluate predictions:', err);
+    return { evaluated: 0, status: 'error' };
+  }
+}
+
 export async function logOptimization(field: string, oldValue: any, newValue: any, description: string) {
   try {
     await fetch('/api/logs/add', {

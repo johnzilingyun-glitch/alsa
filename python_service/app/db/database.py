@@ -51,6 +51,45 @@ else:
         pool_pre_ping=True
     )
 
+def _migrate_alert_notify_limit(eng):
+    import sqlite3
+    db_path = str(eng.url).replace("sqlite:///", "")
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    cursor.execute("PRAGMA table_info(searchalert)")
+    existing = {row[1] for row in cursor.fetchall()}
+    new_cols = [
+        ("last_notified_at", "TIMESTAMP"),
+        ("acknowledged", "BOOLEAN DEFAULT 0"),
+    ]
+    for col_name, col_type in new_cols:
+        if col_name not in existing:
+            cursor.execute(f"ALTER TABLE searchalert ADD COLUMN {col_name} {col_type}")
+    conn.commit()
+    conn.close()
+
+def _migrate_predictionrecord(eng):
+    """Add missing columns to predictionrecord table (stop_loss, highest_price_reached, lowest_price_reached)."""
+    if not is_sqlite:
+        return
+    import sqlite3
+    try:
+        conn = eng.raw_connection() if hasattr(eng, 'raw_connection') else sqlite3.connect(eng.url.database)
+    except Exception:
+        return
+    try:
+        cur = conn.cursor()
+        cur.execute("PRAGMA table_info(predictionrecord)")
+        existing = {row[1] for row in cur.fetchall()}
+        for col, col_type in [("stop_loss", "REAL"), ("highest_price_reached", "REAL"), ("lowest_price_reached", "REAL")]:
+            if col not in existing:
+                cur.execute(f"ALTER TABLE predictionrecord ADD COLUMN {col} {col_type}")
+        conn.commit()
+    except Exception:
+        pass
+    finally:
+        conn.close()
+
 def init_db():
     SQLModel.metadata.create_all(engine)
     # Legacy migration scripts logic (if needed, though SQLModel creates all columns)
@@ -62,6 +101,8 @@ def init_db():
         _migrate_agent_memory(engine)
         _migrate_user_last_login(engine)
         _migrate_login_history(engine)
+        _migrate_alert_notify_limit(engine)
+        _migrate_predictionrecord(engine)
 
 def get_session():
     with Session(engine) as session:

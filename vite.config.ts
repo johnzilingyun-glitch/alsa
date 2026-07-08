@@ -61,7 +61,7 @@ export default defineConfig(() => {
         clientFiles: ['./src/main.tsx', './src/App.tsx', './src/i18n/index.ts'],
       },
       watch: {
-        ignored: ['**/.venv/**', '**/.venv_qlib/**', '**/node_modules/**', '**/data/**', '**/python_service/**', '**/server/**', '**/server.ts', '**/scratch/**', '**/logs/**', '**/docs/**', '**/sector_reports/**', '**/reports/**', '**/*.log', '**/*.db', '**/*.db-journal', '**/PaperTrading_System/**'],
+        ignored: ['**/.venv/**', '**/.venv_qlib/**', '**/node_modules/**', '**/data/**', '**/python_service/**', '**/server/**', '**/server.ts', '**/scratch/**', '**/logs/**', '**/docs/**', '**/sector_reports/**', '**/reports/**', '**/*.log', '**/*.db', '**/*.db-journal', '**/PaperTrading_System/**', '**/.mimocode/**'],
       },
     },
     preview: {

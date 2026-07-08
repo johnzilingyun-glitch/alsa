@@ -134,51 +134,144 @@ router.post('/feishu/send-report', async (req, res) => {
 router.post('/feishu/proxy-card', async (req, res) => {
   const { card, feishuWebhookUrl } = req.body;
   const webhookUrl = feishuWebhookUrl || process.env.FEISHU_WEBHOOK_URL;
+  const appId = process.env.FEISHU_APP_ID;
+  const appSecret = process.env.FEISHU_APP_SECRET;
+  const receiveId = process.env.FEISHU_RECEIVE_ID;
 
-  if (!webhookUrl) {
-    return res.status(500).json({ error: '飞书 Webhook 未配置。' });
-  }
-
-  if (!isValidFeishuUrl(webhookUrl)) {
-    return res.status(403).json({ error: '非法的 Webhook URL 域名，仅允许飞书官方域名' });
+  if (!webhookUrl && !(appId && appSecret && receiveId)) {
+    return res.status(500).json({ error: '飞书配置缺失（需配置 Webhook 或 AppID/Secret/ReceiveID）。' });
   }
 
   const payloadObj = { msg_type: 'interactive', card: card };
   const payloadStr = JSON.stringify(payloadObj);
-  const webhookSecret = process.env.FEISHU_WEBHOOK_SECRET;
-  let signature = '';
-
-  if (webhookSecret) {
-    try {
-      const hmac = crypto.createHmac('sha256', webhookSecret);
-      hmac.update(payloadStr, 'utf8');
-      signature = `sha256=${hmac.digest('hex')}`;
-    } catch (e) {
-      console.error("Failed to generate HMAC signature:", e);
-    }
-  }
 
   try {
-    const response = await fetch(webhookUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(signature ? { 'X-Hub-Signature-256': signature } : {})
-      },
-      body: payloadStr
-    });
+    if (appId && appSecret && receiveId) {
+      // Use Feishu Open API App Bot approach
+      const authRes = await fetch('https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ app_id: appId, app_secret: appSecret })
+      });
+      const authData = await authRes.json();
+      if (!authData.tenant_access_token) {
+        throw new Error('无法获取 tenant_access_token');
+      }
 
-    if (!response.ok) {
-      throw new Error(`Feishu API HTTP ${response.status}`);
+      // Automatically determine receive_id_type
+      const receiveIdType = receiveId.startsWith('ou_') ? 'open_id' : 
+                           receiveId.startsWith('oc_') ? 'chat_id' : 'email';
+
+      const sendRes = await fetch(`https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=${receiveIdType}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${authData.tenant_access_token}`
+        },
+        body: JSON.stringify({
+          receive_id: receiveId,
+          msg_type: 'interactive',
+          content: JSON.stringify(card)
+        })
+      });
+
+      if (!sendRes.ok) throw new Error(`Feishu API HTTP ${sendRes.status}`);
+      const sendData = await sendRes.json();
+      if (sendData.code !== 0) throw new Error(sendData.msg || 'Feishu API 返回错误');
+      
+    } else {
+      // Legacy Webhook approach
+      if (!isValidFeishuUrl(webhookUrl)) {
+        return res.status(403).json({ error: '非法的 Webhook URL 域名，仅允许飞书官方域名' });
+      }
+
+      const webhookSecret = process.env.FEISHU_WEBHOOK_SECRET;
+      let signature = '';
+
+      if (webhookSecret) {
+        try {
+          const hmac = crypto.createHmac('sha256', webhookSecret);
+          hmac.update(payloadStr, 'utf8');
+          signature = `sha256=${hmac.digest('hex')}`;
+        } catch (e) {
+          console.error("Failed to generate HMAC signature:", e);
+        }
+      }
+
+      const response = await fetch(webhookUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(signature ? { 'X-Hub-Signature-256': signature } : {})
+        },
+        body: payloadStr
+      });
+
+      if (!response.ok) throw new Error(`Feishu API HTTP ${response.status}`);
+      const data = await response.json();
+      if (data.code !== 0) throw new Error(data.msg || 'Feishu API 返回错误');
     }
-    const data = await response.json();
-    if (data.code !== 0) {
-      throw new Error(data.msg || 'Feishu API 返回错误');
-    }
+
     res.json({ success: true });
   } catch (error) {
-    console.error('Feishu Webhook Error:', error);
+    console.error('Feishu Proxy Error:', error);
     res.status(500).json({ error: '无法发送报告至飞书' });
+  }
+});
+
+router.post('/feishu/callback', async (req, res) => {
+  const payload = req.body;
+
+  // Handle Feishu URL Verification
+  if (payload && payload.type === 'url_verification') {
+    return res.json({ challenge: payload.challenge });
+  }
+
+  // Handle Interactive Card Button Clicks
+  try {
+    if (payload && payload.action && payload.action.value) {
+      const actionValue = payload.action.value;
+      
+      if (actionValue.action === 'acknowledge_alert' && actionValue.alert_id) {
+        // Call internal Python API to acknowledge
+        const apiToken = process.env.API_TOKEN;
+        const response = await fetch(`http://127.0.0.1:8644/api/v1/alerts/${actionValue.alert_id}/acknowledge`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${apiToken}`,
+            'Content-Type': 'application/json'
+          }
+        });
+
+        if (response.ok) {
+          // Return an updated card JSON to Feishu to reflect the acknowledged state
+          return res.json({
+            config: { wide_screen_mode: true },
+            header: {
+              title: { tag: "plain_text", content: "✅ 已阅确认成功" },
+              template: "green"
+            },
+            elements: [
+              {
+                tag: "div",
+                text: {
+                  tag: "lark_md",
+                  content: "您已成功确认此警报，**今日及后续将不再发送此股票的通知**。\n如需恢复，请前往 ALSA 系统前端的 [信号监控] - [历史触发] 列表中点击恢复。"
+                }
+              }
+            ]
+          });
+        } else {
+          console.error("Failed to acknowledge alert:", await response.text());
+        }
+      }
+    }
+    
+    // Default success response
+    res.json({ code: 0, msg: "success" });
+  } catch (err) {
+    console.error("Feishu Callback Error:", err);
+    res.status(500).json({ error: "Internal Server Error" });
   }
 });
 

@@ -36,19 +36,23 @@ export function useMarketData(_fetchAdminData: () => Promise<void>) {
   }, [setAiLoading, setMarketSummaryData, setOverviewError]);
 
   const fetchMarketDashboard = useCallback(async (forceRefresh = false) => {
+    console.log('[Market][DEBUG] fetchMarketDashboard called, forceRefresh:', forceRefresh, 'market:', overviewMarket);
     const state = useMarketStore.getState();
     const currentDashboard = state.marketDashboards[overviewMarket];
 
     if (!forceRefresh && currentDashboard) {
+      console.log('[Market][DEBUG] Skipped — already have dashboard for', overviewMarket);
       setOverviewLoading(false);
       return;
     }
 
+    console.log('[Market][DEBUG] Fetching dashboard from API for', overviewMarket);
     setOverviewLoading(true);
     setOverviewError(null);
 
     try {
       const dashboard = await fetchDashboardFromAPI(overviewMarket);
+      console.log('[Market][DEBUG] Dashboard fetched OK, indices:', dashboard?.indices?.length, 'news:', dashboard?.news?.length);
       setMarketDashboard(overviewMarket, dashboard);
       setMarketLastUpdated(overviewMarket, Date.now());
     } catch (err: any) {
@@ -64,7 +68,9 @@ export function useMarketData(_fetchAdminData: () => Promise<void>) {
     }
   }, [overviewMarket, setMarketDashboard, setMarketLastUpdated, setOverviewLoading, setOverviewError, fetchMarketSummary]);
   useEffect(() => {
+    console.log('[Market][DEBUG] Hydration effect — _hasHydrated:', _hasHydrated);
     if (_hasHydrated) {
+      console.log('[Market][DEBUG] Hydrated, triggering fetchMarketDashboard(false)');
       void fetchMarketDashboard(false);
     }
   }, [_hasHydrated, fetchMarketDashboard]);

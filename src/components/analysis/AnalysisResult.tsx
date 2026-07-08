@@ -1,4 +1,4 @@
-import React, { useState, lazy, Suspense } from 'react';
+import React, { useState, useCallback, lazy, Suspense } from 'react';
 import { MessageSquare, FileText, Zap, Loader2 } from 'lucide-react';
 import { motion, AnimatePresence, useDragControls } from 'motion/react';
 import { useTranslation } from 'react-i18next';

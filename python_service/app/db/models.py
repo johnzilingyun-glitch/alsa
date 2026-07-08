@@ -130,9 +130,10 @@ class SearchAlert(SQLModel, table=True):
     monitoring_enabled: bool = Field(default=False)
     feishu_webhook_url: Optional[str] = None
     last_checked_at: Optional[datetime] = None
+    last_notified_at: Optional[datetime] = None
     last_price: Optional[float] = None
-    trigger_type: Optional[str] = None  # entry/target/stop_loss/invalidation
     notify_count: int = Field(default=0)
+    acknowledged: bool = Field(default=False)
     # Step-in plan (分步建仓)
     step_in_plan: Optional[str] = None  # JSON string of building plan levels
     exit_rules: Optional[str] = None  # JSON string of exit conditions
@@ -157,10 +158,13 @@ class PredictionRecord(SQLModel, table=True):
     symbol: str = Field(index=True)
     market: str = Field(index=True)
     target_price: float
+    stop_loss: Optional[float] = None
     time_horizon: str = "1_month"  # e.g., "1_month", "3_months"
     status: str = "pending"  # pending/evaluated
     current_price_at_prediction: float
     actual_price_at_horizon: Optional[float] = None
+    highest_price_reached: Optional[float] = None
+    lowest_price_reached: Optional[float] = None
     accuracy_score: Optional[float] = None
     created_at: datetime = Field(default_factory=utc_now)
 

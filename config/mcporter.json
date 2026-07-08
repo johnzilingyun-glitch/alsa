@@ -3,8 +3,9 @@
     "exa": {
       "baseUrl": "https://mcp.exa.ai/mcp"
     },
-    "weibo": {
-      "command": "mcp-server-weibo"
+    "codegraph": {
+      "command": "codegraph",
+      "args": ["serve", "--mcp"]
     }
   }
 }

@@ -175,7 +175,7 @@ class MarketDataService:
         symbol_map = {}
         for s in symbols:
             if s.isdigit() and len(s) == 6:
-                suffixed = f"{s}.SS" if s.startswith('6') else f"{s}.SZ"
+                suffixed = f"{s}.SS" if s.startswith(('6', '9')) else f"{s}.SZ"
                 processed_symbols.append(suffixed)
                 symbol_map[suffixed] = s
             elif s.isdigit() and len(s) <= 5:
@@ -189,6 +189,14 @@ class MarketDataService:
                 symbol_map[suffixed] = s
             elif s.upper().endswith('.SZ') and len(s) == 9 and s[:6].isdigit():
                 suffixed = f"{s[:6]}.SZ"
+                processed_symbols.append(suffixed)
+                symbol_map[suffixed] = s
+            elif s.upper().endswith('.SS') and len(s) == 9 and s[:6].isdigit():
+                processed_symbols.append(s.upper())
+                symbol_map[s.upper()] = s
+            elif s.upper().endswith('.HK') and s[:-3].isdigit():
+                clean_s = s[:-3].lstrip('0') or '0'
+                suffixed = f"{clean_s.zfill(4)}.HK"
                 processed_symbols.append(suffixed)
                 symbol_map[suffixed] = s
             elif s == "^HSTECH":
@@ -220,13 +228,22 @@ class MarketDataService:
                         if sym.isdigit() and len(sym) == 6:
                             prefix = "sh" if sym.startswith(('6', '9')) else "sz"
                             url = f"http://qt.gtimg.cn/q={prefix}{sym}"
-                            req = urllib.request.Request(url)
-                            resp = urllib.request.urlopen(req, timeout=5)
-                            text = resp.read().decode("gbk")
-                            if "~" in text:
-                                parts = text.split("~")
-                                if len(parts) > 2:
-                                    a_share_names[sym] = parts[1]  # The Chinese name
+                        elif sym.isdigit() and len(sym) <= 5:
+                            hk_sym = sym.zfill(5)
+                            url = f"http://qt.gtimg.cn/q=hk{hk_sym}"
+                        elif sym.upper().endswith('.HK') and sym[:-3].isdigit():
+                            hk_sym = sym[:-3].zfill(5)
+                            url = f"http://qt.gtimg.cn/q=hk{hk_sym}"
+                        else:
+                            continue
+                            
+                        req = urllib.request.Request(url)
+                        resp = urllib.request.urlopen(req, timeout=5)
+                        text = resp.read().decode("gbk", errors="ignore")
+                        if "~" in text:
+                            parts = text.split("~")
+                            if len(parts) > 2:
+                                a_share_names[sym] = parts[1]  # The Chinese name
                 except Exception as e:
                     print(f"Failed to fetch Tencent names: {e}")
 

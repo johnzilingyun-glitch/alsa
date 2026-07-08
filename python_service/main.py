@@ -37,12 +37,15 @@ from app.risk.pre_trade import PreTradeRiskGateway
 from app.observability.metrics import MetricsCollector
 from app.observability.audit import AuditLogger
 from app.prompting.version_registry import prompt_version_registry
+from app.services.feishu_service import feishu_ws_service
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     from app.db.redis_client import RedisManager
     init_db()
     analysis_job_service.recover_orphaned_jobs()
+    
+    feishu_ws_service.start()
 
     async def precompute_loop():
         while True:
@@ -73,6 +76,7 @@ async def lifespan(app: FastAPI):
     try:
         yield
     finally:
+        feishu_ws_service.stop()
         signal_monitor.stop()
         task.cancel()
         monitor_task.cancel()

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { X, Target, TrendingUp, ShieldAlert, Activity, ExternalLink, ChevronRight, BarChart3, AlertCircle, Archive, CheckCircle2, Trash2, Plus, Search } from 'lucide-react';
+import { X, Target, TrendingUp, ShieldAlert, Activity, ExternalLink, ChevronRight, BarChart3, AlertCircle, Archive, CheckCircle2, Trash2, Plus, Search, Play } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useTranslation } from 'react-i18next';
 import { useMarketStore } from '../../stores/useMarketStore';
@@ -44,6 +44,20 @@ export function SignalCenter({ isOpen, onClose }: SignalCenterProps) {
     currency: 'CNY',
   });
   const [isDeleting, setIsDeleting] = useState<string | null>(null);
+  const [isResuming, setIsResuming] = useState<string | null>(null);
+
+  const handleResumeAlert = async (alertId: string) => {
+    try {
+      setIsResuming(alertId);
+      await alertsClient.resumeAlert(alertId);
+      const res = await alertsClient.getMonitoringStatus();
+      setAlerts(res.items || []);
+    } catch (e) {
+      console.error('Failed to resume alert:', e);
+    } finally {
+      setIsResuming(null);
+    }
+  };
 
   const [suggestions, setSuggestions] = useState<any[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -177,6 +191,7 @@ export function SignalCenter({ isOpen, onClose }: SignalCenterProps) {
   };
 
   const getStatus = (alert: any) => {
+    if (alert.monitoring_enabled === false) return 'inactive';
     const price = alertPrices[alert.symbol];
     if (!price) return 'neutral';
     if (price >= alert.target_price) return 'gold';
@@ -188,6 +203,7 @@ export function SignalCenter({ isOpen, onClose }: SignalCenterProps) {
 
   const getVerdictHint = (status: string) => {
     switch (status) {
+      case 'inactive': return '已停止监控 (触发或确认)';
       case 'gold': return '目标达成！🚀 建议考虑止盈';
       case 'red': return '跌破止损！⚠️ 建议按计划离场';
       case 'indigo': return '进入买入区 ✨ 关注择机介入';
@@ -273,6 +289,7 @@ export function SignalCenter({ isOpen, onClose }: SignalCenterProps) {
                         layout
                         className={cn(
                           "group relative overflow-hidden rounded-2xl border transition-all duration-500 p-6",
+                          status === 'inactive' ? "bg-zinc-50 border-zinc-200 opacity-80" :
                           status === 'gold' ? "bg-yellow-50/30 border-yellow-200 shadow-lg shadow-yellow-500/5" :
                           status === 'red' ? "bg-rose-50/30 border-rose-200 shadow-lg shadow-rose-500/5" :
                           status === 'indigo' ? "bg-indigo-50/30 border-indigo-200 shadow-lg shadow-indigo-500/5" :
@@ -353,6 +370,15 @@ export function SignalCenter({ isOpen, onClose }: SignalCenterProps) {
 
                         {/* Postmortem Button */}
                         <div className="flex justify-end mt-3 pt-3 border-t border-zinc-100/50 gap-4">
+                          {(status === 'inactive' || status === 'acknowledged') && (
+                            <button
+                              onClick={() => handleResumeAlert(alert.alert_id!)}
+                              disabled={isResuming === alert.alert_id}
+                              className="text-[10px] font-bold text-zinc-400 hover:text-emerald-600 uppercase tracking-widest flex items-center gap-1 transition-colors disabled:opacity-50"
+                            >
+                              <Play size={12} /> {isResuming === alert.alert_id ? '恢复中' : '恢复监控'}
+                            </button>
+                          )}
                           <button
                             onClick={() => handleDeleteAlert(alert.alert_id!, false)}
                             disabled={isDeleting === alert.alert_id}

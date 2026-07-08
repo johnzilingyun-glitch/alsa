@@ -1,19 +1,33 @@
-import requests
-import os
+import asyncio, httpx, json, os
 
-for k in list(os.environ.keys()):
-    if 'proxy' in k.lower():
-        del os.environ[k]
+async def test():
+    card = {
+        "config": {"wide_screen_mode": True},
+        "header": {
+            "title": {"tag": "plain_text", "content": "⚡ ALSA 代理直连测试"},
+            "template": "blue"
+        },
+        "elements": [
+            {
+                "tag": "div",
+                "text": {
+                    "tag": "lark_md",
+                    "content": "系统已成功将底层配置切换为 App ID 直连，卡片发送完全恢复！"
+                }
+            }
+        ]
+    }
+    
+    api_token = "5vQho3djKaHyCuWQWBdMOlLgJDCpQvQFzKcLlrOwbDw"
+    
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(
+            "http://127.0.0.1:3000/api/v1/feishu/proxy-card",
+            headers={"Authorization": f"Bearer {api_token}"},
+            json={
+                "card": card
+            }
+        )
+        print("Send Result:", resp.status_code, resp.text)
 
-os.environ['HTTP_PROXY'] = 'http://127.0.0.1:8118'
-os.environ['HTTPS_PROXY'] = 'http://127.0.0.1:8118'
-os.environ['NO_PROXY'] = 'localhost,127.0.0.1'
-os.environ['no_proxy'] = 'localhost,127.0.0.1'
-
-print("Using proxies:", requests.utils.get_environ_proxies("https://push2.eastmoney.com"))
-
-try:
-    r = requests.get('https://push2.eastmoney.com/api/qt/stock/get?fltt=2&invt=2&fields=f43&secid=0.300274', timeout=5)
-    print("Success:", r.status_code, r.text)
-except Exception as e:
-    print("Error:", e)
+asyncio.run(test())

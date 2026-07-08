@@ -17,6 +17,7 @@ import { buildSocketCorsOptions, getServerHost, getServerPort, isDiagnosticsEnab
 import { applySecurityHeaders } from './server/securityHeaders.js';
 import { createRateLimiter } from './server/rateLimiter.js';
 import { formatHttpLog } from './server/logSanitizer.js';
+import { startFeishuWsClient } from './server/feishuWsClient.js';
 
 dotenv.config();
 dotenv.config({ path: '.env.runtime' });
@@ -209,6 +210,9 @@ async function startServer() {
     console.log(`Server running on http://${HOST}:${PORT}`);
     console.log(`GEMINI_API_KEY configured: ${!!process.env.GEMINI_API_KEY}`);
     addLogEntry('server', 'startup', 'active', 'Server started and background tasks initialized');
+    
+    // Start Feishu WS Client for long connection
+    startFeishuWsClient();
   });
 
   const io = new Server(server, { cors: buildSocketCorsOptions() });

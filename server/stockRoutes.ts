@@ -320,7 +320,12 @@ router.get('/market/dashboard', async (req, res) => {
       sectorFlow: sf, northbound: northbound || [], hotSectors, recommendations,
       updatedAt: new Date().toISOString(),
     };
-    setCache(cacheKey, fallbackData);
+    
+    // Only cache if we actually have some data
+    if (fallbackData.indices.length > 0) {
+      setCache(cacheKey, fallbackData);
+    }
+    
     return res.json(fallbackData);
   }
 });
@@ -1003,200 +1008,135 @@ router.get('/stock/realtime', async (req, res) => {
     let indicators: any = null;
     let source = 'Yahoo Finance API';
 
-    // A-Share: Prioritize Python Microservice (AkShare)
-    if (resolution.market === 'A-Share' && /^\d{6}$/.test(resolution.symbol)) {
-      try {
-        const [spotRes, histRes, finRes, techRes] = await Promise.all([
-          fetchJsonWithTimeout(`http://127.0.0.1:8001/api/stock/a_spot?symbol=${resolution.symbol}`, 7000).catch(() => ({ success: false })),
-          fetchJsonWithTimeout(`http://127.0.0.1:8001/api/stock/a_history?symbol=${resolution.symbol}`, 9000).catch(() => ({ success: false })),
-          fetchJsonWithTimeout(`http://127.0.0.1:8001/api/stock/comprehensive_financials?symbol=${resolution.symbol}&market=A-Share`, 8000).catch(() => ({ success: false })),
-          fetchJsonWithTimeout(`http://127.0.0.1:8001/api/technicals/${resolution.symbol}`, 9000).catch(() => ({ success: false }))
-        ]);
-
-        if (spotRes.success && spotRes.data) {
-          const d = spotRes.data;
-          result = {
-            symbol: d['代码'],
-            shortName: d['名称'],
-            regularMarketPrice: d['最新价'],
-            regularMarketChange: d['涨跌额'],
-            regularMarketChangePercent: d['涨跌幅'],
-            regularMarketPreviousClose: d['昨收'],
-            regularMarketOpen: d['今开'],
-            regularMarketDayHigh: d['最高'],
-            regularMarketDayLow: d['最低'],
-            regularMarketVolume: d['成交量'],
-            marketCap: d['总市值'],
-            trailingPE: d['动态市盈率'],
-            currency: 'CNY',
-            fullExchangeName: 'CN',
-            marketState: 'REGULAR'
-          };
-          source = 'AkShare (Local Python API)';
-
-          // Enrich with comprehensive financial data
-          if (finRes.success && finRes.data) {
-            const f = finRes.data;
-            result.fundamentals = {
-              marketCap: f.marketCap,
-              pe: f.pe,
-              pb: f.pb,
-              roe: f.roe,
-              grossMargin: f.grossMargin,
-              revenue: f.revenue,
-              netProfit: f.netProfit,
-              netProfitGrowth: f.netProfitGrowth,
-              dividend: f.dividend,
-              dividendYield: f.dividendYield,
-              valuationPercentile: f.valuationPercentile,
-              valuationExplanation: f.valuationExplanation
-            };
-
-            // Calculate quantitative fundamental scores using enriched data
-            const pe = parseFloat(f.pe) || 0;
-            const pb = parseFloat(f.pb) || 0;
-            const roe = parseFloat(f.roe) || 12; // Default 12% if missing
-            const growth = parseFloat(f.netProfitGrowth) || 10;
-            const margin = parseFloat(f.grossMargin) || 20;
-            const debtRatio = parseFloat(f.debtRatio) || 50;
-            
-            result.fundamentalScores = calculateFundamentalScores({
-              pe, pb, roe, grossMargin: margin, netProfitGrowth: growth, debtToEquity: debtRatio / 100
-            });
-            
-            const intrinsicResult = calculateIntrinsicValueEstimate(result.regularMarketPrice, roe, growth);
-            result.intrinsicValueEstimate = intrinsicResult.value;
-            result.intrinsicValueMethodology = intrinsicResult.methodology;
-          }
-        }
-
-        if (histRes.success && histRes.data) {
-          const history = histRes.data;
-          const prices = history.map((q: any) => q['收盘']);
-          const volumes = history.map((q: any) => q['成交量']);
-          const highs = history.map((q: any) => q['最高']);
-          const lows = history.map((q: any) => q['最低']);
-
-          indicators = calcIndicators(prices, volumes, highs, lows);
-          
-          // Add the 5-strategy quantitative technical ensemble from Python
-          if (techRes.success && techRes.data) {
-            const t = techRes.data;
-            indicators.quantSignals = t;
-            // Override with Python calculated MAs if present (higher precision/reliability)
-            if (t.ma5) indicators.ma5 = t.ma5;
-            if (t.ma20) indicators.ma20 = t.ma20;
-            if (t.ma60) indicators.ma60 = t.ma60;
-          }
-
-          // Calculate quantitative risk metrics
-          const annVol = calculateVolatility(prices, 60);
-          const volLimit = calculateVolatilityAdjustedLimit(annVol);
-          indicators.riskMetrics = {
-            annualizedVolatility: annVol,
-            maxPositionLimit: volLimit.limit,
-            volatilityRegime: volLimit.regime
-          };
-        }
-
-        // Backup API: if AkShare spot fails, fallback to Sina quote to avoid infinite loading UX.
-        if (!result) {
-          const fallbackSpot = await fetchAShareSpotFallbackFromSina(resolution.symbol).catch(() => null);
-          if (fallbackSpot) {
-            result = fallbackSpot;
-            source = fallbackSpot.source;
-          }
-        }
-      } catch (e) {
-        logDebug('AkShare Fetch failed', e instanceof Error ? e.message : String(e));
-      }
-    }
-
-    // HK-Share: Prioritize Python Microservice (AkShare HK Spot)
-    if (!result && resolution.market === 'HK-Share' && /^\d{1,5}$/.test(resolution.symbol)) {
-      try {
-        const spotRes = await fetchJsonWithTimeout(`http://127.0.0.1:8001/api/stock/hk_spot?symbol=${resolution.symbol}`, 7000).catch(() => ({ success: false }));
-        if (spotRes.success && spotRes.data) {
-          const d = spotRes.data;
-          result = {
-            symbol: d['代码'],
-            shortName: d['名称'],
-            regularMarketPrice: d['最新价'],
-            regularMarketChange: d['涨跌额'],
-            regularMarketChangePercent: d['涨跌幅'],
-            regularMarketPreviousClose: d['昨收'],
-            regularMarketOpen: d['今开'],
-            regularMarketDayHigh: d['最高'],
-            regularMarketDayLow: d['最低'],
-            regularMarketVolume: d['成交量'],
-            currency: 'HKD',
-            fullExchangeName: 'HK',
-            marketState: 'REGULAR',
-            source: 'AkShare (Local Python API)'
-          };
-          source = 'AkShare (Local Python API)';
-        }
-      } catch(e) {
-        logDebug('AkShare HK Fetch failed', e instanceof Error ? e.message : String(e));
-      }
-    }
-
-    // Step 2: Fallback or Non-A-Share: Use Python Yahoo Proxy
-    if (!result || result.regularMarketPrice === 0 || result.regularMarketPrice === undefined) {
+    // Use Unified Python DataRouter for ALL markets
+    try {
       const symWithSuffix = appendMarketSuffix(resolution.symbol, resolution.market);
-      try {
-        const pythonQuote = await axios.get(`${PYTHON_SERVICE_URL}/api/market/quote/${symWithSuffix}`, {
-          headers: getPythonAuthHeaders()
-        });
-        if (pythonQuote.data.success && pythonQuote.data.data) {
-           result = pythonQuote.data.data;
-           source = 'Yahoo Finance (via Python MS)';
-        }
-      } catch (e) {
-        logDebug('Python Quote Fallback failed', e instanceof Error ? e.message : String(e));
-      }
-      
-      // If Python fails, last resort local legacy yf
-      if (!result) {
-        const yahooResult = await tryQuoteEx(resolution.symbol, input, resolution.market, isDebug);
-        if (yahooResult) {
-            result = yahooResult;
-            if (isDebug) logDebug('REALTIME', `Resolved ${resolution.symbol} via Legacy Local Yahoo: ${result.regularMarketPrice}`);
+      const [spotRes, histRes, finRes, techRes] = await Promise.all([
+        axios.get(`${PYTHON_SERVICE_URL}/api/market/quote/${resolution.symbol}?market=${resolution.market}`, {
+          headers: getPythonAuthHeaders(),
+          timeout: 7000
+        }).catch(() => null),
+        axios.get(`${PYTHON_SERVICE_URL}/api/market/history/${symWithSuffix}?period=120d&interval=1d`, {
+          headers: getPythonAuthHeaders(),
+          timeout: 9000
+        }).catch(() => null),
+        axios.get(`${PYTHON_SERVICE_URL}/api/stock/comprehensive_financials?symbol=${resolution.symbol}&market=${resolution.market}`, {
+          headers: getPythonAuthHeaders(),
+          timeout: 8000
+        }).catch(() => null),
+        axios.get(`${PYTHON_SERVICE_URL}/api/technicals/${symWithSuffix}`, {
+          headers: getPythonAuthHeaders(),
+          timeout: 9000
+        }).catch(() => null)
+      ]);
+
+      if (spotRes && spotRes.data && spotRes.data.success && spotRes.data.data) {
+        const d = spotRes.data.data;
+        result = {
+          symbol: d.symbol,
+          shortName: d.name,
+          regularMarketPrice: d.price,
+          regularMarketChange: d.change,
+          regularMarketChangePercent: d.changePercent || d.change_percent,
+          regularMarketPreviousClose: d.previousClose || d.previous_close,
+          regularMarketOpen: d.open,
+          regularMarketDayHigh: d.dayHigh || d.day_high,
+          regularMarketDayLow: d.dayLow || d.day_low,
+          regularMarketVolume: d.volume,
+          marketCap: d.marketCap || d.market_cap,
+          trailingPE: d.trailingPE || d.trailing_pe,
+          currency: d.currency || (resolution.market === 'A-Share' ? 'CNY' : resolution.market === 'HK-Share' ? 'HKD' : 'USD'),
+          fullExchangeName: resolution.market === 'A-Share' ? 'CN' : resolution.market === 'HK-Share' ? 'HK' : 'US',
+          marketState: 'REGULAR'
+        };
+        source = 'Unified Market Data (Python MS)';
+
+        if (finRes && finRes.data && finRes.data.success && finRes.data.data) {
+          const f = finRes.data.data;
+          result.fundamentals = {
+            marketCap: f.marketCap,
+            pe: f.pe,
+            pb: f.pb,
+            roe: f.roe,
+            grossMargin: f.grossMargin,
+            revenue: f.revenue,
+            netProfit: f.netProfit,
+            netProfitGrowth: f.netProfitGrowth,
+            dividend: f.dividend,
+            dividendYield: f.dividendYield,
+            valuationPercentile: f.valuationPercentile,
+            valuationExplanation: f.valuationExplanation
+          };
+
+          const pe = parseFloat(f.pe) || 0;
+          const pb = parseFloat(f.pb) || 0;
+          const roe = parseFloat(f.roe) || 12;
+          const growth = parseFloat(f.netProfitGrowth) || 10;
+          const margin = parseFloat(f.grossMargin) || 20;
+          const debtRatio = parseFloat(f.debtRatio) || 50;
+          
+          result.fundamentalScores = calculateFundamentalScores({
+            pe, pb, roe, grossMargin: margin, netProfitGrowth: growth, debtToEquity: debtRatio / 100
+          });
+          
+          const intrinsicResult = calculateIntrinsicValueEstimate(result.regularMarketPrice, roe, growth);
+          result.intrinsicValueEstimate = intrinsicResult.value;
+          result.intrinsicValueMethodology = intrinsicResult.methodology;
         }
       }
 
-      // If Yahoo fails or returns 0/undefined for HK, try Sina HK Fallback
-      if ((!result || !result.regularMarketPrice) && resolution.market === 'HK-Share') {
-        logDebug('HK_FALLBACK', `All sources returned 0 for HK stock ${resolution.symbol}. Attempting Sina fallback...`);
-        const hkFallback = await fetchHKSpotFallbackFromSina(resolution.symbol);
-        if (hkFallback && hkFallback.regularMarketPrice > 0) {
-          logDebug('HK_FALLBACK', `Sina fallback SUCCEEDED for ${resolution.symbol}: ${hkFallback.regularMarketPrice}`);
-          result = hkFallback;
-          source = hkFallback.source;
+      if (histRes && histRes.data && histRes.data.success && Array.isArray(histRes.data.data) && histRes.data.data.length > 0) {
+        const history = histRes.data.data;
+        const prices = history.map((q: any) => q.close || q.Close).filter((p: any) => p != null);
+        const volumes = history.map((q: any) => q.volume || q.Volume).filter((v: any) => v != null);
+        const highs = history.map((q: any) => q.high || q.High).filter((h: any) => h != null);
+        const lows = history.map((q: any) => q.low || q.Low).filter((l: any) => l != null);
+
+        indicators = calcIndicators(prices, volumes, highs, lows, { roundVolume: true });
+        
+        if (techRes && techRes.data && techRes.data.success && techRes.data.data) {
+          const t = techRes.data.data;
+          indicators.quantSignals = t;
+          if (t.ma5) indicators.ma5 = t.ma5;
+          if (t.ma20) indicators.ma20 = t.ma20;
+          if (t.ma60) indicators.ma60 = t.ma60;
+        }
+
+        if (prices.length > 0) {
+           const annVol = calculateVolatility(prices, 60);
+           const volLimit = calculateVolatilityAdjustedLimit(annVol);
+           indicators.riskMetrics = {
+             annualizedVolatility: annVol,
+             maxPositionLimit: volLimit.limit,
+             volatilityRegime: volLimit.regime
+           };
         }
       }
+    } catch (e) {
+      logDebug('Unified Fetch failed', e instanceof Error ? e.message : String(e));
+    }
 
-      if (result) {
-        // Fetch indicators for result (could be Yahoo or Sina HK) if not already fetched
-        if (!indicators) {
-           try {
-              // Indicators still best fetched via Yahoo Chart or similar
-              // Fetch technical indicators/history via Python Proxy
-              const pythonHist = await axios.get(`${PYTHON_SERVICE_URL}/api/market/history/${symWithSuffix}?period=120d&interval=1d`, {
-                headers: getPythonAuthHeaders()
-              });
-              
-              if (pythonHist.data.success && pythonHist.data.data.length > 0) {
-                const history = pythonHist.data.data;
-                const prices = history.map((q: any) => q.Close).filter((p: any) => p != null);
-                const volumes = history.map((q: any) => q.Volume).filter((v: any) => v != null);
-                const highs = history.map((q: any) => q.High).filter((h: any) => h != null);
-                const lows = history.map((q: any) => q.Low).filter((l: any) => l != null);
-
-                indicators = calcIndicators(prices, volumes, highs, lows, { roundVolume: true });
-              }
-           } catch {}
-        }
+    // Fallbacks if Python fails
+    if (!result) {
+      const yahooResult = await tryQuoteEx(resolution.symbol, input, resolution.market, isDebug);
+      if (yahooResult) {
+          result = yahooResult;
+          if (isDebug) logDebug('REALTIME', `Resolved ${resolution.symbol} via Legacy Local Yahoo: ${result.regularMarketPrice}`);
+      }
+    }
+    if ((!result || !result.regularMarketPrice) && resolution.market === 'HK-Share') {
+      logDebug('HK_FALLBACK', `All sources returned 0 for HK stock ${resolution.symbol}. Attempting Sina fallback...`);
+      const hkFallback = await fetchHKSpotFallbackFromSina(resolution.symbol).catch(() => null);
+      if (hkFallback && hkFallback.regularMarketPrice > 0) {
+        result = hkFallback;
+        source = hkFallback.source;
+      }
+    }
+    if ((!result || !result.regularMarketPrice) && resolution.market === 'A-Share') {
+      const aFallback = await fetchAShareSpotFallbackFromSina(resolution.symbol).catch(() => null);
+      if (aFallback && aFallback.regularMarketPrice > 0) {
+        result = aFallback;
+        source = aFallback.source;
       }
     }
 
@@ -1205,7 +1145,7 @@ router.get('/stock/realtime', async (req, res) => {
     }
 
     const formatted = formatQuoteResult(result);
-    if (source === 'AkShare (Local Python API)') {
+    if (source) {
       formatted.source = source;
     }
 

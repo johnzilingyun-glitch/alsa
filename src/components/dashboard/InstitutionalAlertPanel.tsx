@@ -47,18 +47,18 @@ export const InstitutionalAlertPanel = memo(function InstitutionalAlertPanel() {
       // For each alert, fetch current price
       // In a real app, we'd have a batch endpoint /api/alerts/prices
       // Parallelize price fetching
-      await Promise.all(searchAlerts.map(async (alert) => {
-        try {
-          const res = await fetch(`/api/stock/a_spot?symbol=${alert.symbol}`);
-          const data = await res.json();
-          if (data.success && data.data) {
-            const price = data.data['最新价'] || data.data.price;
-            if (price) updateAlertPrice(alert.symbol, price);
-          }
-        } catch (e) {
-          console.warn(`Failed to fetch price for ${alert.symbol}:`, e);
+      const symbolsStr = searchAlerts.map(a => a.symbol).join(',');
+      try {
+        const res = await fetch(`/api/market/quotes?symbols=${symbolsStr}`);
+        const data = await res.json();
+        if (data.success && Array.isArray(data.data)) {
+          data.data.forEach((quote: any) => {
+            if (quote.price) updateAlertPrice(quote.symbol, quote.price);
+          });
         }
-      }));
+      } catch (e) {
+        console.warn(`Failed to fetch prices for alerts:`, e);
+      }
     }
 
     updatePrices();

@@ -33,7 +33,6 @@ export function usePredictionTrackRecord(analysis: StockAnalysis | null): Predic
         const history = await getHistoryContext();
         if (cancelled) return;
 
-        // Filter history to same symbol, extract .data field as StockAnalysis
         const symbolHistory: StockAnalysis[] = history
           .filter((item: any) => {
             const isStock = item.type === 'stock' || (item.stockInfo && !item.indices);

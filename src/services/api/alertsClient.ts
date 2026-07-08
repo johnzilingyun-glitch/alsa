@@ -167,5 +167,21 @@ export const alertsClient = {
     const res = await fetch('/api/alerts/monitoring/status');
     if (!res.ok) throw new Error('Failed to fetch monitoring status');
     return res.json();
+  },
+
+  resumeAlert: async (alertId: string) => {
+    const res = await fetch(`/api/alerts/${alertId}/resume`, {
+      method: 'POST',
+    });
+    if (!res.ok) throw new Error('Failed to resume monitoring');
+    return res.json();
+  },
+
+  acknowledgeAlert: async (alertId: string) => {
+    const res = await fetch(`/api/alerts/${alertId}/acknowledge`, {
+      method: 'POST',
+    });
+    if (!res.ok) throw new Error('Failed to acknowledge alert');
+    return res.json();
   }
 };

@@ -210,3 +210,19 @@ async def monitoring_status(repo: AlertRepository = Depends(get_repo)):
         "total_monitored": len(items),
         "items": items
     }
+
+@router.post("/{alert_id}/acknowledge")
+async def acknowledge_alert(alert_id: str, repo: AlertRepository = Depends(get_repo)):
+    """Acknowledge an alert to permanently stop monitoring."""
+    result = repo.acknowledge_alert(alert_id)
+    if not result:
+        raise HTTPException(404, "Alert not found")
+    return {"success": True, "alert": result, "message": "通知已确认，将不再发送该警报"}
+
+@router.post("/{alert_id}/resume")
+async def resume_alert(alert_id: str, repo: AlertRepository = Depends(get_repo)):
+    """Resume monitoring for an alert."""
+    result = repo.resume_alert(alert_id)
+    if not result:
+        raise HTTPException(404, "Alert not found")
+    return {"success": True, "alert": result, "message": "警报已恢复监控"}

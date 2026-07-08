@@ -30,6 +30,8 @@ class SignalMonitorService:
         from .data_providers import data_router
         tasks = []
         for alert in alerts:
+            if not alert.monitoring_enabled:
+                continue
             tasks.append(self._check_alert_via_router(alert, data_router))
         
         if tasks:
@@ -122,6 +124,26 @@ class SignalMonitorService:
 
     async def _send_notifications(self, alert: SearchAlert, price: float, signals: List[Dict]):
         """Send Feishu notification for triggered signals."""
+        now = datetime.utcnow()
+        today = now.date()
+
+        # Reset daily count if last notification was on a different day
+        if alert.last_notified_at and alert.last_notified_at.date() != today:
+            self.alert_repo.reset_daily_notify_count(alert.alert_id)
+            alert.notify_count = 0
+
+        # Max 3 notifications per day per stock
+        if (alert.notify_count or 0) >= 3:
+            logger.info(f"[SignalMonitor] Skipping {alert.symbol} (daily limit 3 reached)")
+            return
+
+        # Minimum 30 minutes interval between notifications
+        if alert.last_notified_at:
+            elapsed = (now - alert.last_notified_at.replace(tzinfo=None)).total_seconds() / 60
+            if elapsed < 30:
+                logger.info(f"[SignalMonitor] Skipping {alert.symbol} (interval {elapsed:.0f}min < 30min)")
+                return
+
         webhook_url = alert.feishu_webhook_url or os.getenv("FEISHU_WEBHOOK_URL")
         if not webhook_url:
             logger.info(f"[SignalMonitor] No webhook URL for alert {alert.alert_id} ({alert.symbol})")
@@ -183,6 +205,23 @@ class SignalMonitorService:
                 },
                 {"tag": "hr"},
                 {
+                    "tag": "action",
+                    "actions": [
+                        {
+                            "tag": "button",
+                            "text": {
+                                "tag": "plain_text",
+                                "content": "已阅确认 (停止今日及后续提醒)"
+                            },
+                            "type": "primary",
+                            "value": {
+                                "action": "acknowledge_alert",
+                                "alert_id": alert.alert_id
+                            }
+                        }
+                    ]
+                },
+                {
                     "tag": "note",
                     "elements": [{
                         "tag": "plain_text",
@@ -205,6 +244,11 @@ class SignalMonitorService:
             payload_bytes = json.dumps(payload_dict, ensure_ascii=False).encode("utf-8")
             headers = {"Content-Type": "application/json"}
 
+            # Include API Token for Node Proxy authentication
+            api_token = os.getenv("API_TOKEN")
+            if api_token:
+                headers["Authorization"] = f"Bearer {api_token}"
+
             # Hermes HMAC Forwarding Support
             webhook_secret = os.getenv("HERMES_WEBHOOK_SECRET")
             if not webhook_secret:
@@ -219,12 +263,23 @@ class SignalMonitorService:
                 resp = await client.post(webhook_url, content=payload_bytes, headers=headers)
                 if resp.status_code == 200:
                     data = resp.json()
-                    # Hermes might return {"status": "delivered"} instead of Feishu's {"code": 0}
-                    if data.get("code") == 0 or data.get("status") == "delivered":
+                    code = data.get("code")
+                    status_code = data.get("StatusCode")
+                    msg = str(data.get("msg") or data.get("StatusMessage") or data.get("message") or "").lower()
+                    
+                    is_success = False
+                    if str(code) == "0" or str(status_code) == "0" or data.get("status") in ("delivered", "success"):
+                        is_success = True
+                    elif "success" in msg:
+                        is_success = True
+                    elif code is None and status_code is None:
+                        is_success = True
+                        
+                    if is_success:
                         self.alert_repo.increment_notify_count(alert.alert_id)
                         logger.info(f"[SignalMonitor] ✓ Feishu notification sent for {alert.symbol}: {[s['type'] for s in signals]}")
                     else:
-                        logger.error(f"[SignalMonitor] Feishu/Hermes API error: {data.get('msg') or data}")
+                        logger.error(f"[SignalMonitor] Feishu/Hermes API error: {data}")
                 else:
                     logger.error(f"[SignalMonitor] Feishu/Hermes HTTP error: {resp.status_code} - {resp.text}")
         except Exception as e:

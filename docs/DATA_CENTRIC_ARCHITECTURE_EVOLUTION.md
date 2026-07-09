@@ -250,7 +250,47 @@ if len(content) > 2000:
 2. 移除 2000 字符截断（结构化输出天然紧凑）
 3. Evidence 从 Agent 输出中提取，不需要额外解析
 
-### 3.6 🟡 Memory 未分层
+### 3.6 🔴 无真正的 SubAgent / MultiAgent 框架
+
+**现状**：当前系统的"多智能体"实为 **LangGraph StateGraph 上的顺序/并行节点**，不是独立的 SubAgent：
+
+```
+discussion_service.run_discussion()
+    │  构建 StateGraph(AgentState)
+    │  每个专家 = 一个 node（闭包函数）
+    ▼
+make_node(expert_role, r_num) → node_func(state)
+    │  调用 _call_expert() → agent_orchestrator.generate_with_tools()
+    │  返回结果写入 state["history_states"][role]
+    ▼
+LangGraph 按拓扑顺序执行节点
+```
+
+**关键限制**：
+
+| 维度 | 现状 | 问题 |
+|---|---|---|
+| 生命周期 | 每个专家是闭包函数，无独立状态 | 无法暂停/恢复/取消单个专家 |
+| 通信 | 通过 `history_states` dict 共享（`operator.ior` 合并） | 只能读上一轮结果，无法直接对话 |
+| 并行 | `parallel: true` 仅在拓扑定义中标记，实际由 LangGraph 边决定 | 同轮专家并行但不同轮严格串行 |
+| 动态性 | 拓扑硬编码（QUICK 4轮 / DEEP 10轮） | 无法根据数据可用性动态调整 |
+| 错误处理 | 单个专家失败 → 整个 discussion 失败 | 无降级/重试/跳过机制 |
+| 工具共享 | 每个专家独立调用 `agent_orchestrator` | 无工具结果共享，重复请求 |
+
+**已有但未生效的代码**：
+- `discussion_service.py:426-443` 定义了条件路由逻辑（检查 `数据严重不足`/`CRITICAL_DATA_MISSING`），但 **未接入 `add_conditional_edge`**（line 448 仍用 `add_edge`）
+- `DecisionCourt`（`court.py`）实现了结构化多 Agent 仲裁，但仅用于交易决策，未接入分析流程
+
+**目标**：真正的 SubAgent 框架——每个 Agent 独立生命周期、可并行/串行/条件执行、有降级机制。
+
+**需调整**：
+1. 将 `make_node` 闭包改为独立的 Agent 实例（有状态、可暂停/恢复）
+2. 接入 LangGraph 条件路由（当前是死代码），支持数据不足时跳过专家
+3. Agent 间通信从 `history_states` dict 改为消息队列/事件总线
+4. 新增 Agent 失败降级机制（跳过/重试/用默认值）
+5. 工具结果在 Agent 间共享（消除重复请求）
+
+### 3.8 🟡 Memory 未分层
 
 **现状**：
 - `brain_manager.py`（371行）管理"基因组"和跨会话记忆
@@ -265,7 +305,7 @@ if len(content) > 2000:
 
 **目标**：Session/Analysis/Project/User 四层记忆分离。
 
-### 3.7 🟡 无 Evidence Layer
+### 3.9 🟡 无 Evidence Layer
 
 **现状**：
 - `grounding_verifier.py` 做事实核验
@@ -277,7 +317,7 @@ if len(content) > 2000:
 - 报告生成时无法引用"第3轮技术分析师引用了XX数据"
 - 无法做跨 Agent 证据一致性检查
 
-### 3.8 🟡 超大文件需要拆分
+### 3.10 🟡 超大文件需要拆分
 
 **现状**：8 个核心服务文件总计 8447 行，远超项目 250 行限制：
 
@@ -339,27 +379,42 @@ class ContextBuilder:
 - ✅ `get_quotes_with_meta` / `get_history_with_meta` 带路由元数据
 
 **未完成的收口**：
-- ❌ Agent/tool 层仍可绕过 Data Route 直接联网
+- ❌ Agent/tool 层仍可绕过 Data Router 直接调用 AkShare/yfinance
 - ❌ Planner 未通过 Data Route 预取数据
 - ❌ `expert_tools.py:1579+` 的 `financial_data` 工具仍直接调用 AkShare/yfinance
 
 **需调整**：
 1. `ToolExecutor._exec_financial_data()` 应优先从 DataRouter 获取，仅在 DataRouter 失败时降级
-2. 禁用 `web_search`/`news_search`/`deep_scrape` 在 tool loop 中的使用（改为 Planner 预取）
+2. `web_search`/`news_search` 保留作为 Agent 的兜底能力（snapshot 不覆盖非结构化数据）
 3. DataRouter 应支持批量预取接口（一次调用获取 quote + history + financial）
 
-### 4.3 Multi-Agent 结构化输出（部分实现）
+### 4.3 SubAgent / Multi-Agent（当前是伪多智能体）
 
-**现状**：
+**现状**：`discussion_service.py` 使用 LangGraph 但每个专家是**闭包函数**，不是独立 Agent：
+
 - 5 种固定拓扑（QUICK 4轮 / STANDARD 6轮 / DEEP 10轮 / SECTOR 5轮 / ALPHA 1轮）
 - `ExpertDiscussionResult` Pydantic schema 存在但只对部分专家强制
 - 专家输出截断到 2000 字符
 - `batch_verify_and_reflect` 做批量验证
+- 条件路由逻辑（line 426-443）是死代码
+
+**与真正 SubAgent 的差距**：
+
+| 维度 | 当前实现 | SubAgent 目标 |
+|---|---|---|
+| 实例化 | 闭包函数 `make_node()` | 独立 Agent 类实例 |
+| 状态 | 无（通过 `history_states` dict 共享） | 每个 Agent 有独立状态 |
+| 生命周期 | 随 LangGraph 执行 | 可暂停/恢复/取消 |
+| 失败处理 | 单个失败 → 整个 discussion 失败 | 降级/跳过/重试 |
+| 通信 | `history_states` dict（`operator.ior`） | 消息队列/事件总线 |
+| 工具共享 | 无（每个 Agent 独立调用） | 共享工具结果缓存 |
 
 **需调整**：
-1. 所有 Agent 统一输出 `{summary, score, confidence, evidence[], risk[]}`
-2. 移除 2000 字符截断（结构化输出天然紧凑，通常 < 500 tokens）
-3. 从结构化输出中自动提取 Evidence
+1. 将 `make_node` 闭包改为独立 Agent 实例
+2. 接入 LangGraph 条件路由（当前是死代码）
+3. Agent 失败降级机制
+4. 工具结果在 Agent 间共享
+5. 所有 Agent 统一输出 `{summary, score, confidence, evidence[], risk[]}`
 
 ### 4.4 Evidence Layer（未实现）
 
@@ -415,13 +470,14 @@ MODEL_TIER = {
 | # | 不兼容点 | 影响 | 实现难度 | 优先级 |
 |---|---|---|---|---|
 | 1 | Context 仍被动累积 | 性能瓶颈根因 | 高 | 🔴 P0 |
-| 2 | Agent 直接联网 | 数据不一致+重复请求 | 中 | 🔴 P0 |
-| 3 | 固定拓扑 vs 动态 DAG | 分析质量受限 | 高 | 🟡 P1 |
-| 4 | 无角色→模型路由 | 成本浪费 | 低 | 🟡 P1 |
-| 5 | 结构化输出未强制 | 下游可追溯性差 | 中 | 🟡 P1 |
-| 6 | Memory 未分层 | 跨任务学习受限 | 中 | 🟢 P2 |
-| 7 | 无 Evidence Layer | 可解释性差 | 中 | 🟢 P2 |
-| 8 | 超大文件需拆分 | 可维护性 | 高 | 🟢 P2 |
+| 2 | Agent 联网工具未收口 | 重复请求+上下文膨胀 | 中 | 🔴 P0 |
+| 3 | 无真正 SubAgent/MultiAgent 框架 | 无法并行/降级/动态调整 | 高 | 🔴 P0 |
+| 4 | 固定拓扑 vs 动态 DAG | 分析质量受限 | 高 | 🟡 P1 |
+| 5 | 无角色→模型路由 | 成本浪费 | 低 | 🟡 P1 |
+| 6 | 结构化输出未强制 | 下游可追溯性差 | 中 | 🟡 P1 |
+| 7 | Memory 未分层 | 跨任务学习受限 | 中 | 🟢 P2 |
+| 8 | 无 Evidence Layer | 可解释性差 | 中 | 🟢 P2 |
+| 9 | 超大文件需拆分 | 可维护性 | 高 | 🟢 P2 |
 
 ---
 
@@ -463,18 +519,22 @@ MODEL_TIER = {
 - [ ] 新增 Planner 预取阶段（Phase 2 实现，此处先定义接口）
 - [ ] **验收**：quick 任务单次 prompt ≤ 12k tokens，端到端 ≤ 8 分钟
 
-### Phase 2 — Planner + 结构化 Agent（2–3 周）
+### Phase 2 — SubAgent 框架 + Planner + 结构化 Agent（3–4 周）
 
-**目标**：Agent 间传递体积下降 >70%，可并行执行。
+**目标**：Agent 间传递体积下降 >70%，可并行执行，单个 Agent 可独立失败/降级。
 
+- [ ] SubAgent 框架改造
+  - 将 `make_node` 闭包改为独立 Agent 实例（有状态、可暂停/恢复/取消）
+  - 接入 LangGraph 条件路由（`discussion_service.py:426-443` 当前是死代码）
+  - Agent 失败降级机制：跳过/重试/用默认值（不阻塞整个 discussion）
+  - 工具结果在 Agent 间共享（消除重复请求）
 - [ ] 新增 `planner_service.py`（Flash 出 DAG plan：取数清单 + Agent 编排）
   - 根据股票特征 + 数据可用性动态生成执行计划
-  - 接入 LangGraph 条件路由（当前是死代码）
-- [ ] Planner **预取**数据写入 snapshot；Agent 只读 snapshot
+  - Planner **预取**数据写入 snapshot；Agent 优先读 snapshot
 - [ ] Agent 输出改结构化 `{summary, score, confidence, evidence[], risk[]}`
-  - 移除 2000 字符截断
+  - 移除 2000 字符截断（`discussion_service.py:373-376`）
   - 强制所有专家输出 Pydantic schema
-- [ ] **验收**：Agent 间传递体积下降 >70%，可并行执行
+- [ ] **验收**：单个 Agent 失败不影响整体；Agent 间传递体积下降 >70%
 
 ### Phase 3 — Evidence Layer + Model 分层（2 周）
 
@@ -497,11 +557,13 @@ MODEL_TIER = {
 - [ ] Memory 拆 Session/Analysis/Project/User，Session 严格窗口化
 - [ ] **验收**：支持数百 MB 文档分析；Session 永不无限增长
 
-### Phase 5 — DAG Engine 正式化 + 文件拆分（可选，2–3 周）
+### Phase 5 — 动态 DAG + 文件拆分（可选，2–3 周）
 
 - [ ] 用 LangGraph 把"固定拓扑"升级为"Planner 驱动的动态 DAG"
+  - 基于 Phase 2 的 SubAgent 框架，实现真正的动态拓扑
   - 支持 Parallel / Conditional / Retry / Loop / Human Review
   - 支持长时任务断点续跑（依赖 Analysis Memory）
+  - Agent 间消息总线替代 `history_states` dict
 - [ ] 超大文件拆分（expert_tools → 4文件, discussion_service → 4文件, 等）
 - [ ] **验收**：每个文件 ≤ 250 行；动态 DAG 可运行
 
@@ -515,12 +577,13 @@ MODEL_TIER = {
 | 2 | 数据统一经 Data Route | `data_providers/router.py` 收口 | ⚠️ 已实现但未强制 |
 | 3 | Planner 决定计划，非 LLM 即兴 | 新增 `planner_service.py` | ❌ 未实现 |
 | 4 | DAG 工作流，支持并行/分支 | `discussion_service` → 动态 DAG | ⚠️ 固定拓扑，条件路由是死代码 |
-| 5 | Context Builder 构建最小高价值上下文 | 新增 `context_builder.py` | ⚠️ tool loop 内有雏形但未独立 |
-| 6 | Memory 与 Session 分离 | Memory 四层，Session 窗口化 | ⚠️ 部分实现 |
-| 7 | Evidence First | 新增 `evidence_store.py` | ❌ 未实现 |
-| 8 | Flash 整理 / Pro 推理 | `llm_gateway` role→model 路由 | ❌ 全程 Pro |
-| 9 | RAG 按需检索 | LanceDB + Retriever | ⚠️ 有基础设施但未集成 |
-| 10 | Data-Centric | 全链路以数据为核心资产 | ⚠️ 方向正确但未收口 |
+| 5 | SubAgent 独立生命周期 | Agent 可暂停/恢复/取消/降级 | ❌ 当前是闭包函数，无独立状态 |
+| 6 | Context Builder 构建最小高价值上下文 | 新增 `context_builder.py` | ⚠️ tool loop 内有雏形但未独立 |
+| 7 | Memory 与 Session 分离 | Memory 四层，Session 窗口化 | ⚠️ 部分实现 |
+| 8 | Evidence First | 新增 `evidence_store.py` | ❌ 未实现 |
+| 9 | Flash 整理 / Pro 推理 | `llm_gateway` role→model 路由 | ❌ 全程 Pro |
+| 10 | RAG 按需检索 | LanceDB + Retriever | ⚠️ 有基础设施但未集成 |
+| 11 | Data-Centric | 全链路以数据为核心资产 | ⚠️ 方向正确但未收口 |
 
 ---
 
@@ -547,6 +610,7 @@ MODEL_TIER = {
 | RAG 检索不准 | Top-K + rerank；关键财务数据仍走结构化 Data Route |
 | 多模型切换兼容 | `llm_gateway` 统一抽象，已支持 DeepSeek/Gemini |
 | Agent 联网工具影响性能 | Planner 预取覆盖常用数据（quote/history/financial），减少 70%+ 工具调用；保留 web_search/news_search 作为兜底 |
+| SubAgent 改造引入回归 | 渐进式改造：先保持现有 LangGraph 拓扑不动，仅将闭包改为 Agent 实例；Phase 2b 再做动态 DAG |
 | 文件拆分引入回归 | 拆分后立即跑 pytest，CI 覆盖 |
 
 ---

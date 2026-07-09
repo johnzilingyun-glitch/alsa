@@ -29,3 +29,29 @@ clientportal/
 
 keys.txt
 reports/
+
+# Process ID files
+.alsa-*.pid
+
+# AI agent workspaces (local only)
+.mimocode/
+.omo/
+.omp/
+
+# Generated optimization docs (not source-controlled)
+*_OPTIMIZATION*.md
+*_PERFORMANCE*.md
+OPTIMIZATION_*.md
+PERFORMANCE_*.md
+ARCHITECTURE_AFTER_OPTIMIZATION.md
+CODE_CHANGES_QUICK_REFERENCE.md
+DEPLOYMENT_AND_MAINTENANCE.md
+DOCUMENTATION_INDEX.md
+PERFORMANCE_OPTIMIZATION_CODE.py
+diagnose_performance.py
+
+# Ad-hoc debug/test scripts
+python_service/run_test.py
+python_service/test_db*.txt
+python_service/test_job_fail.py
+docs/DATA_SOURCE_AND_TOOLS_OPTIMIZATION_*.md

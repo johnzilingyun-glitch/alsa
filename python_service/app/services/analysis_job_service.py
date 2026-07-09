@@ -13,6 +13,7 @@ from ..decision.trading_fields_validator import TradingFieldsValidator
 from .market_snapshot_service import MarketSnapshotService
 from .lineage_service import apply_data_quality_review_gate
 from ..quant.polars_indicators import compute_indicator_frame
+from ..observability.failure_capture import capture_failure_incident
 
 PROGRESS_REDIS_PREFIX = "analysis_progress"
 
@@ -31,6 +32,80 @@ class AnalysisJobService:
         import os
         self._concurrency_limit = asyncio.Semaphore(int(os.getenv("MAX_CONCURRENT_JOBS", "5")))
 
+    @staticmethod
+    def _sanitize_config(config: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        """Deep-clean config dict to ensure Celery serialization safety.
+
+        Removes non-JSON-serializable values (DataFrames, slices, custom objects)
+        that would cause pickle/JSON failures during Redis transport.
+        """
+        if not config:
+            return config
+        import json
+        try:
+            json.dumps(config, default=str)
+            return config
+        except (TypeError, ValueError):
+            pass
+        # Fallback: keep only JSON-safe primitives
+        sanitized = {}
+        for k, v in config.items():
+            try:
+                json.dumps(v, default=str)
+                sanitized[k] = v
+            except (TypeError, ValueError):
+                logger.warning(f"[Config] Dropping non-serializable key '{k}' (type={type(v).__name__})")
+        return sanitized
+
+    @staticmethod
+    def _sanitize_result_payload(result: Dict[str, Any]) -> Dict[str, Any]:
+        """Ensure result_payload is fully JSON-serializable before DB storage.
+        
+        Removes DataFrame/Series/ndarray objects and other non-serializable types
+        that cause 'unhashable type: slice' errors during SQLAlchemy JSON commit.
+        """
+        import json
+        import numpy as np
+        
+        def _clean(obj, depth=0):
+            if depth > 12:
+                return str(obj)[:200]
+            if obj is None or isinstance(obj, (bool, int, float, str)):
+                return obj
+            if isinstance(obj, (np.integer,)):
+                return int(obj)
+            if isinstance(obj, (np.floating,)):
+                return float(obj)
+            if isinstance(obj, (np.ndarray,)):
+                return obj.tolist()
+            if isinstance(obj, dict):
+                return {k: _clean(v, depth + 1) for k, v in obj.items()}
+            if isinstance(obj, (list, tuple)):
+                return [_clean(item, depth + 1) for item in obj]
+            # DataFrame / Series / Polars objects → drop them (too large for JSON)
+            type_name = type(obj).__name__
+            if type_name in ("DataFrame", "Series", "LazyFrame"):
+                return f"[{type_name} removed for serialization]"
+            # Try json.dumps as last resort
+            try:
+                json.dumps(obj)
+                return obj
+            except (TypeError, ValueError):
+                return str(obj)[:200]
+        
+        try:
+            cleaned = _clean(result)
+            # Final validation
+            json.dumps(cleaned, default=str)
+            return cleaned
+        except Exception as e:
+            logger.warning(f"[Sanitize] result_payload sanitization failed: {e}")
+            # Nuclear fallback: json roundtrip with default=str
+            try:
+                return json.loads(json.dumps(result, default=str))
+            except Exception:
+                return {"error": "Result payload could not be serialized"}
+
     async def start_job(self, symbol: str, market: str, level: str = "standard", model: Optional[str] = None, config: Optional[Dict[str, Any]] = None, user_id: str = "default_user", verification_mode: str = "quick") -> str:
         import re
         if not re.match(r"^[A-Za-z0-9.\-_]+$", symbol) or not re.match(r"^[A-Za-z0-9.\-_]+$", market):
@@ -47,6 +122,8 @@ class AnalysisJobService:
         
         if os.getenv("ALSA_DISABLE_BACKGROUND_JOBS") == "true" or os.getenv("PYTEST_CURRENT_TEST"):
             return job_id
+
+        config = self._sanitize_config(config)
 
         redis_url = os.getenv("REDIS_URL")
         if redis_url:
@@ -475,7 +552,7 @@ class AnalysisJobService:
                                 return obj.isoformat()
                             raise TypeError(f"Type {type(obj)} not serializable")
                         
-                        db_job.result_payload = result
+                        db_job.result_payload = self._sanitize_result_payload(result)
                         db_job.finished_at = utc_now()
                         session.add(db_job)
                         session.commit()
@@ -484,24 +561,73 @@ class AnalysisJobService:
                 self.job_repo.update_status(job_id, "cancelled")
                 raise
             except Exception as e:
-                error_msg = str(e)
-                # Check if this is a user-initiated stop — still save partial results
-                if "stopped by user" in error_msg:
+                raw_error_msg = str(e)
+                import traceback
+                tb_str = traceback.format_exc()
+                incident = capture_failure_incident(
+                    component="analysis_job_service",
+                    error=e,
+                    job_id=job_id,
+                    symbol=symbol,
+                    market=market,
+                    stage=self._progress.get(job_id, {}).get("stage"),
+                    context={
+                        "progress": self._progress.get(job_id),
+                        "config": self._sanitize_config(config),
+                        "verification_mode": verification_mode,
+                        "discussion_count": len(locals().get("discussion_messages", [])),
+                        "snapshot_keys": list((locals().get("snapshot") or {}).keys()),
+                    },
+                    traceback_text=tb_str,
+                )
+                incident_id = incident.get("incident_id")
+                incident_path = incident.get("incident_path")
+                error_msg = f"{raw_error_msg} [incident_id={incident_id}]"
+                logger.exception(f"Analysis job {job_id} failed: {e} (incident_id={incident_id})")
+                
+                # Write traceback to local file for recovery diagnostics
+                try:
+                    with open("/tmp/analysis_job_traceback.txt", "a") as f:
+                        f.write(f"Job {job_id} failed:\n{tb_str}\n")
+                except Exception:
+                    pass
+
+                # Retain the context / intermediate scene when error occurs
+                _msgs = locals().get("discussion_messages", [])
+                _snap = locals().get("snapshot", {})
+                _inds = locals().get("indicators", {})
+                
+                error_payload = {
+                    "error": error_msg,
+                    "traceback": tb_str,
+                    "partial": True,
+                    "incident_id": incident_id,
+                    "incident_path": incident_path,
+                    "discussion": _msgs,
+                    "snapshot": _snap,
+                    "indicators": _inds
+                }
+                
+                # Check if this is a user-initiated stop
+                if "stopped by user" in raw_error_msg:
                     logger.info(f"Analysis job {job_id} stopped by user, saving partial results")
                     try:
-                        _msgs = locals().get("discussion_messages", [])
-                        _snap = locals().get("snapshot", {})
-                        _inds = locals().get("indicators", {})
                         if _snap:
                             await self._save_partial_results(job_id, symbol, market, _snap, _inds, _msgs)
                         else:
-                            self.job_repo.update_status(job_id, "failed", json.dumps({"error": "Stopped before data was ready"}))
+                            self.job_repo.update_status(job_id, "failed", json.dumps({"error": "Stopped before data was ready", "traceback": tb_str}))
                     except Exception as save_err:
                         logger.error(f"Failed to save partial results: {save_err}")
-                        self.job_repo.update_status(job_id, "failed", json.dumps({"error": error_msg}))
+                        self.job_repo.update_status(job_id, "failed", json.dumps(error_payload))
                 else:
-                    logger.exception(f"Analysis job {job_id} failed: {e}")
-                    self.job_repo.update_status(job_id, "failed", json.dumps({"error": error_msg}))
+                    try:
+                        if _snap:
+                            await self._save_partial_results(job_id, symbol, market, _snap, _inds, _msgs, error_msg=error_msg)
+                        else:
+                            self.job_repo.update_status(job_id, "failed", json.dumps(error_payload))
+                    except Exception as save_err:
+                        logger.error(f"Failed to save failed job context: {save_err}")
+                        self.job_repo.update_status(job_id, "failed", json.dumps(error_payload))
             
             finally:
                 # Stop the watchdog heartbeat
@@ -509,8 +635,8 @@ class AnalysisJobService:
                 # Only clean up the event — the key stays cached globally for reuse
                 self._api_key_events.pop(job_id, None)
     
-    async def _save_partial_results(self, job_id: str, symbol: str, market: str, snapshot: Dict[str, Any], indicators: Dict[str, Any], discussion_messages: List[Dict[str, Any]]):
-        """Save partial results when analysis is interrupted (user abort or 402)."""
+    async def _save_partial_results(self, job_id: str, symbol: str, market: str, snapshot: Dict[str, Any], indicators: Dict[str, Any], discussion_messages: List[Dict[str, Any]], error_msg: Optional[str] = None):
+        """Save partial results when analysis is interrupted (user abort, 402, or error)."""
         from ..db.models import AnalysisRun, AnalysisJob
         
         # Filter out empty messages
@@ -570,21 +696,23 @@ class AnalysisJobService:
             
             db_job = session.get(AnalysisJob, job_id)
             if db_job:
-                db_job.status = "completed"
+                db_job.status = "failed" if error_msg else "completed"
                 db_job.analysis_id = analysis_run.analysis_id
                 db_job.snapshot_id = snapshot_id
+                if error_msg:
+                    db_job.error_message = error_msg
                 
                 def json_serial(obj):
                     if isinstance(obj, (datetime, date)):
                         return obj.isoformat()
                     raise TypeError(f"Type {type(obj)} not serializable")
                 
-                db_job.result_payload = result
+                db_job.result_payload = self._sanitize_result_payload(result)
                 db_job.finished_at = utc_now()
                 session.add(db_job)
                 session.commit()
         
-        logger.info(f"Partial results saved for job {job_id}: {len(valid_messages)} expert messages")
+        logger.info(f"Partial results saved for job {job_id} (status: {'failed' if error_msg else 'completed'}): {len(valid_messages)} expert messages")
 
     @staticmethod
     def _extract_summary(discussion_messages: List[Dict[str, Any]]) -> str:
@@ -593,6 +721,12 @@ class AnalysisJobService:
             return ""
         last = discussion_messages[-1]
         content = last.get("content", "")
+        if isinstance(content, dict):
+            import json
+            content = json.dumps(content, ensure_ascii=False)
+        elif not isinstance(content, str):
+            content = str(content)
+            
         # Try to find a tagline or thesis section
         for marker in ["Tagline", "Investment Thesis", "核心摘要", "核心结论", "趋势定性", "结论"]:
             idx = content.find(marker)
@@ -633,8 +767,18 @@ class AnalysisJobService:
         
         # Populate technicalAnalysis and fundamentalAnalysis from expert messages
         if technical_content:
+            if isinstance(technical_content, dict):
+                import json
+                technical_content = json.dumps(technical_content, ensure_ascii=False)
+            elif not isinstance(technical_content, str):
+                technical_content = str(technical_content)
             fields["technicalAnalysis"] = technical_content[:2000]
         if fundamental_content:
+            if isinstance(fundamental_content, dict):
+                import json
+                fundamental_content = json.dumps(fundamental_content, ensure_ascii=False)
+            elif not isinstance(fundamental_content, str):
+                fundamental_content = str(fundamental_content)
             fields["fundamentalAnalysis"] = fundamental_content[:2000]
         
         if not chief_content:

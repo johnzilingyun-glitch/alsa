@@ -184,7 +184,7 @@ export function useStockAnalysis() {
       setLoading(false);
       setIsDiscussing(false);
       if (insufficientBalance) {
-        setAnalysisError('API 余额不足 (Insufficient Balance)。请前往设置更换 API Key 或充值后重试。');
+        setAnalysisError(`API 余额不足 (Insufficient Balance)。请前往设置更换 API Key 或充值后重试。\n\n${error}`);
       } else {
         setAnalysisError(error);
       }

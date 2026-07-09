@@ -195,6 +195,160 @@ async def fetch_a_share_ownership(code: str) -> Dict[str, float]:
     return out
 
 
+async def fetch_a_share_balance_items(code: str, periods: int = 4) -> List[Dict[str, Any]]:
+    """Fetch A-share balance-sheet line items from EastMoney datacenter (no akshare).
+
+    Returns detailed line items that yfinance does not break out for A-shares —
+    e.g. 应收账款 (accounts receivable), 应收票据及账款, 存货 (inventory),
+    货币资金 (monetary funds), 应付账款 (accounts payable). This is the reliable
+    replacement for the AkShare balance-sheet path which frequently fails with
+    RemoteDisconnected.
+
+    Returns a list (latest first) of dicts:
+      {report_date, monetaryFunds, notesAndAccountsRece, accountsRece,
+       inventory, accountsPayable, totalAssets, totalLiabilities}
+    Empty list on failure (graceful degradation).
+    """
+    suffix = "SH" if code.startswith("6") else ("BJ" if code.startswith(("4", "8", "9")) else "SZ")
+    secucode = f"{code}.{suffix}"
+
+    def _fetch():
+        url = "https://datacenter.eastmoney.com/securities/api/data/v1/get"
+        params = {
+            "reportName": "RPT_F10_FINANCE_GBALANCE",
+            "columns": (
+                "SECUCODE,REPORT_DATE,MONETARYFUNDS,NOTE_ACCOUNTS_RECE,"
+                "ACCOUNTS_RECE,INVENTORY,ACCOUNTS_PAYABLE,TOTAL_ASSETS,TOTAL_LIABILITIES"
+            ),
+            "filter": f'(SECUCODE="{secucode}")',
+            "pageNumber": "1",
+            "pageSize": str(max(periods, 1)),
+            "sortColumns": "REPORT_DATE",
+            "sortTypes": "-1",
+            "source": "HSF10",
+            "client": "PC",
+        }
+        r = requests.get(url, params=params, headers={"User-Agent": UA}, timeout=12)
+        return r.json()
+
+    try:
+        data = await asyncio.to_thread(_fetch)
+    except Exception as e:
+        logger.warning(f"[BalanceItems] EastMoney fetch failed for {code}: {type(e).__name__}")
+        return []
+
+    rows = (data or {}).get("result", {}).get("data") or []
+    out: List[Dict[str, Any]] = []
+    for row in rows[:periods]:
+        out.append({
+            "report_date": str(row.get("REPORT_DATE", ""))[:10],
+            "monetaryFunds": row.get("MONETARYFUNDS"),
+            "notesAndAccountsRece": row.get("NOTE_ACCOUNTS_RECE"),
+            "accountsRece": row.get("ACCOUNTS_RECE"),
+            "inventory": row.get("INVENTORY"),
+            "accountsPayable": row.get("ACCOUNTS_PAYABLE"),
+            "totalAssets": row.get("TOTAL_ASSETS"),
+            "totalLiabilities": row.get("TOTAL_LIABILITIES"),
+        })
+    return out
+
+
+async def fetch_a_share_income_items(code: str, periods: int = 4) -> List[Dict[str, Any]]:
+    """Fetch A-share income-statement periods from EastMoney datacenter (no akshare).
+
+    Reliable replacement for AkShare's quarterly financial abstract which fails
+    frequently with RemoteDisconnected. Returns per-period revenue / net profit /
+    deducted (扣非) net profit.
+
+    Returns a list (latest first) of dicts:
+      {report_date, revenue, operatingProfit, netProfit, parentNetProfit, deductNetProfit}
+    Empty list on failure (graceful degradation).
+    """
+    suffix = "SH" if code.startswith("6") else ("BJ" if code.startswith(("4", "8", "9")) else "SZ")
+    secucode = f"{code}.{suffix}"
+
+    def _fetch():
+        url = "https://datacenter.eastmoney.com/securities/api/data/v1/get"
+        params = {
+            "reportName": "RPT_F10_FINANCE_GINCOME",
+            "columns": (
+                "SECUCODE,REPORT_DATE,TOTAL_OPERATE_INCOME,OPERATE_PROFIT,"
+                "NETPROFIT,PARENT_NETPROFIT,DEDUCT_PARENT_NETPROFIT"
+            ),
+            "filter": f'(SECUCODE="{secucode}")',
+            "pageNumber": "1",
+            "pageSize": str(max(periods, 1)),
+            "sortColumns": "REPORT_DATE",
+            "sortTypes": "-1",
+            "source": "HSF10",
+            "client": "PC",
+        }
+        r = requests.get(url, params=params, headers={"User-Agent": UA}, timeout=12)
+        return r.json()
+
+    try:
+        data = await asyncio.to_thread(_fetch)
+    except Exception as e:
+        logger.warning(f"[IncomeItems] EastMoney fetch failed for {code}: {type(e).__name__}")
+        return []
+
+    rows = (data or {}).get("result", {}).get("data") or []
+    out: List[Dict[str, Any]] = []
+    for row in rows[:periods]:
+        out.append({
+            "report_date": str(row.get("REPORT_DATE", ""))[:10],
+            "revenue": row.get("TOTAL_OPERATE_INCOME"),
+            "operatingProfit": row.get("OPERATE_PROFIT"),
+            "netProfit": row.get("NETPROFIT"),
+            "parentNetProfit": row.get("PARENT_NETPROFIT"),
+            "deductNetProfit": row.get("DEDUCT_PARENT_NETPROFIT"),
+        })
+    return out
+
+
+async def fetch_a_share_dividends(code: str, periods: int = 5) -> List[Dict[str, Any]]:
+    """Fetch A-share dividend history from EastMoney datacenter (no akshare).
+
+    Reliable replacement for AkShare's dividend detail. Returns per-period
+    pre-tax cash dividend (per 10 shares) with ex-dividend date.
+
+    Returns a list (latest first) of dicts:
+      {report_date, ex_dividend_date, pretaxBonusPer10}
+    Empty list on failure (graceful degradation).
+    """
+    def _fetch():
+        url = "https://datacenter.eastmoney.com/securities/api/data/v1/get"
+        params = {
+            "reportName": "RPT_SHAREBONUS_DET",
+            "columns": "SECUCODE,REPORT_DATE,EX_DIVIDEND_DATE,PRETAX_BONUS_RMB,PLAN_NOTICE_DATE",
+            "filter": f'(SECURITY_CODE="{code}")',
+            "pageNumber": "1",
+            "pageSize": str(max(periods, 1)),
+            "sortColumns": "REPORT_DATE",
+            "sortTypes": "-1",
+            "source": "WEB",
+            "client": "WEB",
+        }
+        r = requests.get(url, params=params, headers={"User-Agent": UA}, timeout=12)
+        return r.json()
+
+    try:
+        data = await asyncio.to_thread(_fetch)
+    except Exception as e:
+        logger.warning(f"[Dividends] EastMoney fetch failed for {code}: {type(e).__name__}")
+        return []
+
+    rows = (data or {}).get("result", {}).get("data") or []
+    out: List[Dict[str, Any]] = []
+    for row in rows[:periods]:
+        out.append({
+            "report_date": str(row.get("REPORT_DATE", ""))[:10],
+            "ex_dividend_date": str(row.get("EX_DIVIDEND_DATE", ""))[:10],
+            "pretaxBonusPer10": row.get("PRETAX_BONUS_RMB"),
+        })
+    return out
+
+
 class AStockDirectProvider(DataProvider):
     """
     Primary A-Share data provider using direct HTTP APIs.

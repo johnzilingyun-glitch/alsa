@@ -10,6 +10,7 @@ import os
 import asyncio
 import logging
 from celery import Celery
+from app.observability.failure_capture import capture_failure_incident
 
 logger = logging.getLogger(__name__)
 
@@ -104,6 +105,22 @@ def run_analysis_task(self, job_id: str, symbol: str, market: str, config: dict 
         logger.info(f"[Celery] Completed analysis job {job_id}")
     except Exception as e:
         error_msg = str(e)
+        incident = capture_failure_incident(
+            component="celery.run_analysis_task",
+            error=e,
+            job_id=job_id,
+            symbol=symbol,
+            market=market,
+            stage="celery_worker",
+            context={
+                "task_id": getattr(self.request, "id", None),
+                "retries": getattr(self.request, "retries", None),
+                "config": config,
+                "verification_mode": verification_mode,
+            },
+        )
+        incident_id = incident.get("incident_id")
+        error_msg = f"{error_msg} [incident_id={incident_id}]"
         logger.error(f"[Celery] Job {job_id} failed: {error_msg}")
 
         # Update job status as failed
@@ -167,6 +184,25 @@ def run_sector_analysis_task(
         logger.info(f"[Celery] Completed sector analysis job {job_id}")
     except Exception as e:
         error_msg = str(e)
+        incident = capture_failure_incident(
+            component="celery.run_sector_analysis_task",
+            error=e,
+            job_id=job_id,
+            symbol=sector_name,
+            market="sector",
+            stage="celery_worker",
+            context={
+                "task_id": getattr(self.request, "id", None),
+                "retries": getattr(self.request, "retries", None),
+                "pipeline_version": pipeline_version,
+                "level": level,
+                "target_date": target_date,
+                "config": config,
+                "verification_mode": verification_mode,
+            },
+        )
+        incident_id = incident.get("incident_id")
+        error_msg = f"{error_msg} [incident_id={incident_id}]"
         logger.error(f"[Celery] Sector job {job_id} failed: {error_msg}")
 
         # Update job status as failed

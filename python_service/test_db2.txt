@@ -1,0 +1,1 @@
+[('scan_14b091e7', 'completed', None), ('job_57ad4261', 'failed', None), ('job_ab626def', 'completed', '服务器重启，分析任务丢失。请重新提交。'), ('sector_911dd069', 'completed', None), ('job_a74e280d', 'cancelled', None)]

@@ -155,6 +155,9 @@ export const useMarketStore = create<MarketState>()(
         recentSearches: state.recentSearches,
         overviewMarket: state.overviewMarket,
         marketOverviews: state.marketOverviews,
+        marketDashboards: state.marketDashboards,
+        marketSummary: state.marketSummary,
+        marketSentiment: state.marketSentiment,
         marketLastUpdatedTimes: state.marketLastUpdatedTimes,
         // Exclude historyItems, optimizationLogs to keep localStorage small and hydration fast
       }),

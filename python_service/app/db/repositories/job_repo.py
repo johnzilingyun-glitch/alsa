@@ -1,6 +1,7 @@
 from typing import Optional, Callable, List
 from sqlmodel import Session, select
 from ..models import AnalysisJob, AnalysisRun
+from ...time_utils import utc_now
 
 class JobRepository:
     def __init__(self, session_factory: Callable[[], Session]):
@@ -32,6 +33,10 @@ class JobRepository:
             job = session.get(AnalysisJob, job_id)
             if job:
                 job.status = status
+                if status == "running" and not job.started_at:
+                    job.started_at = utc_now()
+                if status in ("completed", "failed", "cancelled"):
+                    job.finished_at = utc_now()
                 if result_payload:
                     job.result_payload = result_payload
                 if error_message:

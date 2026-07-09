@@ -11,6 +11,7 @@ from datetime import datetime, date
 from typing import Optional, Dict, Any, List
 from app.db.redis_client import RedisManager
 from app.logging import get_logger
+from app.observability.failure_capture import capture_failure_incident
 
 logger = get_logger(__name__)
 
@@ -227,8 +228,28 @@ class SectorAnalysisService:
             raise
         except Exception as e:
             import traceback
-            traceback.print_exc()
-            self.job_repo.update_status(job_id, "failed", error_message=str(e))
+            tb = traceback.format_exc()
+            incident = capture_failure_incident(
+                component="sector_analysis_service",
+                error=e,
+                job_id=job_id,
+                symbol=sector_name,
+                market="sector",
+                stage="sector_job",
+                context={
+                    "target_date": target_date,
+                    "level": level,
+                    "verification_mode": verification_mode,
+                    "model": model,
+                    "config": config,
+                    "snapshot": locals().get("snapshot", {}),
+                    "discussion": locals().get("discussion_messages", []),
+                },
+                traceback_text=tb,
+            )
+            incident_id = incident.get("incident_id")
+            logger.exception(f"Sector analysis job failed: {e} (incident_id={incident_id})")
+            self.job_repo.update_status(job_id, "failed", error_message=f"{e} [incident_id={incident_id}]")
         finally:
             current_token_usage.reset(token_ctx)
 

@@ -4,7 +4,7 @@ import os
 import time
 import yfinance as yf
 from datetime import datetime
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 from ..utils.data_validation import validate_ak_data
 from .search_service import search_service
 from .data_providers import data_router
@@ -496,6 +496,46 @@ class MarketDataService:
         except Exception as e:
             print(f"History fetch failed for {symbol}: {e}")
             return []
+
+    async def get_quotes_with_meta(self, symbols: List[str]) -> List[Dict[str, Any]]:
+        """
+        Fetch quotes via DataRouter and include per-symbol route metadata.
+        """
+        async def _fetch_one(sym: str) -> Dict[str, Any]:
+            try:
+                quote, route_meta = await data_router.get_quote_with_meta(sym)
+                if quote is None:
+                    return {
+                        "symbol": sym,
+                        "error": "No data",
+                        "_route_meta": route_meta,
+                    }
+                row = quote.to_dict()
+                row["_route_meta"] = route_meta
+                return row
+            except Exception as e:
+                return {
+                    "symbol": sym,
+                    "error": str(e),
+                    "_route_meta": data_router.get_last_route_meta(),
+                }
+
+        tasks = [_fetch_one(s) for s in symbols]
+        return await asyncio.gather(*tasks)
+
+    async def get_history_with_meta(
+        self, symbol: str, period: str = "1mo", interval: str = "1d"
+    ) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+        """
+        Fetch historical data via DataRouter and include route metadata.
+        """
+        try:
+            df, route_meta = await data_router.get_history_with_meta(symbol, period=period, interval=interval)
+            records = df.to_dict(orient="records") if df is not None and not df.empty else []
+            return records, route_meta
+        except Exception as e:
+            print(f"History fetch (with meta) failed for {symbol}: {e}")
+            return [], data_router.get_last_route_meta()
 
     async def get_news(self, market: str) -> List[Dict[str, Any]]:
         """

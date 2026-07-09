@@ -1,4 +1,5 @@
 import json
+import re
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import Response
 from pydantic import BaseModel
@@ -24,6 +25,15 @@ class ApiKeySubmission(BaseModel):
     apiKey: str
 
 router = APIRouter(prefix="/analysis", tags=["analysis"])
+
+
+def _extract_incident_id(error_message: Optional[str]) -> Optional[str]:
+    if not error_message:
+        return None
+    match = re.search(r"\[incident_id=([^\]]+)\]", error_message)
+    if not match:
+        return None
+    return match.group(1)
 
 def get_job_service():
     # Attempt to import from a safe location to avoid circular imports
@@ -95,6 +105,7 @@ async def get_job(job_id: str, service: AnalysisJobService = Depends(get_job_ser
         "status": job.status,
         "progress": progress,
         "analysis_id": job.analysis_id,
+        "incident_id": _extract_incident_id(job.error_message),
         "error_message": job.error_message,
         "result": result
     })

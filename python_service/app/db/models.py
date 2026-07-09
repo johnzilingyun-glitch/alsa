@@ -151,6 +151,7 @@ class SearchAlert(SQLModel, table=True):
     invalidation_criteria: Optional[str] = None  # What falsifies the thesis
     thesis_stage: Optional[str] = None  # IDEA/WATCHING/ENTERED/EXITED/POSTMORTEM
     lessons_learned: Optional[str] = None  # Post-trade reflection
+    trigger_type: Optional[str] = None  # stop_loss / target / signal
 
 class PredictionRecord(SQLModel, table=True):
     prediction_id: str = Field(primary_key=True, default_factory=lambda: f"pred_{uuid.uuid4().hex[:8]}")

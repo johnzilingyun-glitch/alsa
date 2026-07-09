@@ -3,6 +3,27 @@ import { StockAnalysis } from '../types';
 import { useUIStore } from '../stores/useUIStore';
 import { useDiscussionStore } from '../stores/useDiscussionStore';
 
+function extractIncidentId(errorMessage?: string | null): string | null {
+  if (!errorMessage) return null;
+  const match = String(errorMessage).match(/\[incident_id=([^\]]+)\]/);
+  return match?.[1] || null;
+}
+
+function buildFailureMessage(jobId: string, rawError: string | null | undefined, explicitIncidentId?: string | null): string {
+  const incidentId = explicitIncidentId || extractIncidentId(rawError);
+  const lines = [
+    '分析任务失败。',
+    `Job ID: ${jobId}`,
+  ];
+  if (incidentId) {
+    lines.push(`Incident ID: ${incidentId}`);
+  }
+  if (rawError) {
+    lines.push(`错误详情: ${rawError}`);
+  }
+  return lines.join('\n');
+}
+
 export function useAnalysisJob() {
   const [status, setStatus] = useState<'idle' | 'queued' | 'running' | 'completed' | 'failed' | 'cancelled'>('idle');
   const [result, setResult] = useState<StockAnalysis | null>(null);
@@ -213,7 +234,7 @@ export function useAnalysisJob() {
           }
         } else if (data.status === 'failed') {
           clearInterval(timer);
-          setError(data.error_message || 'Job failed');
+          setError(buildFailureMessage(id, data.error_message || 'Job failed', data.incident_id || null));
         } else if (data.status === 'cancelled') {
           clearInterval(timer);
           setStatus('cancelled');

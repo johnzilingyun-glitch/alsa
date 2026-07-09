@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "codegraph": {
+      "type": "stdio",
+      "command": "/usr/bin/node",
+      "args": ["/home/ubuntu/.npm-global/lib/node_modules/@colbymchenry/codegraph/npm-shim.js", "serve", "--mcp"],
+      "cwd": "/home/ubuntu/work/alsa"
+    }
+  }
+}

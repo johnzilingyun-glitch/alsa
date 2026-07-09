@@ -1,0 +1,58 @@
+provider_order:
+  A-Share:
+    - a-stock-direct
+    - akshare-fallback
+    - yfinance
+    - thsdk
+    - sina
+    - iwencai
+  HK-Share:
+    - yfinance
+    - a-stock-direct
+  US-Share:
+    - yfinance
+  Unknown:
+    - yfinance
+    - a-stock-direct
+
+quality_thresholds:
+  quote:
+    default: 0.5
+    A-Share: 0.6
+    HK-Share: 0.55
+    US-Share: 0.55
+  history:
+    default: 0.55
+    A-Share: 0.6
+    HK-Share: 0.55
+    US-Share: 0.55
+  financial:
+    default: 0.35
+    A-Share: 0.4
+    HK-Share: 0.35
+    US-Share: 0.35
+
+cache_ttl_seconds:
+  quote:
+    A-Share: 3
+    HK-Share: 5
+    US-Share: 8
+    Unknown: 5
+  history:
+    1m: 20
+    5m: 45
+    15m: 90
+    30m: 180
+    60m: 300
+    1d: 900
+    default: 120
+  financial:
+    A-Share: 3600
+    HK-Share: 5400
+    US-Share: 7200
+    Unknown: 3600
+
+flags:
+  enforce_quality_threshold: true
+  enable_history_redis_cache: true
+  enable_financial_ttl_cache: true

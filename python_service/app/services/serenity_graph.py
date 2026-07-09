@@ -8,6 +8,7 @@ from typing import TypedDict
 
 from .sector_analysis_service import SectorAnalysisService
 from .discussion_service import discussion_service
+from app.observability.failure_capture import capture_failure_incident
 
 class SerenityGraphService(SectorAnalysisService):
     """Development AI Pipeline using LangGraph to orchestrate the entire workflow."""
@@ -223,5 +224,23 @@ class SerenityGraphService(SectorAnalysisService):
             self.job_repo.update_status(job_id, "cancelled")
             raise
         except Exception as e:
+            tb = traceback.format_exc()
+            incident = capture_failure_incident(
+                component="serenity_graph_service",
+                error=e,
+                job_id=job_id,
+                symbol=sector_name,
+                market="sector",
+                stage="graph_pipeline",
+                context={
+                    "target_date": target_date,
+                    "level": level,
+                    "verification_mode": verification_mode,
+                    "model": model,
+                    "config": config,
+                },
+                traceback_text=tb,
+            )
+            incident_id = incident.get("incident_id")
             traceback.print_exc()
-            self.job_repo.update_status(job_id, "failed", error_message=str(e))
+            self.job_repo.update_status(job_id, "failed", error_message=f"{e} [incident_id={incident_id}]")

@@ -22,14 +22,22 @@ T = TypeVar("T")
 # Fast-fail keywords: don't waste time retrying these
 _NO_RETRY_KEYWORDS = ("Too Many Requests", "Rate limited", "429", "Forbidden")
 
-# Data-parsing errors: upstream returned bad data, retrying won't help
-_DATA_ERROR_KEYWORDS = ("NoneType", "KeyError", "IndexError", "KeyError", "list index out of range")
+# Deterministic parse/structure errors: the upstream data or AkShare internals are
+# malformed for this call. Retrying is 100% useless and only wastes wall-clock time
+# (observed: `invalid escape sequence: \u`, pandas `Length mismatch`, axis mismatch).
+# These previously burned 3x retries each — now fail instantly.
+_DATA_ERROR_KEYWORDS = (
+    "NoneType", "KeyError", "IndexError", "list index out of range",
+    "invalid escape sequence", "Length mismatch", "Expected axis",
+    "new values have", "could not convert", "cannot convert",
+    "invalid literal", "ValueError",
+)
 
-async def safe_ak_call(func: Callable[..., T], *args, max_retries: int = 2, initial_delay: float = 0.3, **kwargs) -> T:
+async def safe_ak_call(func: Callable[..., T], *args, max_retries: int = 2, initial_delay: float = 0.5, **kwargs) -> T:
     """
     Safely execute an AkShare call with retries and exponential backoff.
     Handles RemoteDisconnected and other transient network issues.
-    Fast retry (0.3s base) for domestic servers where transient resets are common.
+    Returns None on persistent failure instead of raising (graceful degradation).
     """
     last_error = None
     delay = initial_delay
@@ -40,7 +48,18 @@ async def safe_ak_call(func: Callable[..., T], *args, max_retries: int = 2, init
                 return await func(*args, **kwargs)
             else:
                 loop = asyncio.get_event_loop()
-                return await loop.run_in_executor(None, functools.partial(func, *args, **kwargs))
+                return await asyncio.wait_for(
+                    loop.run_in_executor(None, functools.partial(func, *args, **kwargs)),
+                    timeout=8.0  # Hard per-attempt timeout — fail fast on stalled sockets
+                )
+        except asyncio.TimeoutError:
+            last_error = TimeoutError(f"AkShare call timed out after 8s (attempt {attempt+1})")
+            logger.warning(f"Timeout during AkShare call (Attempt {attempt+1}/{max_retries})")
+            if attempt < max_retries - 1:
+                await asyncio.sleep(delay)
+                delay *= 2
+            else:
+                return None  # Graceful degradation
         except Exception as e:
             last_error = e
             err_msg = str(e)
@@ -48,7 +67,7 @@ async def safe_ak_call(func: Callable[..., T], *args, max_retries: int = 2, init
             # Fast-fail: don't retry rate-limited or forbidden requests
             if any(kw in err_msg for kw in _NO_RETRY_KEYWORDS):
                 logger.warning(f"Rate limited/blocked, not retrying AkShare call: {e}")
-                break
+                return None  # Graceful degradation
 
             # Data errors: upstream returned empty/null data, retrying won't help
             if any(kw in err_msg for kw in _DATA_ERROR_KEYWORDS):
@@ -71,6 +90,6 @@ async def safe_ak_call(func: Callable[..., T], *args, max_retries: int = 2, init
                 await asyncio.sleep(delay + random.uniform(0, 0.5))
                 delay *= 2
             else:
-                break
+                return None  # Graceful degradation instead of raising
 
-    raise last_error
+    return None  # All retries exhausted

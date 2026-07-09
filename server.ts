@@ -17,7 +17,7 @@ import { buildSocketCorsOptions, getServerHost, getServerPort, isDiagnosticsEnab
 import { applySecurityHeaders } from './server/securityHeaders.js';
 import { createRateLimiter } from './server/rateLimiter.js';
 import { formatHttpLog } from './server/logSanitizer.js';
-import { startFeishuWsClient } from './server/feishuWsClient.js';
+
 
 dotenv.config();
 dotenv.config({ path: '.env.runtime' });
@@ -73,9 +73,39 @@ async function startServer() {
     });
   });
 
-  app.get('/api/health/data-sources', (req, res) => {
+  app.get('/api/health/data-sources', async (req, res) => {
     console.log('Data sources health check called');
-    res.json(monitor.getHealthReport());
+    let pythonStatus: any = null;
+    try {
+      const pyResp = await fetch(`${process.env.PYTHON_BACKEND_URL || 'http://127.0.0.1:8001'}/api/market/status`, {
+        headers: process.env.API_TOKEN
+          ? { Authorization: `Bearer ${process.env.API_TOKEN}` }
+          : undefined,
+      });
+      if (pyResp.ok) {
+        pythonStatus = await pyResp.json();
+      }
+    } catch (e) {
+      pythonStatus = {
+        success: false,
+        error: {
+          code: 'PYTHON_STATUS_UNAVAILABLE',
+          message: e instanceof Error ? e.message : String(e),
+        },
+      };
+    }
+
+    res.json({
+      success: true,
+      data: {
+        node: {
+          sources: monitor.getHealthReport(),
+          dimensions: monitor.getDimensionalHealthReport(),
+          marketSummary: monitor.getMarketSummary(),
+        },
+        python: pythonStatus,
+      },
+    });
   });
 
   // Route modules
@@ -211,8 +241,7 @@ async function startServer() {
     console.log(`GEMINI_API_KEY configured: ${!!process.env.GEMINI_API_KEY}`);
     addLogEntry('server', 'startup', 'active', 'Server started and background tasks initialized');
     
-    // Start Feishu WS Client for long connection
-    startFeishuWsClient();
+
   });
 
   const io = new Server(server, { cors: buildSocketCorsOptions() });

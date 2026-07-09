@@ -83,7 +83,7 @@ async def _iwencai_search(query: str, channel: str = "news", retry: bool = False
     }
 
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(timeout=15.0) as client:
             response = await client.post(url, headers=headers, json=payload)
             response.raise_for_status()
             return response.json()

@@ -385,13 +385,19 @@ router.get('/stock/indices', async (req, res) => {
           name: INDEX_NAME_MAP[d.symbol] || d.name
         }));
         setCache(cacheKey, data);
-        monitor.recordSuccess('python_market', Date.now() - startTime);
+        monitor.recordSuccess('python_market', Date.now() - startTime, {
+          market: (marketKey as any) || 'Unknown',
+          dataType: 'indices',
+        });
         return res.json(data);
       }
     }
     throw new Error('Python indices fetch failed or empty');
   } catch (error) {
-    monitor.recordFailure('python_market');
+    monitor.recordFailure('python_market', {
+      market: (marketKey as any) || 'Unknown',
+      dataType: 'indices',
+    });
     console.warn(`Indices fetch error for ${marketKey} (falling back to legacy yf):`, error.response ? error.response.data : error.message);
     
     // Legacy fallback (preserving minimal safety)

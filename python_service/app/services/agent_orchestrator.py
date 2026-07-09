@@ -19,6 +19,69 @@ from .token_guard import token_guard
 logger = logging.getLogger(__name__)
 
 
+import re as _re
+
+
+def _summarize_tool_result(content: str, max_chars: int = 600) -> str:
+    """Extractive summary of a tool observation for context compression.
+
+    Keeps the header (tool + query) and the highest-signal body lines in order —
+    table rows, numeric facts, and structural markers — dropping filler. Full text
+    stays available in the external store; this is only what the LLM sees for older
+    rounds. Order is preserved so the summary stays readable.
+    """
+    if not content:
+        return content
+    if len(content) <= max_chars:
+        return content
+
+    lines = content.splitlines()
+    header = [l for l in lines[:2] if l.strip()]
+    body = lines[2:] if len(lines) > 2 else []
+
+    out = list(header)
+    used = sum(len(l) for l in out)
+    for ln in body:
+        s = ln.strip()
+        if not s:
+            continue
+        # Signal: table rows, numeric data, structured bullets/headers.
+        is_signal = ("|" in ln) or bool(_re.search(r"\d", ln)) or s.startswith(("##", "- ", "• ", "* "))
+        if not is_signal:
+            continue
+        if used + len(ln) + 1 > max_chars:
+            break
+        out.append(ln)
+        used += len(ln) + 1
+    return "\n".join(out)
+
+
+# Native tool that lets the model re-load a full tool result from the external store
+# on demand (results older than the recent window are summarized in context).
+RECALL_TOOL_SCHEMA = {
+    "type": "function",
+    "function": {
+        "name": "recall_tool_result",
+        "description": (
+            "Retrieve the FULL original result of an earlier tool call that has been "
+            "summarized in the conversation. Pass the ref id shown next to the summary "
+            "(e.g. 'ref=call_abc123'). Use only when you need exact figures that the "
+            "summary omitted."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "ref_id": {
+                    "type": "string",
+                    "description": "The ref id of the summarized tool result to expand.",
+                }
+            },
+            "required": ["ref_id"],
+        },
+    },
+}
+
+
 class AgentOrchestrator:
     """AgentOrchestrator handles tool execution loop, reasoning accumulation,
     quality-gate checks, and recovery synthesis.
@@ -127,6 +190,24 @@ class AgentOrchestrator:
 
             # Execute tools
             observations = await tool_executor.execute_all(tool_calls)
+
+            # Early-stop: if all tools returned errors/empty, force completion
+            _fail_markers = ("No results found", "Error:", "⚠", "timed out", "failed")
+            _all_failed = all(
+                any(m in obs for m in _fail_markers) or len(obs.strip()) < 30
+                for obs in observations
+            )
+            if _all_failed and round_num >= 3:
+                logger.warning(f"  [ToolLoop] All {len(observations)} tools failed on round {round_num+1}, forcing completion")
+                current_prompt += "\n\nIMPORTANT: Data sources are temporarily unavailable. Complete your analysis using the data you already have. Do NOT make further tool calls.\n"
+                final_result = await llm_gateway.generate_content(
+                    current_prompt, model=model, temperature=temperature,
+                    on_chunk=on_chunk, gemini_api_key=gemini_api_key,
+                    deepseek_api_key=deepseek_api_key,
+                )
+                if final_result:
+                    all_content_parts.append(final_result)
+                break
 
             # Heartbeat: keep frontend idle timer alive after tool execution
             if on_chunk:
@@ -294,10 +375,21 @@ class AgentOrchestrator:
         final_model = model_map.get(model, model)
 
         tools = get_openai_tools(role=role)
+        tools = list(tools) + [RECALL_TOOL_SCHEMA]
         messages = [
             {"role": "system", "content": "You are a professional financial analyst expert."},
             {"role": "user", "content": prompt},
         ]
+
+        # ── Shared state for tool results (source of truth) ──────────────────
+        # Full tool outputs are stored here keyed by tool_call_id; the LLM context
+        # keeps full text only for the most recent rounds and summaries for older
+        # ones. The model can pull any full result back via recall_tool_result.
+        tool_result_store: dict = {}      # tool_call_id -> full observation text
+        tool_round_of_id: dict = {}       # tool_call_id -> round it was produced in
+        compressed_ids: set = set()       # ids already summarized in context
+        KEEP_RECENT_ROUNDS = int(os.getenv("TOOLLOOP_KEEP_RECENT_ROUNDS", "2"))
+        TOOL_SUMMARY_CHARS = int(os.getenv("TOOLLOOP_SUMMARY_CHARS", "600"))
 
         # Guard against prompt size explosion
         prompt_chars = len(prompt)
@@ -338,22 +430,19 @@ class AgentOrchestrator:
 
             # For the final round after tool calls, add explicit completion instruction
             if not use_tools and had_tool_rounds:
-                # Manage context: truncate long tool observations to prevent context overflow
+                # Safety net: if the still-full recent tool results are very large,
+                # summarize them too (older rounds are already summarized in-loop).
                 total_tool_chars = sum(
                     len(m.get("content", ""))
                     for m in messages
                     if m.get("role") == "tool"
                 )
-                trunc_limit = 2000 if total_tool_chars > 30000 else 3000
-                for i, msg in enumerate(messages):
-                    if (
-                        msg.get("role") == "tool"
-                        and len(msg.get("content", "")) > trunc_limit
-                    ):
-                        messages[i]["content"] = (
-                            msg["content"][:trunc_limit]
-                            + "\n\n... [content truncated for context management]"
-                        )
+                _final_budget = int(os.getenv("TOOLLOOP_FINAL_TOOL_BUDGET", "30000"))
+                if total_tool_chars > _final_budget:
+                    _safety_cap = 3000
+                    for m in messages:
+                        if m.get("role") == "tool" and len(m.get("content", "")) > _safety_cap:
+                            m["content"] = _summarize_tool_result(m["content"], _safety_cap)
                 messages.append(
                     {
                         "role": "user",
@@ -468,8 +557,10 @@ class AgentOrchestrator:
                 finally:
                     _loop.close()
 
-            # Wrap with async timeout to prevent infinite hangs from API server
-            _round_timeout = 360  # 6 minutes max per round
+            # Wrap with async timeout to prevent infinite hangs from API server.
+            # 150s = httpx read timeout (60s) × ~2 retries + margin. Keeps a stuck
+            # round from blocking for the old 360s while allowing SDK auto-retry.
+            _round_timeout = int(os.getenv("LLM_ROUND_TIMEOUT", "150"))
             try:
                 content, tool_calls_data, reasoning_content = (
                     await asyncio.wait_for(
@@ -569,7 +660,7 @@ class AgentOrchestrator:
             # Build assistant message with tool_calls for conversation history
             assistant_msg = {
                 "role": "assistant",
-                "content": content or None,
+                "content": content or "",
                 "tool_calls": [
                     {
                         "id": tc["id"],
@@ -582,8 +673,13 @@ class AgentOrchestrator:
                     for tc in tool_calls_data
                 ],
             }
-            if reasoning_content:
+            # DeepSeek v4 models use thinking mode by default — reasoning_content
+            # MUST be passed back in subsequent turns, even if empty, otherwise
+            # the API returns 400 "reasoning_content must be passed back".
+            if reasoning_content is not None:
                 assistant_msg["reasoning_content"] = reasoning_content
+            else:
+                assistant_msg["reasoning_content"] = ""
             messages.append(assistant_msg)
 
             if on_chunk:
@@ -597,6 +693,15 @@ class AgentOrchestrator:
                     args = json.loads(tc_data["function"]["arguments"])
                 except json.JSONDecodeError:
                     args = {}
+
+                # On-demand recall: pull a full result back from the external store.
+                if func_name == "recall_tool_result":
+                    ref = (args.get("ref_id") or "").strip().replace("ref=", "")
+                    full = tool_result_store.get(ref)
+                    if full:
+                        logger.info(f"  [ToolExecutor] recall_tool_result: {ref} ({len(full)} chars)")
+                        return tc_data["id"], f"[Full result for {ref}]\n{full}"
+                    return tc_data["id"], f"No stored result found for ref '{ref}'."
 
                 # Convert to our ToolExecutor format
                 tool_call = {"tool": func_name, "reason": "native function call"}
@@ -635,6 +740,7 @@ class AgentOrchestrator:
                 on_chunk((round_num + 1) * (len(messages) + 500), message=f"{role or 'Agent'} (第 {round_num + 1} 轮工具调用完成，正在思考...)")
 
             # Append results in order as role:tool messages
+            _tool_fail_count = 0
             for i, result_or_exc in enumerate(tool_results):
                 if isinstance(result_or_exc, Exception):
                     tc_id = tool_calls_data[i]["id"]
@@ -645,8 +751,16 @@ class AgentOrchestrator:
                             "content": f"Tool execution error: {result_or_exc}",
                         }
                     )
+                    _tool_fail_count += 1
                 else:
                     tc_id, obs_clean = result_or_exc
+                    _is_fail = any(m in obs_clean for m in ("No results found", "Error:", "⚠", "timed out", "failed")) or len(obs_clean.strip()) < 30
+                    if _is_fail:
+                        _tool_fail_count += 1
+                    # Persist full result to the shared state store (source of truth)
+                    # and record which round it belongs to for windowed compression.
+                    tool_result_store[tc_id] = obs_clean
+                    tool_round_of_id[tc_id] = round_num
                     messages.append(
                         {
                             "role": "tool",
@@ -654,6 +768,41 @@ class AgentOrchestrator:
                             "content": obs_clean,
                         }
                     )
+
+            # Early-stop: if all tools failed and we've done enough rounds, force completion
+            if _tool_fail_count == len(tool_results) and round_num >= 3:
+                logger.warning(f"  [ToolLoop] All {len(tool_results)} native tools failed on round {round_num+1}, forcing completion")
+                break
+
+            # ── Context compression via summarization (keep recent N rounds full) ──
+            # Older tool results are replaced in-context by an extractive summary plus
+            # a ref pointer; the full text remains in tool_result_store and can be
+            # pulled back with recall_tool_result. This bounds per-call token size
+            # without losing the underlying facts.
+            _cutoff = round_num - KEEP_RECENT_ROUNDS
+            if _cutoff >= 0:
+                _saved = 0
+                for m in messages:
+                    if m.get("role") != "tool":
+                        continue
+                    tc_id = m.get("tool_call_id")
+                    if not tc_id or tc_id in compressed_ids:
+                        continue
+                    if tool_round_of_id.get(tc_id, round_num) > _cutoff:
+                        continue
+                    full = tool_result_store.get(tc_id, m.get("content", ""))
+                    if len(full) <= TOOL_SUMMARY_CHARS + 120:
+                        compressed_ids.add(tc_id)  # too small to bother; mark done
+                        continue
+                    summary = _summarize_tool_result(full, TOOL_SUMMARY_CHARS)
+                    _saved += len(m.get("content", "")) - len(summary)
+                    m["content"] = (
+                        summary
+                        + f"\n[↑ summarized · full result ref={tc_id} · call recall_tool_result to expand]"
+                    )
+                    compressed_ids.add(tc_id)
+                if _saved > 0:
+                    logger.info(f"  [ToolLoop] Summarized old tool results (round≤{_cutoff}), saved ~{_saved} chars")
 
         # Prefer final analysis content; fall back to tool-round thinking text if final round failed
         def _is_valid_analysis(text: str) -> bool:

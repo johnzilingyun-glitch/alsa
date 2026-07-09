@@ -6,6 +6,7 @@ import logging
 import pandas as pd
 import akshare as ak
 from ..services.market_data_service import market_data_service
+from ..services.data_providers import data_router
 from ..services.search_service import search_service
 from ..utils.network import safe_ak_call
 from ..utils.responses import success_response, error_response
@@ -99,7 +100,12 @@ router = APIRouter(prefix="/market", tags=["market"])
 
 @router.get("/status")
 async def market_status():
-    return success_response({"status": "ok", "sources": ["akshare", "sina", "yahoo"]})
+    return success_response({
+        "status": "ok",
+        "sources": ["akshare", "sina", "yahoo", "router"],
+        "routerStats": data_router.get_runtime_stats(),
+        "routerPolicies": data_router.get_policy_snapshot(),
+    })
 
 @router.get("/indices")
 async def get_indices(market: str = "A-Share"):
@@ -114,10 +120,11 @@ async def get_commodities():
 
 @router.get("/quote/{symbol}")
 async def get_symbol_quote(symbol: str):
-    data = await market_data_service.get_quotes([symbol])
+    data = await market_data_service.get_quotes_with_meta([symbol])
     if data and "error" in data[0]:
         return error_response("QUOTE_FETCH_FAILED", data[0]["error"])
-    return success_response(data[0] if data else None)
+    route_meta = data[0].get("_route_meta", {}) if data else {}
+    return success_response(data[0] if data else None, meta={"route": route_meta})
 
 @router.get("/quotes")
 async def get_batch_quotes(symbols: str = Query(..., description="Comma-separated list of symbols")):
@@ -125,8 +132,9 @@ async def get_batch_quotes(symbols: str = Query(..., description="Comma-separate
     if not symbol_list:
         return error_response("INVALID_INPUT", "No symbols provided")
     
-    data = await market_data_service.get_quotes(symbol_list)
-    return success_response(data)
+    data = await market_data_service.get_quotes_with_meta(symbol_list)
+    routes = {row.get("symbol", f"idx_{i}"): row.get("_route_meta", {}) for i, row in enumerate(data)}
+    return success_response(data, meta={"routes": routes})
 
 @router.get("/history/{symbol}")
 async def get_symbol_history(
@@ -135,8 +143,8 @@ async def get_symbol_history(
     interval: str = Query("1d")
 ):
     clean_period = period[1:] if period.startswith('p') else period
-    data = await market_data_service.get_history(symbol, period=clean_period, interval=interval)
-    return success_response(data)
+    data, route_meta = await market_data_service.get_history_with_meta(symbol, period=clean_period, interval=interval)
+    return success_response(data, meta={"route": route_meta})
 
 @router.get("/sector_flow")
 async def get_sector_fund_flow() -> Dict[str, Any]:

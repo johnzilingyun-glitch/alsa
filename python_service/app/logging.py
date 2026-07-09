@@ -4,6 +4,8 @@ Structured logging configuration using structlog
 import os
 import sys
 import logging
+from pathlib import Path
+from logging.handlers import RotatingFileHandler
 from typing import Optional
 
 import structlog
@@ -32,6 +34,7 @@ def setup_logging(
         )
     
     level = getattr(logging, log_level.upper(), logging.INFO)
+    file_logs_enabled = os.getenv("ALSA_FILE_LOG_ENABLED", "true").lower() in ("true", "1", "yes")
     
     # Configure standard library logging
     logging.basicConfig(
@@ -76,11 +79,26 @@ def setup_logging(
         ],
     )
     
-    # Add handler to root logger
-    handler = logging.StreamHandler(sys.stdout)
-    handler.setFormatter(formatter)
+    # Add handlers to root logger
+    stdout_handler = logging.StreamHandler(sys.stdout)
+    stdout_handler.setFormatter(formatter)
+
     logging.root.handlers.clear()
-    logging.root.addHandler(handler)
+    logging.root.addHandler(stdout_handler)
+
+    if file_logs_enabled:
+        default_log_path = Path(__file__).resolve().parents[2] / "logs" / "python_service.log"
+        log_file_path = Path(os.getenv("ALSA_LOG_FILE", str(default_log_path))).expanduser()
+        log_file_path.parent.mkdir(parents=True, exist_ok=True)
+        file_handler = RotatingFileHandler(
+            filename=str(log_file_path),
+            maxBytes=int(os.getenv("ALSA_LOG_FILE_MAX_BYTES", str(20 * 1024 * 1024))),
+            backupCount=int(os.getenv("ALSA_LOG_FILE_BACKUP_COUNT", "10")),
+            encoding="utf-8",
+        )
+        file_handler.setFormatter(formatter)
+        logging.root.addHandler(file_handler)
+
     logging.root.setLevel(level)
     
     # Set default context

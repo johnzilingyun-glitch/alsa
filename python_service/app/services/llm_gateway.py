@@ -27,23 +27,57 @@ class RateLimiter:
     
     Ensures minimum interval between requests and limits concurrency
     to prevent 503 errors from the relay (中转站).
+    
+    Supports adaptive rate limiting based on context:
+    - 'tool': Tool-calling round (faster, 1.0s)
+    - 'final': Final synthesis round (moderate, 1.5s)
+    - 'default': Conservative default (3.0s)
     """
 
-    def __init__(self, min_interval: float = 3.0, max_concurrent: int = 2):
+    def __init__(
+        self,
+        min_interval: float = 3.0,
+        max_concurrent: int = 2,
+        tool_interval: float = None,
+        final_interval: float = None,
+    ):
         self._min_interval = min_interval
         self._default_min_interval = min_interval
+        self._tool_interval = tool_interval or 1.0          # 工具轮速率
+        self._final_interval = final_interval or 1.5        # 最终轮速率
         self._semaphore = asyncio.Semaphore(max_concurrent)
         self._last_request_time: float = 0.0
         self._lock = asyncio.Lock()
+        self._pending_context: str = "default"  # context for next acquire via async with
 
-    async def acquire(self):
-        """Wait until it's safe to make a request."""
+    def with_context(self, context: str) -> "RateLimiter":
+        """Set context for the next async with acquisition. Returns self for chaining.
+        Usage: async with limiter.with_context('tool'): ...
+        """
+        self._pending_context = context
+        return self
+
+    async def acquire(self, context: str = "default"):
+        """Wait until it's safe to make a request.
+        
+        Args:
+            context: 'tool' (工具轮) | 'final' (最终轮) | 'default' (其他)
+        """
         await self._semaphore.acquire()
         async with self._lock:
+            # 根据上下文选择最小间隔
+            if context == "tool":
+                min_interval = self._tool_interval
+            elif context == "final":
+                min_interval = self._final_interval
+            else:
+                min_interval = self._min_interval
+            
             now = time.monotonic()
             elapsed = now - self._last_request_time
-            if elapsed < self._min_interval:
-                wait_time = self._min_interval - elapsed
+            if elapsed < min_interval:
+                wait_time = min_interval - elapsed
+                logger.debug(f"[RateLimiter] Waiting {wait_time:.2f}s (context={context})")
                 await asyncio.sleep(wait_time)
             self._last_request_time = time.monotonic()
 
@@ -54,7 +88,9 @@ class RateLimiter:
         self._semaphore.release()
 
     async def __aenter__(self):
-        await self.acquire()
+        ctx = self._pending_context
+        self._pending_context = "default"  # reset for next use
+        await self.acquire(ctx)
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
@@ -77,10 +113,17 @@ class LLMGateway:
         self.deepseek_api_key = self.get_deepseek_api_key()
 
         # Rate limiter for the default relay (中转站) to prevent 503 errors
-        _min_interval = float(os.getenv("LLM_RATE_LIMIT_INTERVAL", "3.0"))
-        _max_concurrent = int(os.getenv("LLM_RATE_LIMIT_CONCURRENCY", "2"))
+        # 自适应速率: 工具轮(tool)用1.0s, 最终轮(final)用1.5s, 其他默认1.5s
+        _min_interval = float(os.getenv("LLM_RATE_LIMIT_INTERVAL", "1.5"))
+        _max_concurrent = int(os.getenv("LLM_RATE_LIMIT_CONCURRENCY", "3"))
+        _tool_interval = float(os.getenv("LLM_TOOL_INTERVAL", "1.0"))
+        _final_interval = float(os.getenv("LLM_FINAL_INTERVAL", "1.5"))
+        
         self._default_rate_limiter = RateLimiter(
-            min_interval=_min_interval, max_concurrent=_max_concurrent
+            min_interval=_min_interval,
+            max_concurrent=_max_concurrent,
+            tool_interval=_tool_interval,
+            final_interval=_final_interval,
         )
 
         # Cache configuration
@@ -204,10 +247,16 @@ class LLMGateway:
         if self._deepseek_client is None or (target_key and target_key != self._last_deepseek_key):
             if target_key:
                 import httpx
+                # DeepSeek API can intermittently hang. Use a shorter read timeout
+                # (60s) so a stuck request fails fast, and rely on SDK auto-retry
+                # (max_retries) to recover instead of waiting the full 120s.
+                _read_timeout = float(os.getenv("DEEPSEEK_READ_TIMEOUT", "60.0"))
+                _max_retries = int(os.getenv("DEEPSEEK_MAX_RETRIES", "3"))
                 self._deepseek_client = OpenAI(
                     api_key=target_key,
                     base_url=self.deepseek_base_url,
-                    timeout=httpx.Timeout(120.0, connect=15.0),
+                    timeout=httpx.Timeout(_read_timeout, connect=15.0),
+                    max_retries=_max_retries,
                 )
                 self._last_deepseek_key = target_key
             else:
@@ -536,8 +585,8 @@ class LLMGateway:
             if os.path.exists(".stop"):
                 raise Exception("Analysis stopped by user.")
             try:
-                # Rate limit: wait for slot before sending request
-                async with self._default_rate_limiter:
+                # Rate limit: wait for slot before sending request (use tool context for faster throughput)
+                async with self._default_rate_limiter.with_context("tool"):
                     result = await self._run_blocking_llm_call("default", _stream_generate)
                 if not result:
                     raise ValueError("Default provider returned empty response")

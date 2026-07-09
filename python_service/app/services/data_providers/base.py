@@ -173,3 +173,66 @@ class DataProvider(ABC):
     async def get_financial_summary(self, symbol: str) -> Dict[str, Any]:
         """Fetch comprehensive financial metrics (PE, PB, ROE, growth, etc.)"""
         ...
+
+
+def score_quote_quality(quote: Any) -> float:
+    """
+    Quote quality score in [0, 1].
+    Accepts either QuoteData dataclass or dict-like payload.
+    """
+    if quote is None:
+        return 0.0
+
+    def _get(obj: Any, key: str, default=None):
+        if isinstance(obj, dict):
+            return obj.get(key, default)
+        return getattr(obj, key, default)
+
+    checks = [
+        (_get(quote, "price", 0) or 0) > 0,
+        _get(quote, "name") not in (None, "", "-"),
+        (_get(quote, "volume", 0) or 0) >= 0,
+        _get(quote, "symbol") not in (None, "", "-"),
+        _get(quote, "source") not in (None, "", "-"),
+    ]
+    return round(sum(1 for c in checks if c) / len(checks), 4)
+
+
+def score_history_quality(df: pd.DataFrame) -> float:
+    """
+    History quality score in [0, 1] based on required fields and non-empty valid rows.
+    """
+    if df is None or df.empty:
+        return 0.0
+
+    required = ["date", "open", "high", "low", "close", "volume"]
+    has_required = all(c in df.columns for c in required)
+    if not has_required:
+        return 0.0
+
+    valid_close = pd.to_numeric(df["close"], errors="coerce") > 0
+    valid_date = df["date"].notna() & (df["date"].astype(str) != "")
+    valid_rows = (valid_close & valid_date).sum()
+    coverage = float(valid_rows) / float(len(df)) if len(df) > 0 else 0.0
+
+    checks = [
+        has_required,
+        coverage >= 0.6,
+        valid_rows >= min(5, len(df)),
+    ]
+    return round(sum(1 for c in checks if c) / len(checks), 4)
+
+
+def score_financial_quality(summary: Dict[str, Any]) -> float:
+    """
+    Financial summary quality score in [0, 1] from key fields availability.
+    """
+    if not isinstance(summary, dict) or not summary or "error" in summary:
+        return 0.0
+
+    key_fields = [
+        "marketCap", "pe", "pb", "roe", "revenue",
+        "netProfit", "revenueYoY", "netProfitYoY",
+    ]
+    available = sum(1 for k in key_fields if summary.get(k) is not None)
+    return round(available / len(key_fields), 4)

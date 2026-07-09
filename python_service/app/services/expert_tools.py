@@ -780,6 +780,86 @@ class ToolExecutor:
         self._brain_manager = None
         self._financial_cache: Dict[str, str] = {}  # Cache: "symbol|query_hash" -> result
         self._iwencai_disabled = False
+        # Session-level query dedup cache: identical (tool + normalized params) calls
+        # within one analysis job reuse the first result instead of re-fetching.
+        # Cleared per job via clear_cache().
+        self._result_cache: Dict[str, str] = {}
+
+    # Network/query tools worth caching (expensive I/O, deterministic-ish within a job).
+    # Computation tools are excluded — they are cheap and purely local.
+    _CACHEABLE_TOOLS = frozenset({
+        "web_search", "news_search", "announcement_search", "report_search",
+        "knowledge_search", "macro_query", "business_query", "finance_query",
+        "management_query", "commodity_price_query", "futures_query",
+        "valuation_query", "industry_query", "policy_query", "deep_scrape",
+        "financial_data",
+    })
+
+    @staticmethod
+    def _dedup_key(tool_call: Dict[str, str]) -> str:
+        """Build a normalized cache key from tool + its identifying params.
+        Whitespace-collapsed and lowercased so trivially-different queries collapse."""
+        tool = tool_call.get("tool", "")
+        parts = [tool]
+        for k in ("symbol", "url", "query"):
+            v = (tool_call.get(k) or "").strip().lower()
+            if v:
+                v = re.sub(r"\s+", " ", v)
+                parts.append(f"{k}={v}")
+        return "|".join(parts)
+
+    @staticmethod
+    def _is_cacheable_result(text: str) -> bool:
+        """Only cache genuinely useful results — never cache error/empty fallbacks,
+        otherwise a transient failure would be pinned for the whole job."""
+        if not text or len(text) < 40:
+            return False
+        low = text.lower()
+        bad_markers = (
+            "temporarily unavailable", "error executing", "\nerror:",
+            "no results found", "no news results", "not whitelisted",
+            "requires a", "is currently disabled", "unknown tool",
+            "could not extract", "currently available for this query",
+        )
+        return not any(b in low for b in bad_markers)
+
+    def _infer_market_context(self, tool_call: Dict[str, str]) -> Dict[str, str]:
+        symbol = (tool_call.get("symbol", "") or "").strip()
+        query = (tool_call.get("query", "") or "").strip()
+
+        detected = "Unknown"
+        probe = symbol
+        if not probe:
+            m = re.search(r"\b\d{6}\b|\b\d{1,5}\.HK\b|\b[A-Z]{1,5}\b", query.upper())
+            probe = m.group(0) if m else ""
+
+        if probe:
+            try:
+                from .data_providers.base import detect_market
+                detected = detect_market(probe).value
+            except Exception:
+                detected = "Unknown"
+
+        return {
+            "symbol": probe or "N/A",
+            "market_detected": detected,
+        }
+
+    def _inject_market_context(self, raw: str, tool_call: Dict[str, str]) -> str:
+        if not raw:
+            return raw
+        lines = raw.splitlines()
+        if not lines:
+            return raw
+        if lines[0].strip() != "<tool_observation>":
+            return raw
+        context = self._infer_market_context(tool_call)
+        context_line = f"market_context: symbol={context['symbol']} | market_detected={context['market_detected']}"
+        if len(lines) > 1 and lines[1].startswith("market_context:"):
+            lines[1] = context_line
+        else:
+            lines.insert(1, context_line)
+        return "\n".join(lines)
 
     @property
     def search_service(self):
@@ -810,6 +890,15 @@ class ToolExecutor:
         if not is_tool_enabled(tool_name):
             return f"<tool_observation>\nTool '{tool_name}' is currently disabled. Check tools_config.yaml to re-enable it.\n</tool_observation>"
 
+        # --- 0. Query dedup cache: reuse identical (tool + params) results within a job ---
+        _cache_key = None
+        if tool_name in self._CACHEABLE_TOOLS:
+            _cache_key = self._dedup_key(tool_call)
+            cached = self._result_cache.get(_cache_key)
+            if cached is not None:
+                print(f"  [ToolExecutor] CACHE HIT: {tool_name} ({_cache_key[:60]})")
+                return cached
+
         # --- 1. Dynamic Tool Registry Lookup ---
         func = tool_registry.get_tool(tool_name)
         if func:
@@ -818,7 +907,11 @@ class ToolExecutor:
                     raw = func(tool_call)
                 else:
                     raw = await func(tool_call)
-                return token_guard.enforce(tool_name, raw)
+                raw = self._inject_market_context(raw, tool_call)
+                result = token_guard.enforce(tool_name, raw)
+                if _cache_key and self._is_cacheable_result(result):
+                    self._result_cache[_cache_key] = result
+                return result
             except Exception as e:
                 return f"<tool_observation>\nError executing {tool_name}: {str(e)}\n</tool_observation>"
 
@@ -873,9 +966,14 @@ class ToolExecutor:
                 return f"<tool_observation>\nError: Unknown tool '{tool_name}'. Available: web_search, news_search, announcement_search, report_search, knowledge_search, deep_scrape, financial_data, macro_query, business_query, finance_query, management_query, commodity_price_query, futures_query, valuation_query, industry_query, policy_query, dcf_calculator, position_sizer, kelly_calculator, beat_miss_scorer, comps_valuation, pillar_scorer, dupont_decomposition, minervini_stage, earnings_quality_audit, drawdown_scenario, risk_reward, stop_loss_validator, cagr_calculator.\n</tool_observation>"
             
             # TokenGuard: enforce per-tool char limits and round budget
-            return token_guard.enforce(tool_name, raw)
+            raw = self._inject_market_context(raw, tool_call)
+            result = token_guard.enforce(tool_name, raw)
+            if _cache_key and self._is_cacheable_result(result):
+                self._result_cache[_cache_key] = result
+            return result
         except Exception as e:
-            return f"<tool_observation>\nError executing {tool_name}: {str(e)}\n</tool_observation>"
+            logger.warning(f"[ToolExecutor] Tool '{tool_name}' failed: {e}")
+            return f"<tool_observation>\nTool '{tool_name}' is temporarily unavailable. Please proceed with your analysis using the data already provided in the prompt and from other successful tool calls.\n</tool_observation>"
 
     def _exec_computation(self, tool_name: str, tool_call: Dict[str, str]) -> str:
         """Execute a computation tool (synchronous, deterministic)."""
@@ -1206,7 +1304,7 @@ class ToolExecutor:
                 "expand_index": "true",
             }
 
-            async with httpx.AsyncClient(timeout=30.0) as client:
+            async with httpx.AsyncClient(timeout=15.0) as client:
                 response = await client.post(url, headers=headers, json=payload)
                 response.raise_for_status()
                 data = response.json()
@@ -1255,9 +1353,10 @@ class ToolExecutor:
                     lines.append("</tool_observation>")
                     return "\n".join(lines)
                 else:
-                    return f"<tool_observation>\n{label} error: {str(e)}. Fallback search returned no results.\n</tool_observation>"
+                    return f"<tool_observation>\nNo {label.lower()} data currently available for this query. Please proceed with your analysis using other available information.\n</tool_observation>"
             except Exception as fe:
-                return f"<tool_observation>\n{label} error: {str(e)}. Fallback search failed: {str(fe)}\n</tool_observation>"
+                logger.warning(f"[ToolExecutor] {label} iwencai+fallback both failed: {e} / {fe}")
+                return f"<tool_observation>\nNo {label.lower()} data currently available for this query. Please proceed with your analysis using other available information.\n</tool_observation>"
 
     async def _exec_knowledge_search(self, query: str) -> str:
         try:
@@ -1369,7 +1468,7 @@ class ToolExecutor:
                 exclude_external_links=True,
                 process_iframes=False,
                 wait_until="domcontentloaded",  # Faster than networkidle
-                page_timeout=30000,            # 30s timeout
+                page_timeout=15000,            # 15s timeout (reduced from 30s)
                 delay_before_return_html=1.0,  # Wait 1s for JS rendering
                 scan_full_page=False,          # Don't scroll (speed)
                 verbose=False,
@@ -1380,7 +1479,17 @@ class ToolExecutor:
 
             if not result or not result.success:
                 error_msg = getattr(result, 'error_message', 'Unknown error') if result else 'Crawler returned None'
-                return f"<tool_observation>\ndeep_scrape failed for {url}: {error_msg}\n</tool_observation>"
+                logger.warning(f"[ToolExecutor] deep_scrape crawl failed for {url}: {error_msg}")
+                # Auto-fallback to web_search
+                fallback = await self._exec_web_search(query or url)
+                inner = fallback.replace("<tool_observation>", "").replace("</tool_observation>", "").strip()
+                return (
+                    "<tool_observation>\n"
+                    f"deep_scrape could not load {url} (page may require JavaScript or blocks bots).\n"
+                    f"Auto-fallback: searched for '{query}' via web_search instead.\n\n"
+                    f"{inner}\n"
+                    "</tool_observation>"
+                )
 
             # Prefer fit_markdown (cleaned, main content only) over raw markdown
             content = getattr(result, 'fit_markdown', '') or getattr(result, 'markdown', '') or ''
@@ -1404,7 +1513,17 @@ class ToolExecutor:
         except ImportError:
             return "<tool_observation>\ndeep_scrape unavailable: crawl4ai not installed. Use `pip install crawl4ai` and `crawl4ai-setup`.\n</tool_observation>"
         except Exception as e:
-            return f"<tool_observation>\ndeep_scrape error for {url}: {str(e)}\n</tool_observation>"
+            # Fallback to web_search on any scrape failure
+            logger.warning(f"[ToolExecutor] deep_scrape failed for {url}: {e}, falling back to web_search")
+            fallback = await self._exec_web_search(query or url)
+            inner = fallback.replace("<tool_observation>", "").replace("</tool_observation>", "").strip()
+            return (
+                "<tool_observation>\n"
+                f"deep_scrape could not extract {url} (site may block automated access).\n"
+                f"Auto-fallback: searched for '{query}' via web_search instead.\n\n"
+                f"{inner}\n"
+                "</tool_observation>"
+            )
 
     async def _exec_financial_data(self, symbol: str, query: str) -> str:
         """Fetch structured financial data from AkShare/yfinance based on the query.
@@ -1460,45 +1579,110 @@ class ToolExecutor:
 
         try:
             if is_a_share:
-                # --- A-Share: Fast path via DataRouter (Tencent/Sina, no rate limits) ---
+                # --- A-Share: Fast path via DataRouter (Tencent/Sina/THS/EastMoney, no AkShare) ---
+                # DataRouter already has multi-provider concurrent fetch with fallback.
+                # This is the PRIMARY data source — reliable and fast.
                 if _budget_ok():
                     try:
                         summary = await data_router.get_financial_summary(symbol)
                         if summary and "error" not in summary:
-                            lines.append("## DataRouter 财务概览")
-                            key_fields = ["name", "price", "pe", "pb", "roe", "marketCap",
-                                          "revenue", "netProfit", "revenueGrowth", "netProfitGrowth",
-                                          "eps", "turnoverPct", "industry"]
+                            lines.append("## 财务概览 (DataRouter)")
+                            # Core metrics
+                            core_fields = ["name", "price", "pe", "pb", "roe", "marketCap",
+                                          "revenue", "netProfit", "revenueGrowthYoY", "netProfitGrowthYoY",
+                                          "revenueGrowth", "netProfitGrowth",
+                                          "eps", "bvps", "grossMargin", "turnoverPct", "industry"]
                             parts = []
-                            for f in key_fields:
+                            for f in core_fields:
                                 v = summary.get(f)
                                 if v is not None and v != "":
                                     parts.append(f"{f}:{v}")
                             if parts:
                                 lines.append(" | ".join(parts))
                                 lines.append("")
-                    except Exception:
-                        pass  # Non-fatal — fall through to detailed sections below
+                            
+                            # Extended metrics (growth, margins, CAGR)
+                            ext_fields = ["netProfitDeduct", "netProfitDeductYoY",
+                                         "revenueCagr3y", "incomeCagr3y", "revenueQoQ", "netProfitQoQ",
+                                         "operatingCashflowPerShare", "netProfitYoY"]
+                            ext_parts = []
+                            for f in ext_fields:
+                                v = summary.get(f)
+                                if v is not None and v != "":
+                                    ext_parts.append(f"{f}:{_fmt_num(v) if isinstance(v, (int, float)) else v}")
+                            if ext_parts:
+                                lines.append("## 增长与质量指标")
+                                lines.append(" | ".join(ext_parts))
+                                lines.append("")
+                    except Exception as e:
+                        logger.warning(f"[ToolExecutor] DataRouter financial_summary failed for {symbol}: {e}")
 
-                # --- A-Share: Quarterly financial abstract ---
+                # --- A-Share: Quarterly income statement (EastMoney direct, AkShare removed) ---
                 if _budget_ok() and any(kw in query_lower for kw in ["quarter", "earnings", "revenue", "profit", "净利润", "营收", "扣非", "季度", "eps", "roe", "margin"]):
                     try:
-                        df = await safe_ak_call(ak.stock_financial_abstract_ths, symbol=symbol)
-                        if validate_ak_data(df, min_rows=1):
-                            lines.append("## 季度财务摘要")
-                            # Whitelist: only the most analytically important fields
-                            whitelist = ['报告期', '净利润', '净利润同比增长率', '营业总收入', 
-                                        '营业总收入同比增长率', '基本每股收益', '净资产收益率', '资产负债率']
-                            available = [c for c in whitelist if c in df.columns]
-                            for _, row in df.tail(MAX_PERIODS).iterrows():
-                                vals = [f"{c}:{row.get(c, 'N/A')}" for c in available]
-                                lines.append(" | ".join(vals))
+                        from .data_providers.a_stock_direct import fetch_a_share_income_items
+                        inc_items = await fetch_a_share_income_items(symbol, periods=MAX_PERIODS)
+                        if inc_items:
+                            lines.append("## 季度利润表 (EastMoney)")
+                            inc_map = [
+                                ("revenue", "营业总收入"),
+                                ("parentNetProfit", "归母净利润"),
+                                ("deductNetProfit", "扣非净利润"),
+                                ("operatingProfit", "营业利润"),
+                            ]
+                            for fkey, flabel in inc_map:
+                                vals = [f"{r['report_date']}:{_fmt_num(r.get(fkey))}"
+                                        for r in inc_items if r.get(fkey) is not None]
+                                if vals:
+                                    lines.append(f"- {flabel}: {' | '.join(vals)}")
                             lines.append("")
                     except Exception as e:
-                        lines.append(f"⚠ quarterly failed: {e}")
+                        logger.warning(f"[ToolExecutor] EastMoney income items failed for {symbol}: {e}")
+                        # Last-resort fallback: yfinance quarterly
+                        try:
+                            yf_symbol = f"{symbol}.SS" if symbol.startswith('6') else f"{symbol}.SZ"
+                            ticker = yf.Ticker(yf_symbol)
+                            qf = await asyncio.to_thread(getattr, ticker, "quarterly_financials")
+                            if qf is not None and not qf.empty:
+                                lines.append("## 季度财务 (yfinance fallback)")
+                                for item in ['Total Revenue', 'Net Income', 'Gross Profit', 'Operating Income']:
+                                    if item in qf.index:
+                                        row = qf.loc[item]
+                                        vals = [f"{str(col)[:10]}:{_fmt_num(v)}" for col, v in list(row.items())[:MAX_PERIODS] if v is not None and v == v]
+                                        if vals:
+                                            lines.append(f"- {item}: {' | '.join(vals)}")
+                                lines.append("")
+                        except Exception:
+                            pass  # Silent — DataRouter already provided core metrics above
 
                 # --- Balance sheet ---
-                if _budget_ok() and any(kw in query_lower for kw in ["balance", "cash", "debt", "asset", "资产", "负债", "现金"]):
+                if _budget_ok() and any(kw in query_lower for kw in ["balance", "cash", "debt", "asset", "资产", "负债", "现金", "应收", "存货", "receivable", "inventory"]):
+                    # A-share detailed line items (应收账款/存货/货币资金) via EastMoney direct
+                    # — replaces unreliable AkShare balance-sheet path.
+                    try:
+                        from .data_providers.a_stock_direct import fetch_a_share_balance_items
+                        bal_items = await fetch_a_share_balance_items(symbol, periods=MAX_PERIODS)
+                        if bal_items:
+                            lines.append("## 资产负债表明细 (EastMoney)")
+                            field_map = [
+                                ("monetaryFunds", "货币资金"),
+                                ("notesAndAccountsRece", "应收票据及账款"),
+                                ("accountsRece", "应收账款"),
+                                ("inventory", "存货"),
+                                ("accountsPayable", "应付账款"),
+                                ("totalAssets", "总资产"),
+                                ("totalLiabilities", "总负债"),
+                            ]
+                            for fkey, flabel in field_map:
+                                vals = [f"{r['report_date']}:{_fmt_num(r.get(fkey))}"
+                                        for r in bal_items if r.get(fkey) is not None]
+                                if vals:
+                                    lines.append(f"- {flabel}: {' | '.join(vals)}")
+                            lines.append("")
+                    except Exception as e:
+                        logger.warning(f"[ToolExecutor] EastMoney balance items failed for {symbol}: {e}")
+
+                    # yfinance balance sheet (supplementary totals/debt structure)
                     try:
                         yf_symbol = f"{symbol}.SS" if symbol.startswith('6') else f"{symbol}.SZ"
                         ticker = yf.Ticker(yf_symbol)
@@ -1515,7 +1699,7 @@ class ToolExecutor:
                                         lines.append(f"- {item}: {' | '.join(vals)}")
                             lines.append("")
                     except Exception as e:
-                        lines.append(f"⚠ balance sheet failed: {e}")
+                        logger.warning(f"[ToolExecutor] Balance sheet failed for {symbol}: {e}")
 
                 # --- Cash flow ---
                 if _budget_ok() and any(kw in query_lower for kw in ["cash flow", "capex", "fcf", "现金流", "资本开支"]):
@@ -1534,7 +1718,7 @@ class ToolExecutor:
                                         lines.append(f"- {item}: {' | '.join(vals)}")
                             lines.append("")
                     except Exception as e:
-                        lines.append(f"⚠ cash flow failed: {e}")
+                        logger.warning(f"[ToolExecutor] Cash flow failed for {symbol}: {e}")
 
                 # --- Income statement ---
                 if _budget_ok() and any(kw in query_lower for kw in ["income", "利润表", "cost", "成本", "breakdown"]):
@@ -1553,26 +1737,34 @@ class ToolExecutor:
                                         lines.append(f"- {item}: {' | '.join(vals)}")
                             lines.append("")
                     except Exception as e:
-                        lines.append(f"⚠ income statement failed: {e}")
+                        logger.warning(f"[ToolExecutor] Income statement failed for {symbol}: {e}")
 
-                # --- Dividend (field whitelist) ---
+                # --- Dividend (EastMoney direct, AkShare removed) ---
                 if _budget_ok() and any(kw in query_lower for kw in ["dividend", "分红", "派息", "股息"]):
                     try:
-                        div_df = await safe_ak_call(ak.stock_history_dividend_detail, symbol=symbol)
-                        if validate_ak_data(div_df, min_rows=1):
-                            lines.append("## 分红历史")
-                            # Whitelist only essential dividend fields
-                            div_whitelist = ['除权除息日', '送转股份', '派息', '股权登记日']
-                            available_div = [c for c in div_whitelist if c in div_df.columns]
-                            if not available_div:
-                                # Fallback: take first 4 columns
-                                available_div = list(div_df.columns[:4])
-                            for _, row in div_df.head(MAX_ROWS).iterrows():
-                                vals = [f"{c}:{row.get(c, '')}" for c in available_div]
-                                lines.append(" | ".join(vals))
+                        from .data_providers.a_stock_direct import fetch_a_share_dividends
+                        divs = await fetch_a_share_dividends(symbol, periods=MAX_ROWS)
+                        if divs:
+                            lines.append("## 分红历史 (EastMoney)")
+                            for d in divs:
+                                bonus = d.get("pretaxBonusPer10")
+                                if bonus is not None:
+                                    lines.append(f"- {d['report_date']} (除权 {d['ex_dividend_date']}): 每10股派息(税前) {bonus}元")
                             lines.append("")
                     except Exception as e:
-                        lines.append(f"⚠ dividend failed: {e}")
+                        # Graceful: try yfinance dividends as fallback
+                        logger.warning(f"[ToolExecutor] EastMoney dividend failed for {symbol}: {e}")
+                        try:
+                            yf_symbol = f"{symbol}.SS" if symbol.startswith('6') else f"{symbol}.SZ"
+                            ticker = yf.Ticker(yf_symbol)
+                            divs = await asyncio.to_thread(getattr, ticker, "dividends")
+                            if divs is not None and len(divs) > 0:
+                                lines.append("## 分红历史 (yfinance fallback)")
+                                for date, amount in list(divs.items())[-MAX_ROWS:]:
+                                    lines.append(f"- {str(date)[:10]}: {_fmt_num(amount)}")
+                                lines.append("")
+                        except Exception:
+                            pass  # Silent — dividend data is optional
 
                 # --- Peer comparison (improved with Iwencai) ---
                 if _budget_ok() and any(kw in query_lower for kw in ["peer", "industry", "比较", "同业", "行业", "对标"]):
@@ -1597,7 +1789,7 @@ class ToolExecutor:
                                 lines.append(search_res[:1000])
                                 lines.append("")
                         except Exception as se:
-                            lines.append(f"⚠ peer comparison failed: {se}")
+                            logger.warning(f"[ToolExecutor] Peer comparison failed for {symbol}: {se}")
 
             else:
                 # --- US/HK data from yfinance ---
@@ -1625,7 +1817,7 @@ class ToolExecutor:
                             lines.append(f"- Net Profit Margin: {margin_str}")
                             lines.append("")
                     except Exception as e:
-                        lines.append(f"⚠ valuation metrics failed: {e}")
+                        lines.append(f"⚠ valuation metrics unavailable")
 
                 if _budget_ok() and any(kw in query_lower for kw in ["quarter", "earnings", "revenue", "profit", "eps"]):
                     qf = await asyncio.to_thread(getattr, ticker, "quarterly_financials")
@@ -1685,7 +1877,9 @@ class ToolExecutor:
                         lines.append("")
 
         except Exception as e:
-            lines.append(f"⚠ Financial data query failed: {str(e)}")
+            logger.warning(f"[ToolExecutor] Financial data top-level failed for {symbol}: {e}")
+            if len(lines) <= 4:
+                lines.append("Data sources are temporarily experiencing connectivity issues. Please use the data already available in the analysis prompt.")
 
         # --- OpenBB enrichment (US/HK stocks, only if budget allows) ---
         if not is_a_share and _budget_ok():
@@ -1699,7 +1893,7 @@ class ToolExecutor:
                         openbb_result = openbb_result[:remaining] + "\n[OpenBB data truncated]"
                     lines.append(openbb_result)
             except Exception as e:
-                lines.append(f"⚠ OpenBB enrichment failed: {e}")
+                logger.warning(f"[ToolExecutor] OpenBB enrichment failed for {symbol}: {e}")
 
         if len(lines) <= 4:
             lines.append("No matching financial data found for the query. Try a more specific query or different keywords.")
@@ -1712,24 +1906,46 @@ class ToolExecutor:
         return result
 
     async def execute_all(self, tool_calls: List[Dict[str, str]]) -> List[str]:
-        """Execute multiple tool calls in parallel for speed (respects TokenGuard budget)."""
+        """Execute multiple tool calls in parallel for speed (respects TokenGuard budget).
+        Identical calls within the same batch are collapsed to a single execution."""
+        # Batch-level dedup: map each call to a key; run only unique keys once.
+        keys: List[str] = []
+        unique_order: List[str] = []
+        unique_calls: Dict[str, Dict[str, str]] = {}
+        for tc in tool_calls:
+            if tc.get("tool") in self._CACHEABLE_TOOLS:
+                k = self._dedup_key(tc)
+            else:
+                # Non-cacheable (e.g. computation) — unique per position so it always runs.
+                k = f"__pos_{len(keys)}__"
+            keys.append(k)
+            if k not in unique_calls:
+                unique_calls[k] = tc
+                unique_order.append(k)
+
         async def _run_one(tc):
             label = tc.get('url', tc.get('symbol', tc.get('query', '')))[:60]
             print(f"  [ToolExecutor] {tc['tool']}: {label}...")
             return await self.execute(tc)
 
-        observations = await asyncio.gather(*[_run_one(tc) for tc in tool_calls], return_exceptions=True)
-        results = []
-        for obs in observations:
+        unique_results = await asyncio.gather(
+            *[_run_one(unique_calls[k]) for k in unique_order],
+            return_exceptions=True,
+        )
+        result_by_key: Dict[str, str] = {}
+        for k, obs in zip(unique_order, unique_results):
             if isinstance(obs, Exception):
-                results.append(f"<tool_observation>\nTool execution error: {obs}\n</tool_observation>")
+                result_by_key[k] = f"<tool_observation>\nTool execution error: {obs}\n</tool_observation>"
             else:
-                results.append(obs)
-        return results
+                result_by_key[k] = obs
+
+        # Fan results back out to the original call order.
+        return [result_by_key[k] for k in keys]
 
     def clear_cache(self):
-        """Clear the financial data cache. Call between analysis jobs."""
+        """Clear all per-job caches. Call between analysis jobs."""
         self._financial_cache.clear()
+        self._result_cache.clear()
 
 
 # Singleton

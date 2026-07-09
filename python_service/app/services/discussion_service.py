@@ -143,21 +143,18 @@ class DiscussionService:
         self._summaries_cache = {}
         total_rounds = len(topology)
         
-        # Pre-search enrichment: batch search ONCE before all experts
-        # Report progress during search phase (stays between 30-35%)
-        search_results = {}
-        try:
-            if on_progress:
-                on_progress(0, total_rounds, "正在搜索市场数据...")
-            # Timeout batch_search at 30s to prevent blocking forever on failing searches
-            search_results = await asyncio.wait_for(
-                search_toolkit.batch_search(symbol, name, snapshot),
-                timeout=30.0
-            )
-        except asyncio.TimeoutError:
-            print("[DiscussionService] Pre-search enrichment TIMED OUT (30s) — continuing without search data")
-        except Exception as e:
-            print(f"[DiscussionService] Pre-search enrichment failed (non-fatal): {e}")
+        # Pre-search enrichment: batch search in background (不阻塞)
+        # 优化 4: 搜索后台化 - 改为后台任务，讨论继续进行
+        search_task = asyncio.create_task(
+            self._background_search(symbol, name, snapshot)
+        )
+        search_results = {}  # 初始为空
+        
+        # Report progress 
+        if on_progress:
+            on_progress(0, total_rounds, "正在搜索市场数据（后台）...")
+        
+        print("[DiscussionService] Background search started (non-blocking)")
         
         from typing import TypedDict, Annotated
         import operator
@@ -171,6 +168,16 @@ class DiscussionService:
         
         def make_node(expert_role, r_num):
             async def node_func(state: AgentState):
+                # 优化 4 持续: 在每一轮检查搜索是否完成
+                nonlocal search_results
+                if search_task.done() and not search_results:
+                    try:
+                        search_results = search_task.result()
+                        print(f"[Round {r_num}] Search results available, injecting into expert discussion")
+                    except Exception as e:
+                        print(f"[Round {r_num}] Search task failed (non-fatal): {e}")
+                        search_results = {}
+                
                 if on_progress:
                     on_progress(r_num, total_rounds, f"Round {r_num}: {expert_role}")
                 
@@ -185,12 +192,54 @@ class DiscussionService:
                 
                 msg = result
                 new_state = {}
+                is_professional_reviewer = expert_role == "Professional Reviewer"
                 is_final = expert_role in ("Chief Strategist", "Sector Chief Strategist")
                 
+                # 优化 3 激活: Professional Reviewer 批量验证前面所有专家的输出
+                if is_professional_reviewer and r_num < total_rounds:
+                    try:
+                        expert_outputs = {}
+                        history = state.get("history_states", {})
+                        
+                        # 收集所有中间专家的输出（排除最终专家和 Professional Reviewer 自己）
+                        for exp_name, exp_content in history.items():
+                            if exp_name not in ["Chief Strategist", "Sector Chief Strategist", "Professional Reviewer"]:
+                                if isinstance(exp_content, dict):
+                                    content_str = exp_content.get("content", str(exp_content))
+                                    expert_outputs[exp_name] = content_str[:500] if isinstance(content_str, str) else str(content_str)[:500]
+                                else:
+                                    expert_outputs[exp_name] = str(exp_content)[:500]
+                        
+                        if expert_outputs:
+                            print(f"[BatchVerify] Professional Reviewer: Collecting outputs from {len(expert_outputs)} experts for batch verification")
+                            batch_result = await self.batch_verify_and_reflect(
+                                expert_outputs=expert_outputs,
+                                snapshot=snapshot,
+                                config=config,
+                                is_final_round=False,
+                                model=model
+                            )
+                            msg["batch_verifications"] = batch_result.get("verifications", {})
+                            msg["batch_reflections"] = batch_result.get("reflections", {})
+                            print(f"[BatchVerify] Professional Reviewer: Batch verification completed with {len(expert_outputs)} experts")
+                    except Exception as e:
+                        print(f"[BatchVerify] Failed to batch verify: {e}")
+                        logger.debug(f"Batch verification error: {e}")
+                
                 if is_final:
+                    # 检查是否已有来自 Professional Reviewer 的批量验证
+                    professional_reviewer_msg = state.get("history_states", {}).get("Professional Reviewer", {})
+                    has_batch_verification = isinstance(professional_reviewer_msg, dict) and \
+                                             "batch_verifications" in professional_reviewer_msg
+                    
                     # 【Final Experts】Always enforce reflection and grounding verification
                     content = msg.get("content", "")
                     v_mode = getattr(self, '_verification_mode', 'quick')
+                    
+                    # Professional Reviewer 已验证前面的专家，Chief Strategist 现在验证自己
+                    if has_batch_verification:
+                        print(f"[Final-Expert] {expert_role}: Professional Reviewer already verified previous experts, now verify own output")
+                    
                     if v_mode == 'extreme':
                         print(f"[Final-Expert] {expert_role}: Skipping reflection and grounding (Extreme Speed Mode)")
                     else:
@@ -764,8 +813,11 @@ class DiscussionService:
                 logger.error(f"[DiscussionService] Gemini LLM generation failed for {role}: {e}")
                 content = f"{role} 专家暂时无法提供分析。原因: 大语言模型请求异常 ({str(e)[:100]})。请其他专家忽略此错误并根据已有数据自行补全缺失视角的分析逻辑。"
         else:
-            # No artificial limit on tool rounds — let the model decide when it has enough data
-            effective_max_rounds = 30
+            # Upper safety bound for tool-calling loop. The LLM decides how many
+            # tool calls it actually needs (loop breaks early when it stops
+            # emitting tool_calls). This is only a ceiling to prevent runaway
+            # loops; normal analyses finish well under it.
+            effective_max_rounds = int(os.getenv("MAX_TOOL_ROUNDS", "30"))
             
             # Other models — use tool-calling loop (web_search, news_search, knowledge_search)
             try:
@@ -994,5 +1046,88 @@ class DiscussionService:
             pass
             
         return 0.75  # Default confidence
+
+    async def _background_search(self, symbol: str, name: str, snapshot: Dict[str, Any]) -> Dict[str, Any]:
+        """后台搜索任务 - 不阻塞讨论流程
+        
+        优化 4: 搜索后台化
+        - 在讨论进行中异步执行
+        - 超时改短 (15s 而非 30s)，更快地回到讨论
+        - 失败时使用空结果继续
+        """
+        try:
+            search_results = await asyncio.wait_for(
+                search_toolkit.batch_search(symbol, name, snapshot),
+                timeout=15.0  # 改短: 15s 而非 30s
+            )
+            print(f"[BackgroundSearch] Completed successfully for {symbol}")
+            return search_results
+        except asyncio.TimeoutError:
+            print(f"[BackgroundSearch] Timed out after 15s for {symbol}, using empty results")
+            return {}
+        except Exception as e:
+            print(f"[BackgroundSearch] Failed for {symbol}: {e}")
+            return {}
+
+    async def batch_verify_and_reflect(
+        self,
+        expert_outputs: Dict[str, str],
+        snapshot: Dict[str, Any],
+        config: Dict[str, Any],
+        is_final_round: bool = False,
+        model: str = None
+    ) -> Dict[str, Dict]:
+        """批量验证和反思多个专家的输出
+        
+        优化 3: 批量验证/反思 (预留接口)
+        - 一个 LLM 调用处理多个专家的验证
+        - 一个 LLM 调用处理多个专家的反思
+        - 可大幅减少 LLM 调用次数
+        
+        Args:
+            expert_outputs: {'expert_name': 'content', ...}
+            is_final_round: 最终轮是否强制所有检查
+        
+        Returns:
+            {'verifications': {...}, 'reflections': {...}}
+        """
+        if not expert_outputs or getattr(self, '_verification_mode', 'quick') == 'extreme':
+            return {'verifications': {}, 'reflections': {}}
+        
+        verification_results = {}
+        
+        # 构建批量验证提示
+        output_list = "\n---\n".join(
+            f"【{expert}】\n{content[:400]}"  # 每个输出最多 400 字
+            for expert, content in expert_outputs.items()
+        )
+        
+        verify_prompt = f"""
+        请快速验证以下专家分析中的关键数据点和逻辑。
+        
+        {output_list}
+        
+        对每个【专家】输出，列出任何错误或不合理的地方。
+        如果无明显错误，写"✓ 合理"。
+        """
+        
+        try:
+            from .llm_gateway import llm_gateway
+            verification_result = await llm_gateway.generate_content(
+                verify_prompt,
+                model=model or "deepseek-chat",
+                temperature=0.1,  # 低温度，确保准确
+            )
+            # 简单地返回验证结果（可扩展为更详细的解析）
+            verification_results = {expert: verification_result for expert in expert_outputs}
+            print(f"[BatchVerify] Verified {len(expert_outputs)} experts outputs")
+        except Exception as e:
+            logger.warning(f"[BatchVerify] Failed: {e}")
+        
+        return {
+            'verifications': verification_results,
+            'reflections': {}
+        }
+
 
 discussion_service = DiscussionService()

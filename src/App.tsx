@@ -37,6 +37,7 @@ const AnalysisResult = lazy(() => import('./components/analysis/AnalysisResult')
 const AdminPanel = lazy(() => import('./components/admin/AdminPanel').then(m => ({ default: m.AdminPanel })));
 const SystemMonitor = lazy(() => import('./components/admin/SystemMonitor').then(m => ({ default: m.SystemMonitor })));
 const UserManagement = lazy(() => import('./components/admin/UserManagement').then(m => ({ default: m.UserManagement })));
+const IncidentConsole = lazy(() => import('./components/admin/IncidentConsole').then(m => ({ default: m.IncidentConsole })));
 
 const AnalysisLoadingPulse = lazy(() => import('./components/analysis/AnalysisLoadingPulse').then(m => ({ default: m.AnalysisLoadingPulse })));
 const SignalCenter = lazy(() => import('./components/dashboard/SignalCenter').then(m => ({ default: m.SignalCenter })));
@@ -185,6 +186,7 @@ export default function App() {
 
   // Hash-based routing for admin page
   const [hashRoute, setHashRoute] = useState(window.location.hash.slice(1) || '/');
+  const hashRoutePath = hashRoute.split('?')[0] || '/';
   useEffect(() => {
     const onHashChange = () => setHashRoute(window.location.hash.slice(1) || '/');
     window.addEventListener('hashchange', onHashChange);
@@ -202,7 +204,7 @@ export default function App() {
 
       <div className="relative z-10 mx-auto max-w-7xl px-6 py-12 md:px-12">
         {/* Admin management page (hash route) */}
-        {hashRoute === '/admin' || hashRoute.startsWith('/admin/') ? (
+        {hashRoutePath === '/admin' || hashRoutePath.startsWith('/admin/') ? (
           <div className="space-y-8">
             <div className="flex items-center gap-4 mb-4">
               <button onClick={() => { window.location.hash = '#/'; }} className="text-sm text-indigo-600 hover:text-indigo-700 font-medium">
@@ -215,7 +217,7 @@ export default function App() {
               <button
                 onClick={() => { window.location.hash = '#/admin'; }}
                 className={`text-xs font-medium px-3 py-1.5 rounded-lg transition-colors ${
-                  hashRoute === '/admin'
+                  hashRoutePath === '/admin'
                     ? 'bg-indigo-100 text-indigo-700'
                     : 'text-zinc-500 hover:text-zinc-700 hover:bg-zinc-100'
                 }`}
@@ -225,15 +227,25 @@ export default function App() {
               <button
                 onClick={() => { window.location.hash = '#/admin/users'; }}
                 className={`text-xs font-medium px-3 py-1.5 rounded-lg transition-colors ${
-                  hashRoute === '/admin/users'
+                  hashRoutePath === '/admin/users'
                     ? 'bg-indigo-100 text-indigo-700'
                     : 'text-zinc-500 hover:text-zinc-700 hover:bg-zinc-100'
                 }`}
               >
                 用户管理
               </button>
+              <button
+                onClick={() => { window.location.hash = '#/admin/incidents'; }}
+                className={`text-xs font-medium px-3 py-1.5 rounded-lg transition-colors ${
+                  hashRoutePath === '/admin/incidents'
+                    ? 'bg-indigo-100 text-indigo-700'
+                    : 'text-zinc-500 hover:text-zinc-700 hover:bg-zinc-100'
+                }`}
+              >
+                故障快照
+              </button>
             </div>
-            {hashRoute === '/admin' ? (
+            {hashRoutePath === '/admin' ? (
               <>
                 <ErrorBoundary fallback="系统监控加载失败，请刷新后重试">
                   <Suspense fallback={<div className="flex items-center justify-center py-12"><Loader2 size={24} className="animate-spin text-indigo-500" /></div>}>
@@ -246,10 +258,22 @@ export default function App() {
                   </Suspense>
                 </ErrorBoundary>
               </>
-            ) : (
+            ) : hashRoutePath === '/admin/users' ? (
               <ErrorBoundary fallback="用户管理加载失败，请刷新后重试">
                 <Suspense fallback={<div className="flex items-center justify-center py-12"><Loader2 size={24} className="animate-spin text-indigo-500" /></div>}>
                   <UserManagement />
+                </Suspense>
+              </ErrorBoundary>
+            ) : hashRoutePath === '/admin/incidents' ? (
+              <ErrorBoundary fallback="故障快照页面加载失败，请刷新后重试">
+                <Suspense fallback={<div className="flex items-center justify-center py-12"><Loader2 size={24} className="animate-spin text-indigo-500" /></div>}>
+                  <IncidentConsole />
+                </Suspense>
+              </ErrorBoundary>
+            ) : (
+              <ErrorBoundary fallback="系统监控加载失败，请刷新后重试">
+                <Suspense fallback={<div className="flex items-center justify-center py-12"><Loader2 size={24} className="animate-spin text-indigo-500" /></div>}>
+                  <SystemMonitor />
                 </Suspense>
               </ErrorBoundary>
             )}

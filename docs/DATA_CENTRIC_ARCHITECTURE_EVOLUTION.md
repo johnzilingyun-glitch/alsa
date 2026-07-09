@@ -111,7 +111,7 @@ User
  ▼
 ┌──────────────── Execution Layer ──────────────┐
 │  DAG Engine：Parallel / Conditional / Retry     │
-│    ├─ Data Route（统一供数，AI 不联网）          │
+│    ├─ Data Route（统一供数，snapshot 优先 + tools 兜底）│
 │    ├─ Multi-Agent（6–8 个专业 Agent）            │
 │    └─ Memory / RAG（按需检索）                   │
 └────────────────────────────────────────────────┘
@@ -154,7 +154,7 @@ User
 2. assistant 消息也需要摘要机制（当前只处理 tool 消息）
 3. Context Builder 应作为独立组件，而非嵌入 tool loop
 
-### 3.2 🔴 Agent 直接联网获取数据（Data Route 未收口）
+### 3.2 🔴 Agent 联网工具未收口（重复请求 + 上下文膨胀）
 
 **现状**：`expert_tools.py` 中的 ToolExecutor 允许 LLM 通过 28 个工具直接联网：
 
@@ -167,16 +167,18 @@ User
 虽然 `data_providers/router.py` 已经是"统一供数入口"，但 **tool loop 中的 LLM 仍然可以通过 web_search/news_search/deep_scrape 等工具绕过 Data Route 直接联网**。
 
 **问题**：
-- Planner 阶段无法预取数据，因为 Agent 在 tool loop 中即兴决定查什么
+- 没有 Planner 预取 → Agent 在 tool loop 中即兴决定查什么，每轮都可能重新请求相同数据
 - 每个 Agent 独立联网 → 重复请求、不一致数据、上下文膨胀
 - iwencai API 有频率限制，多 Agent 并发调用容易触发
+- snapshot 数据不全时 Agent 仍需联网，但缺乏"先查 snapshot、再查网络"的优先级机制
 
-**目标**：Planner 预取数据写入 snapshot → Agent 只读 snapshot → 不再现场联网。
+**目标**：Planner 预取常用数据写入 snapshot → Agent 优先从 snapshot 读取 → snapshot 缺失时 tools 兜底。
 
 **需调整**：
-1. 禁用或限制 Agent 的网络类工具（web_search, news_search, deep_scrape）
-2. Planner 在执行前通过 Data Route 预取所有需要的数据
-3. Agent 的 `financial_data` 工具应改为从预取的 snapshot 读取，而非现场调用
+1. 新增 Planner 预取阶段，在执行前通过 Data Route 获取 quote/history/financial 等常用数据写入 snapshot
+2. Agent 的 `financial_data` 工具应优先从 snapshot 读取，仅在 snapshot 缺失时降级到 DataRouter/AkShare
+3. `web_search`/`news_search` 保留作为 Agent 的兜底能力（snapshot 不覆盖新闻/公告等非结构化数据）
+4. `deep_scrape` 保留但降级为 emergency fallback（仅在 web_search 也无法满足时使用）
 
 ### 3.3 🔴 固定拓扑 vs 动态 DAG
 
@@ -454,10 +456,11 @@ MODEL_TIER = {
   - 复用 `polars_indicators` 做 K 线→指标摘要
   - 新闻→Top-N（按相关性/时间打分）
   - 财报→Key Tables（结构化摘要）
-- [ ] Agent/tool 禁止直接联网，全部经 `data_providers/router`
-  - `ToolExecutor._exec_financial_data()` 改为优先从 DataRouter 获取
-  - 禁用 `web_search`/`news_search`/`deep_scrape` 在 tool loop 中的使用
-  - 新增 DataRouter 批量预取接口
+- [ ] Agent/tool 数据获取优先级改造
+  - `ToolExecutor._exec_financial_data()` 改为优先从 snapshot/DataRouter 获取，仅在缺失时降级到 AkShare/yfinance
+  - `web_search`/`news_search` 保留作为 Agent 的兜底能力（snapshot 不覆盖非结构化数据）
+  - `deep_scrape` 保留但降级为 emergency fallback
+- [ ] 新增 Planner 预取阶段（Phase 2 实现，此处先定义接口）
 - [ ] **验收**：quick 任务单次 prompt ≤ 12k tokens，端到端 ≤ 8 分钟
 
 ### Phase 2 — Planner + 结构化 Agent（2–3 周）
@@ -508,7 +511,7 @@ MODEL_TIER = {
 
 | # | 原则 | 本仓库落地点 | 现状 |
 |---|---|---|---|
-| 1 | AI 不获取数据，只推理 | Agent 禁联网，Planner 预取 → snapshot | ❌ Agent 仍直接联网 |
+| 1 | Snapshot 优先，tools 兜底 | Planner 预取 → snapshot；Agent 先读 snapshot，缺失时 tools 兜底 | ⚠️ 无预取，Agent 直接联网 |
 | 2 | 数据统一经 Data Route | `data_providers/router.py` 收口 | ⚠️ 已实现但未强制 |
 | 3 | Planner 决定计划，非 LLM 即兴 | 新增 `planner_service.py` | ❌ 未实现 |
 | 4 | DAG 工作流，支持并行/分支 | `discussion_service` → 动态 DAG | ⚠️ 固定拓扑，条件路由是死代码 |
@@ -543,7 +546,7 @@ MODEL_TIER = {
 | Planner 规划错误 | Flash 出 plan + 规则校验兜底；保留人工 Review 节点 |
 | RAG 检索不准 | Top-K + rerank；关键财务数据仍走结构化 Data Route |
 | 多模型切换兼容 | `llm_gateway` 统一抽象，已支持 DeepSeek/Gemini |
-| Agent 禁联网影响分析质量 | Planner 预取覆盖 90%+ 场景；保留 emergency fallback |
+| Agent 联网工具影响性能 | Planner 预取覆盖常用数据（quote/history/financial），减少 70%+ 工具调用；保留 web_search/news_search 作为兜底 |
 | 文件拆分引入回归 | 拆分后立即跑 pytest，CI 覆盖 |
 
 ---

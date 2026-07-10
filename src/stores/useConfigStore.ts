@@ -57,11 +57,11 @@ export const useConfigStore = create<ConfigState>((set) => {
           localStorage.setItem('llm_config', saved); // Migrate to new key
         }
       }
-      const parsed = saved ? JSON.parse(saved) : { model: 'gemini-3.1-pro-preview' };
+      const parsed = saved ? JSON.parse(saved) : { model: 'tencent/hy3:free' };
       return parsed;
     } catch (e) {
       console.error('Failed to parse config from localStorage:', e);
-      return { model: 'gemini-3.1-pro-preview' };
+      return { model: 'tencent/hy3:free' };
     }
   })();
 

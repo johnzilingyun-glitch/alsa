@@ -4,7 +4,7 @@ import { useUIStore } from "../stores/useUIStore";
 import { requestScheduler } from "./requestScheduler";
 import { tryFallbackProviders, getAvailableFallbackProviders } from "./llmProvider";
 
-export const DEFAULT_LLM_MODEL = "gemini-3.1-pro-preview";
+export const DEFAULT_LLM_MODEL = "tencent/hy3:free";
 
 // Fallback chain: primary + backup model for resilience.
 export const MODEL_FALLBACK_CHAIN: string[] = [
@@ -71,6 +71,7 @@ function createBackendBridgeClient(config?: { model?: string; serviceMode?: Serv
   const storeConfig = useConfigStore.getState().config as any;
   const genericApiKey = config?.apiKey || storeConfig?.apiKey || '';
   const deepseekApiKey = storeConfig?.deepseekApiKey || '';
+  const openrouterApiKey = storeConfig?.openrouterApiKey || '';
   const geminiApiKey = storeConfig?.apiKey || '';
 
   // Resolve model, auto-correcting if model doesn't match available keys
@@ -102,6 +103,7 @@ function createBackendBridgeClient(config?: { model?: string; serviceMode?: Serv
             config: {
               ...(deepseekApiKey ? { deepseekApiKey } : {}),
               ...(geminiApiKey ? { geminiApiKey } : {}),
+              ...(openrouterApiKey ? { openrouterApiKey } : {}),
             },
           }),
         });
@@ -138,13 +140,14 @@ export function createAI(config?: { apiKey?: string; model?: string; serviceMode
   const serviceMode = getServiceMode(config);
   const storeConfig = useConfigStore.getState().config as any;
 
-  // BYOK mode: use direct Gemini client if user provided a key
+  // BYOK mode: use direct Gemini client only for actual Gemini models with a key
   if (serviceMode === 'byok') {
     const geminiKey = (config?.apiKey || storeConfig?.apiKey || '').trim();
-    if (geminiKey) {
+    const userModel = (config?.model || storeConfig?.model || '').trim();
+    if (geminiKey && userModel.startsWith('gemini')) {
       return new GoogleGenAI({ apiKey: geminiKey });
     }
-    // No Gemini key — fall through to backend bridge (handles deepseek, server-side providers)
+    // Non-Gemini models (deepseek, openrouter, etc.) or no gemini key — route through backend bridge
   }
 
   // Managed mode or fallback: route through Node backend

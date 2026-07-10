@@ -52,7 +52,7 @@ class RequestScheduler {
       // Determine interval based on tier and model
       const config = useConfigStore.getState().config;
       const tier = config?.tier || 'free';
-      const model = config?.model || 'gemini-3.1-pro-preview';
+      const model = config?.model || 'tencent/hy3:free';
       
       let dynamicInterval = 2500;
       if (tier === 'paid') {

@@ -291,6 +291,68 @@ export function SettingsModal() {
                 </div>
               </section>
 
+              {/* OpenRouter API Key Section */}
+              <section className="space-y-4 p-6 rounded-2xl bg-zinc-950/5 border border-zinc-950/10 relative overflow-hidden">
+                <div className="absolute top-0 right-0 px-3 py-1 bg-zinc-950 text-white text-[9px] font-black uppercase tracking-widest rounded-bl-lg">
+                  New Feature
+                </div>
+                
+                <div className="flex items-center gap-2">
+                  <Cpu size={16} className="text-zinc-950" />
+                  <span className="text-xs font-bold uppercase tracking-wider text-zinc-900">OpenRouter</span>
+                </div>
+                
+                <div className="space-y-4">
+                  <div className="group relative flex flex-col gap-2">
+                    <div className="flex items-center justify-between mb-1">
+                      <div className="flex items-center gap-2">
+                        <div className="h-5 w-5 flex items-center justify-center rounded-md bg-zinc-950 text-white text-[10px] font-bold">OR</div>
+                        <span className="text-[11px] font-bold text-zinc-600 uppercase tracking-tight">API KEY</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <div className={`h-1.5 w-1.5 rounded-full ${config.openrouterApiKey?.startsWith('sk-or') ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]' : 'bg-zinc-300'}`} />
+                        <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">
+                          {config.openrouterApiKey?.startsWith('sk-or') ? '格式正确' : '未设置'}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="relative">
+                      <input
+                        type={showApiKey ? "text" : "password"}
+                        placeholder="sk-or-... (从 openrouter.ai 获取)"
+                        id="openrouter-api-key-input"
+                        value={config.openrouterApiKey || ''}
+                        onChange={(e) => setConfig({ ...config, openrouterApiKey: e.target.value })}
+                        className="input-premium pr-24 font-mono w-full bg-white"
+                      />
+                      <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-2">
+                        {config.openrouterApiKey && (
+                          <button
+                            onClick={() => setConfig({ ...config, openrouterApiKey: '' })}
+                            className="p-1.5 text-zinc-300 hover:text-rose-500 transition-colors"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        )}
+                        <button
+                          onClick={() => setShowApiKey(!showApiKey)}
+                          className="p-1.5 text-zinc-300 hover:text-indigo-600 transition-colors"
+                        >
+                          {showApiKey ? <EyeOff size={16} /> : <Eye size={16} />}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-start gap-3 p-4 rounded-xl bg-white/50 border border-zinc-200/50">
+                    <Info size={16} className="text-zinc-400 shrink-0 mt-0.5" />
+                    <p className="text-xs text-zinc-600/70 leading-relaxed">
+                      OpenRouter 是一个统一的 AI 模型网关。配置 OpenRouter Key 后，系统可将非 Gemini/DeepSeek 模型（如 tencent/hy3:free 等）路由至 OpenRouter 处理，方便多模型对比与灵活切换。
+                    </p>
+                  </div>
+                </div>
+              </section>
+
               {/* Token Guard Level Section */}
               <section className="space-y-4">
                 <div className="flex items-center gap-2">

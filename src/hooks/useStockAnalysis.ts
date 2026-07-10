@@ -67,13 +67,16 @@ export function useStockAnalysis() {
     // Check if API Key is configured
     const model = llmConfig?.model || '';
     const isDeepSeek = model.toLowerCase().startsWith('deepseek');
-    const apiKey = isDeepSeek ? (llmConfig?.deepseekApiKey || '') : (llmConfig?.apiKey || '');
-    
-    if (!apiKey || !apiKey.trim()) {
+    const isOpenRouter = !isDeepSeek && !model.toLowerCase().startsWith('gemini');
+    const apiKey = isDeepSeek ? (llmConfig?.deepseekApiKey || '') : isOpenRouter ? (llmConfig?.openrouterApiKey || '') : (llmConfig?.apiKey || '');
+
+    // OpenRouter falls back to the server's runtime default key (OPENROUTER_API_KEY in
+    // .env.runtime), so a missing local key is not fatal — let the request through.
+    if (!isOpenRouter && (!apiKey || !apiKey.trim())) {
       showToast(
-        isDeepSeek 
-          ? '请先前往设置配置 DeepSeek API Key (Please configure DeepSeek API Key in settings)' 
-          : '请先前往设置配置 Gemini API Key (Please configure Gemini API Key in settings)', 
+        isDeepSeek
+          ? '请先前往设置配置 DeepSeek API Key (Please configure DeepSeek API Key in settings)'
+          : '请先前往设置配置 Gemini API Key (Please configure Gemini API Key in settings)',
         'error'
       );
       return;
@@ -224,13 +227,14 @@ export function useStockAnalysis() {
     // Check if API Key is configured
     const model = llmConfig?.model || '';
     const isDeepSeek = model.toLowerCase().startsWith('deepseek');
-    const apiKey = isDeepSeek ? (llmConfig?.deepseekApiKey || '') : (llmConfig?.apiKey || '');
-    
-    if (!apiKey || !apiKey.trim()) {
+    const isOpenRouter = !isDeepSeek && !model.toLowerCase().startsWith('gemini');
+    const apiKey = isDeepSeek ? (llmConfig?.deepseekApiKey || '') : isOpenRouter ? (llmConfig?.openrouterApiKey || '') : (llmConfig?.apiKey || '');
+
+    if (!isOpenRouter && (!apiKey || !apiKey.trim())) {
       setLoading(false);
       setAnalysisError(
-        isDeepSeek 
-          ? '请先前往设置配置 DeepSeek API Key (Please configure DeepSeek API Key in settings)' 
+        isDeepSeek
+          ? '请先前往设置配置 DeepSeek API Key (Please configure DeepSeek API Key in settings)'
           : '请先前往设置配置 Gemini API Key (Please configure Gemini API Key in settings)'
       );
       showToast('API Key 未配置 (API Key not configured)', 'error');

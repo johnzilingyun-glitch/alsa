@@ -87,7 +87,7 @@ router.post('/analysis/jobs', async (req, res) => {
       market,
       status: 'queued',
       promptVersion: promptVersion || 'v1',
-      model: model || config?.model || 'gemini-3.1-pro-preview',
+      model: model || config?.model || 'tencent/hy3:free',
       config: safeConfig,
       outputPayload: {}
     });

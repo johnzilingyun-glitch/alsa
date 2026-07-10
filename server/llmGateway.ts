@@ -21,7 +21,7 @@ import path from 'path';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
-export type GatewayProvider = 'gemini' | 'openai' | 'anthropic' | 'deepseek' | 'default';
+export type GatewayProvider = 'gemini' | 'openai' | 'anthropic' | 'deepseek' | 'default' | 'openrouter';
 
 export interface GatewayRequest {
   prompt: string;
@@ -29,6 +29,7 @@ export interface GatewayRequest {
   config?: {
     deepseekApiKey?: string;
     geminiApiKey?: string;
+    openrouterApiKey?: string;
   };
 }
 
@@ -330,6 +331,72 @@ async function tryDeepSeek(prompt: string, log: LogFn, requestedModel?: string, 
   return null;
 }
 
+// ── OpenRouter REST provider ────────────────────────────────────────────────
+
+async function tryOpenRouter(prompt: string, log: LogFn, requestedModel?: string, configApiKey?: string): Promise<{text: string, usageMetadata?: any} | null> {
+  const apiKey = configApiKey || process.env.OPENROUTER_API_KEY;
+  if (!apiKey) {
+    log('gateway_openrouter_unavailable', { reason: 'no_api_key' });
+    return null;
+  }
+
+  const model = requestedModel || 'tencent/hy3:free';
+
+  try {
+    log('gateway_openrouter_attempt', { model });
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), HTTP_TIMEOUT_MS);
+
+    const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model,
+        messages: [
+          { role: 'system', content: 'You are a professional financial analyst. Return valid JSON when asked.' },
+          { role: 'user', content: prompt },
+        ],
+        temperature: 0.3,
+        max_tokens: 16384,
+      }),
+      signal: controller.signal,
+    });
+    clearTimeout(timer);
+
+    if (res.ok) {
+      const data = await res.json() as any;
+      const text: string = data?.choices?.[0]?.message?.content || data?.choices?.[0]?.message?.reasoning || '';
+      const usage = data?.usage;
+      if (text) {
+        log('gateway_openrouter_ok', { model, length: text.length });
+        return {
+          text,
+          usageMetadata: usage ? {
+            promptTokenCount: usage.prompt_tokens,
+            candidatesTokenCount: usage.completion_tokens,
+            totalTokenCount: usage.total_tokens
+          } : undefined
+        };
+      }
+    }
+
+    const errBody = await res.text().catch(() => '');
+    log('gateway_openrouter_http_error', { model, status: res.status, body: errBody.slice(0, 200) });
+
+    if (!res.ok) {
+      throw new Error(`OpenRouter API returned status ${res.status}: ${errBody.slice(0, 500)}`);
+    }
+  } catch (err: any) {
+    log('gateway_openrouter_exception', { model, error: String(err?.message || err).slice(0, 200) });
+    throw err;
+  }
+
+  return null;
+}
+
 // ── Default Relay provider (中转站) ─────────────────────────────────────────
 
 async function tryDefault(prompt: string, log: LogFn, requestedModel?: string): Promise<{text: string, usageMetadata?: any} | null> {
@@ -394,13 +461,15 @@ async function tryDefault(prompt: string, log: LogFn, requestedModel?: string): 
 
 // ── Provider routing ───────────────────────────────────────────────────────
 
-export function getPreferredProvider(requestedModel: string, config?: { geminiApiKey?: string; deepseekApiKey?: string }): GatewayProvider | null {
+export function getPreferredProvider(requestedModel: string, config?: { geminiApiKey?: string; deepseekApiKey?: string; openrouterApiKey?: string }): GatewayProvider | null {
   const m = requestedModel.toLowerCase();
   
   if (m.startsWith('gemini') && (config?.geminiApiKey || process.env.GEMINI_API_KEY)) return 'gemini';
   if ((m.startsWith('gpt-') || /^o\d/.test(m)) && process.env.OPENAI_API_KEY) return 'openai';
   if (m.startsWith('claude') && process.env.ANTHROPIC_API_KEY) return 'anthropic';
   if (m.startsWith('deepseek') && (config?.deepseekApiKey || process.env.DEEPSEEK_API_KEY)) return 'deepseek';
+  
+  if (config?.openrouterApiKey || process.env.OPENROUTER_API_KEY) return 'openrouter';
   
   // Route all models through xbrain by default (supports qwen, kimi, glm, etc.)
   if (process.env.DEFAULT_LLM_API_KEY) return 'default';
@@ -431,7 +500,7 @@ export async function gatewayGenerate(
   prompt: string,
   requestedModel: string,
   log: LogFn = () => {},
-  config?: { deepseekApiKey?: string; geminiApiKey?: string }
+  config?: { deepseekApiKey?: string; geminiApiKey?: string; openrouterApiKey?: string }
 ): Promise<GatewayResponse> {
   // Resolve to default model if empty/unspecified
   const model = requestedModel || getDefaultModel();
@@ -450,6 +519,7 @@ export async function gatewayGenerate(
     openai:    () => tryOpenAI(prompt, log, model),
     anthropic: () => tryAnthropic(prompt, log, model),
     deepseek:  () => tryDeepSeek(prompt, log, model, config?.deepseekApiKey),
+    openrouter: () => tryOpenRouter(prompt, log, model, config?.openrouterApiKey),
   };
 
   const fn = providerFns[provider];
@@ -479,5 +549,6 @@ export function gatewayStatus(): Record<GatewayProvider, boolean> {
     openai:             !!process.env.OPENAI_API_KEY,
     anthropic:          !!process.env.ANTHROPIC_API_KEY,
     deepseek:           !!process.env.DEEPSEEK_API_KEY,
+    openrouter:         !!(process.env.OPENROUTER_API_KEY),
   };
 }

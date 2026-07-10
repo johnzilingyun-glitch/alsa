@@ -98,18 +98,22 @@ class RateLimiter:
 
 
 class LLMGateway:
-    def __init__(self, gemini_api_key=None, deepseek_api_key=None):
+    def __init__(self, gemini_api_key=None, deepseek_api_key=None, openrouter_api_key=None):
         self._gemini_api_key_override = gemini_api_key
         self._deepseek_api_key_override = deepseek_api_key
+        self._openrouter_api_key_override = openrouter_api_key
         self.deepseek_base_url = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
+        self.openrouter_base_url = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
         self.default_api_key = os.getenv("DEFAULT_LLM_API_KEY")
         self.default_base_url = os.getenv("DEFAULT_LLM_BASE_URL", "http://xbrain-dify-service-test.xiaopeng.link/llm_api")
         self.default_model = os.getenv("DEFAULT_LLM_MODEL", "deepseek-v4-pro")
         self._gemini_client = None
         self._deepseek_client = None
+        self._openrouter_client = None
         self._default_client = None
         self._last_gemini_key = None
         self._last_deepseek_key = None
+        self._last_openrouter_key = None
         self.deepseek_api_key = self.get_deepseek_api_key()
 
         # Rate limiter for the default relay (中转站) to prevent 503 errors
@@ -197,6 +201,22 @@ class LLMGateway:
                     )
                 await loop.run_in_executor(None, _test)
                 return True
+            elif provider == "openrouter":
+                import httpx
+                client = OpenAI(
+                    api_key=api_key,
+                    base_url=self.openrouter_base_url,
+                    timeout=httpx.Timeout(10.0, connect=5.0),
+                )
+                loop = asyncio.get_event_loop()
+                def _test():
+                    client.chat.completions.create(
+                        model="tencent/hy3",
+                        messages=[{"role": "user", "content": "Say 'OK'"}],
+                        max_tokens=2
+                    )
+                await loop.run_in_executor(None, _test)
+                return True
             return False
         except Exception as e:
             err_msg = str(e).lower()
@@ -227,6 +247,18 @@ class LLMGateway:
         load_dotenv(os.path.join(root_dir, ".env"), override=False)
         load_dotenv(os.path.join(root_dir, ".env.runtime"), override=False)
         return os.getenv("DEEPSEEK_API_KEY")
+
+    def get_openrouter_api_key(self, api_key=None):
+        if api_key:
+            return api_key
+        if self._openrouter_api_key_override:
+            return self._openrouter_api_key_override
+        current = os.getenv("OPENROUTER_API_KEY")
+        if current:
+            return current
+        load_dotenv(os.path.join(root_dir, ".env"), override=False)
+        load_dotenv(os.path.join(root_dir, ".env.runtime"), override=False)
+        return os.getenv("OPENROUTER_API_KEY")
 
     def gemini_client(self, api_key=None):
         target_key = self.get_gemini_api_key(api_key)
@@ -262,6 +294,24 @@ class LLMGateway:
             else:
                 raise ValueError("DEEPSEEK_API_KEY is missing.")
         return self._deepseek_client
+
+    def openrouter_client(self, api_key=None):
+        target_key = self.get_openrouter_api_key(api_key)
+        if self._openrouter_client is None or (target_key and target_key != self._last_openrouter_key):
+            if target_key:
+                import httpx
+                _read_timeout = float(os.getenv("OPENROUTER_READ_TIMEOUT", "60.0"))
+                _max_retries = int(os.getenv("OPENROUTER_MAX_RETRIES", "3"))
+                self._openrouter_client = OpenAI(
+                    api_key=target_key,
+                    base_url=self.openrouter_base_url,
+                    timeout=httpx.Timeout(_read_timeout, connect=15.0),
+                    max_retries=_max_retries,
+                )
+                self._last_openrouter_key = target_key
+            else:
+                raise ValueError("OPENROUTER_API_KEY is missing.")
+        return self._openrouter_client
 
     def default_client(self):
         if self._default_client is None:
@@ -305,7 +355,7 @@ class LLMGateway:
             return value
         raise value
 
-    async def generate_content(self, prompt: str, model: str = None, temperature: float = 0.3, on_chunk: Optional[callable] = None, gemini_api_key: Optional[str] = None, deepseek_api_key: Optional[str] = None, cache_key: Optional[str] = None, prompt_version_id: Optional[str] = None, response_schema: Optional[Any] = None) -> str:
+    async def generate_content(self, prompt: str, model: str = None, temperature: float = 0.3, on_chunk: Optional[callable] = None, gemini_api_key: Optional[str] = None, deepseek_api_key: Optional[str] = None, openrouter_api_key: Optional[str] = None, cache_key: Optional[str] = None, prompt_version_id: Optional[str] = None, response_schema: Optional[Any] = None) -> str:
         try:
             loop = asyncio.get_running_loop()
             _original_on_chunk = on_chunk
@@ -355,7 +405,7 @@ class LLMGateway:
         
         result_text = None
         try:
-            result_text = await self._generate_content_inner(prompt, model, temperature, on_chunk, gemini_api_key, deepseek_api_key, cache_key, response_schema)
+            result_text = await self._generate_content_inner(prompt, model, temperature, on_chunk, gemini_api_key, deepseek_api_key, openrouter_api_key, cache_key, response_schema)
             return result_text
         finally:
             latency_ms = int((time.perf_counter() - start_time) * 1000)
@@ -369,6 +419,8 @@ class LLMGateway:
                             provider = "gemini"
                         elif "deepseek" in res_model.lower():
                             provider = "deepseek"
+                        elif res_model.lower().startswith("tencent/") or "/" in res_model:
+                            provider = "openrouter"
                         else:
                             provider = "default"
                             
@@ -413,7 +465,7 @@ class LLMGateway:
             if created_ctx:
                 current_token_usage.reset(token)
 
-    async def _generate_content_inner(self, prompt: str, model: str = None, temperature: float = 0.3, on_chunk: Optional[callable] = None, gemini_api_key: Optional[str] = None, deepseek_api_key: Optional[str] = None, cache_key: Optional[str] = None, response_schema: Optional[Any] = None) -> str:
+    async def _generate_content_inner(self, prompt: str, model: str = None, temperature: float = 0.3, on_chunk: Optional[callable] = None, gemini_api_key: Optional[str] = None, deepseek_api_key: Optional[str] = None, openrouter_api_key: Optional[str] = None, cache_key: Optional[str] = None, response_schema: Optional[Any] = None) -> str:
         """
         Generate content with built-in quality-gate retry.
         Retries up to 2 extra times if response is truncated or garbage.
@@ -441,6 +493,7 @@ class LLMGateway:
                 ]
             else:
                 providers = [
+                    ("openrouter", self._generate_openrouter),
                     ("deepseek", self._generate_deepseek),
                     ("default", self._generate_default),
                     ("gemini", self._generate_gemini)
@@ -457,6 +510,10 @@ class LLMGateway:
                     elif provider_name == "deepseek":
                         kwargs["api_key"] = deepseek_api_key
                         if not self.get_deepseek_api_key(deepseek_api_key):
+                            continue
+                    elif provider_name == "openrouter":
+                        kwargs["api_key"] = openrouter_api_key
+                        if not self.get_openrouter_api_key(openrouter_api_key):
                             continue
                     elif provider_name == "default":
                         if not self.default_api_key:
@@ -815,6 +872,93 @@ class LLMGateway:
                 logger.error(f"Strict model mode enforced. Failed to generate with {final_model}. Raising error without fallback.")
                 raise e
                 
+        raise Exception(f"Failed to generate content with {final_model} after {max_retries} attempts due to rate limits.")
+
+    async def _generate_openrouter(self, prompt: str, model: str, temperature: float, on_chunk: Optional[callable] = None, api_key: Optional[str] = None, response_schema: Optional[Any] = None) -> str:
+        client = self.openrouter_client(api_key=api_key)
+        max_retries = 10
+        retry_delay = 15
+        max_delay = 60
+
+        final_model = model
+
+        def _stream_generate():
+            """Blocking streaming call — runs in thread for async compatibility."""
+            kwargs = {
+                "model": final_model,
+                "messages": [
+                    {"role": "system", "content": "You are a professional financial analyst expert."},
+                    {"role": "user", "content": prompt}
+                ],
+                "temperature": temperature,
+                "max_tokens": 16384,
+                "stream": True,
+                "stream_options": {"include_usage": True},
+            }
+            if response_schema:
+                kwargs["response_format"] = {"type": "json_object"}
+            response = self.openrouter_client(api_key=api_key).chat.completions.create(**kwargs)
+            content_parts = []
+            reasoning_parts = []
+            char_count = 0
+            usage_dict = {"promptTokens": 0, "candidatesTokens": 0, "totalTokens": 0}
+            for chunk in response:
+                if chunk.choices and len(chunk.choices) > 0 and chunk.choices[0].delta:
+                    delta = chunk.choices[0].delta
+                    if delta.content:
+                        content_parts.append(delta.content)
+                        char_count += len(delta.content)
+                        if on_chunk:
+                            on_chunk(char_count)
+                    elif getattr(delta, "reasoning", None):
+                        # Reasoning models (e.g. tencent/hy3:free) may put the answer in
+                        # `reasoning` when `content` is absent — buffer it as a fallback
+                        # so a reasoning-only response isn't lost as an empty result.
+                        reasoning_parts.append(delta.reasoning)
+                if hasattr(chunk, 'usage') and chunk.usage:
+                    usage_dict = {
+                        "promptTokens": getattr(chunk.usage, 'prompt_tokens', 0),
+                        "candidatesTokens": getattr(chunk.usage, 'completion_tokens', 0),
+                        "totalTokens": getattr(chunk.usage, 'total_tokens', 0)
+                    }
+            text_res = "".join(content_parts)
+            if not text_res:
+                text_res = "".join(reasoning_parts)
+
+            usage_ctx = current_token_usage.get()
+            if usage_ctx is not None:
+                usage_ctx["promptTokens"] += usage_dict["promptTokens"]
+                usage_ctx["candidatesTokens"] += usage_dict["candidatesTokens"]
+                usage_ctx["totalTokens"] += usage_dict["totalTokens"]
+
+            return text_res
+
+        for attempt in range(max_retries):
+            try:
+                result = await self._run_blocking_llm_call("openrouter", _stream_generate)
+                if not result:
+                    raise ValueError("OpenRouter returned empty streaming response")
+                return result
+            except Exception as e:
+                error_msg = str(e)
+                logger.error(f"OpenRouter Error ({final_model}) on attempt {attempt + 1}/{max_retries}: {error_msg}")
+
+                if "429" in error_msg or "quota" in error_msg.lower() or "503" in error_msg or "524" in error_msg or "500" in error_msg or "502" in error_msg or "empty response" in error_msg.lower() or "connection" in error_msg.lower() or "timeout" in error_msg.lower():
+                    if attempt < max_retries - 1:
+                        logger.info(f"Rate limit hit. Waiting {retry_delay}s before retry {attempt + 2}/{max_retries} (no model downgrade)...")
+                        if on_chunk:
+                            on_chunk(0, f"API 触发限流/网络错误，等待 {retry_delay} 秒重试... (第 {attempt + 1} 次)")
+                        for _ in range(int(retry_delay)):
+                            await asyncio.sleep(1)
+                            if os.path.exists(".stop"):
+                                logger.info("User stop signal detected during wait. Aborting...")
+                                raise Exception("Analysis stopped by user.")
+                        retry_delay = min(retry_delay * 2, max_delay)
+                        continue
+
+                logger.error(f"Strict model mode enforced. Failed to generate with {final_model}. Raising error without fallback.")
+                raise e
+
         raise Exception(f"Failed to generate content with {final_model} after {max_retries} attempts due to rate limits.")
 
 llm_gateway = LLMGateway()

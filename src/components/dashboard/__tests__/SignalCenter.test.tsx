@@ -54,4 +54,17 @@ describe('SignalCenter', () => {
     const deleteBtn = screen.getByText('删除');
     expect(deleteBtn).toBeInTheDocument();
   });
+
+  it('does not crash when store fields are null (stale persisted localStorage)', () => {
+    // Older persist schema merged these back as null, which previously threw
+    // during the initial render and surfaced the ErrorBoundary fallback.
+    useMarketStore.setState({
+      searchAlerts: null as any,
+      alertPrices: null as any,
+      historyItems: null as any,
+    });
+    render(<SignalCenter isOpen={true} onClose={() => {}} />);
+    expect(screen.queryByText('信号中心加载失败，请关闭后重试')).toBeNull();
+    expect(screen.getByText('智能交易信号中心')).toBeInTheDocument();
+  });
 });

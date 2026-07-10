@@ -20,7 +20,12 @@ interface SignalCenterProps {
 export function SignalCenter({ isOpen, onClose }: SignalCenterProps) {
   const { t } = useTranslation();
   const setLastJobId = useAnalysisStore(s => s.setLastJobId);
-  const { searchAlerts, alertPrices, historyItems, setAlerts } = useMarketStore();
+  // Persisted (stale) localStorage can merge these back as null, which would
+  // crash the initial render before alerts are re-fetched. Guard with defaults.
+  const searchAlerts = useMarketStore(s => s.searchAlerts) ?? [];
+  const alertPrices = useMarketStore(s => s.alertPrices) ?? {};
+  const historyItems = useMarketStore(s => s.historyItems) ?? [];
+  const setAlerts = useMarketStore(s => s.setAlerts);
   const { setSymbol, setMarket, setAnalysis } = useAnalysisStore();
   const [tab, setTab] = useState<'active' | 'closed'>('active');
   const [closedAlerts, setClosedAlerts] = useState<AlertType[]>([]);
@@ -275,8 +280,9 @@ export function SignalCenter({ isOpen, onClose }: SignalCenterProps) {
                 </div>
               ) : (
                 <div className="space-y-4">
-                  {searchAlerts.map((alert) => {
-                    const price = alertPrices[alert.symbol];
+                   {searchAlerts.map((alert) => {
+                     if (!alert) return null;
+                     const price = alertPrices[alert.symbol];
                     const status = getStatus(alert);
                     
                     // Find corresponding history item to show full trading plan text if available
@@ -370,7 +376,7 @@ export function SignalCenter({ isOpen, onClose }: SignalCenterProps) {
 
                         {/* Postmortem Button */}
                         <div className="flex justify-end mt-3 pt-3 border-t border-zinc-100/50 gap-4">
-                          {(status === 'inactive' || status === 'acknowledged') && (
+                          {(status === 'inactive' || alert.acknowledged === true) && (
                             <button
                               onClick={() => handleResumeAlert(alert.alert_id!)}
                               disabled={isResuming === alert.alert_id}

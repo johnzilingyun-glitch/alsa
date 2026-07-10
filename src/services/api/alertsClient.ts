@@ -11,6 +11,7 @@ export interface SearchAlert {
   stop_loss: number;
   currency?: string;
   status?: string;
+  acknowledged?: boolean;
   created_at?: string;
   // Monitoring fields
   monitoring_enabled?: boolean;

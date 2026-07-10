@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, memo, lazy, Suspense } from 'react';
-import { Download, History, Clock, Settings, Loader2, Search, TrendingUp, Zap, BarChart3, Microscope, Languages, Menu, X, Target, Activity, BrainCircuit, Wrench, BarChart2, Users, LogOut, CheckCircle2, FastForward, ShieldCheck } from 'lucide-react';
+import { Download, History, Clock, Settings, Loader2, Search, TrendingUp, Zap, BarChart3, Microscope, Languages, Menu, X, Target, Activity, BrainCircuit, Wrench, BarChart2, Users, LogOut, CheckCircle2, FastForward, ShieldCheck, Sparkles } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useTranslation } from 'react-i18next';
 import { Market, AnalysisLevel } from '../../types';
@@ -255,6 +255,9 @@ export const Header = memo(function Header({
                     <button onClick={() => { setShowBrainEvolution(true); setShowToolbox(false); }} className="flex w-full items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-purple-600 hover:bg-purple-50 transition-colors">
                       <BrainCircuit size={18} /> 🧠 进化 AI
                     </button>
+                    <button onClick={() => { window.location.hash = '#/v2'; setShowToolbox(false); }} className="flex w-full items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-indigo-600 hover:bg-indigo-50 transition-colors">
+                      <Sparkles size={18} /> ✨ 新架构对比
+                    </button>
                   </div>
                 )}
               </div>
@@ -332,6 +335,9 @@ export const Header = memo(function Header({
 
                   <button onClick={() => { setShowBrainEvolution(true); setShowMobileMenu(false); }} className="flex w-full items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-purple-600 hover:bg-purple-50 transition-colors">
                     <BrainCircuit size={18} /> 🧠 进化 AI
+                  </button>
+                  <button onClick={() => { window.location.hash = '#/v2'; setShowMobileMenu(false); }} className="flex w-full items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-indigo-600 hover:bg-indigo-50 transition-colors">
+                    <Sparkles size={18} /> ✨ 新架构对比
                   </button>
                   {user && (
                     <button onClick={() => { logout(); setShowMobileMenu(false); }} className="flex w-full items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-rose-600 hover:bg-rose-50 transition-colors">

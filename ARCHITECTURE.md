@@ -407,3 +407,173 @@ python python_service/cli.py analyze "贵州茅台"
 - **国际化** UI 文本一律放到 `src/i18n/locales/zh.json` 和 `en.json`
 - **大组件懒加载** 在 `App.tsx` 中使用 `React.lazy()`
 - **分析历史** 在 `data/history/` 目录以 JSON 文件存储，保留 30 天
+
+---
+
+# 第二部分：v3.1 多智能体新架构（已就绪，待接入）
+
+> 基于 `MULTI_AGENT_ARCHITECTURE_DEV_GUIDE.md` v3.1
+> 落地日期：2026-07-09 ~ 2026-07-10
+> 状态：**七层架构全部落地 + 端到端可运行 + 132 项测试全绿**，当前为增量非破坏设计，**尚未接入 API/Job Service**（旧 discussion_service 仍在运行）
+
+## 9. 新架构总览（七层 + 横切）
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│  前台: React SPA "AI 每日智析" (端口 3000)                     │
+│  → Express 网关 (Node.js server.ts) → Python FastAPI (8001)   │
+└──────────────────────────┬───────────────────────────────────┘
+                           │ /api/analysis/jobs (POST 202 异步)
+┌──────────────────────────▼───────────────────────────────────┐
+│  AnalysisJobService (现状: 调 discussion_service 旧流程)       │
+│  ┌─ 灰度开关(待加): use_new_pipeline=True → AnalysisPipeline ─┐│
+│  │                                                              ││
+│  │  ① Request    Symbol Resolve + Intent Parse                  ││
+│  │  ② Planning   PlannerService.plan() → ExecutionPlan (Flash)  ││
+│  │  ③ Execution  DAGEngine.run() → list[AgentResult] (动态并行) ││
+│  │     └─ BaseAgent.run: ContextBuilder + Handoff + SubAgent    ││
+│  │                  + 结构化输出 + EvidenceBus                   ││
+│  │  ④ Evidence   EvidenceAggregator.aggregate() (stance 聚合)   ││
+│  │  ⑤ Reflection ReflectionAgent.critique() (可回溯 max=2)     ││
+│  │     └─ [HITL interrupt: post_reflection / pre_decision]      ││
+│  │  ⑥ Decision   DecisionAgent.decide() → FinalDecision        ││
+│  │  ⑦ Report     ReportBuilder.build_markdown() (证据可追溯)    ││
+│  │     └─ OutputGuardrail.check() 拦截低质输出                   ││
+│  └──────────────────────────────────────────────────────────────┘│
+│                                                                   │
+│  横切层:                                                          │
+│  • ToolRegistry (能力矩阵+前置校验+跨Agent缓存)  [Phase 1]       │
+│  • ContextBuilder (原始数据→最小高价值上下文)     [Phase 1]       │
+│  • CheckpointStore (pause/resume)                [Phase 5]       │
+│  • Memory 四层 (Session/Analysis/Project/User)   [Phase 5]       │
+│  • Tracer (全链路 span 调用树)                   [§10.3 #4]      │
+│  • RoleRouter (Flash 整理 / Pro 推理, 成本↓>50%) [Phase 4]       │
+│  • HITL interrupt + Streaming (§10.3 #1/#3)      [Pipeline]      │
+└───────────────────────────────────────────────────────────────────┘
+```
+
+## 10. 前台用户如何使用
+
+### 当前可用方式（旧流程，已上线）
+1. **浏览器访问** `http://localhost:3000` → "AI 每日智析" 首页
+2. **输入股票**：股票代码或名称（如 "贵州茅台" / "AAPL" / "0700.HK"）
+3. **选择分析深度**：quick / standard / deep
+4. **提交分析**：前端 POST `/api/analysis/jobs` → 返回 job_id（202 异步）
+5. **查看进度**：前端轮询 `/api/analysis/jobs/{job_id}` 或 WebSocket 推送
+6. **查看报告**：完成后 GET `/api/analysis/runs/{id}` → HTML 报告（带图表）
+7. **导出分享**：`/api/analysis/jobs/{id}/report`（重新生成）/ `export/pdf` / `export/share-card`
+
+### 新架构启用后（待接入，灰度）
+- 同样的前台操作流程不变
+- 后端 `AnalysisJobService` 通过开关切换到 `AnalysisPipeline.run()`
+- **新增能力**（待 API 暴露）：
+  - 结构化 `FinalDecision`（评分/立场/行动/置信/可执行性）
+  - 证据可追溯报告（每条结论带 source/agent/stance）
+  - HITL 审批（关键决策前暂停等人工确认）
+  - Streaming 阶段进度（Planner→DAG→Reflection→Decision 实时事件）
+
+## 11. 前后台匹配度分析
+
+| 维度 | 状态 | 说明 |
+|------|------|------|
+| 前端 API 调用 ↔ 后端端点 | ✅ 匹配 | 前端调 `/api/analysis/jobs` 等，后端有完整端点 |
+| 旧流程（discussion_service）| ✅ 完整可用 | 前端能正常生成 HTML 报告 |
+| 新架构 Pipeline 接入 API | ⚠️ 未接入 | `AnalysisJobService` 仍调 `discussion_service.run_discussion`（line 398），未调 `analysis_pipeline.run()` |
+| FinalDecision 结构化输出 | ⚠️ 未暴露 | 新架构产出 `FinalDecision`，但 API 仍返回旧 discussion 自由文本 |
+| ReportBuilder markdown 报告 | ⚠️ 未暴露 | 新 `ReportBuilder` 产出 markdown，API 仍用旧 `report_generator_service` HTML |
+| HITL 审批 | ⚠️ 未暴露 | Pipeline 支持 interrupt，但无 API 端点暂停/审批 |
+| Streaming 进度 | 🟡 部分 | 前端有 WebSocket，但新 Pipeline 的 `run_streaming` 阶段事件未对接 |
+| OutputGuardrail | ⚠️ 未接入 | 新 guardrail 拦截低质输出，但未在 API 层生效 |
+| Tracer 可观测性 | ⚠️ 未对接 | 新 Tracer 全链路 span，但未对接现有 metrics/audit 展示 |
+
+**结论**：前台 UI 与后台**接口层匹配**（能正常运行），但**新架构（Phase 1-7）尚未接入业务流程**。新架构是"已就绪待接入"状态，需通过灰度开关切换。
+
+## 12. 新架构接入路径（灰度，3 步）
+
+### 步骤 1：AnalysisJobService 加灰度开关
+```python
+# analysis_job_service.py (line ~398)
+if config.get("use_new_pipeline"):
+    from .analysis_pipeline import analysis_pipeline
+    result = await analysis_pipeline.run(symbol, question, market=market, snapshot=snapshot)
+    # result.decision / result.report / result.aggregated / result.critique
+else:
+    discussion_messages = await discussion_service.run_discussion(...)  # 旧流程
+```
+
+### 步骤 2：API 暴露新结构化字段
+在 `/api/analysis/runs/{id}` 响应中追加：
+```json
+{
+  "final_decision": {"score": 0.75, "stance": "bullish", "action": "buy", "can_act": true},
+  "evidence": [{"claim": "...", "supporting": [...], "contradicting": [...], "consensus": 0.8}],
+  "guardrail": {"action": "pass", "issues": []},
+  "report_markdown": "...",
+  "trace_summary": {"span_count": 7, "total_duration_ms": 12345}
+}
+```
+
+### 步骤 3：HITL + Streaming API（可选增强）
+- `POST /api/analysis/jobs/{id}/interrupt` → 暂停点查询
+- `POST /api/analysis/jobs/{id}/approve` → 审批继续
+- WebSocket 推送 `run_streaming` 阶段事件（复用现有 socket.io）
+
+## 13. 新架构文件清单（Phase 1-7 全部模块）
+
+```
+python_service/app/
+├── schemas/contracts.py              # 层间数据契约 (Phase 1)
+├── services/
+│   ├── context_builder.py            # 上下文构建器 (Phase 1)
+│   ├── tools/{registry,shared_cache,preconditions,metrics}.py  # Tool 治理 (Phase 1)
+│   ├── planner_service.py            # Planner 动态规划 (Phase 3)
+│   ├── evidence_store.py             # Evidence Aggregator (Phase 3)
+│   ├── role_router.py                # role→model 路由 (Phase 4)
+│   ├── checkpoint_store.py           # pause/resume (Phase 5)
+│   ├── memory_store.py               # Memory 四层 (Phase 5)
+│   ├── doc_chunker.py                # RAG 文档分块 (Phase 5 补全)
+│   ├── output_guardrail.py           # 输出校验 (§10.3 #2)
+│   └── analysis_pipeline.py          # ★ 端到端编排器 (架构闭环)
+├── agents/
+│   ├── base_agent.py                 # BaseAgent (Phase 2)
+│   ├── handoff.py                    # Handoff 双向委托 (Phase 2)
+│   ├── evidence_bus.py               # EvidenceBus (Phase 2)
+│   ├── agent_result_schema.py        # 结构化输出 (Phase 2)
+│   ├── expert_agents.py              # SubAgent + 具体 Agent (Phase 2)
+│   ├── reflection_agent.py           # 可回溯反思 (Phase 4)
+│   ├── decision_agent.py             # Decision → FinalDecision (Phase 4)
+│   └── report_builder.py             # ⑦ Report (Phase 7)
+├── engine/dag_engine.py              # DAG 动态并行 (Phase 3)
+└── observability/trace.py            # 全链路 trace (§10.3 #4)
+
+测试: tests/test_phase{1,2,3,4,5_7}*.py + test_remaining* + test_analysis_pipeline*
+     + run_phase*_standalone.py (132 项全绿)
+```
+
+## 14. v3.1 修复与 §10.3 完成状态
+
+- **v3.1 的 12 处逻辑矛盾修复**：全部落地（stance 维度 / Handoff 双向 / ToolRegistry 治理 / rerun 动态预算 / Checkpoint 归属 / Phase 边界等）
+- **11 个 P0/P1 差距**：全部修复（规划/并行/通信/实例/Evidence/Reflection/上下文/输出/模型路由/联网收口/Tool治理）
+- **§10.3 六项**：✅ #1 HITL / #2 输出校验 / #3 Streaming / #4 trace / #6 记忆持久化；🟡 #5 多模型（tier 已做，多厂商配置扩展）
+
+## 15. 新旧架构对照
+
+| 维度 | 旧（discussion_service，运行中）| 新（AnalysisPipeline，已就绪）|
+|------|--------------------------------|------------------------------|
+| 编排 | 固定拓扑 QUICK/STANDARD/DEEP + LangGraph | Planner 动态规划 + DAGEngine 动态并行 |
+| Agent | make_node 闭包 | BaseAgent 独立实例 + Handoff + SubAgent |
+| 通信 | history_states dict（只读上一轮）| EvidenceBus + Handoff 双向委托 |
+| Evidence | Professional Reviewer 找矛盾 | Aggregator stance 维度聚合 + 冲突标记 |
+| Reflection | 一次性 self_reflection | 可回溯 rerun max=2 |
+| 输出 | 自由文本截断 2000 字 | 结构化 JSON FinalDecision |
+| 模型 | 全程 Pro | Flash 整理 / Pro 推理（成本↓>50%）|
+| 报告 | HTML（report_generator_service）| Markdown + 结构化 dict（ReportBuilder）|
+| 可观测 | failure_capture 事件级 | + Tracer 全链路 span |
+| 治理 | 会话级去重 | ToolRegistry 跨Agent缓存 + 前置校验 |
+
+> **迁移原则**：增量非破坏，灰度切换。旧流程保留可用，新架构通过开关接入，逐验证后切换。
+
+---
+
+**文档版本**：ARCHITECTURE.md v2（追加 v3.1 新架构章节）· 2026-07-10
+**新架构状态**：全部落地 + 端到端可运行 + 132 项测试全绿，待接入 API 层

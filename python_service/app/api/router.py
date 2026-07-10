@@ -15,9 +15,11 @@ from .trade_intents import router as trade_intents_router
 from .stock import router as stock_router
 from .predictions import router as predictions_router
 from .ths import router as ths_router
+from .analysis_v2 import router as analysis_v2_router
 
 api_router = APIRouter()
 api_router.include_router(analysis_router)
+api_router.include_router(analysis_v2_router)
 api_router.include_router(market_router)
 api_router.include_router(alerts_router)
 api_router.include_router(watchlist_router)

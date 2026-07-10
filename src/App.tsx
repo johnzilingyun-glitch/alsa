@@ -49,6 +49,7 @@ const MockTradingDashboard = lazy(() => import('./components/dashboard/MockTradi
 const BacktestPanel = lazy(() => import('./components/dashboard/BacktestPanel').then(m => ({ default: m.BacktestPanel })));
 const PredictionDashboard = lazy(() => import('./components/dashboard/PredictionDashboard').then(m => ({ default: m.PredictionDashboard })));
 const ThsAnalysis = lazy(() => import('./components/dashboard/ThsAnalysis').then(m => ({ default: m.ThsAnalysis })));
+const NewArchCompare = lazy(() => import('./components/NewArchCompare').then(m => ({ default: m.NewArchCompare })));
 
 export default function App() {
   console.log('App is rendering');
@@ -278,6 +279,12 @@ export default function App() {
               </ErrorBoundary>
             )}
           </div>
+        ) : hashRoutePath === '/v2' ? (
+          <ErrorBoundary fallback="新架构对比页面加载失败，请刷新后重试">
+            <Suspense fallback={<div className="flex items-center justify-center py-12"><Loader2 size={24} className="animate-spin text-indigo-500" /></div>}>
+              <NewArchCompare />
+            </Suspense>
+          </ErrorBoundary>
         ) : (
         <>
         {isHistoryOpen && (

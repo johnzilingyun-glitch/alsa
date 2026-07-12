@@ -145,8 +145,17 @@ LPR利率: 1年期={{ lpr.get('1y') }}% | 5年期={{ lpr.get('5y', 'N/A') }}% �
 {% set fed = macro_indicators.get('FedRate', {}) %}
 {% if fed.get('rate') is not none %}
 美联储联邦基金利率: {{ fed.get('rate') }}% — {{ fed.get('source', '') }} [{{ fed.get('date', '') }}]
+{% if fed.get('note') %}({{ fed.note }}){% endif %}
 {% elif fed.get('error') %}
 ⚠ 美联储利率: {{ fed.error }}
+{% endif %}
+{% set rf = macro_indicators.get('rf_10y_cn', {}) %}
+{% if rf.get('value') is not none %}
+★★ 中国10年期国债收益率 (无风险利率Rf): {{ rf.get('value') }}{{ rf.get('unit', '%') }} — {{ rf.get('source', '') }} [{{ rf.get('date', '') }}]
+  >>> DCF估值/RIM模型/资本成本计算必须使用此Rf={{ rf.get('value') }}{{ rf.get('unit', '%') }}，严禁使用训练数据中的过期利率 <<<
+{% if rf.get('note') %}  ({{ rf.note }}){% endif %}
+{% elif rf.get('error') %}
+⚠ 中国10年期国债收益率(Rf): {{ rf.error }}
 {% endif %}
 {% endif %}
 
@@ -291,6 +300,22 @@ Target: {{ symbol }} ({{ name }})
 {% endfor %}
 {% endif %}
 ⚠ 以上季度数据来自API，为已审计/已公告数据。严禁使用搜索或训练数据中的数值覆盖。环比变化可由相邻季度数据直接计算。
+{% endif %}
+
+{% if data_quality %}
+--- [API] DATA QUALITY / 数据完整度 (权威评估，须如实披露) ---
+数据完整度评分: {{ ((data_quality.get('score') or 0) * 100) | round(0) | int }} / 100
+{% if data_quality.get('warnings') %}
+⚠ 以下字段存在数据缺口或质量警告，分析时须如实标注为'数据缺失/N/A'，严禁编造数值:
+{% for w in data_quality.get('warnings') %}
+- [{{ w.get('severity', '?') }}] {{ w.get('message', w.get('code', '')) }}
+{% endfor %}
+{% else %}
+✓ 核心数据完整度良好，未发现缺口。
+{% endif %}
+{% if data_quality.get('field_coverage') %}
+字段覆盖: OHLC {{ (data_quality.field_coverage.get('ohlc', 0) * 100) | int }}% | 行情 {{ (data_quality.field_coverage.get('quote', 0) * 100) | int }}% | 财务 {{ (data_quality.field_coverage.get('financials', 0) * 100) | int }}%
+{% endif %}
 {% endif %}
 
 --- [MANDATORY] DATA VALIDATION WARNINGS ---

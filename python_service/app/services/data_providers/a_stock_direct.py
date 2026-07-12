@@ -346,7 +346,87 @@ async def fetch_a_share_dividends(code: str, periods: int = 5) -> List[Dict[str,
             "ex_dividend_date": str(row.get("EX_DIVIDEND_DATE", ""))[:10],
             "pretaxBonusPer10": row.get("PRETAX_BONUS_RMB"),
         })
-    return out
+        return out
+
+
+# ── Extended-metrics helpers (Part B: β / ROIC / WACC / buyback / coal) ──
+def _compute_beta(stock_df, bench_df):
+    """Beta of a stock vs benchmark, from aligned daily close returns."""
+    if stock_df is None or bench_df is None:
+        return None
+    if getattr(stock_df, "empty", True) or getattr(bench_df, "empty", True):
+        return None
+    try:
+        s = stock_df[["date", "close"]].copy()
+        b = bench_df[["date", "close"]].copy()
+        s["date"] = s["date"].astype(str).str[:10]
+        b["date"] = b["date"].astype(str).str[:10]
+        s["ret"] = s["close"].pct_change()
+        b["ret"] = b["close"].pct_change()
+        m = s.merge(b, on="date", suffixes=("_s", "_b")).dropna(subset=["ret_s", "ret_b"])
+        if len(m) < 30:
+            return None
+        cov = m["ret_s"].cov(m["ret_b"])
+        var = m["ret_b"].var()
+        if not var:
+            return None
+        return float(cov / var)
+    except Exception:
+        return None
+
+
+def _get_cn_risk_free_rate() -> float:
+    """China 10Y treasury yield (decimal) as risk-free rate. Best-effort;
+    falls back to 2.0% if no stable free endpoint. WACC is labeled 估算."""
+    try:
+        rows = _eastmoney_datacenter("RPT_BOND_CHINA_GOV10Y", columns="ALL", page_size=1)
+        if rows and rows[0].get("YIELD") is not None:
+            return float(rows[0]["YIELD"]) / 100.0
+    except Exception:
+        pass
+    return 0.02
+
+
+async def _fetch_buyback(code: str) -> Optional[Dict[str, Any]]:
+    """Best-effort A-share share-repurchase (回购) from EastMoney F10 events.
+    Degrades to None if the endpoint is unavailable (honest 数据缺失)."""
+    try:
+        loop = asyncio.get_event_loop()
+        rows = await loop.run_in_executor(None, lambda: _eastmoney_datacenter(
+            "RPT_F10_EVENT", filter_str=f'(SECURITY_CODE="{code}")',
+            page_size=20, sort_columns="NOTICE_DATE", sort_types="-1"))
+        if not rows:
+            return None
+        bbs = [r for r in rows if "回购" in str(r.get("EVENT_TITLE", ""))]
+        if not bbs:
+            return None
+        latest = bbs[0]
+        return {
+            "date": str(latest.get("NOTICE_DATE", ""))[:10],
+            "title": latest.get("EVENT_TITLE"),
+            "amount": latest.get("REPURCHASE_AMOUNT") or latest.get("PLAN_AMOUNT"),
+        }
+    except Exception:
+        return None
+
+
+async def _fetch_coal_price() -> Optional[Dict[str, Any]]:
+    """Best-effort thermal-coal spot (动力煤, 秦皇岛港 Q5500) for coal-chemical
+    names. Degrades to None if no stable free endpoint (honest 数据缺失)."""
+    try:
+        loop = asyncio.get_event_loop()
+        rows = await loop.run_in_executor(None, lambda: _eastmoney_datacenter(
+            "RPT_CFL_SPOT", columns="ALL", page_size=20))
+        if not rows:
+            return None
+        for r in rows:
+            name = str(r.get("NAME", "") + str(r.get("PRODUCT_NAME", "")))
+            if "动力煤" in name or "秦皇岛" in name or "Q5500" in name:
+                return {"name": name, "price": r.get("PRICE"),
+                        "date": str(r.get("DATE", ""))[:10], "unit": r.get("UNIT")}
+        return None
+    except Exception:
+        return None
 
 
 class AStockDirectProvider(DataProvider):
@@ -446,10 +526,11 @@ class AStockDirectProvider(DataProvider):
             return pd.DataFrame()
 
     async def _fetch_tencent_kline(
-        self, code: str, period: str = "3mo", interval: str = "1d"
+        self, code: str, period: str = "3mo", interval: str = "1d",
+        prefix_override: Optional[str] = None,
     ) -> pd.DataFrame:
         """Fetch K-line from Tencent web.ifzq API (accessible from overseas)."""
-        prefix = _get_prefix(code)
+        prefix = prefix_override or _get_prefix(code)
         qt_symbol = f"{prefix}{code}"
 
         # Map period to day count for Tencent API
@@ -998,6 +1079,77 @@ class AStockDirectProvider(DataProvider):
                 result["dividendDate"] = str(latest_div.get("EX_DIVIDEND_DATE", ""))[:10]
         except Exception as e:
             logger.warning(f"[{self.name}] Dividend fetch failed for {code}: {e}")
+
+        # 4b. Dividend history (3y) — reuse confirmed EastMoney RPT_SHAREBONUS_DET
+        try:
+            div_hist = await fetch_a_share_dividends(code, periods=10)
+            if div_hist:
+                _hist, _seen = [], set()
+                for d in div_hist:
+                    _yr = (d.get("ex_dividend_date") or d.get("report_date") or "")[:4]
+                    if _yr and _yr not in _seen:
+                        _seen.add(_yr)
+                        _hist.append({"year": _yr, "exDate": d.get("ex_dividend_date"),
+                                      "pretaxBonusPer10": d.get("pretaxBonusPer10")})
+                    if len(_hist) >= 3:
+                        break
+                if _hist:
+                    result["dividendHistory"] = _hist
+        except Exception as e:
+            logger.warning(f"[{self.name}] Dividend history failed for {code}: {e}")
+
+        # 6. Extended metrics (β / ROIC / WACC / buyback / coal) — Part B
+        # 6a. Beta vs CSI300 (computed from daily returns; Tencent kline, overseas-accessible)
+        try:
+            _sk = await self._fetch_tencent_kline(code, period="1y", interval="1d")
+            _bk = await self._fetch_tencent_kline("000300", period="1y", interval="1d", prefix_override="sh")
+            _beta = _compute_beta(_sk, _bk)
+            if _beta is not None:
+                result["beta"] = round(_beta, 2)
+        except Exception as e:
+            logger.debug(f"[{self.name}] Beta failed for {code}: {type(e).__name__}")
+
+        # 6b. ROIC & WACC (derived; report labels WACC as 估算)
+        try:
+            _inc = await fetch_a_share_income_items(code, periods=2)
+            _bal = await fetch_a_share_balance_items(code, periods=2)
+            if _inc and _bal:
+                _op = _inc[0].get("operatingProfit")
+                _ta = _bal[0].get("totalAssets")
+                _tl = _bal[0].get("totalLiabilities")
+                _cash = _bal[0].get("monetaryFunds")
+                if _op is not None and _ta is not None:
+                    _tax = 0.25  # 中国法定企业所得税率(近似)
+                    _nopat = _op * (1 - _tax)
+                    _ic = (_ta or 0) - (_cash or 0)
+                    if _ic:
+                        result["roic"] = round(_nopat / _ic * 100, 2)  # percent
+                    _rf = await loop.run_in_executor(None, _get_cn_risk_free_rate)
+                    _beta_v = result.get("beta") or 1.0
+                    _re = _rf + _beta_v * 0.055  # 股权风险溢价假设 5.5%
+                    _rd = 0.04
+                    _eq = (_ta or 0) - (_tl or 0)
+                    _v = _eq + (_tl or 0)
+                    if _v:
+                        result["wacc"] = round(
+                            ((_eq / _v) * _re + (_tl or 0) / _v * _rd * (1 - _tax)) * 100, 2)
+                        result["waccEstimated"] = True
+        except Exception as e:
+            logger.warning(f"[{self.name}] ROIC/WACC failed for {code}: {e}")
+
+        # 6c. Buyback & coal price (best-effort; degrade to None → 数据缺失)
+        try:
+            _bb = await _fetch_buyback(code)
+            if _bb:
+                result["buyback"] = _bb
+        except Exception:
+            pass
+        try:
+            _coal = await _fetch_coal_price()
+            if _coal:
+                result["coalPrice"] = _coal
+        except Exception:
+            pass
 
         # 5. Sina financial statements (income statement for revenue/profit)
         try:

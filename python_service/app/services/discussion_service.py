@@ -1015,6 +1015,9 @@ class DiscussionService:
             "indicators_json": json.dumps({k: v for k, v in indicators.items() if v is not None}, default=str) if indicators else "",
             "quarterly_history": quarterly_history,
             "data_quality": snapshot.get("data_quality"),
+            "dividend_history": financials.get("dividendHistory"),
+            "buyback": financials.get("buyback"),
+            "coal_price": financials.get("coalPrice"),
             "fmt_num": fmt_num,
             "valuation_guidance": valuation_guidance,
         }

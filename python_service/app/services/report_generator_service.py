@@ -3375,6 +3375,26 @@ CONTENT:
         else:
             m["PE百分位"] = ui_data.get("pe_percentile") or "N/A"
 
+        # 9. Extended metrics (Part B): β / ROIC / WACC / dividend / buyback / coal
+        m["贝塔系数 (β)"] = ratio(get_val("beta"))
+        m["ROIC"] = pct(get_val("roic"))
+        _wacc = get_val("wacc")
+        m["WACC (估算)"] = pct(_wacc) if _wacc is not None else "N/A"
+        _dh = f.get("dividendHistory") or []
+        if _dh and isinstance(_dh, list):
+            m["近3年分红(每10股)"] = "; ".join(
+                f"{h.get('year', '')}: {h.get('pretaxBonusPer10', '')}" for h in _dh if isinstance(h, dict)
+            )
+        else:
+            m["近3年分红(每10股)"] = "N/A"
+        _bb = f.get("buyback")
+        m["股份回购"] = (_bb.get("title") if isinstance(_bb, dict) else None) or "数据缺失"
+        _coal = f.get("coalPrice")
+        if isinstance(_coal, dict) and _coal.get("price") is not None:
+            m["动力煤价格"] = f"{_coal.get('price')} {_coal.get('unit', '')} ({_coal.get('name', '')})"
+        else:
+            m["动力煤价格"] = "数据缺失"
+
         return m
 
     def _parse_metric_value(self, value_str: str):

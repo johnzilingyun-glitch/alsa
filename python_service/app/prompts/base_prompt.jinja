@@ -318,6 +318,18 @@ Target: {{ symbol }} ({{ name }})
 {% endif %}
 {% endif %}
 
+{% if get_val('beta') != 'N/A' or get_val('roic') != 'N/A' or get_val('wacc') != 'N/A' or dividend_history or buyback or coal_price %}
+--- [API] 扩展指标 (β / ROIC / WACC / 分红 / 回购 / 煤价, Part B) ---
+{% set _b = get_val('beta') %}{% if _b != 'N/A' and _b is not none %}- 贝塔系数 (β, vs 沪深300): {{ _b }}{% endif %}
+{% set _r = get_val('roic') %}{% if _r != 'N/A' and _r is not none %}- ROIC: {{ _r }}%{% endif %}
+{% set _w = get_val('wacc') %}{% if _w != 'N/A' and _w is not none %}- WACC (估算): {{ _w }}% — 假设 Rf=中国10年国债收益率, 股权风险溢价5.5%, 税率25%{% endif %}
+{% if dividend_history %}- 近3年分红(每10股派息, 元): {% for h in dividend_history %}{{ h.get('year', '') }}:{{ h.get('pretaxBonusPer10', '') }}  {% endfor %}{% endif %}
+{% if buyback %}- 股份回购: {{ buyback.get('title', '') }} ({{ buyback.get('date', '') }}){% endif %}
+{% if not buyback %}- 股份回购: 数据缺失 (暂无稳定免费源){% endif %}
+{% if coal_price %}- 动力煤价格: {{ coal_price.get('price') }} {{ coal_price.get('unit', '') }} ({{ coal_price.get('name', '') }}){% endif %}
+{% if not coal_price %}- 动力煤价格: 数据缺失 (暂无稳定免费源){% endif %}
+{% endif %}
+
 --- [MANDATORY] DATA VALIDATION WARNINGS ---
 ⚠ **数据口径警告（所有专家必读）**:
 1. **净现金**: 上方'净现金(=总现金-总负债)'已由API直接计算，请直接引用此值。严禁自行推算或使用搜索到的不同口径数据。注意：'总现金'含现金等价物+短期投资，口径偏宽；如需纯现金口径需搜索年报。

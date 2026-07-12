@@ -109,7 +109,14 @@ def get_session():
         yield session
 
 def build_session_factory(db_path: str):
-    """Used for testing and initialization"""
+    """Used for testing and initialization.
+
+    Accepts either a filesystem path (as tests do) or a full sqlite:// URL
+    (as the CLI passes DATABASE_URL). If a URL is given, extract the path so
+    we don't double-prefix it into an invalid "sqlite:///sqlite:///..." URL.
+    """
+    if db_path.startswith("sqlite:///"):
+        db_path = db_path[len("sqlite:///"):]
     test_engine = create_engine(f"sqlite:///{db_path}", connect_args={"check_same_thread": False})
     
     def _test_set_sqlite_pragma(dbapi_connection, connection_record):

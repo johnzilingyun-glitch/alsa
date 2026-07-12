@@ -316,16 +316,16 @@ Target: {{ symbol }} ({{ name }})
 2. 如果某项数据显示为 N/A，请查阅下方工具列表并使用工具进行补充。
 3. 如果前序专家引用的数值与 API 数据矛盾，你必须以 API 数据为准并指出矛盾。
 4. **严禁编造搜索结果**——无论使用什么工具，如果你实际没有搜索到数据，绝对不得伪造。
-5. **严禁伪造数据来源**——只有 API 数据标注'API Data'，工具获得的数据标注对应工具名，推算数据标注'基于API推算'。
-6. **工具失败时自行兜底**——如果提供的搜索/数据工具全部返回空或报错，不要卡住分析流程。你应该使用自身的联网搜索能力、推理能力或训练知识继续完成分析，并在输出中注明'此部分数据基于自有知识库/联网搜索补充'。
+5. **严禁伪造数据来源**——只有 API 数据标注'API Data'，工具获得的数据标注对应工具名，推算数据标注'基于API推算'。「自有知识库」「训练数据」「内部知识」「参数记忆」一律不得作为任何财务数值的来源标注；若无法溯源，必须标注「数据缺失 / N/A」。
+6. **工具失败严禁编造财务数据**——如果提供的搜索/数据工具全部返回空或报错，不要卡住分析流程，但**绝对禁止**使用训练数据/内部知识/参数记忆编造任何财务数值（股价、利率、汇率、估值参数、宏观指标、商品报价等）。正确做法：(a) 优先调用联网搜索工具获取实时数据；(b) 若工具仍无结果，必须明确标注「数据缺失 / N/A」并降低该结论置信度；(c) 仅允许在「数据缺失」前提下做定性推理，不得给出任何具体数字估计。任何数值若无法追溯到 [API Data] 或具名工具，一律写作 N/A。
 {% else %}
 The [API DATA / MARKET SNAPSHOT] above comes from real-time APIs and is the **core ground truth** for this analysis.
 1. All reasoning MUST anchor to these values. Never use stale training data.
 2. If a value is N/A, check the tools list below and use them to fetch data.
 3. If a previous expert contradicts API data, you MUST flag the contradiction and use the API value.
 4. **NEVER fabricate results** — if you didn't actually find data, do not pretend you did.
-5. **NEVER fabricate data sources** — use 'API Data', tool names, or 'Estimated from API' labels only.
-6. **Fallback when tools fail** — if all provided search/data tools return empty or error, do NOT block analysis. Use your own web-search capability, reasoning, or training knowledge to continue, and label output as 'supplemented from own knowledge / web search'.
+5. **NEVER fabricate data sources** — use 'API Data', tool names, or 'Estimated from API' labels only. Labels such as 'own knowledge' / 'training data' / 'parametric memory' are NOT permitted as a source for any financial value; if untraceable, label 'N/A / data missing'.
+6. **No fabricated financial data when tools fail** — if all search/data tools return empty or error, do NOT block analysis, but you are STRICTLY FORBIDDEN from using training knowledge / parametric memory to invent any financial figure (price, rate, FX, valuation inputs, macro indicators, commodity quotes). Correct procedure: (a) call a web-search tool for real-time data; (b) if no tool result, explicitly mark 'N/A / data missing' and lower confidence; (c) only qualitative reasoning under 'data missing' is allowed — never estimate a number. Any value not traceable to [API Data] or a named tool MUST be written as N/A.
 {% endif %}
 
 --- [MANDATORY] DATA SOURCE PRIORITY ---
@@ -333,12 +333,12 @@ The [API DATA / MARKET SNAPSHOT] above comes from real-time APIs and is the **co
 **数据采信优先级（强制执行）**:
 1. [API DATA / MARKET SNAPSHOT] — 最高优先级，除非显式标注为 N/A
 2. [CRITICAL] TOOL-VERIFIED MACRO FACTS — 仅当 API 数据缺失时采信
-3. 你的内部知识 — 仅作为补充解释，严格禁止用于覆盖 API 数据
+3. 你的内部知识 — 仅用于定性解释与逻辑推演，严格禁止用于覆盖 API 数据，且严禁用于生成任何具体财务数值（数值只能来自 [API Data] 或具名工具）
 {% else %}
 **Data Priority (STRICT ENFORCEMENT)**:
 1. [API DATA / MARKET SNAPSHOT] — Highest priority, unless explicitly N/A
 2. [CRITICAL] TOOL-VERIFIED MACRO FACTS — Only when API data is missing
-3. Your internal knowledge — For supplementary explanation only. NEVER override API data.
+3. Your internal knowledge — For qualitative explanation and reasoning only. NEVER override API data and NEVER produce any specific financial number from it (numbers must come from [API Data] or named tools).
 {% endif %}
 
 --- [MANDATORY] SEARCH TOOL STATUS ---

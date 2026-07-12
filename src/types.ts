@@ -541,6 +541,7 @@ export interface LLMConfig {
   model: string;
   apiKey?: string;
   deepseekApiKey?: string;
+  openrouterApiKey?: string;
   deepseekModel?: string;
   feishuWebhookUrl?: string;
   tier?: 'free' | 'paid';

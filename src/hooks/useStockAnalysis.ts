@@ -70,9 +70,12 @@ export function useStockAnalysis() {
     const isOpenRouter = !isDeepSeek && !model.toLowerCase().startsWith('gemini');
     const apiKey = isDeepSeek ? (llmConfig?.deepseekApiKey || '') : isOpenRouter ? (llmConfig?.openrouterApiKey || '') : (llmConfig?.apiKey || '');
 
-    // OpenRouter falls back to the server's runtime default key (OPENROUTER_API_KEY in
-    // .env.runtime), so a missing local key is not fatal — let the request through.
-    if (!isOpenRouter && (!apiKey || !apiKey.trim())) {
+    // All known providers fall back to the server's runtime key
+    // (DEEPSEEK_API_KEY / GEMINI_API_KEY / OPENROUTER_API_KEY in .env.runtime),
+    // so a missing local key is never fatal for them — let the request through
+    // and let the backend surface a clear error if it also lacks a key.
+    const relaxLocalKey = isOpenRouter || isDeepSeek || model.toLowerCase().startsWith('gemini');
+    if (!relaxLocalKey && (!apiKey || !apiKey.trim())) {
       showToast(
         isDeepSeek
           ? '请先前往设置配置 DeepSeek API Key (Please configure DeepSeek API Key in settings)'
@@ -230,7 +233,8 @@ export function useStockAnalysis() {
     const isOpenRouter = !isDeepSeek && !model.toLowerCase().startsWith('gemini');
     const apiKey = isDeepSeek ? (llmConfig?.deepseekApiKey || '') : isOpenRouter ? (llmConfig?.openrouterApiKey || '') : (llmConfig?.apiKey || '');
 
-    if (!isOpenRouter && (!apiKey || !apiKey.trim())) {
+    const relaxLocalKey = isOpenRouter || isDeepSeek || model.toLowerCase().startsWith('gemini');
+    if (!relaxLocalKey && (!apiKey || !apiKey.trim())) {
       setLoading(false);
       setAnalysisError(
         isDeepSeek

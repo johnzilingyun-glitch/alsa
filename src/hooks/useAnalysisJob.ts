@@ -126,8 +126,9 @@ export function useAnalysisJob() {
           })();
           const model = savedConfig.model || '';
           const isDeepSeek = model.toLowerCase().startsWith('deepseek');
-          const provider = isDeepSeek ? 'deepseek' : 'gemini';
-          const apiKey = isDeepSeek ? (savedConfig.deepseekApiKey || '') : (savedConfig.apiKey || '');
+          const isOpenRouter = !isDeepSeek && !model.toLowerCase().startsWith('gemini');
+          const provider = isDeepSeek ? 'deepseek' : isOpenRouter ? 'openrouter' : 'gemini';
+          const apiKey = isDeepSeek ? (savedConfig.deepseekApiKey || '') : isOpenRouter ? (savedConfig.openrouterApiKey || '') : (savedConfig.apiKey || '');
           if (apiKey) {
             fetch('/api/analysis/apikey', {
               method: 'POST',
@@ -174,8 +175,9 @@ export function useAnalysisJob() {
             })();
             const model = savedConfig.model || '';
             const isDeepSeek = model.toLowerCase().startsWith('deepseek');
-            const provider = isDeepSeek ? 'deepseek' : 'gemini';
-            const apiKey = isDeepSeek ? (savedConfig.deepseekApiKey || '') : (savedConfig.apiKey || '');
+            const isOpenRouter = !isDeepSeek && !model.toLowerCase().startsWith('gemini');
+            const provider = isDeepSeek ? 'deepseek' : isOpenRouter ? 'openrouter' : 'gemini';
+            const apiKey = isDeepSeek ? (savedConfig.deepseekApiKey || '') : isOpenRouter ? (savedConfig.openrouterApiKey || '') : (savedConfig.apiKey || '');
             if (apiKey) {
               // Send key to server — stored in memory only, never persisted
               fetch(`/api/analysis/jobs/${id}/apikey`, {

@@ -1014,6 +1014,7 @@ class DiscussionService:
             "currency_note": currency_note,
             "indicators_json": json.dumps({k: v for k, v in indicators.items() if v is not None}, default=str) if indicators else "",
             "quarterly_history": quarterly_history,
+            "data_quality": snapshot.get("data_quality"),
             "fmt_num": fmt_num,
             "valuation_guidance": valuation_guidance,
         }

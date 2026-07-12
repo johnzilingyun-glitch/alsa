@@ -160,7 +160,26 @@ class ReportGeneratorService:
                 for m, content in zip(cleaned_msgs, normalized_contents)
             ]
         }
-        
+
+        # Surface the COMPUTED data quality (from the snapshot pipeline), not just the
+        # LLM-estimated one, so the report honestly reflects real data completeness.
+        _dq = snapshot.get("data_quality") or {}
+        if isinstance(_dq, dict):
+            _dq_warnings = _dq.get("warnings") or []
+            _dq_missing = [
+                (w.get("message") or w.get("code") or "")
+                for w in _dq_warnings if isinstance(w, dict)
+            ]
+            data["data_completeness"] = {
+                "score": int(round((_dq.get("score") or 0) * 100)),
+                "missing": _dq_missing,
+                "impact": "; ".join(_dq_missing) or "核心数据完整度良好",
+            }
+            if _dq_warnings:
+                data["data_integrity_warning"] = "⚠ 数据完整度提示: " + "; ".join(
+                    f"[{w.get('severity', '')}] {w.get('message', '')}" for w in _dq_warnings if isinstance(w, dict)
+                )
+
         html = self._render_html(data)
         
         # Inject precise token usage metadata as an HTML comment
@@ -3217,6 +3236,18 @@ CONTENT:
         
         m["营收3年复合增长 (CAGR)"] = pct(get_val("revenueCagr3y"))
         m["净利润3年复合增长 (CAGR)"] = pct(get_val("incomeCagr3y"))
+
+        # 3b. Absolute revenue (TTM, fallback to latest quarterly) — surface the
+        # absolute value, not just YoY %. Honest: shows N/A if truly unavailable.
+        _rev = get_val("revenue")
+        if _rev is None:
+            _qh = f.get("quarterlyHistory") or []
+            if isinstance(_qh, list) and _qh:
+                _rev = _qh[0].get("Total Revenue") or _qh[0].get("revenue")
+        m["营业总收入"] = money(_rev, use_currency=fin_currency)
+
+        # 涨跌幅 — already in the price header; surface here for tabular completeness
+        m["涨跌幅"] = pct(get_val("changePercent"))
 
         # 4. Financial Health
         # Asset-Liability Ratio (资产负债率) = Total Liabilities / Total Assets

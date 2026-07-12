@@ -237,7 +237,7 @@ class SectorReportService:
         return f"""
         <section class="section price-verification-section">
             <h2 class="section-title">实时价格校验 (Real-Time Price Verification)</h2>
-            <p class="price-notice">⚠ 以下价格来自交易所实时数据 (AkShare API)，数据时间: {timestamp}。如与上述分析中的价格存在差异，请以此表为准。</p>
+            <p class="price-notice">⚠ 以下价格来自交易所实时数据 (API)，数据时间: {timestamp}。如与上述分析中的价格存在差异，请以此表为准。</p>
             <table class="price-table">
                 <thead>
                     <tr>

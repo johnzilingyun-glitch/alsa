@@ -32,7 +32,7 @@ class ReportGeneratorService:
         loop = asyncio.get_event_loop()
         return loop.run_until_complete(self.generate_html_report_async(result, output_path))
 
-    async def generate_html_report_async(self, result: dict, output_path: str, model: str = None, deepseek_api_key: str = None, gemini_api_key: str = None) -> str:
+    async def generate_html_report_async(self, result: dict, output_path: str, model: str = None, deepseek_api_key: str = None, gemini_api_key: str = None, openrouter_api_key: str = None) -> str:
         stock_info = result.get("stockInfo", {})
         symbol = result.get("symbol") or stock_info.get("symbol", "UNKNOWN")
         market = result.get("market") or stock_info.get("market", "US-Share")
@@ -54,7 +54,7 @@ class ReportGeneratorService:
         
         try:
             # UI Data Expert Pass - REFINED CONTENT (RESTORING RAW LOGS)
-            ui_data = await self._run_ui_data_expert(symbol, market, snapshot, full_discussion, model=model, deepseek_api_key=deepseek_api_key, gemini_api_key=gemini_api_key)
+            ui_data = await self._run_ui_data_expert(symbol, market, snapshot, full_discussion, model=model, deepseek_api_key=deepseek_api_key, gemini_api_key=gemini_api_key, openrouter_api_key=openrouter_api_key)
 
             # If UI data expert failed (empty dict) OR quality is too low, build fallback
             if not ui_data or self._is_low_quality_ui_data(ui_data):
@@ -77,7 +77,7 @@ class ReportGeneratorService:
             # Parallelize normalization for performance — fallback to markdown if LLM fails
             try:
                 normalized_contents = await asyncio.gather(*[
-                    self._normalize_log_style(m["content"], model=model, deepseek_api_key=deepseek_api_key, gemini_api_key=gemini_api_key) for m in cleaned_msgs
+                    self._normalize_log_style(m["content"], model=model, deepseek_api_key=deepseek_api_key, gemini_api_key=gemini_api_key, openrouter_api_key=openrouter_api_key) for m in cleaned_msgs
                 ])
                 # Check if all normalizations returned empty/error
                 if all(not c or c.strip() == "" for c in normalized_contents):
@@ -143,7 +143,7 @@ class ReportGeneratorService:
             f.write(html)
         return os.path.abspath(output_path)
 
-    async def _run_ui_data_expert(self, symbol: str, market: str, snapshot: dict, discussion: str, model: str = None, deepseek_api_key: str = None, gemini_api_key: str = None) -> dict:
+    async def _run_ui_data_expert(self, symbol: str, market: str, snapshot: dict, discussion: str, model: str = None, deepseek_api_key: str = None, gemini_api_key: str = None, openrouter_api_key: str = None) -> dict:
         prompt = f"""# ROLE
 You are the ALSA Report Structuring Engine — a specialized system that transforms raw multi-expert stock analysis discussions into structured JSON for UI rendering.
 
@@ -333,7 +333,7 @@ Now extract from the following discussion:
 
                 res = await llm_gateway.generate_content(
                     prompt + f"\n\nEXPERT DISCUSSION (Trailing context):\n{discussion_safe}{retry_hints}",
-                    model=model, deepseek_api_key=deepseek_api_key, gemini_api_key=gemini_api_key
+                    model=model, deepseek_api_key=deepseek_api_key, gemini_api_key=gemini_api_key, openrouter_api_key=openrouter_api_key
                 )
 
                 # Robust JSON extraction: try balanced-brace parser first, then regex fallback
@@ -1056,7 +1056,7 @@ Now extract from the following discussion:
         except Exception:
             return f"<pre>{stripped}</pre>"
 
-    async def _normalize_log_style(self, content: str, model: str = None, deepseek_api_key: str = None, gemini_api_key: str = None) -> str:
+    async def _normalize_log_style(self, content: str, model: str = None, deepseek_api_key: str = None, gemini_api_key: str = None, openrouter_api_key: str = None) -> str:
         stripped = content.strip()
 
         # Strip DeepSeek DSML tokens (native tool call markup that may leak)
@@ -1146,7 +1146,7 @@ CONTENT:
                 if not model:
                     provider = os.getenv("DEFAULT_LLM_PROVIDER", "deepseek").lower()
                     model = os.getenv("DEEPSEEK_MODEL", "deepseek-v4-pro") if provider == "deepseek" else os.getenv("GEMINI_MODEL", "gemini-3.1-pro-preview")
-                res = await llm_gateway.generate_content(prompt, model=model, temperature=0.2, deepseek_api_key=deepseek_api_key, gemini_api_key=gemini_api_key)
+                res = await llm_gateway.generate_content(prompt, model=model, temperature=0.2, deepseek_api_key=deepseek_api_key, gemini_api_key=gemini_api_key, openrouter_api_key=openrouter_api_key)
                 if res and len(res) > 100:
                     return markdown2.markdown(res.strip(), extras=["tables", "fenced-code-blocks"])
             except Exception as e:
@@ -3073,7 +3073,7 @@ CONTENT:
             if val is None or not isinstance(val, (int, float)): return "N/A"
             # If value is clearly a decimal ratio (e.g. 0.15 for 15%), convert to percentage
             # Use a more robust threshold: ratios from yfinance are typically < 1.0
-            # AkShare returns percentage values directly (e.g. 15.5 for 15.5%)
+            # API returns percentage values directly (e.g. 15.5 for 15.5%)
             if abs(val) < 1.0:
                 return f"{round(val * 100, 2)}%"
             return f"{round(val, 2)}%"
@@ -3219,10 +3219,10 @@ CONTENT:
             else:
                 m["股息率"] = "N/A"
 
-        # 6. Efficiency — also check AkShare indicator history for turnover data
+        # 6. Efficiency — also check indicator history for turnover data
         at_val = get_val("assetTurnover")
         it_val = get_val("inventoryTurnover")
-        # Try to extract from AkShare financial indicator history if not at top level
+        # Try to extract from financial indicator history if not at top level
         if (at_val is None or it_val is None):
             ak_hist = f.get("financials", {}).get("history", []) if isinstance(f.get("financials"), dict) else []
             if ak_hist and isinstance(ak_hist, list) and len(ak_hist) > 0:
@@ -3231,7 +3231,7 @@ CONTENT:
                     at_val = latest_ind.get("总资产周转率(次)") or latest_ind.get("总资产周转率")
                 if it_val is None:
                     it_val = latest_ind.get("存货周转率(次)") or latest_ind.get("存货周转率")
-        # Convert string numbers from AkShare
+        # Convert string numbers from API
         def safe_float(v):
             if v is None: return None
             if isinstance(v, (int, float)): return v

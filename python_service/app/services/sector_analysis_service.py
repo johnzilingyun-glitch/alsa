@@ -15,7 +15,6 @@ from app.observability.failure_capture import capture_failure_incident
 
 logger = get_logger(__name__)
 
-_AKSHARE_ENABLED = os.getenv("AKSHARE_ENABLED", "true").lower() in ("true", "1", "yes")
 
 
 class SectorAnalysisService:
@@ -324,123 +323,8 @@ class SectorAnalysisService:
         return None
 
     async def _fetch_sector_stocks(self, sector_name: str) -> List[Dict[str, Any]]:
-        """Fetch constituent stocks for a sector with real-time prices from AkShare."""
-        if _AKSHARE_ENABLED:
-            import akshare as ak
-            from ..utils.network import safe_ak_call
-        else:
-            return []
-
-        stocks = []
-        try:
-            # 1. Get all industry board names and find best match
-            board_names_df = await safe_ak_call(ak.stock_board_industry_name_em)
-            if board_names_df is not None and not board_names_df.empty:
-                board_col = "板块名称" if "板块名称" in board_names_df.columns else board_names_df.columns[0]
-                board_names = board_names_df[board_col].tolist()
-
-                # Fuzzy match: find boards whose name overlaps with sector_name
-                best_match = None
-                best_score = 0
-                for bn in board_names:
-                    # Score by character overlap
-                    common = sum(1 for c in sector_name if c in bn)
-                    score = common / max(len(sector_name), 1)
-                    if score > best_score and score >= 0.4:
-                        best_score = score
-                        best_match = bn
-
-                if best_match:
-                    print(f"[SectorAnalysis] Matched board: '{best_match}' for sector '{sector_name}' (score: {best_score:.2f})")
-                    cons_df = await safe_ak_call(ak.stock_board_industry_cons_em, symbol=best_match)
-                    if cons_df is not None and not cons_df.empty:
-                        # Take top 20 by market cap or turnover
-                        sort_col = None
-                        for c in ["总市值", "成交额", "成交量"]:
-                            if c in cons_df.columns:
-                                sort_col = c
-                                break
-                        if sort_col:
-                            cons_df = cons_df.sort_values(sort_col, ascending=False)
-
-                        for _, row in cons_df.head(20).iterrows():
-                            code = str(row.get("代码", "")).strip()
-                            name = str(row.get("名称", "")).strip()
-                            price = row.get("最新价")
-                            change_pct = row.get("涨跌幅")
-                            pe = row.get("市盈率-动态")
-                            pb = row.get("市净率")
-                            market_cap = row.get("总市值")
-                            turnover = row.get("换手率")
-
-                            if code and name and price is not None:
-                                stock = {
-                                    "code": code,
-                                    "name": name,
-                                    "price": float(price) if price else None,
-                                    "change_pct": float(change_pct) if change_pct else None,
-                                    "pe": float(pe) if pe else None,
-                                    "pb": float(pb) if pb else None,
-                                    "market_cap_yi": round(float(market_cap) / 1e8, 1) if market_cap else None,
-                                    "turnover_pct": float(turnover) if turnover else None,
-                                }
-                                stocks.append(stock)
-        except Exception as e:
-            print(f"[SectorAnalysis] Failed to fetch sector stocks: {e}")
-
-        # Fallback: try concept board if industry board gave no results
-        if not stocks:
-            try:
-                concept_df = await safe_ak_call(ak.stock_board_concept_name_em)
-                if concept_df is not None and not concept_df.empty:
-                    concept_col = "板块名称" if "板块名称" in concept_df.columns else concept_df.columns[0]
-                    concept_names = concept_df[concept_col].tolist()
-
-                    best_match = None
-                    best_score = 0
-                    for cn in concept_names:
-                        common = sum(1 for c in sector_name if c in cn)
-                        score = common / max(len(sector_name), 1)
-                        if score > best_score and score >= 0.4:
-                            best_score = score
-                            best_match = cn
-
-                    if best_match:
-                        print(f"[SectorAnalysis] Matched concept board: '{best_match}' for sector '{sector_name}' (score: {best_score:.2f})")
-                        cons_df = await safe_ak_call(ak.stock_board_concept_cons_em, symbol=best_match)
-                        if cons_df is not None and not cons_df.empty:
-                            sort_col = None
-                            for c in ["总市值", "成交额", "成交量"]:
-                                if c in cons_df.columns:
-                                    sort_col = c
-                                    break
-                            if sort_col:
-                                cons_df = cons_df.sort_values(sort_col, ascending=False)
-
-                            for _, row in cons_df.head(20).iterrows():
-                                code = str(row.get("代码", "")).strip()
-                                name = str(row.get("名称", "")).strip()
-                                price = row.get("最新价")
-                                change_pct = row.get("涨跌幅")
-                                pe = row.get("市盈率-动态")
-                                pb = row.get("市净率")
-                                market_cap = row.get("总市值")
-
-                                if code and name and price is not None:
-                                    stocks.append({
-                                        "code": code,
-                                        "name": name,
-                                        "price": float(price) if price else None,
-                                        "change_pct": float(change_pct) if change_pct else None,
-                                        "pe": float(pe) if pe else None,
-                                        "pb": float(pb) if pb else None,
-                                        "market_cap_yi": round(float(market_cap) / 1e8, 1) if market_cap else None,
-                                    })
-            except Exception as e:
-                print(f"[SectorAnalysis] Concept board fallback also failed: {e}")
-
-        return stocks
-
+        """Fetch constituent stocks for a sector with real-time prices from API."""
+        
     async def _enrich_result_with_prices(self, result: Dict[str, Any]) -> Dict[str, Any]:
         """Extract stock codes from discussion, fetch real-time prices, add to result."""
         import yfinance as yf

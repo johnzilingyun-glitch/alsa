@@ -345,7 +345,13 @@ class AnalysisJobService:
                 requested_model = job.requested_model if job else None
                 if not requested_model and config:
                     requested_model = config.get("model")
-                provider = "deepseek" if (requested_model or "").lower().startswith("deepseek") else "gemini"
+                model_lower = (requested_model or "").lower()
+                if model_lower.startswith("gemini"):
+                    provider = "gemini"
+                elif model_lower.startswith("deepseek"):
+                    provider = "deepseek"
+                else:
+                    provider = "openrouter"
                 
                 api_key = await self._wait_for_api_key(job_id, provider, config=config)
                 if not api_key:
@@ -421,6 +427,7 @@ class AnalysisJobService:
                         context=snapshot,
                         gemini_api_key=safe_config.get("geminiApiKey"),
                         deepseek_api_key=safe_config.get("deepseekApiKey"),
+                        openrouter_api_key=safe_config.get("openrouterApiKey"),
                         model=requested_model
                     )
                 except Exception as e:

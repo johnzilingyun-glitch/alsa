@@ -346,7 +346,7 @@ class TestFinancialDataTool:
 
     @pytest.mark.asyncio
     async def test_a_share_dividend(self, tool_executor):
-        """A-Share: Dividend history with AkShare fallback."""
+        """A-Share: Dividend history with fallback."""
         start = time.time()
         result = await tool_executor.execute({
             "tool": "financial_data",

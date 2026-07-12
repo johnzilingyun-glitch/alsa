@@ -36,8 +36,8 @@ class TestMetricsCollector:
 
     def test_record_data_source_health(self):
         mc = MetricsCollector()
-        mc.record("data_source", 1.0, tags={"vendor": "akshare", "status": "success"})
-        mc.record("data_source", 1.0, tags={"vendor": "akshare", "status": "timeout"})
+        mc.record("data_source", 1.0, tags={"vendor": "api", "status": "success"})
+        mc.record("data_source", 1.0, tags={"vendor": "api", "status": "timeout"})
         rate = mc.get_rate("data_source", success_tag="status", success_value="success")
         assert rate == 0.5
 

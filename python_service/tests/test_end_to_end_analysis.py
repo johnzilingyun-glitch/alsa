@@ -30,7 +30,7 @@ async def test_full_analysis_job_lifecycle(mock_db, tmp_path):
     symbol = "600519"
     market = "A-Share"
     
-    # Mock akshare data fetching and discussion service
+    # Mock data fetching and discussion service
     mock_messages = [
         {"role": "Technical Analyst", "content": "Technical Analysis content snippet", "timestamp": "2026-04-17T12:00:00"},
         {"role": "Fundamental Analyst", "content": "Fundamental Analysis content snippet", "timestamp": "2026-04-17T12:00:00"},

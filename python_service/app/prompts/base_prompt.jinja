@@ -163,7 +163,7 @@ LPR利率: 1年期={{ lpr.get('1y') }}% | 5年期={{ lpr.get('5y', 'N/A') }}% �
 
 {% if sentiment_data %}
 --- [API] SENTIMENT DATA (权威数据源) ---
-以下为实时情绪数据，来自AkShare API + 论坛抓取。优先使用这些数据，不要编造。
+以下为实时情绪数据，来自API + 论坛抓取。优先使用这些数据，不要编造。
 {% set nb = sentiment_data.get('northbound_flow', {}) %}
 {% if nb.get('data') %}
 **陆股通(北向资金)持股变化:**
@@ -240,7 +240,7 @@ Target: {{ symbol }} ({{ name }})
 
 --- [API DATA / MARKET SNAPSHOT] ---
 {% if sector_stocks %}
---- [API] 板块成分股实时行情 (AkShare 权威数据，优先级最高) ---
+--- [API] 板块成分股实时行情 (权威数据，优先级最高) ---
 ⚠ 以下为 {{ name }}板块 TOP {{ sector_stocks|length }} 成分股的**实时价格**，来自交易所权威数据源。
 >>> 严禁使用训练数据中的股票价格。推荐个股时，当前价必须引用下表中的价格。如果推荐的股票不在下表中，必须使用 financial_data 工具获取真实价格。 <<<
 

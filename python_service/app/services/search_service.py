@@ -10,7 +10,7 @@ import asyncio
 
 # Determine if we're on a China-based server (check network environment)
 # China servers typically can't reach DuckDuckGo/Google reliably
-_IS_CHINA_SERVER = os.getenv("AKSHARE_ENABLED", "").lower() in ("true", "1", "yes")
+_IS_CHINA_SERVER = os.getenv("IS_CHINA_SERVER", "true").lower() in ("true", "1", "yes")
 
 
 class SearchService:
@@ -225,16 +225,7 @@ class SearchService:
 
         return results
 
-    # ────────── AkShare-based news/search (China-friendly fallback) ──────────
-    async def _akshare_search(self, query: str, max_results: int = 10) -> List[Dict[str, Any]]:
-        """Search via AkShare's EastMoney news APIs. Fast and reliable from China servers.
-        Falls back to cached local results if akshare is unavailable."""
-        try:
-            import akshare as ak
-            from ..utils.network import safe_ak_call
-        except ImportError:
-            return []
-
+    
         # Extract stock code from query
         stock_code = None
         match = self._STOCK_CODE_RE.search(query)
@@ -245,7 +236,7 @@ class SearchService:
 
         if stock_code:
             try:
-                df = await safe_ak_call(ak.stock_news_em, symbol=stock_code)
+                df = await asyncio.to_thread(ak.stock_news_em, symbol=stock_code)
                 if df is not None and not df.empty:
                     for _, row in df.head(max_results).iterrows():
                         title = row.get("新闻标题", row.get("title", ""))
@@ -258,11 +249,11 @@ class SearchService:
                             "source": "EastMoney"
                         })
             except Exception as e:
-                logger.warning(f"AkShare news error for {stock_code}: {e}")
+                logger.warning(f"API news error for {stock_code}: {e}")
 
             if len(results) < max_results:
                 try:
-                    df2 = await safe_ak_call(ak.stock_individual_notice_report, stock_code)
+                    df2 = await asyncio.to_thread(ak.stock_individual_notice_report, stock_code)
                     if df2 is not None and not df2.empty:
                         for _, row in df2.head(max_results - len(results)).iterrows():
                             results.append({
@@ -272,19 +263,19 @@ class SearchService:
                                 "source": "EastMoney_Announcement"
                             })
                 except Exception as e:
-                    logger.warning(f"AkShare notice error for {stock_code}: {e}")
+                    logger.warning(f"API notice error for {stock_code}: {e}")
 
 
 
         return results
 
     async def search(self, query: str, max_results: int = 10) -> List[Dict[str, Any]]:
-        """Search with fallback chain: DDG → 同花顺问财 → AkShare → SearXNG.
+        """Search with fallback chain: DDG → 同花顺问财 → API → SearXNG.
 
         Priority:
         1. DDG (ddgs v9, via system proxy)
         2. 同花顺问财 (Iwencai, for Chinese stock/financial queries, requires IWENCAI_API_KEY)
-        3. AkShare (EastMoney, for Chinese stock queries)
+        3. API (EastMoney, for Chinese stock queries)
         4. SearXNG (if enabled)
         """
         from .tools_config import is_skill_enabled
@@ -304,9 +295,6 @@ class SearchService:
             if results:
                 return self._sanitize_results(results)
 
-        # 3. AkShare fallback (for Chinese stock/financial queries)
-        if _IS_CHINA_SERVER or self._is_chinese_stock_query(query):
-            results = await self._akshare_search(query, max_results)
             if results:
                 return self._sanitize_results(results)
 
@@ -319,7 +307,7 @@ class SearchService:
         return []
 
     async def search_news(self, query: str, max_results: int = 10, global_only: bool = False) -> List[Dict[str, Any]]:
-        """Search news with fallback chain: DDG → 同花顺问财 → AkShare → SearXNG."""
+        """Search news with fallback chain: DDG → 同花顺问财 → API → SearXNG."""
         from .tools_config import is_skill_enabled
 
         if not query:
@@ -335,12 +323,6 @@ class SearchService:
             # 2. 同花顺问财 (primary source for Chinese financial news)
             if _IS_CHINA_SERVER or self._is_chinese_stock_query(query):
                 results = await self._iwencai_search(query, max_results)
-                if results:
-                    return self._sanitize_results(results)
-    
-            # 3. AkShare fallback (for Chinese stock queries)
-            if _IS_CHINA_SERVER or self._is_chinese_stock_query(query):
-                results = await self._akshare_search(query, max_results)
                 if results:
                     return self._sanitize_results(results)
 

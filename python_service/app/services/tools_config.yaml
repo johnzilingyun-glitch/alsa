@@ -18,7 +18,7 @@ tools:
     description: "Full page content extraction from URL"
   financial_data:
     enabled: true
-    description: "Structured financial data from APIs (AkShare/yfinance/OpenBB)"
+    description: "Structured financial data from APIs (yfinance/OpenBB)"
 
   # ──── Iwencai Skills ────
   announcement_search:

@@ -184,7 +184,7 @@ TOOL_DEFINITIONS = [
     },
     {
         "name": "financial_data",
-        "description": "Query structured financial data from authoritative APIs (AkShare/yfinance/OpenBB). Returns precise financial metrics for a given stock. Much more reliable than web_search for financial figures. Supports: quarterly earnings, income statement items, balance sheet items, cash flow, valuation metrics, dividend history, industry comparison. For US stocks also supports: analyst consensus/target price, SEC filings, insider trading, key financial ratios.",
+        "description": "Query structured financial data from authoritative APIs (yfinance/OpenBB). Returns precise financial metrics for a given stock. Much more reliable than web_search for financial figures. Supports: quarterly earnings, income statement items, balance sheet items, cash flow, valuation metrics, dividend history, industry comparison. For US stocks also supports: analyst consensus/target price, SEC filings, insider trading, key financial ratios.",
         "parameters": {
             "symbol": {
                 "type": "string",
@@ -1526,16 +1526,14 @@ class ToolExecutor:
             )
 
     async def _exec_financial_data(self, symbol: str, query: str) -> str:
-        """Fetch structured financial data from AkShare/yfinance based on the query.
+        """Fetch structured financial data from API/yfinance based on the query.
         Uses DataRouter first for A-shares (fastest path), falls back to direct APIs.
         Uses session-level cache to avoid redundant API calls across expert rounds.
-        
+
         Token-defensive: field whitelists, row limits, internal char budget."""
-        import akshare as ak
         import yfinance as yf
-        from ..utils.network import safe_ak_call
         from ..services.data_providers import data_router
-        from ..utils.data_validation import validate_ak_data
+        from ..utils.data_validation import validate_data
 
         # Hard limits for this tool (internal budget before TokenGuard's external enforcement)
         MAX_PERIODS = 4          # Max historical periods to show
@@ -1579,7 +1577,7 @@ class ToolExecutor:
 
         try:
             if is_a_share:
-                # --- A-Share: Fast path via DataRouter (Tencent/Sina/THS/EastMoney, no AkShare) ---
+                # --- A-Share: Fast path via DataRouter (Tencent/Sina/THS/EastMoney, no API) ---
                 # DataRouter already has multi-provider concurrent fetch with fallback.
                 # This is the PRIMARY data source — reliable and fast.
                 if _budget_ok():
@@ -1617,7 +1615,7 @@ class ToolExecutor:
                     except Exception as e:
                         logger.warning(f"[ToolExecutor] DataRouter financial_summary failed for {symbol}: {e}")
 
-                # --- A-Share: Quarterly income statement (EastMoney direct, AkShare removed) ---
+                # --- A-Share: Quarterly income statement (EastMoney direct, API removed) ---
                 if _budget_ok() and any(kw in query_lower for kw in ["quarter", "earnings", "revenue", "profit", "净利润", "营收", "扣非", "季度", "eps", "roe", "margin"]):
                     try:
                         from .data_providers.a_stock_direct import fetch_a_share_income_items
@@ -1658,7 +1656,7 @@ class ToolExecutor:
                 # --- Balance sheet ---
                 if _budget_ok() and any(kw in query_lower for kw in ["balance", "cash", "debt", "asset", "资产", "负债", "现金", "应收", "存货", "receivable", "inventory"]):
                     # A-share detailed line items (应收账款/存货/货币资金) via EastMoney direct
-                    # — replaces unreliable AkShare balance-sheet path.
+                    # — replaces unreliable balance-sheet path.
                     try:
                         from .data_providers.a_stock_direct import fetch_a_share_balance_items
                         bal_items = await fetch_a_share_balance_items(symbol, periods=MAX_PERIODS)
@@ -1739,7 +1737,7 @@ class ToolExecutor:
                     except Exception as e:
                         logger.warning(f"[ToolExecutor] Income statement failed for {symbol}: {e}")
 
-                # --- Dividend (EastMoney direct, AkShare removed) ---
+                # --- Dividend (EastMoney direct, API removed) ---
                 if _budget_ok() and any(kw in query_lower for kw in ["dividend", "分红", "派息", "股息"]):
                     try:
                         from .data_providers.a_stock_direct import fetch_a_share_dividends

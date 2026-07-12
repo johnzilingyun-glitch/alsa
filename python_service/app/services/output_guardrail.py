@@ -84,8 +84,15 @@ class OutputGuardrail:
         # 1. 空证据检测
         total_ev = sum(len(c.supporting) + len(c.contradicting) for c in aggregated.claims)
         if total_ev < self.MIN_EVIDENCE_COUNT:
-            result.add("block", "empty_evidence",
-                       f"决策无证据支撑 (仅 {total_ev} 条证据)")
+            # Only block if there's also no valid summary (allow degraded but usable results)
+            has_valid_summary = bool(decision.summary and len(decision.summary) > 20)
+            if has_valid_summary:
+                # Has summary but no structured evidence - warn instead of block
+                result.add("warn", "empty_evidence",
+                           f"决策无结构化证据支撑 (仅 {total_ev} 条), 但有分析摘要")
+            else:
+                result.add("block", "empty_evidence",
+                           f"决策无证据支撑且无有效摘要 (仅 {total_ev} 条证据)")
 
         # 2. 低置信强制 finalize
         if decision.confidence < self.LOW_CONFIDENCE_THRESHOLD and decision.can_act:

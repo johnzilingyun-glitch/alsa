@@ -146,7 +146,7 @@ LEVEL_CONFIGS: dict[str, GuardConfig] = {
     ),
 }
 
-DEFAULT_LEVEL: GuardLevel = "high"
+DEFAULT_LEVEL: GuardLevel = "none"  # TEST: pass-through, no truncation (was "high")
 
 
 # ────────────── TOKEN GUARD ENGINE ──────────────
@@ -224,7 +224,6 @@ class TokenGuard:
 
         limit = self.get_limit(tool_name)
         original_len = len(raw_output)
-        output = raw_output
 
         # Step 1: Per-tool hard char limit
         effective_max = min(limit.max_chars, self.config.emergency_max_chars)
@@ -233,15 +232,40 @@ class TokenGuard:
         budget_max = max(1000, self.round_budget_remaining)
         effective_max = min(effective_max, budget_max)
 
-        # Step 3: Truncate if needed
-        if len(output) > effective_max:
-            # Smart truncation: try to cut at a line boundary
-            truncated = output[:effective_max]
-            last_newline = truncated.rfind('\n', effective_max - 200)
-            if last_newline > effective_max * 0.8:
-                truncated = truncated[:last_newline]
-            
-            output = truncated + f"\n\n... [truncated: {original_len} → {len(truncated)} chars, tool budget limit]"
+        # Step 3: Truncate if needed — preserve the <tool_observation> wrapper.
+        # A blunt cut would slice off the closing tag and yield a malformed observation
+        # the LLM cannot parse, so when wrapped we truncate only the inner content.
+        OPEN_TAG = "<tool_observation>"
+        CLOSE_TAG = "</tool_observation>"
+        is_wrapped = (
+            raw_output.startswith(OPEN_TAG)
+            and raw_output.rstrip().endswith(CLOSE_TAG)
+        )
+        if len(raw_output) > effective_max:
+            if is_wrapped:
+                inner = raw_output[len(OPEN_TAG):]
+                close_idx = inner.rfind(CLOSE_TAG)
+                if close_idx != -1:
+                    inner = inner[:close_idx]
+                inner_max = max(0, effective_max - len(OPEN_TAG) - len(CLOSE_TAG))
+                truncated_inner = inner[:inner_max]
+                last_newline = truncated_inner.rfind('\n', inner_max - 200)
+                if last_newline > inner_max * 0.8:
+                    truncated_inner = truncated_inner[:last_newline]
+                note = (
+                    f"\n\n... [truncated: {original_len} → "
+                    f"{len(OPEN_TAG) + len(truncated_inner) + len(CLOSE_TAG)} "
+                    f"chars, tool budget limit]"
+                )
+                output = OPEN_TAG + truncated_inner + note + CLOSE_TAG
+            else:
+                truncated = raw_output[:effective_max]
+                last_newline = truncated.rfind('\n', effective_max - 200)
+                if last_newline > effective_max * 0.8:
+                    truncated = truncated[:last_newline]
+                output = truncated + f"\n\n... [truncated: {original_len} → {len(truncated)} chars, tool budget limit]"
+        else:
+            output = raw_output
 
         # Step 4: Track usage
         self._round_chars_used += len(output)

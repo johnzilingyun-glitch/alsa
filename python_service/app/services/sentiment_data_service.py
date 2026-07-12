@@ -1,22 +1,20 @@
 """
-Sentiment data service: fetches real-time sentiment indicators from AkShare APIs.
+Sentiment data service: fetches real-time sentiment indicators from APIs.
 - Northbound (陆股通) flows for individual stocks
 - Stock comment/sentiment scores from Eastmoney
 - Dragon-tiger board (龙虎榜) data
 - Xueqiu/Eastmoney forum scraping via Crawl4AI
 """
 
-import akshare as ak
 import asyncio
 from typing import Dict, Any, Optional
-from ..utils.network import safe_ak_call
 import logging
 
 logger = logging.getLogger(__name__)
 
 
 class SentimentDataService:
-    """Fetches quantitative sentiment data from AkShare + forum scraping."""
+    """Fetches quantitative sentiment data from API + forum scraping."""
 
     def __init__(self):
         self._cache: Dict[str, Any] = {}
@@ -28,11 +26,11 @@ class SentimentDataService:
         if cache_key in self._cache:
             return self._cache[cache_key]
 
-        result: Dict[str, Any] = {"symbol": symbol, "source": "AkShare 陆股通个股"}
+        result: Dict[str, Any] = {"symbol": symbol, "source": "陆股通个股"}
         try:
-            # Remove suffix for AkShare
+            # Remove suffix for API
             code = symbol.replace(".SH", "").replace(".SZ", "")
-            df = await safe_ak_call(ak.stock_hsgt_individual_em, symbol=code)
+            df = await asyncio.to_thread(ak.stock_hsgt_individual_em, symbol=code)
             if df is not None and not df.empty:
                 recent = df.tail(days)
                 records = []
@@ -75,7 +73,7 @@ class SentimentDataService:
         try:
             # Load full comment table if not cached
             if self._comment_cache is None:
-                self._comment_cache = await safe_ak_call(ak.stock_comment_em)
+                self._comment_cache = await asyncio.to_thread(ak.stock_comment_em)
 
             if self._comment_cache is not None and not self._comment_cache.empty:
                 code = symbol.replace(".SH", "").replace(".SZ", "")

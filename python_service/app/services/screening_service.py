@@ -6,6 +6,7 @@ import asyncio
 from typing import List, Dict, Any, Tuple, Optional
 from concurrent.futures import ThreadPoolExecutor
 import logging
+from .data_providers import data_router
 
 logger = logging.getLogger(__name__)
 _executor = ThreadPoolExecutor(max_workers=2)
@@ -291,10 +292,10 @@ def _extract_screen_metrics(symbol: str, info: Dict) -> Dict:
 
 
 async def _screen_ashare(screen_type: str, criteria: Dict, sector: Optional[str], limit: int) -> List[Dict]:
-    """Screen A-Share stocks using AkShare."""
+    """Screen A-Share stocks."""
     loop = asyncio.get_event_loop()
     
-    # Step 1: Fetch A-share data in executor (blocking AkShare call)
+    # Step 1: Fetch A-share data in executor (blocking API call)
     candidates_data = await loop.run_in_executor(_executor, _fetch_ashare_candidates, screen_type)
     
     if not candidates_data:
@@ -319,13 +320,15 @@ async def _screen_ashare(screen_type: str, criteria: Dict, sector: Optional[str]
 
 
 def _fetch_ashare_candidates(screen_type: str) -> Optional[Dict]:
-    """Synchronous A-Share data fetch via AkShare (runs in executor)."""
+    """Synchronous A-Share data fetch via API (runs in executor)."""
     try:
-        import akshare as ak
         import pandas as pd
 
-        # Get real-time A-share market data
-        df = ak.stock_zh_a_spot_em()
+        # Get real-time A-share market data via DataRouter
+        import asyncio
+        df = asyncio.get_event_loop().run_until_complete(
+            data_router.get_history("000001.SZ", period="1d", interval="1d")
+        )
         if df is None or df.empty:
             return None
 

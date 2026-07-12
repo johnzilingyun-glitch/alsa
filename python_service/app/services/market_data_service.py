@@ -1,28 +1,17 @@
 import asyncio
 import json
 import os
+import re
 import time
 import yfinance as yf
 from datetime import datetime
 from typing import List, Dict, Any, Optional, Tuple
-from ..utils.data_validation import validate_ak_data
+from ..utils.data_validation import validate_data
 from .search_service import search_service
 from .data_providers import data_router
 from ..logging import get_logger
 
 logger = get_logger(__name__)
-
-# Import akshare (enabled by default for domestic China servers)
-class DummyAkShare:
-    def __getattr__(self, name):
-        raise AttributeError(f"AkShare is disabled. Cannot call '{name}'")
-
-_AKSHARE_ENABLED = os.getenv("AKSHARE_ENABLED", "true").lower() == "true"
-if _AKSHARE_ENABLED:
-    import akshare as ak
-else:
-    ak = DummyAkShare()
-from ..utils.network import safe_ak_call
 
 class _CircuitBreaker:
     """Simple circuit breaker: after N failures, skip source for cooldown_seconds."""
@@ -77,92 +66,70 @@ class MarketDataService:
         Smart Recognition: Resolve a query (name or code) to a list of matching assets.
         """
         results = []
-        
+
+        # Resolve a stock name/code via Sina's suggest API (no akshare dependency —
+        # akshare was removed; Sina covers both A-shares (type=11) and HK-shares (type=21)).
+        async def _sina_suggest(q: str, type_code: str) -> List[Dict[str, Any]]:
+            try:
+                import urllib.request
+                from urllib.parse import quote
+                encoded_key = quote(q)
+                url = f"https://suggest3.sinajs.cn/suggest/type={type_code}&key={encoded_key}"
+                req = urllib.request.Request(url, headers={
+                    "Referer": "https://finance.sina.com.cn",
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                })
+                resp = urllib.request.urlopen(req, timeout=10)
+                text = resp.read().decode("gbk")
+                # Format: var suggestvalue="name,11,code,shcode,...;name2,11,code2,...;"
+                m = re.search(r'"([^"]*)"', text)
+                if not m:
+                    return []
+                out = []
+                for item in m.group(1).split(";"):
+                    parts = item.split(",")
+                    if len(parts) < 4 or parts[1] != type_code:
+                        continue
+                    name, code = parts[0], parts[2]
+                    if type_code == "11":  # A-share
+                        if not (len(code) == 6 and code.startswith(("6", "0", "3", "8", "4"))):
+                            continue
+                        market_label = "A-Share"
+                    else:  # HK-share (type=21)
+                        if not (len(code) == 5 and code.isdigit()):
+                            continue
+                        market_label = "HK-Share"
+                    # Fuzzy match on name (contains) or exact code
+                    if q in name or q == code:
+                        out.append({"symbol": code, "name": name, "market": market_label})
+                return out[:5]
+            except Exception as e:
+                print(f"Sina suggest ({type_code}) resolution error: {e}")
+                return []
+
         # 1. Check if it's already a code
         if query.isdigit():
             if len(query) == 6:
                 return [{"symbol": query, "name": "A-Share Code", "market": "A-Share"}]
             if len(query) <= 5:
                 return [{"symbol": query, "name": "HK-Share Code", "market": "HK-Share"}]
-        
-        # 2. Search A-Shares if market is None or A-Share
+
+        # 2. A-Share name resolution (Sina type=11)
         if market is None or market == "A-Share":
-            try:
-                df = await safe_ak_call(ak.stock_info_a_code_name)
-                if df is not None and not df.empty:
-                    # Fuzzy match on name or exact match on code
-                    matches = df[df['name'].str.contains(query, na=False) | (df['code'] == query)]
-                    for _, row in matches.head(5).iterrows():
-                        results.append({
-                            "symbol": row['code'],
-                            "name": row['name'],
-                            "market": "A-Share"
-                        })
-            except Exception as e:
-                print(f"A-Share resolution error: {e}")
+            results.extend(await _sina_suggest(query, "11"))
 
-            # Fallback: Sina suggest API when AkShare is unavailable
-            if not results:
-                try:
-                    import urllib.request
-                    from urllib.parse import quote
-                    encoded_key = quote(query)
-                    url = f"https://suggest3.sinajs.cn/suggest/type=11&key={encoded_key}"
-                    req = urllib.request.Request(url, headers={
-                        "Referer": "https://finance.sina.com.cn",
-                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-                    })
-                    resp = urllib.request.urlopen(req, timeout=10)
-                    text = resp.read().decode("gbk")
-                    # Parse: var suggestvalue="name,11,code,shcode,name2,,name3,99,1,,,;..."
-                    import re
-                    m = re.search(r'"([^"]*)"', text)
-                    if m:
-                        for item in m.group(1).split(";"):
-                            parts = item.split(",")
-                            if len(parts) >= 4 and parts[1] == "11":  # type=11 = stock
-                                code = parts[2]
-                                name = parts[0]
-                                if len(code) == 6 and code.startswith(("6", "0", "3", "8", "4")):
-                                    # Only return exact name matches for clean auto-selection
-                                    if name == query:
-                                        results.append({
-                                            "symbol": code,
-                                            "name": name,
-                                            "market": "A-Share"
-                                        })
-                except Exception as e:
-                    print(f"A-Share resolution via Sina suggest failed: {e}")
-
-        # 3. Search HK-Shares if market is None or HK-Share
+        # 3. HK-Share name resolution (Sina type=21) — only if no A-share hit
         if not results and (market is None or market == "HK-Share"):
-            try:
-                # Use stock_hk_spot_em for a quick list of HK stocks
-                df = await safe_ak_call(ak.stock_hk_spot_em)
-                if df is not None and not df.empty:
-                    matches = df[df['名称'].str.contains(query, na=False) | (df['代码'] == query)]
-                    for _, row in matches.head(5).iterrows():
-                        results.append({
-                            "symbol": row['代码'],
-                            "name": row['名称'],
-                            "market": "HK-Share"
-                        })
-            except Exception as e:
-                print(f"HK-Share resolution error: {e}")
+            results.extend(await _sina_suggest(query, "21"))
 
-        # 4. Search US-Shares (Yahoo Finance search) — only if no A/HK results
+        # 4. US-Share fallback (heuristic + web search) — only if no A/HK results
         if not results and (market is None or market == "US-Share"):
             try:
-                # We can use a search service or yfinance if it supports it
-                # For now, let's use a simple heuristic or a search API if available
-                # Actually, search_service might have this
-                search_results = await search_service.search(f"{query} stock symbol yahoo finance", max_results=5)
-                # This is a bit slow, but US stocks are harder to list locally
-                # Let's just return the query as US-Share if nothing else found and it looks like a symbol
-                if query.isascii() and query.isalpha() and len(query) <= 5:
-                    results.append({"symbol": query.upper(), "name": query.upper(), "market": "US-Share"})
+                await search_service.search(f"{query} stock symbol yahoo finance", max_results=5)
             except Exception as e:
                 print(f"US-Share resolution error: {e}")
+            if query.isascii() and query.isalpha() and len(query) <= 5:
+                results.append({"symbol": query.upper(), "name": query.upper(), "market": "US-Share"})
 
         return results
 
@@ -211,41 +178,6 @@ class MarketDataService:
 
         # Pre-fetch A-share names if needed
         a_share_names = getattr(self, '_a_share_names_cache', {})
-        if not a_share_names and any(ps.endswith(".SS") or ps.endswith(".SZ") for ps in processed_symbols):
-            if _AKSHARE_ENABLED:
-                try:
-                    df_names = await safe_ak_call(ak.stock_info_a_code_name)
-                    if df_names is not None and not df_names.empty:
-                        a_share_names = dict(zip(df_names['code'], df_names['name']))
-                        self._a_share_names_cache = a_share_names
-                except Exception as e:
-                    print(f"Failed to load A-share names: {e}")
-            else:
-                # Fallback to Tencent for specific symbols to get Chinese names
-                try:
-                    import urllib.request
-                    for sym in symbols:
-                        if sym.isdigit() and len(sym) == 6:
-                            prefix = "sh" if sym.startswith(('6', '9')) else "sz"
-                            url = f"http://qt.gtimg.cn/q={prefix}{sym}"
-                        elif sym.isdigit() and len(sym) <= 5:
-                            hk_sym = sym.zfill(5)
-                            url = f"http://qt.gtimg.cn/q=hk{hk_sym}"
-                        elif sym.upper().endswith('.HK') and sym[:-3].isdigit():
-                            hk_sym = sym[:-3].zfill(5)
-                            url = f"http://qt.gtimg.cn/q=hk{hk_sym}"
-                        else:
-                            continue
-                            
-                        req = urllib.request.Request(url)
-                        resp = urllib.request.urlopen(req, timeout=5)
-                        text = resp.read().decode("gbk", errors="ignore")
-                        if "~" in text:
-                            parts = text.split("~")
-                            if len(parts) > 2:
-                                a_share_names[sym] = parts[1]  # The Chinese name
-                except Exception as e:
-                    print(f"Failed to fetch Tencent names: {e}")
 
         results = []
         try:
@@ -364,72 +296,17 @@ class MarketDataService:
 
     async def get_indices(self, market: str = "A-Share") -> List[Dict[str, Any]]:
         """
-        Fetch major indices for a given market with specific source optimization.
-        Uses circuit breaker to skip known-failing sources (AkShare/yfinance).
+        Fetch major indices for a given market using Tencent Finance API.
         """
         try:
-            loop = asyncio.get_event_loop()
             if market == "A-Share":
-                # Try AkShare only if circuit breaker is closed
-                df = None
-                if not self._breaker.is_open("akshare_indices"):
-                    try:
-                        df = await safe_ak_call(ak.stock_zh_index_spot_em)
-                        self._breaker.record_success("akshare_indices")
-                    except Exception as e:
-                        print(f"AkShare index fetch failed: {e}")
-                        self._breaker.record_failure("akshare_indices")
-                        df = None
-
-                if not validate_ak_data(df, min_rows=1):
-                    # Direct Tencent Finance fallback (fast, no rate limit)
-                    return await self._fetch_indices_tencent(["000001", "399001", "399006"])
-                
-                # Filter for core indices
-                targets = {
-                    "上证指数": "000001.SS",
-                    "深证成指": "399001.SZ",
-                    "创业板指": "399006.SZ",
-                    "沪深300": "000300.SS",
-                    "中证500": "000905.SS",
-                    "上证50": "000016.SS"
-                }
-                
-                results = []
-                col_name = "名称" if "名称" in df.columns else "name"
-                col_price = "最新价" if "最新价" in df.columns else "last"
-                col_change = "涨跌额" if "涨跌额" in df.columns else "change"
-                col_pct = "涨跌幅" if "涨跌幅" in df.columns else "pct_change"
-
-                for _, row in df.iterrows():
-                    name = row.get(col_name)
-                    if name in targets:
-                        price = float(row.get(col_price) or 0)
-                        change = float(row.get(col_change) or 0)
-                        pct = float(row.get(col_pct) or 0)
-                        results.append({
-                            "symbol": targets[name],
-                            "name": name,
-                            "price": price,
-                            "change": round(change, 4),
-                            "changePercent": round(pct, 2),
-                            "previousClose": round(price - change, 4) if price and change else 0,
-                            "lastUpdated": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                        })
-                
-                sorted_results = []
-                for sym in list(targets.values()):
-                    match = next((r for r in results if r["symbol"] == sym), None)
-                    if match:
-                        sorted_results.append(match)
-                return sorted_results
+                return await self._fetch_indices_tencent(["000001", "399001", "399006"])
             else:
                 symbols = {
                     "HK-Share": ["^HSI", "^HSTECH", "^HSCE", "^HSCCI"],
                     "US-Share": ["^GSPC", "^IXIC", "^DJI"]
                 }.get(market, ["^GSPC"])
                 return await self._fetch_indices_tencent(symbols)
-                
         except Exception as e:
             print(f"Indices fetch failed for {market}: {e}")
             return []
@@ -545,7 +422,7 @@ class MarketDataService:
             loop = asyncio.get_event_loop()
             if market in ["A-Share", "HK-Share"]:
                 symbol = "深证成指" if market == "A-Share" else "恒生指数"
-                # Direct EastMoney API call to bypass AkShare regex bug (\u3000)
+                # Direct EastMoney API call to bypass regex bug (\u3000)
                 import requests as _req
                 url = "https://search-api-web.eastmoney.com/search/jsonp"
                 inner_param = {
@@ -889,8 +766,7 @@ class MarketDataService:
                 clean_symbol = symbol[:6]
                 yf_symbol = f"{clean_symbol}.SS" if clean_symbol.startswith('6') else f"{clean_symbol}.SZ"
                 
-                # Use yfinance as the primary source for ratios and complex metrics for A-Shares too
-                # since AkShare's ratio endpoint has been unstable
+                # Use yfinance as the primary source for ratios and complex metrics for A-Shares
                 ticker = yf.Ticker(yf_symbol)
                 yf_info = {}
                 try:
@@ -940,129 +816,12 @@ class MarketDataService:
                         pass
 
                 ak_info = {}
-                if _AKSHARE_ENABLED:
-                    try:
-                        info_df = await safe_ak_call(ak.stock_individual_info_em, symbol=clean_symbol)
-                        if validate_ak_data(info_df, min_rows=1):
-                            ak_info = dict(zip(info_df['item'], info_df['value']))
-                    except Exception as e:
-                        print(f"AkShare info failed for {clean_symbol}: {e}")
                 
-                # Fetch financial indicator (AkShare fallback)
+                # Fetch financial indicator (Fallback)
                 ak_financials = {}
-                if _AKSHARE_ENABLED:
-                    try:
-                        indicator_df = await safe_ak_call(ak.stock_financial_analysis_indicator_em, symbol=clean_symbol)
-                        if validate_ak_data(indicator_df, min_rows=1):
-                            latest = indicator_df.head(5).to_dict(orient="records")
-                            l0 = latest[0]
-                            ak_financials = {
-                                "history": latest,
-                                "latestNetProfit": l0.get("净利润"),
-                                "latestNetProfitDeduct": l0.get("扣除非经常性损益后的净利润") or l0.get("扣非净利润"),
-                                "latestGrowth": l0.get("净利润同比增长率"),
-                                "latestRevenue": l0.get("营业收入"),
-                                "latestRoe": l0.get("净资产收益率"),
-                                "latestGrossMargin": l0.get("销售毛利率"),
-                                "latestDebtRatio": l0.get("资产负债率"),
-                                "latestAssetTurnover": l0.get("总资产周转率(次)") or l0.get("总资产周转率"),
-                                "latestInventoryTurnover": l0.get("存货周转率(次)") or l0.get("存货周转率"),
-                                "latestCurrentRatio": l0.get("流动比率"),
-                                "latestQuickRatio": l0.get("速动比率"),
-                                "latestOcfPerShare": l0.get("每股经营现金流(元)"),
-                            }
-                            # Calculate 扣非净利润 YoY/QoQ from history
-                            npd_key = "扣除非经常性损益后的净利润"
-                            npd_alt = "扣非净利润"
-                            if len(latest) >= 2:
-                                npd0 = l0.get(npd_key) or l0.get(npd_alt)
-                                npd1 = latest[1].get(npd_key) or latest[1].get(npd_alt)
-                                if npd0 is not None and npd1 is not None and npd1 != 0:
-                                    try:
-                                        ak_financials["latestNetProfitDeductQoQ"] = (float(npd0) - float(npd1)) / abs(float(npd1))
-                                    except (ValueError, TypeError):
-                                        pass
-                            if len(latest) >= 5:
-                                npd0 = l0.get(npd_key) or l0.get(npd_alt)
-                                npd4 = latest[4].get(npd_key) or latest[4].get(npd_alt)
-                                if npd0 is not None and npd4 is not None and npd4 != 0:
-                                    try:
-                                        ak_financials["latestNetProfitDeductYoY"] = (float(npd0) - float(npd4)) / abs(float(npd4))
-                                    except (ValueError, TypeError):
-                                        pass
-                    except Exception:
-                        logger.exception("Failed to fetch AkShare financial indicators for %s", clean_symbol)
-                        pass
                 
-                # Fetch stock_financial_abstract_ths — primary source for quarterly history
-                quarterly_history_rows = []
-                if _AKSHARE_ENABLED:
-                    try:
-                        abstract_df = await safe_ak_call(ak.stock_financial_abstract_ths, symbol=clean_symbol)
-                        if validate_ak_data(abstract_df, min_rows=1):
-                            # Extract last 5 quarters as structured rows
-                            for _, row in abstract_df.tail(5).iterrows():
-                                qrow = {}
-                                period = str(row.get("报告期", ""))
-                                qrow["period"] = period
-                                for field, key in [
-                                    ("净利润", "netProfit"), ("净利润同比增长率", "netProfitYoY"),
-                                    ("扣非净利润", "netProfitDeduct"), ("扣非净利润同比增长率", "netProfitDeductYoY"),
-                                    ("营业总收入", "revenue"), ("营业总收入同比增长率", "revenueYoY"),
-                                    ("基本每股收益", "eps"), ("每股净资产", "bvps"),
-                                    ("每股经营现金流", "ocfPerShare"), ("销售毛利率", "grossMargin"),
-                                    ("销售净利率", "netMargin"), ("净资产收益率", "roe"),
-                                    ("资产负债率", "debtRatio"), ("流动比率", "currentRatio"),
-                                    ("速动比率", "quickRatio"), ("存货周转率", "inventoryTurnover"),
-                                ]:
-                                    val = row.get(field)
-                                    if val is not None and str(val).strip() and str(val) not in ("False", "None", "--"):
-                                        qrow[key] = str(val)
-                                quarterly_history_rows.append(qrow)
-                            
-                            # Also fill ak_financials from latest row
-                            latest_row = abstract_df.iloc[-1]
-                            if not ak_financials.get("latestNetProfitDeduct"):
-                                npd_str = latest_row.get("扣非净利润")
-                                if npd_str and npd_str != "False" and str(npd_str).strip():
-                                    ak_financials["latestNetProfitDeduct"] = self._parse_cn_number(str(npd_str))
-                            if not ak_financials.get("latestNetProfitDeductYoY"):
-                                npd_yoy_str = latest_row.get("扣非净利润同比增长率")
-                                if npd_yoy_str and npd_yoy_str != "False" and str(npd_yoy_str).strip():
-                                    parsed_yoy = self._parse_cn_percent(str(npd_yoy_str))
-                                    if parsed_yoy is not None:
-                                        ak_financials["latestNetProfitDeductYoY"] = parsed_yoy
-                            # QoQ from previous row
-                            if len(abstract_df) >= 2 and ak_financials.get("latestNetProfitDeduct"):
-                                prev_row = abstract_df.iloc[-2]
-                                prev_npd_str = prev_row.get("扣非净利润")
-                                if prev_npd_str and prev_npd_str != "False":
-                                    prev_npd = self._parse_cn_number(str(prev_npd_str))
-                                    curr_npd = ak_financials["latestNetProfitDeduct"]
-                                    if prev_npd and curr_npd and prev_npd != 0:
-                                        ak_financials["latestNetProfitDeductQoQ"] = (curr_npd - prev_npd) / abs(prev_npd)
-                            if not ak_financials.get("latestNetProfit"):
-                                np_str = latest_row.get("净利润")
-                                if np_str and np_str != "False":
-                                    ak_financials["latestNetProfit"] = self._parse_cn_number(str(np_str))
-                            if not ak_financials.get("latestRoe"):
-                                roe_str = latest_row.get("净资产收益率")
-                                if roe_str and roe_str != "False":
-                                    parsed_roe = self._parse_cn_percent(str(roe_str))
-                                    if parsed_roe is not None:
-                                        ak_financials["latestRoe"] = parsed_roe
-                    except Exception as e:
-                        print(f"stock_financial_abstract_ths failed for {clean_symbol}: {e}")
-
                 # Fetch dividend info
                 latest_dividend = {}
-                if _AKSHARE_ENABLED:
-                    try:
-                        dividend_df = await safe_ak_call(ak.stock_history_dividend_detail, symbol=clean_symbol)
-                        latest_dividend = dividend_df.iloc[0].to_dict() if validate_ak_data(dividend_df, min_rows=1) else {}
-                    except Exception:
-                        logger.exception("Failed to fetch dividend data for %s", clean_symbol)
-                        pass
 
                 # --- CAPEX from cashflow statement (fallback) ---
                 a_capital_expenditure = yf_info.get("capitalExpenditure")
@@ -1111,8 +870,8 @@ class MarketDataService:
                     except Exception:
                         pass
 
-                # Fallback to search if critical metrics are missing (only when AkShare is enabled but failed)
-                if _AKSHARE_ENABLED and not ak_financials.get("latestNetProfitDeduct"):
+                # Fallback to search if critical metrics are missing
+                if not ak_financials.get("latestNetProfitDeduct"):
                     try:
                         print(f"Critical financials missing for {symbol}, falling back to search...")
                         query = f"{symbol} 最新财报 净利润 扣非净利润 营收环比 净利润同比 资本开支"

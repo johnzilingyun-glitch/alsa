@@ -7,10 +7,6 @@ import numpy as np
 import uuid
 from datetime import datetime, timezone
 
-# Import akshare (enabled by default for domestic China servers)
-AKSHARE_ENABLED = os.getenv("AKSHARE_ENABLED", "true").lower() == "true"
-if AKSHARE_ENABLED:
-    import akshare as ak
 
 class MarketSnapshotService:
     def __init__(self, store: ParquetMarketStore):
@@ -45,7 +41,7 @@ class MarketSnapshotService:
             from .data_providers import data_router
 
             async def _fetch_history():
-                """Use DataRouter for history (AStockDirect → Tencent → AkShare fallback)."""
+                """Use DataRouter for history (AStockDirect → Tencent → Fallback)."""
                 df = await data_router.get_history(symbol, period="6mo", interval="1d")
                 if df is not None and not df.empty:
                     df = df.rename(columns={'date': 'trade_date'})
@@ -83,7 +79,7 @@ class MarketSnapshotService:
                 quote = await data_router.get_quote(symbol)
                 return quote.to_dict() if quote else {}
 
-            # --- Run fetches — AkShare calls sequentially to avoid connection conflicts ---
+            # --- Run fetches — API calls sequentially to avoid connection conflicts ---
             history_result = await _fetch_history()
             
             df = history_result
@@ -105,14 +101,14 @@ class MarketSnapshotService:
                 except Exception as e:
                     print(f"[DataQuality] Validation failed for {symbol}: {e}")
 
-            # Run secondary fetches (use AkShare's own connection pool, not concurrent)
+            # Run secondary fetches (use connection pool, not concurrent)
             valuation = await _fetch_valuation()
             financials = await _fetch_financials()
             quote = await _fetch_quotes()
 
             rows = df.tail(120).to_dict(orient="records") if not df.empty else []
             data_cutoff = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
-            vendor = "akshare" if market == "A-Share" and AKSHARE_ENABLED else "yfinance"
+            vendor = "a-stock-direct" if market == "A-Share" else "yfinance"
             
             ohlc_observation = None
             if rows:
@@ -162,37 +158,8 @@ class MarketSnapshotService:
 
     async def _get_ah_cross_listing(self, stock_name: str, symbol: str) -> dict | None:
         """Check if an A-share stock has a corresponding H-share listing."""
-        if not AKSHARE_ENABLED:
-            return None
-        try:
-            df = await asyncio.to_thread(ak.stock_zh_ah_name)
-            if df is None or df.empty:
-                return None
-            # Match by name (strip "股份" suffix for fuzzy match)
-            clean_name = stock_name.replace("股份", "").strip()
-            match = df[df['名称'].str.contains(clean_name, na=False)]
-            if match.empty and len(clean_name) >= 2:
-                # Try shorter prefix match (first 2 chars)
-                match = df[df['名称'].str.startswith(clean_name[:2], na=False)]
-                # Filter further if multiple matches
-                if len(match) > 1:
-                    match = match[match['名称'].str.contains(clean_name[:3], na=False)] if len(clean_name) >= 3 else match.head(1)
-            if not match.empty:
-                hk_code = match.iloc[0]['代码']
-                hk_name = match.iloc[0]['名称']
-                return {
-                    "market": "HK",
-                    "symbol": f"{hk_code}.HK",
-                    "name": hk_name,
-                    "type": "A+H"
-                }
-            return None
-        except Exception as e:
-            print(f"A+H cross-listing check failed for {symbol}: {e}")
-            return None
-
-    @staticmethod
-    def _score_snapshot_quality(rows: List[Dict[str, Any]], quote: Dict[str, Any], financials: Dict[str, Any]) -> Dict[str, Any]:
+        
+    def _score_snapshot_quality(self, rows: List[Dict[str, Any]], quote: Dict[str, Any], financials: Dict[str, Any]) -> Dict[str, Any]:
         score = 0.55
         warnings = []
         if len(rows) >= 60:

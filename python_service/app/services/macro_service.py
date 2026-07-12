@@ -8,24 +8,13 @@ import aiohttp
 from typing import Dict, Any
 from datetime import datetime
 
-_AKSHARE_ENABLED = os.getenv("AKSHARE_ENABLED", "true").lower() in ("true", "1", "yes")
-if _AKSHARE_ENABLED:
-    import akshare as ak
-    from ..utils.network import safe_ak_call
-else:
-    # Stub: all ak calls return None immediately (skip network timeout)
-    class _AkStub:
-        def __getattr__(self, name):
-            return lambda *a, **kw: None
-    ak = _AkStub()
-    async def safe_ak_call(*args, **kwargs):
-        return None
+import asyncio
 
 
 class MacroService:
-    """权威数据源宏观数据服务。使用 AkShare API、CFETS 官方数据，辅以搜索验证。"""
+    """权威数据源宏观数据服务。使用 API API、CFETS 官方数据，辅以搜索验证。"""
 
-    # 权威商品价格 — 合约代码映射到 AkShare vars_list
+    # 权威商品价格 — 合约代码映射到 API vars_list
     COMMODITY_CODE_MAP = {
         "Lithium Carbonate": "LC",
         "Copper":             "CU",
@@ -50,7 +39,7 @@ class MacroService:
         "Polypropylene":      "元/吨",
         "LLDPE":              "元/吨",
     }
-    COMMODITY_SOURCE = "期货交易所现货报价 (AkShare)"
+    COMMODITY_SOURCE = "期货交易所现货报价 (API)"
 
     # 新浪期货 API — 主力连续合约代码映射
     SINA_FUTURES_CODE_MAP = {
@@ -77,7 +66,7 @@ class MacroService:
 
         # 优先: CFETS 即期报价
         try:
-            df = await safe_ak_call(ak.fx_spot_quote)
+            df = await asyncio.to_thread(ak.fx_spot_quote)
             if df is not None and not df.empty:
                 for i in range(len(df)):
                     row_vals = [str(v) for v in df.iloc[i].values]
@@ -99,7 +88,7 @@ class MacroService:
 
         # 备选: CFETS 中间价
         try:
-            df = await safe_ak_call(ak.fx_cny_quote)
+            df = await asyncio.to_thread(ak.fx_cny_quote)
             if df is not None and not df.empty:
                 usd = df[df["币种"].str.contains("美元")]
                 if not usd.empty:
@@ -207,16 +196,16 @@ class MacroService:
             return None
 
     async def _fetch_commodity(self, symbol: str) -> Dict[str, Any]:
-        """获取大宗商品价格。优先 AkShare 现货，回退新浪期货主力合约。"""
+        """获取大宗商品价格。优先 现货，回退新浪期货主力合约。"""
         code = self.COMMODITY_CODE_MAP.get(symbol)
         unit = self.COMMODITY_UNITS.get(symbol, "")
         if not code:
             return {"error": f"不支持的商品: {symbol}", "symbol": symbol}
 
-        # 方案1: AkShare 期货交易所现货报价 (主力)
+        # 方案1: 期货交易所现货报价 (主力)
         try:
             today = datetime.now().strftime("%Y%m%d")
-            df = await safe_ak_call(ak.futures_spot_price, date=today, vars_list=[code])
+            df = await asyncio.to_thread(ak.futures_spot_price, date=today, vars_list=[code])
             if df is not None and not df.empty:
                 row = df[df["symbol"] == code]
                 if not row.empty:
@@ -231,14 +220,14 @@ class MacroService:
                             "date": str(r.get("date", today)),
                         }
         except Exception as e:
-            logger.warning(f"AkShare futures_spot_price failed for {symbol}: {e}")
+            logger.warning(f"futures_spot_price failed for {symbol}: {e}")
 
-        # 方案2: AkShare 备选日期 (非交易日回退至多 10 天)
+        # 方案2: 备选日期 (非交易日回退至多 10 天)
         import datetime as dt
         for days_back in range(1, 11):
             try:
                 back_date = (dt.datetime.now() - dt.timedelta(days=days_back)).strftime("%Y%m%d")
-                df = await safe_ak_call(ak.futures_spot_price, date=back_date, vars_list=[code])
+                df = await asyncio.to_thread(ak.futures_spot_price, date=back_date, vars_list=[code])
                 if df is not None and not df.empty:
                     row = df[df["symbol"] == code]
                     if not row.empty:
@@ -274,9 +263,9 @@ class MacroService:
         if "brent" in self._cache:
             return self._cache["brent"]
 
-        # Plan A: AkShare 期货外盘 (Brent)
+        # Plan A: 期货外盘 (Brent)
         try:
-            df = await safe_ak_call(ak.futures_foreign_hist, symbol="布伦特原油")
+            df = await asyncio.to_thread(ak.futures_foreign_hist, symbol="布伦特原油")
             if df is not None and not df.empty:
                 last_row = df.iloc[-1]
                 price = float(last_row.get("收盘") or last_row.get("close"))
@@ -285,17 +274,17 @@ class MacroService:
                     "symbol": "Brent Crude Oil",
                     "price": price,
                     "unit": "美元/桶",
-                    "source": "ICE 期货交易所 (AkShare)",
+                    "source": "ICE 期货交易所 (API)",
                     "date": date_val
                 }
                 self._cache["brent"] = result
                 return result
         except Exception as e:
-            logger.warning(f"Brent oil AkShare failed: {e}")
+            logger.warning(f"Brent oil API failed: {e}")
 
-        # Plan B: AkShare 国际原油 WTI (对照参考)
+        # Plan B: 国际原油 WTI (对照参考)
         try:
-            df = await safe_ak_call(ak.futures_foreign_hist, symbol="WTI原油")
+            df = await asyncio.to_thread(ak.futures_foreign_hist, symbol="WTI原油")
             if df is not None and not df.empty:
                 last_row = df.iloc[-1]
                 price = float(last_row.get("收盘") or last_row.get("close"))
@@ -304,14 +293,14 @@ class MacroService:
                     "symbol": "WTI Crude Oil (参考)",
                     "price": price,
                     "unit": "美元/桶",
-                    "source": "NYMEX 期货交易所 (AkShare)",
+                    "source": "NYMEX 期货交易所 (API)",
                     "date": date_val,
                     "note": "布伦特数据不可用，使用WTI作为参考。布伦特通常比WTI高2-5美元。"
                 }
                 self._cache["brent"] = result
                 return result
         except Exception as e:
-            logger.warning(f"WTI oil AkShare failed: {e}")
+            logger.warning(f"WTI oil API failed: {e}")
 
         # Plan C: yfinance fallback (Brent BZ=F, WTI CL=F)
         try:
@@ -364,9 +353,9 @@ class MacroService:
 
         indicators = {}
 
-        # 1. M2 货币供应量 (AkShare)
+        # 1. M2 货币供应量 (API)
         try:
-            df = await safe_ak_call(ak.macro_china_money_supply)
+            df = await asyncio.to_thread(ak.macro_china_money_supply)
             if df is not None and not df.empty:
                 last = df.iloc[0]
                 m2_val = last.get("M2-数量(亿元)") or last.get("M2数量(亿元)")
@@ -376,36 +365,36 @@ class MacroService:
                     "value": m2_val,
                     "yoy": m2_yoy,
                     "unit": "亿元",
-                    "source": "中国人民银行 (AkShare)",
+                    "source": "中国人民银行 (API)",
                     "date": date_val
                 }
         except Exception as e:
             logger.warning(f"M2 data fetch failed: {e}")
             indicators["M2"] = {"value": None, "error": "数据暂不可用"}
 
-        # 2. LPR 利率 (AkShare)
+        # 2. LPR 利率 (API)
         try:
-            df = await safe_ak_call(ak.macro_china_lpr)
+            df = await asyncio.to_thread(ak.macro_china_lpr)
             if df is not None and not df.empty:
                 last = df.iloc[-1]
                 indicators["LPR"] = {
                     "1y": last.get("LPR1Y") or last.get("1年"),
                     "5y": last.get("LPR5Y") or last.get("5年"),
-                    "source": "中国人民银行 (AkShare)",
+                    "source": "中国人民银行 (API)",
                     "date": str(last.get("TRADE_DATE", "") or last.get("日期", ""))
                 }
         except Exception as e:
             logger.warning(f"LPR data fetch failed: {e}")
             indicators["LPR"] = {"1y": None, "5y": None, "error": "数据暂不可用"}
 
-        # 3. 美联储联邦基金利率 (AkShare)
+        # 3. 美联储联邦基金利率 (API)
         try:
-            df = await safe_ak_call(ak.macro_bank_usa_interest_rate)
+            df = await asyncio.to_thread(ak.macro_bank_usa_interest_rate)
             if df is not None and not df.empty:
                 last = df.iloc[-1]
                 indicators["FedRate"] = {
                     "rate": last.get("今值") or last.get("利率"),
-                    "source": "Federal Reserve (AkShare)",
+                    "source": "Federal Reserve (API)",
                     "date": str(last.get("日期", ""))
                 }
         except Exception as e:

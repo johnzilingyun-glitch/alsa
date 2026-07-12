@@ -271,6 +271,7 @@ Target: {{ symbol }} ({{ name }})
 - 毛利率: {{ get_val('grossMargins', 'grossMargin') }} | 营业利润率: {{ get_val('operatingMargins', 'operatingMargin') }} | 净利率: {{ get_val('profitMargins', 'profitMargin') }}
 - 营收增速-单季YoY: {{ get_val('revenueGrowth', 'revenueYoY') }} | 营收增速-全年YoY: {{ get_val('revenueYoY_annual') }} | 净利润增速 (YoY): {{ get_val('earningsGrowth', 'netProfitYoY', 'netProfitGrowth') }}
 - 资产负债率(D/E): {{ get_val('debtToEquity', 'debtRatio') }} | 流动比率: {{ get_val('currentRatio') }} | 速动比率: {{ get_val('quickRatio') }}
+- 利息覆盖率 (Interest Coverage): {{ get_val('interestCoverage') }}
 - 经营现金流(TTM): {{ get_val('operatingCashflow') }} | 自由现金流(TTM): {{ get_val('freeCashflow') }} | CAPEX: {{ get_val('capitalExpenditure') }}
 - 总现金(含短投): {{ get_val('totalCash') }} | 总有息负债: {{ get_val('totalDebt') }} | 净现金(=总现金-总负债): {{ get_val('netCash') }}
 - 每股净现金({{ fin_currency }}): {{ get_val('netCashPerShare') }} | 流通股数: {{ get_val('sharesOutstanding') }}

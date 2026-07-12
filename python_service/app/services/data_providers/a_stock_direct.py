@@ -74,6 +74,31 @@ def _parse_ths_pct(val) -> Optional[float]:
         return None
 
 
+def _to_float_safe(x) -> Optional[float]:
+    """Convert int/float/str to float, handling Chinese magnitude suffixes and sentinels.
+
+    Returns None for unparseable values (e.g. '--', '-', '', 'False', 'None').
+    Does NOT modify the section-6 inline _to_float — this is a separate module-level helper.
+    """
+    try:
+        if x is None:
+            return None
+        if isinstance(x, (int, float)):
+            return float(x)
+        s = str(x).strip().replace(",", "").replace("，", "")
+        if s in ("--", "-", "", "False", "None"):
+            return None
+        mult = 1.0
+        for suffix, factor in (("万亿", 1e12), ("亿", 1e8), ("万", 1e4)):
+            if suffix in s:
+                s = s.replace(suffix, "")
+                mult = factor
+                break
+        return float(s) * mult
+    except (ValueError, TypeError):
+        return None
+
+
 def _get_prefix(code: str) -> str:
     """Code → market prefix (sh/sz/bj/hk)."""
     if len(code) == 5:
@@ -1197,12 +1222,77 @@ class AStockDirectProvider(DataProvider):
                 result["operatingProfit"] = latest_fin.get("营业利润")
                 result["_costOfRevenue"] = latest_fin.get("营业成本")
                 result["reportDate"] = latest_fin.get("报告日")
-                # Annual figures (for TTM-style ratios) — lrb[1] is usually prior annual
+                # Annual figures (for TTM-style ratios) — capture 2 most recent annuals
+                _annual_count = 0
                 for row in lrb:
                     if str(row.get("报告日", "")).endswith("1231"):
-                        result["_annualRevenue"] = row.get("营业收入")
-                        result["_annualCostOfRevenue"] = row.get("营业成本")
-                        break
+                        if _annual_count == 0:
+                            result["_annualRevenue"] = row.get("营业收入")
+                            result["_annualCostOfRevenue"] = row.get("营业成本")
+                            _annual_count += 1
+                        else:
+                            result["_priorAnnualRevenue"] = row.get("营业收入")
+                            break
+                # Annual revenue YoY
+                try:
+                    _ann_rev = _to_float_safe(result.get("_annualRevenue"))
+                    _prior_ann_rev = _to_float_safe(result.get("_priorAnnualRevenue"))
+                    if (_ann_rev is not None and _prior_ann_rev is not None
+                            and _prior_ann_rev != 0):
+                        result["revenueYoY_annual"] = (_ann_rev - _prior_ann_rev) / abs(_prior_ann_rev)
+                except Exception as exc_ann:
+                    logger.debug(f"[{self.name}] revenueYoY_annual derivation failed for {code}: {exc_ann}")
+
+                # --- Derived financial metrics from Sina income statement ---
+                try:
+                    # Interest expense (multiple possible titles)
+                    interest_raw = (latest_fin.get("利息费用") or
+                                    latest_fin.get("利息支出") or
+                                    latest_fin.get("财务费用"))
+                    interest_expense = _to_float_safe(interest_raw)
+
+                    # Depreciation
+                    depr_raw = (latest_fin.get("折旧费用") or
+                                latest_fin.get("累计折旧") or
+                                latest_fin.get("固定资产折旧"))
+                    depreciation = _to_float_safe(depr_raw)
+
+                    # Amortization
+                    amort_raw = (latest_fin.get("摊销费用") or
+                                 latest_fin.get("无形资产摊销"))
+                    amortization = _to_float_safe(amort_raw)
+
+                    # Income tax
+                    tax_raw = (latest_fin.get("所得税费用") or
+                               latest_fin.get("所得税"))
+                    income_tax = _to_float_safe(tax_raw)
+
+                    # Core inputs for all derivations
+                    op_profit_s5 = _to_float_safe(latest_fin.get("营业利润"))
+                    np_s5 = _to_float_safe(latest_fin.get("净利润"))
+
+                    # interestCoverage = 营业利润 / 利息支出
+                    if (op_profit_s5 is not None and interest_expense is not None
+                            and abs(interest_expense) > 0):
+                        result["interestCoverage"] = op_profit_s5 / interest_expense
+
+                    # EBITDA
+                    ebitda = 0.0
+                    ebitda_count = 0
+                    for comp, val in (("netProfit", np_s5), ("interest", interest_expense),
+                                      ("tax", income_tax), ("depreciation", depreciation),
+                                      ("amortization", amortization)):
+                        if val is not None:
+                            ebitda += abs(val)  # interest_expense & tax are positive expense
+                            ebitda_count += 1
+                    if np_s5 is not None and interest_expense is not None and income_tax is not None:
+                        result["ebitda"] = ebitda
+
+                except Exception as exc_derived:
+                    logger.warning(
+                        f"[{self.name}] Derived financial metrics failed for {code}: {exc_derived}"
+                    )
+
                 # Revenue growth
                 if result.get("revenueYoY") is None and len(lrb) >= 5:
                     rev0 = latest_fin.get("营业收入")
@@ -1299,6 +1389,10 @@ class AStockDirectProvider(DataProvider):
                 cur_liab = _to_float(b.get("流动负债合计"))
                 inventory = _to_float(b.get("存货"))
                 equity = _to_float(b.get("所有者权益(或股东权益)合计"))
+                if total_assets is not None:
+                    result["totalAssets"] = total_assets
+                if equity is not None:
+                    result["equity"] = equity
                 if total_assets and total_liab is not None and "debtRatio" not in result:
                     result["debtRatio"] = total_liab / total_assets
                 if cur_assets is not None and cur_liab:
@@ -1417,6 +1511,53 @@ class AStockDirectProvider(DataProvider):
         except Exception as e:
             logger.warning(f"[{self.name}] Failed to build quarterlyHistory for {code}: {e}")
             result["quarterlyHistory"] = []
+
+        # 9. Per-share & valuation ratio derivations (no new API calls)
+        #    All inputs already fetched in sections 1-8 above.
+        try:
+            # sharesOutstanding & netCashPerShare
+            shares = _to_float_safe(result.get("sharesOutstanding") or result.get("totalShares"))
+            if shares is None:
+                # Fallback when EastMoney push2 (totalShares source) is geo-blocked:
+                # derive total shares from market cap / price (both in CNY).
+                _mc = _to_float_safe(result.get("marketCap"))
+                _px = _to_float_safe(result.get("price"))
+                if _mc is not None and _px is not None and _px > 0:
+                    _derived = _mc / _px
+                    if 1e6 < _derived < 1e13:  # sane listed-company share count
+                        shares = _derived
+            if shares is not None and shares > 0:
+                if result.get("sharesOutstanding") is None:
+                    result["sharesOutstanding"] = shares
+                net_cash = _to_float_safe(result.get("netCash"))
+                if net_cash is not None:
+                    try:
+                        result["netCashPerShare"] = net_cash / shares
+                    except ZeroDivisionError:
+                        pass
+
+            # pegRatio
+            pe = _to_float_safe(result.get("pe"))
+            growth = _to_float_safe(result.get("netProfitGrowthYoY"))
+            if pe is not None and growth is not None and growth > 0:
+                result["pegRatio"] = pe / growth
+
+            # revenueYoY_annual fallback (prefer annual-report derivation from section 5)
+            if result.get("revenueYoY_annual") is None:
+                rev_yoy = _to_float_safe(result.get("revenueGrowthYoY"))
+                if rev_yoy is not None:
+                    result["revenueYoY_annual"] = rev_yoy
+
+            # enterpriseToEbitda (must run here because enterpriseValue is set in section 6,
+            # after section 5 where ebitda is computed)
+            _ev = _to_float_safe(result.get("enterpriseValue"))
+            _ebitda = _to_float_safe(result.get("ebitda"))
+            if _ev is not None and _ebitda is not None and _ebitda != 0:
+                result["enterpriseToEbitda"] = _ev / _ebitda
+        except Exception as exc_s9:
+            logger.warning(
+                f"[{self.name}] Section 9 derivations failed for {code}: {exc_s9}"
+            )
 
         result["currency"] = "CNY"
         result["financialCurrency"] = "CNY"

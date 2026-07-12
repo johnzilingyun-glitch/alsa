@@ -17,6 +17,7 @@ class CriticAgent:
         context: Optional[Dict[str, Any]] = None,
         gemini_api_key: Optional[str] = None,
         deepseek_api_key: Optional[str] = None,
+        openrouter_api_key: Optional[str] = None,
         model: Optional[str] = None
     ) -> Dict[str, Any]:
         """
@@ -91,7 +92,8 @@ class CriticAgent:
                 temperature=0.2,  # 低温度确保客观性
                 max_tokens=2000,
                 gemini_api_key=gemini_api_key,
-                deepseek_api_key=deepseek_api_key
+                deepseek_api_key=deepseek_api_key,
+                openrouter_api_key=openrouter_api_key
             )
             
             parsed = self._parse_response(response)

@@ -18,6 +18,7 @@ class SelfReflectionAgent:
         total_rounds: int = 10,
         gemini_api_key: Optional[str] = None,
         deepseek_api_key: Optional[str] = None,
+        openrouter_api_key: Optional[str] = None,
         model: Optional[str] = None
     ) -> Dict[str, Any]:
         """
@@ -74,7 +75,8 @@ class SelfReflectionAgent:
                 temperature=0.3,
                 max_tokens=1500,
                 gemini_api_key=gemini_api_key,
-                deepseek_api_key=deepseek_api_key
+                deepseek_api_key=deepseek_api_key,
+                openrouter_api_key=openrouter_api_key
             )
             
             # 尝试解析JSON响应

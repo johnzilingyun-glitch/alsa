@@ -99,15 +99,19 @@ class AgentOrchestrator:
         on_chunk: Optional[callable] = None,
         gemini_api_key: Optional[str] = None,
         deepseek_api_key: Optional[str] = None,
+        openrouter_api_key: Optional[str] = None,
         cache_key: Optional[str] = None,
         prompt_version_id: Optional[str] = None,
         response_schema: Optional[Any] = None,
     ) -> str:
-        """Generate content with tool-calling loop.
-        
-        For DeepSeek: uses native OpenAI-compatible function calling API.
-        For other models: uses text-based <tool_call> parsing.
-        """
+        # Resolve model dynamically: fall back to deepseek if gemini is not available
+        if model == "gemini-3.1-pro-preview" or model is None:
+            default_model = os.getenv("DEFAULT_LLM_MODEL")
+            if default_model:
+                model = default_model
+            elif not os.getenv("GEMINI_API_KEY") and os.getenv("DEEPSEEK_API_KEY"):
+                model = "deepseek-chat"
+
         # For DeepSeek, use native OpenAI-compatible function calling
         if "deepseek" in model.lower():
             return await self.generate_with_native_tools(
@@ -118,6 +122,7 @@ class AgentOrchestrator:
                 max_tool_rounds=max_tool_rounds,
                 on_chunk=on_chunk,
                 deepseek_api_key=deepseek_api_key,
+                openrouter_api_key=openrouter_api_key,
                 cache_key=cache_key,
                 prompt_version_id=prompt_version_id,
                 response_schema=response_schema,
@@ -153,6 +158,7 @@ class AgentOrchestrator:
                 on_chunk=on_chunk,
                 gemini_api_key=gemini_api_key,
                 deepseek_api_key=deepseek_api_key,
+                openrouter_api_key=openrouter_api_key,
                 prompt_version_id=prompt_version_id,
             )
 
@@ -204,6 +210,7 @@ class AgentOrchestrator:
                     current_prompt, model=model, temperature=temperature,
                     on_chunk=on_chunk, gemini_api_key=gemini_api_key,
                     deepseek_api_key=deepseek_api_key,
+                    openrouter_api_key=openrouter_api_key,
                 )
                 if final_result:
                     all_content_parts.append(final_result)
@@ -249,6 +256,7 @@ class AgentOrchestrator:
         max_tool_rounds: int = 30,
         on_chunk: Optional[callable] = None,
         deepseek_api_key: Optional[str] = None,
+        openrouter_api_key: Optional[str] = None,
         cache_key: Optional[str] = None,
         prompt_version_id: Optional[str] = None,
         response_schema: Optional[Any] = None,
@@ -277,6 +285,7 @@ class AgentOrchestrator:
                 max_tool_rounds,
                 on_chunk,
                 deepseek_api_key,
+                openrouter_api_key,
                 cache_key,
                 response_schema=response_schema,
             )
@@ -344,6 +353,7 @@ class AgentOrchestrator:
         max_tool_rounds: int = 30,
         on_chunk: Optional[callable] = None,
         deepseek_api_key: Optional[str] = None,
+        openrouter_api_key: Optional[str] = None,
         cache_key: Optional[str] = None,
         response_schema: Optional[Any] = None,
     ) -> str:

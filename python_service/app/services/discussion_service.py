@@ -258,6 +258,7 @@ class DiscussionService:
                                 total_rounds=total_rounds,
                                 gemini_api_key=ref_config.get("geminiApiKey"),
                                 deepseek_api_key=ref_config.get("deepseekApiKey"),
+                                openrouter_api_key=ref_config.get("openrouterApiKey"),
                                 model=model
                             )
                             # Attach reflection to the message
@@ -356,6 +357,7 @@ class DiscussionService:
                                 total_rounds=total_rounds,
                                 gemini_api_key=ref_config.get("geminiApiKey"),
                                 deepseek_api_key=ref_config.get("deepseekApiKey"),
+                                openrouter_api_key=ref_config.get("openrouterApiKey"),
                                 model=model
                             )
                             # Attach reflection to the message
@@ -808,7 +810,7 @@ class DiscussionService:
         if has_search_tools:
             # Gemini has native Google Search — use standard call (tools handled by model)
             try:
-                content = await llm_gateway.generate_content(prompt, model=model, on_chunk=_on_chunk, gemini_api_key=config.get("geminiApiKey") if config else None, deepseek_api_key=config.get("deepseekApiKey") if config else None, cache_key=cache_key, prompt_version_id=pv_id, response_schema=response_schema)
+                content = await llm_gateway.generate_content(prompt, model=model, on_chunk=_on_chunk, gemini_api_key=config.get("geminiApiKey") if config else None, deepseek_api_key=config.get("deepseekApiKey") if config else None, openrouter_api_key=config.get("openrouterApiKey") if config else None, cache_key=cache_key, prompt_version_id=pv_id, response_schema=response_schema)
             except Exception as e:
                 logger.error(f"[DiscussionService] Gemini LLM generation failed for {role}: {e}")
                 content = f"{role} 专家暂时无法提供分析。原因: 大语言模型请求异常 ({str(e)[:100]})。请其他专家忽略此错误并根据已有数据自行补全缺失视角的分析逻辑。"
@@ -821,7 +823,7 @@ class DiscussionService:
             
             # Other models — use tool-calling loop (web_search, news_search, knowledge_search)
             try:
-                content = await agent_orchestrator.generate_with_tools(prompt, model=model, role=role, max_tool_rounds=effective_max_rounds, on_chunk=_on_chunk, gemini_api_key=config.get("geminiApiKey") if config else None, deepseek_api_key=config.get("deepseekApiKey") if config else None, cache_key=cache_key, prompt_version_id=pv_id, response_schema=response_schema)
+                content = await agent_orchestrator.generate_with_tools(prompt, model=model, role=role, max_tool_rounds=effective_max_rounds, on_chunk=_on_chunk, gemini_api_key=config.get("geminiApiKey") if config else None, deepseek_api_key=config.get("deepseekApiKey") if config else None, openrouter_api_key=config.get("openrouterApiKey") if config else None, cache_key=cache_key, prompt_version_id=pv_id, response_schema=response_schema)
             except Exception as e:
                 error_msg = str(e)
                 if "402" in error_msg or "Insufficient Balance" in error_msg:
@@ -864,7 +866,8 @@ class DiscussionService:
                 summary_prompt,
                 model=model,
                 gemini_api_key=config.get("geminiApiKey") if config else None,
-                deepseek_api_key=config.get("deepseekApiKey") if config else None
+                deepseek_api_key=config.get("deepseekApiKey") if config else None,
+                openrouter_api_key=config.get("openrouterApiKey") if config else None
             )
             return summary.strip()
         except Exception as e:

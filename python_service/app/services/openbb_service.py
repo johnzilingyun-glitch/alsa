@@ -6,7 +6,7 @@ Free providers used (no API key required):
   - sec: SEC filings (10-K/10-Q/8-K), insider trading
   - oecd/econdb/imf: macro economic data (CPI, GDP)
 
-Complements AkShare (A-Share) and yfinance (US/HK) with:
+Complements yfinance (US/HK) with:
   - SEC filings & insider trading
   - Analyst consensus & estimates
   - Key financial metrics/ratios

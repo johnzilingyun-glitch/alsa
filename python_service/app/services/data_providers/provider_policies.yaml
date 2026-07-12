@@ -1,7 +1,6 @@
 provider_order:
   A-Share:
     - a-stock-direct
-    - akshare-fallback
     - yfinance
     - thsdk
     - sina

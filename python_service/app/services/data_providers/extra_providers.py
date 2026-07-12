@@ -46,29 +46,8 @@ class SinaDataProvider(DataProvider):
         return "sina"
 
     async def get_history(self, symbol: str, period: str = "3mo", interval: str = "1d") -> pd.DataFrame:
-        import akshare as ak
-        loop = asyncio.get_event_loop()
-        try:
-            clean_sym = ''.join(filter(str.isdigit, symbol))
-            if not clean_sym:
-                return pd.DataFrame()
-            prefix = "sh" if clean_sym.startswith(("6", "9")) else "sz"
-            sina_sym = f"{prefix}{clean_sym}"
-            
-            def fetch():
-                if interval == "1d":
-                    return ak.stock_zh_a_daily(symbol=sina_sym, adjust="qfq")
-                else:
-                    period_map = {"5m": "5", "15m": "15", "30m": "30", "60m": "60"}
-                    return ak.stock_zh_a_minute(symbol=sina_sym, period=period_map.get(interval, "5"), adjust="qfq")
-
-            df = await loop.run_in_executor(None, fetch)
-            if df is not None and not df.empty:
-                return normalize_ohlcv(df)
-            return pd.DataFrame()
-        except Exception as e:
-            logger.warning(f"[SinaDataProvider] K-line failed for {symbol}: {e}")
-            return pd.DataFrame()
+        # Not implemented — Sina direct HTTP not implemented
+        return pd.DataFrame()
 
     async def get_quote(self, symbol: str) -> Optional[QuoteData]:
         return None

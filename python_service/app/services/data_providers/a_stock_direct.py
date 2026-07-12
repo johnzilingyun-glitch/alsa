@@ -2,7 +2,7 @@
 A-Share Direct Provider — Primary data source for China A-Shares.
 
 Directly connects to HTTP APIs (Tencent, EastMoney, Baidu, Sina)
-without intermediate wrappers like akshare. Based on the architecture
+without intermediate wrappers like API. Based on the architecture
 from github.com/simonlin1212/a-stock-data (V3.0).
 
 Data sources:
@@ -196,12 +196,12 @@ async def fetch_a_share_ownership(code: str) -> Dict[str, float]:
 
 
 async def fetch_a_share_balance_items(code: str, periods: int = 4) -> List[Dict[str, Any]]:
-    """Fetch A-share balance-sheet line items from EastMoney datacenter (no akshare).
+    """Fetch A-share balance-sheet line items from EastMoney datacenter (no API).
 
     Returns detailed line items that yfinance does not break out for A-shares —
     e.g. 应收账款 (accounts receivable), 应收票据及账款, 存货 (inventory),
     货币资金 (monetary funds), 应付账款 (accounts payable). This is the reliable
-    replacement for the AkShare balance-sheet path which frequently fails with
+    replacement for the API balance-sheet path which frequently fails with
     RemoteDisconnected.
 
     Returns a list (latest first) of dicts:
@@ -254,9 +254,9 @@ async def fetch_a_share_balance_items(code: str, periods: int = 4) -> List[Dict[
 
 
 async def fetch_a_share_income_items(code: str, periods: int = 4) -> List[Dict[str, Any]]:
-    """Fetch A-share income-statement periods from EastMoney datacenter (no akshare).
+    """Fetch A-share income-statement periods from EastMoney datacenter (no API).
 
-    Reliable replacement for AkShare's quarterly financial abstract which fails
+    Reliable replacement for API's quarterly financial abstract which fails
     frequently with RemoteDisconnected. Returns per-period revenue / net profit /
     deducted (扣非) net profit.
 
@@ -307,9 +307,9 @@ async def fetch_a_share_income_items(code: str, periods: int = 4) -> List[Dict[s
 
 
 async def fetch_a_share_dividends(code: str, periods: int = 5) -> List[Dict[str, Any]]:
-    """Fetch A-share dividend history from EastMoney datacenter (no akshare).
+    """Fetch A-share dividend history from EastMoney datacenter (no API).
 
-    Reliable replacement for AkShare's dividend detail. Returns per-period
+    Reliable replacement for API's dividend detail. Returns per-period
     pre-tax cash dividend (per 10 shares) with ex-dividend date.
 
     Returns a list (latest first) of dicts:
@@ -352,7 +352,7 @@ async def fetch_a_share_dividends(code: str, periods: int = 5) -> List[Dict[str,
 class AStockDirectProvider(DataProvider):
     """
     Primary A-Share data provider using direct HTTP APIs.
-    No akshare dependency — connects directly to Tencent, EastMoney, Sina.
+    No API dependency — connects directly to Tencent, EastMoney, Sina.
     """
 
     @property

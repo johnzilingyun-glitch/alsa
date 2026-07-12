@@ -4,7 +4,6 @@ Data Providers — Market-aware data routing with unified schema.
 Architecture:
   DataRouter → detects market from ticker → routes to optimal provider
   ├── AStockDirectProvider (Primary A-share: direct HTTP APIs)
-  ├── AkShareFallbackProvider (Fallback A-share: akshare)
   └── YFinanceProvider (US/HK stocks)
 
 Usage:

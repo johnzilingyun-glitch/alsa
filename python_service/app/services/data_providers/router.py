@@ -6,12 +6,8 @@ routes to the optimal data provider. Falls back gracefully on failure.
 
 Routing rules:
   A-Shares (6-digit/.SH/.SZ) → AStockDirectProvider (primary, Tencent+Sina)
-                                 AkShareFallbackProvider (secondary, EastMoney)
   HK (.HK / 4-5 digit)       → YFinanceProvider
   US (alpha / ^prefix)        → YFinanceProvider
-
-NOTE: AkShare fallback enabled by default for domestic (China) servers.
-Set AKSHARE_ENABLED=false if deploying overseas where EastMoney is geo-blocked.
 """
 
 import logging
@@ -36,50 +32,17 @@ from .base import (
     score_financial_quality,
 )
 from .a_stock_direct import AStockDirectProvider
-from .akshare_fallback import AkShareFallbackProvider
 from .yfinance_provider import YFinanceProvider
 from .extra_providers import THSDataProvider, SinaDataProvider, IwencaiDataProvider
 
 import asyncio
 from datetime import datetime, timedelta
-import pandas as pd
 from sqlalchemy import text
 from app.db.database import engine
 
 logger = logging.getLogger(__name__)
 
 POLICY_PATH = Path(__file__).resolve().parent / "provider_policies.yaml"
-
-_name_to_symbol_cache = {}
-_name_to_symbol_loaded = False
-
-async def _resolve_symbol(symbol: str) -> str:
-    """Resolve Chinese company name to stock code (e.g. 德业股份 -> 605117.SH)."""
-    global _name_to_symbol_loaded, _name_to_symbol_cache
-    
-    # If it already contains digits, it's likely a code, not a name
-    if any(c.isdigit() for c in symbol):
-        return symbol
-        
-    if not _name_to_symbol_loaded:
-        try:
-            import akshare as ak
-            df = await asyncio.to_thread(ak.stock_info_a_code_name)
-            for _, row in df.iterrows():
-                code = str(row['code']).zfill(6)
-                name = str(row['name'])
-                if code.startswith('6'):
-                    suffix = '.SH'
-                elif code.startswith('4') or code.startswith('8') or code.startswith('9'):
-                    suffix = '.BJ'
-                else:
-                    suffix = '.SZ'
-                _name_to_symbol_cache[name] = code + suffix
-        except Exception as e:
-            logger.warning(f"Failed to load name to symbol map: {e}")
-        _name_to_symbol_loaded = True
-        
-    return _name_to_symbol_cache.get(symbol, symbol)
 
 class DataRouter:
     """
@@ -90,29 +53,17 @@ class DataRouter:
     def __init__(self):
         # Provider instances (lazy-init friendly, stateless)
         self._a_stock_primary = AStockDirectProvider()
-        self._a_stock_fallback = AkShareFallbackProvider()
         self._yfinance = YFinanceProvider()
         self._ths = THSDataProvider()
         self._sina = SinaDataProvider()
         self._iwencai = IwencaiDataProvider()
         self._provider_map = {
             self._a_stock_primary.name: self._a_stock_primary,
-            self._a_stock_fallback.name: self._a_stock_fallback,
             self._yfinance.name: self._yfinance,
             self._ths.name: self._ths,
             self._sina.name: self._sina,
             self._iwencai.name: self._iwencai,
         }
-        # AkShare fallback: enabled by default for domestic servers (EastMoney accessible in China)
-        self._akshare_enabled = os.environ.get("AKSHARE_ENABLED", "true").lower() in ("true", "1", "yes")
-        # Circuit breaker for akshare-fallback: EastMoney frequently throttles/blocks the
-        # server IP, producing RemoteDisconnected / timeout / pandas-structure errors. After
-        # N consecutive failures we skip the provider for a cooldown window so it stops
-        # wasting the concurrent race (and log noise) when the primary already succeeds.
-        self._akshare_cb_threshold = int(os.environ.get("AKSHARE_CB_THRESHOLD", "3"))
-        self._akshare_cb_cooldown = float(os.environ.get("AKSHARE_CB_COOLDOWN", "120"))
-        self._akshare_cb_failures = 0
-        self._akshare_cb_open_until = 0.0
         self._last_route_meta_var: contextvars.ContextVar = contextvars.ContextVar("last_route_meta", default={})
         self._policy_mtime: float = 0.0
         self._policies: Dict[str, Any] = {}
@@ -124,31 +75,6 @@ class DataRouter:
             "by_provider": {},
         }
         self._load_policies(force=True)
-
-    def _akshare_cb_is_open(self) -> bool:
-        """True while the akshare-fallback circuit breaker is tripped (skip provider)."""
-        if self._akshare_cb_open_until <= 0:
-            return False
-        if time.time() >= self._akshare_cb_open_until:
-            # Cooldown elapsed — half-open: allow one probe by resetting state.
-            self._akshare_cb_open_until = 0.0
-            self._akshare_cb_failures = 0
-            return False
-        return True
-
-    def _akshare_cb_record(self, success: bool) -> None:
-        """Feed akshare-fallback outcomes into the circuit breaker."""
-        if success:
-            self._akshare_cb_failures = 0
-            self._akshare_cb_open_until = 0.0
-            return
-        self._akshare_cb_failures += 1
-        if self._akshare_cb_failures >= self._akshare_cb_threshold and self._akshare_cb_open_until <= 0:
-            self._akshare_cb_open_until = time.time() + self._akshare_cb_cooldown
-            logger.warning(
-                f"[Router] akshare-fallback circuit OPEN for {self._akshare_cb_cooldown:.0f}s "
-                f"after {self._akshare_cb_failures} consecutive failures"
-            )
 
     def _load_policies(self, force: bool = False) -> None:
         try:
@@ -289,21 +215,12 @@ class DataRouter:
         selected: List[DataProvider] = []
         for name in order:
             p = self._provider_map.get(name)
-            if not p:
-                continue
-            if name == self._a_stock_fallback.name and not self._akshare_enabled:
-                continue
-            # Circuit breaker: skip akshare-fallback while it is tripped (EastMoney throttling).
-            if name == self._a_stock_fallback.name and self._akshare_cb_is_open():
-                continue
-            selected.append(p)
+            if p:
+                selected.append(p)
         if selected:
             return selected
 
         if market == MarketType.A_SHARE:
-            akshare_ok = self._akshare_enabled and not self._akshare_cb_is_open()
-            if akshare_ok:
-                return [self._a_stock_primary, self._a_stock_fallback, self._yfinance, self._ths, self._sina, self._iwencai]
             return [self._a_stock_primary, self._yfinance, self._ths, self._sina, self._iwencai]
         elif market == MarketType.HK_SHARE:
             return [self._yfinance, self._a_stock_primary]
@@ -316,39 +233,31 @@ class DataRouter:
     CONCURRENT_TIMEOUT = 30
 
     async def _fetch_concurrently(self, symbol: str, fetch_func, default_val, validation_func, data_type: str, cache_hit: bool = False):
-        import asyncio
         started_at = time.perf_counter()
         market = detect_market(symbol).value
         quality_threshold = self._get_quality_threshold(data_type, market)
         enforce_quality = self._is_quality_enforced()
         providers = self._get_providers(symbol)
-        
+
         async def wrap(idx, p):
             try:
                 res = await fetch_func(p)
                 quality_score = self._score_quality(data_type, res)
                 if validation_func(res):
-                    if p.name == self._a_stock_fallback.name:
-                        self._akshare_cb_record(True)
                     return idx, p.name, res, quality_score
-                # Reached here = provider returned but data invalid → treat as failure for CB.
-                if p.name == self._a_stock_fallback.name:
-                    self._akshare_cb_record(False)
             except Exception as e:
-                if p.name == self._a_stock_fallback.name:
-                    self._akshare_cb_record(False)
                 logger.warning(f"[Router] {p.name} failed for {symbol}: {e}")
             return idx, p.name, None, 0.0
 
         tasks = [asyncio.create_task(wrap(i, p)) for i, p in enumerate(providers)]
         results_by_idx = {}
         highest_pending_idx = 0
-        
+
         try:
             for fut in asyncio.as_completed(tasks, timeout=self.CONCURRENT_TIMEOUT):
                 idx, name, res, quality_score = await fut
                 results_by_idx[idx] = (res, quality_score)
-                
+
                 # Check if we can return the highest priority provider
                 while highest_pending_idx in results_by_idx:
                     best_res, q = results_by_idx[highest_pending_idx]
@@ -371,14 +280,14 @@ class DataRouter:
                         return best_res
                     # The highest priority pending task failed, move to next
                     highest_pending_idx += 1
-                    
+
         except asyncio.TimeoutError:
             logger.warning(f"[Router] Concurrent fetch timed out ({self.CONCURRENT_TIMEOUT}s) for {symbol}")
         finally:
             for t in tasks:
                 if not t.done():
                     t.cancel()
-                    
+
         # If we reach here due to timeout, return the best available result
         for i in range(len(providers)):
             entry = results_by_idx.get(i)
@@ -403,7 +312,7 @@ class DataRouter:
                     "success": True,
                 })
                 return res
-                
+
         logger.error(f"[Router] All concurrent providers failed for {symbol}")
         elapsed_ms = int((time.perf_counter() - started_at) * 1000)
         self._set_last_route_meta({
@@ -426,7 +335,6 @@ class DataRouter:
         """
         Fetch historical k-lines concurrently, return the fastest valid dataframe.
         """
-        symbol = await _resolve_symbol(symbol)
         market = detect_market(symbol).value
         started_at = time.perf_counter()
 
@@ -458,46 +366,38 @@ class DataRouter:
                         return df_cached
             except Exception as e:
                 logger.warning(f"[Router Cache] Redis history read failed for {symbol}: {e}")
-        
+
         # --- Cache Check Layer ---
         if interval == "1d":
             # Run blocking DB operations in a thread
             def _check_db():
                 try:
-                    # Check the maximum date in the database for this symbol
                     query = f"SELECT MAX(date) as max_date, COUNT(*) as cnt FROM daily_klines WHERE symbol = '{symbol}'"
                     df_meta = pd.read_sql(query, engine)
                     if not df_meta.empty and df_meta['cnt'].iloc[0] > 0:
                         max_date_str = df_meta['max_date'].iloc[0]
                         if max_date_str:
                             max_date = pd.to_datetime(max_date_str).tz_localize(None)
-                            # Define cache expiration logic based on the last expected trading day
                             now = datetime.now()
                             last_expected_date = now.date()
-                            
-                            # Market closes at 15:30. If we are before 15:30, 
-                            # the last complete candle we expect is from the previous day.
+
                             if now.hour < 15 or (now.hour == 15 and now.minute < 30):
                                 last_expected_date -= timedelta(days=1)
-                                
-                            # Adjust for weekends (if last expected day falls on Sat/Sun, push back to Friday)
-                            if last_expected_date.weekday() == 5: # Saturday
+
+                            if last_expected_date.weekday() == 5:
                                 last_expected_date -= timedelta(days=1)
-                            elif last_expected_date.weekday() == 6: # Sunday
+                            elif last_expected_date.weekday() == 6:
                                 last_expected_date -= timedelta(days=2)
-                                
-                            # Cache HIT if our DB max_date covers the last expected trading date
+
                             if max_date.date() >= last_expected_date:
                                 logger.info(f"[Router Cache] HIT for {symbol}: max_date {max_date_str} >= expected {last_expected_date}")
-                                # Load the cached dataframe
                                 df_cache = pd.read_sql(f"SELECT date, open, high, low, close, volume FROM daily_klines WHERE symbol = '{symbol}' ORDER BY date ASC", engine)
-                                # Convert dates back to string format 'YYYY-MM-DD' if they were stored as strings
                                 df_cache['date'] = pd.to_datetime(df_cache['date']).dt.strftime('%Y-%m-%d')
                                 return df_cache
                 except Exception as e:
                     logger.warning(f"[Router Cache] DB read failed: {e}")
                 return None
-            
+
             cached_df = await asyncio.to_thread(_check_db)
             if cached_df is not None and not cached_df.empty:
                 self._set_last_route_meta({
@@ -513,9 +413,7 @@ class DataRouter:
                     "success": True,
                 })
                 return cached_df
-            
-            # If cache miss, always fetch a large period ('10y' or 'max') so our cache is comprehensive
-            # Even if the user requested "3mo", we fetch more to populate the cache.
+
             period_to_fetch = "10y"
         else:
             period_to_fetch = period
@@ -534,25 +432,21 @@ class DataRouter:
             data_type="history",
             cache_hit=False,
         )
-        
+
         # --- Cache Write Layer ---
         if interval == "1d" and not df.empty:
             def _write_db(data_df):
                 try:
-                    # Clean existing records for this symbol
                     with engine.begin() as conn:
                         conn.execute(text(f"DELETE FROM daily_klines WHERE symbol = '{symbol}'"))
-                    
-                    # Prepare dataframe for insert
+
                     insert_df = data_df[['date', 'open', 'high', 'low', 'close', 'volume']].copy()
                     insert_df['symbol'] = symbol
-                    # Write to database (pandas to_sql handles the bulk insert)
                     insert_df.to_sql("daily_klines", con=engine, if_exists="append", index=False)
                     logger.info(f"[Router Cache] WRITTEN for {symbol}: {len(insert_df)} rows cached.")
                 except Exception as e:
                     logger.warning(f"[Router Cache] DB write failed: {e}")
-            
-            # Run write in background thread so it doesn't block returning the result
+
             asyncio.create_task(asyncio.to_thread(_write_db, df))
 
         if self._history_cache_enabled() and not df.empty:
@@ -564,24 +458,20 @@ class DataRouter:
                 await redis_client.setex(history_cache_key, ttl, json.dumps(df.to_dict(orient="records"), ensure_ascii=False))
             except Exception as e:
                 logger.warning(f"[Router Cache] Redis history write failed for {symbol}: {e}")
-            
-        # If user originally asked for a smaller period, just return the fetched (we don't strictly slice yet, downstream handles it)
-        # But we could slice if we want. Downstream usually handles it.
+
         return df
 
     async def get_quote(self, symbol: str) -> Optional[QuoteData]:
         """
         Fetch real-time quote concurrently with short-ttl Redis caching to prevent thundering herds.
         """
-        symbol = await _resolve_symbol(symbol)
         market = detect_market(symbol).value
         started_at = time.perf_counter()
-        
+
         cache_key = f"router:quote:{symbol}"
         redis_client = None
         try:
             from app.db.redis_client import get_redis
-            import json
             redis_client = await get_redis()
             cached_data = await redis_client.get(cache_key)
             if cached_data:
@@ -601,30 +491,29 @@ class DataRouter:
                 return QuoteData(**data_dict)
         except Exception as e:
             logger.warning(f"[Router Cache] Redis read failed for {symbol}: {e}")
-        
+
         async def fetch(p):
             return await p.get_quote(symbol)
-            
+
         def is_valid(q):
             return q is not None and q.price > 0
-            
+
         result = await self._fetch_concurrently(symbol, fetch, None, is_valid, data_type="quote", cache_hit=False)
-        
+
         if result is not None and redis_client is not None:
             try:
-                import dataclasses, json
+                import dataclasses
                 ttl = self._get_quote_ttl(market)
                 await redis_client.setex(cache_key, ttl, json.dumps(dataclasses.asdict(result)))
             except Exception as e:
                 logger.warning(f"[Router Cache] Redis write failed for {symbol}: {e}")
-                
+
         return result
 
     async def get_financial_summary(self, symbol: str) -> Dict[str, Any]:
         """
         Fetch comprehensive financial metrics concurrently.
         """
-        symbol = await _resolve_symbol(symbol)
         market = detect_market(symbol)
 
         cache_key = f"financial:{market.value}:{symbol}"
@@ -640,7 +529,7 @@ class DataRouter:
                         "latency_ms": 0,
                     })
                     return dict(payload)
-        
+
         async def fetch(p):
             res = await p.get_financial_summary(symbol)
             if res and "error" not in res:
@@ -648,22 +537,17 @@ class DataRouter:
                 res["_market"] = market.value
                 return res
             return None
-            
+
         def is_valid(r):
             if r is None: return False
-            # Ensure the provider actually returned financial data, not just boilerplate
             boilerplate = {"source", "symbol", "_routed_via", "_market", "currency", "financialCurrency", "name", "price"}
-            # Count keys that are not boilerplate
             data_keys = [k for k in r.keys() if k not in boilerplate and r[k] is not None]
-            # A valid financial summary should have at least some fundamental metrics (e.g., marketCap, pe, roe)
             return len(data_keys) > 0
-            
+
         default_err = {"error": "All providers failed", "symbol": symbol}
         result = await self._fetch_concurrently(symbol, fetch, default_err, is_valid, data_type="financial", cache_hit=False)
 
-        # A-share ownership backfill: the concurrent race may be won by a provider
-        # (e.g. yfinance) that lacks A-share holder data, leaving ownership N/A.
-        # Enrich from EastMoney F10 regardless of which provider produced financials.
+        # A-share ownership backfill
         if (
             isinstance(result, dict)
             and market == MarketType.A_SHARE
@@ -720,7 +604,6 @@ class DataRouter:
         Batch fetch quotes for multiple symbols.
         Routes each symbol independently.
         """
-        import asyncio
         tasks = [self.get_quote(s) for s in symbols]
         results = await asyncio.gather(*tasks, return_exceptions=True)
 

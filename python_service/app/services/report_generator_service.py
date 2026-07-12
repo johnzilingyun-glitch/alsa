@@ -44,8 +44,18 @@ class ReportGeneratorService:
             provider = os.getenv("DEFAULT_LLM_PROVIDER", "deepseek").lower()
             model = os.getenv("DEEPSEEK_MODEL", "deepseek-v4-pro") if provider == "deepseek" else os.getenv("GEMINI_MODEL", "gemini-3.1-pro-preview")
         
-        # Clean discussion content: strip LLM thinking prefixes before downstream use
-        cleaned_msgs = [{"role": m.get("role", "分析师"), "content": self._strip_thinking_prefix(m.get("content", "")), "model": m.get("model", model)} for m in discussion_msgs]
+        # Clean discussion content: strip LLM thinking prefixes, then neutralize any
+        # "own knowledge / training data" provenance labels so fabricated-source financial
+        # claims are never presented as fact downstream.
+        _fab_hit = {"hit": False}
+        def _clean_content(raw):
+            stripped = self._strip_thinking_prefix(raw)
+            redacted, found = self._redact_fabricated_provenance(stripped)
+            if found:
+                _fab_hit["hit"] = True
+            return redacted
+        cleaned_msgs = [{"role": m.get("role", "分析师"), "content": _clean_content(m.get("content", "")), "model": m.get("model", model)} for m in discussion_msgs]
+        fabrication_detected = _fab_hit["hit"]
         full_discussion = "\n".join([f"[{m['role']}]: {m['content']}" for m in cleaned_msgs])
         
         # Initialize token tracking for the report generation phase
@@ -61,6 +71,23 @@ class ReportGeneratorService:
                 raise ReportSchemaValidationError(self._describe_ui_data_schema_failure(ui_data))
 
             self._validate_and_backfill_ui_data(ui_data, cleaned_msgs, snapshot)
+
+            # Backstop: if any figure was sourced from the model's own knowledge, downgrade
+            # data completeness and surface an integrity warning instead of presenting it as fact.
+            if fabrication_detected:
+                _dc = ui_data.get("data_completeness") or {}
+                if isinstance(_dc, dict):
+                    try:
+                        _dc["score"] = min(int(_dc.get("score", 100)), 70)
+                    except (TypeError, ValueError):
+                        _dc["score"] = 70
+                    _impact = _dc.get("impact", "")
+                    _dc["impact"] = (_impact + " ⚠️ 检测到模型曾以'自有知识库/训练数据'标注来源，已按数据缺失处理；财务数值仅采信 API 或具名工具来源。").strip()
+                    ui_data["data_completeness"] = _dc
+                ui_data["data_integrity_warning"] = (
+                    "本报告部分数据曾被模型以「自有知识库 / 训练数据」标注来源，系统已强制按数据缺失处理。"
+                    "所有财务数值应仅以 API 或具名工具提供的实时来源为准。"
+                )
             
             # Backfill empty upside/downside from discussion text
             if not ui_data.get("upside") or not ui_data.get("downside"):
@@ -113,6 +140,7 @@ class ReportGeneratorService:
             "market_wind_control": ui_data.get("market_wind_control", {}),
             "trading_discipline": ui_data.get("trading_discipline", {}),
             "data_completeness": ui_data.get("data_completeness", {"score": 100, "missing": [], "impact": ""}),
+            "data_integrity_warning": ui_data.get("data_integrity_warning", ""),
             "peer_comparison": ui_data.get("peer_comparison", []),
             "summary": ui_data.get("summary", "总结提炼中..."),
             "moat_summary": ui_data.get("moat_summary", ""),
@@ -454,6 +482,40 @@ Now extract from the following discussion:
         if not stripped or (len(stripped) < 50 and len(stripped) < len(content.strip()) * 0.1):
             return content.strip()
         return stripped
+
+    # Provenance labels that indicate a financial figure was sourced from the model's
+    # own parametric memory rather than API/tool data. These are forbidden by the
+    # analysis prompts; this backstop guarantees they never reach the rendered report
+    # as an acceptable source — they are forced to 'data missing'.
+    _FABRICATED_PROVENANCE_PATTERNS = [
+        ("自有知识库/联网搜索补充", "数据缺失（API/工具未提供）"),
+        ("基于自有知识库", "数据缺失（API/工具未提供）"),
+        ("自有知识库", "数据缺失（API/工具未提供）"),
+        ("训练知识", "数据缺失（API/工具未提供）"),
+        ("based on own knowledge", "data missing (API/tool unavailable)"),
+        ("supplemented from own knowledge", "data missing (API/tool unavailable)"),
+        ("own knowledge / web search", "data missing (API/tool unavailable)"),
+        ("own knowledge", "data missing (API/tool unavailable)"),
+        ("training knowledge", "data missing (API/tool unavailable)"),
+        ("parametric memory", "data missing (API/tool unavailable)"),
+    ]
+
+    def _redact_fabricated_provenance(self, text):
+        """Neutralize 'own knowledge / training data' provenance labels.
+
+        Returns (redacted_text, found: bool). When the model tagged a figure as
+        coming from its own parametric memory, we rewrite it to 'data missing' so
+        no fabricated financial value is ever presented as a sourced fact.
+        """
+        if not text or not isinstance(text, str):
+            return text, False
+        found = False
+        out = text
+        for pat, repl in self._FABRICATED_PROVENANCE_PATTERNS:
+            if pat.lower() in out.lower():
+                out = re.sub(re.escape(pat), repl, out, flags=re.IGNORECASE)
+                found = True
+        return out, found
 
     def _is_low_quality_ui_data(self, ui_data: dict) -> bool:
         """Detect garbage/low-quality UI data extracted by LLM that should trigger fallback.
@@ -1981,6 +2043,11 @@ CONTENT:
                 {f'<div style="margin-top:4px;color:#b45309;">影响: {dc_impact}</div>' if dc_impact else ''}
             </div>'''
 
+        integrity_warn = d.get("data_integrity_warning", "")
+        integrity_html = ""
+        if integrity_warn:
+            integrity_html = f'<div class="integrity-warning" style="background:#fef2f2;border:1px solid #ef4444;color:#b91c1c;padding:10px 14px;border-radius:8px;margin:8px 0;font-weight:600;">{esc(integrity_warn)}</div>'
+
         # Adaptive Valuation Panel
         archetype = d.get("stock_archetype") or ""
         archetype_zh = {
@@ -2859,6 +2926,7 @@ CONTENT:
 
         {verdict_html}
         {data_warning_html}
+        {integrity_html}
         {action_html}
         {evidence_taxonomy_html}
 

@@ -16,7 +16,9 @@ load_dotenv(os.path.join(root_dir, ".env.runtime"), override=True)
 BRAIN_DATA_DIR = os.path.join(root_dir, "data", "brain")
 EVOLVED_GENOME_FILE = os.path.join(BRAIN_DATA_DIR, "evolved_genome.json")
 QDRANT_PATH = os.path.join(BRAIN_DATA_DIR, "qdrant_db")
-QDRANT_URL = os.getenv("QDRANT_URL", "http://localhost:6333")
+# Default to embedded local Qdrant (no server required). Set QDRANT_URL to a
+# remote "http://host:6333" only when a standalone Qdrant server is available.
+QDRANT_URL = os.getenv("QDRANT_URL", "")
 
 os.makedirs(BRAIN_DATA_DIR, exist_ok=True)
 

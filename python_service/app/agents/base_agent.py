@@ -28,6 +28,7 @@
 
 from __future__ import annotations
 
+import os
 import logging
 from typing import Any, Callable, Optional
 
@@ -89,8 +90,14 @@ class BaseAgent:
         self.context_builder = context_builder or _default_cb
         self.evidence_bus = evidence_bus or _default_bus
         self._llm_runner = llm_runner
-        self.max_tool_rounds = max_tool_rounds
         self.model = model
+        # Resolve model dynamically based on available API keys
+        if model == "gemini-3.1-pro-preview" or model is None:
+            default_model = os.getenv("DEFAULT_LLM_MODEL")
+            if default_model:
+                self.model = default_model
+            elif not os.getenv("GEMINI_API_KEY") and os.getenv("DEEPSEEK_API_KEY"):
+                self.model = "deepseek-chat"
         # SubAgent (as_tool) + Handoff 注册表
         self.subagents: dict[str, "BaseAgent"] = {}
         self.handoffs: dict[str, Handoff] = {}
@@ -377,13 +384,21 @@ class BaseAgent:
 
 
 async def _default_llm_runner(prompt: str, *, role: str = None,
-                              response_schema: dict = None, tools: list = None,
-                              model: str = "gemini-3.1-pro-preview") -> str:
+                               response_schema: dict = None, tools: list = None,
+                               model: str = "gemini-3.1-pro-preview") -> str:
     """默认 LLM runner: 懒导入 agent_orchestrator (避免循环导入 & 重型依赖).
 
     生产环境用此默认; 测试时注入 mock.
     """
     from ..services.agent_orchestrator import agent_orchestrator
+    
+    if model == "gemini-3.1-pro-preview":
+        default_model = os.getenv("DEFAULT_LLM_MODEL")
+        if default_model:
+            model = default_model
+        elif not os.getenv("GEMINI_API_KEY") and os.getenv("DEEPSEEK_API_KEY"):
+            model = "deepseek-chat"
+
     return await agent_orchestrator.generate_with_tools(
         prompt=prompt, model=model, role=role,
         response_schema=response_schema,

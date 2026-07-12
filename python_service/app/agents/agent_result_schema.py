@@ -125,10 +125,46 @@ def parse_agent_output(raw: str, agent_id: str, role: str) -> AgentResult:
         schema = AgentOutputSchema.model_validate(data)
     except Exception as e:
         logger.warning("[AgentOutput] 解析失败 (%s), 降级. raw[:200]=%s", e, raw[:200])
+        # Try to extract useful information from raw text
+        summary = raw[:500] if isinstance(raw, str) else str(raw)[:500]
+
+        # Extract evidence from raw text using pattern matching
+        extracted_evidence = []
+        if isinstance(raw, str):
+            # Look for common patterns: "**看多/看空/中性**", "观点:", "判断:", etc.
+            import re
+            # Extract stance from common patterns
+            stance = "neutral"
+            if any(kw in raw for kw in ["看多", "买入", "积极", "bullish", "看好", "推荐买入"]):
+                stance = "bullish"
+            elif any(kw in raw for kw in ["看空", "卖出", "消极", "bearish", "看空", "规避"]):
+                stance = "bearish"
+
+            # Extract key claims from the text (first 3 sentences as evidence)
+            sentences = re.split(r'[。！？\n]', raw)
+            for sent in sentences[:5]:
+                sent = sent.strip()
+                if len(sent) > 10 and len(sent) < 200:
+                    # Determine stance for this claim
+                    claim_stance = "neutral"
+                    if any(kw in sent for kw in ["看多", "买入", "增长", "利好", "上涨"]):
+                        claim_stance = "bullish"
+                    elif any(kw in sent for kw in ["看空", "卖出", "下跌", "利空", "风险"]):
+                        claim_stance = "bearish"
+                    extracted_evidence.append(Evidence(
+                        claim=sent, stance=claim_stance,
+                        confidence=0.4, source=["raw_text_extraction"],
+                        agent=role,
+                    ))
+                    if len(extracted_evidence) >= 3:
+                        break
+
         return AgentResult(
-            agent_id=agent_id, role=role, status="degraded",
-            summary=raw[:500] if isinstance(raw, str) else str(raw)[:500],
-            confidence=0.3,
+            agent_id=agent_id, role=role,
+            status="ok" if len(extracted_evidence) >= 2 else "degraded",
+            summary=summary,
+            evidence=extracted_evidence,
+            confidence=0.4 if len(extracted_evidence) >= 2 else 0.3,
         )
 
     # 转为 contracts 内部表示

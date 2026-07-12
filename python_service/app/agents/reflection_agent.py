@@ -167,17 +167,30 @@ class ReflectionAgent:
             ))
 
         # 2. skipped/degraded agent → rerun
-        for r in results:
-            if r.status in ("skipped", "degraded") and r.agent_id not in rerun_agents:
-                issues.append(Issue(
-                    severity="medium",
-                    description=f"{r.role} 状态={r.status}, 需重跑",
-                    agent_id=r.agent_id,
-                ))
-                rerun_agents.append(r.agent_id)
-                corrections.append(Correction(
-                    target=r.agent_id, action="rerun", detail=f"重跑 {r.role}",
-                ))
+        # BUT: if ALL agents are degraded AND there are multiple agents, don't trigger rerun to avoid infinite loops
+        degraded_agents = [r for r in results if r.status in ("skipped", "degraded")]
+        all_degraded = len(degraded_agents) == len(results) and len(results) > 1
+
+        if not all_degraded:
+            # Only rerun degraded agents when not all are degraded (or only 1 agent)
+            for r in degraded_agents:
+                if r.agent_id not in rerun_agents:
+                    issues.append(Issue(
+                        severity="medium",
+                        description=f"{r.role} 状态={r.status}, 需重跑",
+                        agent_id=r.agent_id,
+                    ))
+                    rerun_agents.append(r.agent_id)
+                    corrections.append(Correction(
+                        target=r.agent_id, action="rerun", detail=f"重跑 {r.role}",
+                    ))
+        else:
+            # All agents degraded (multiple agents) - allow finalize with warning
+            issues.append(Issue(
+                severity="medium",
+                description=f"所有Agent状态异常({len(degraded_agents)}/{len(results)}), 跳过重跑直接finalize",
+            ))
+            can_finalize = True
 
         # 3. coverage 不足 → need_more_evidence
         low_cov = [role for role, cov in aggregated.coverage.items() if cov < 0.3]

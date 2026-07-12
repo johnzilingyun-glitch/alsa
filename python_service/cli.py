@@ -18,12 +18,12 @@ os.makedirs(REPORTS_DIR, exist_ok=True)
 load_dotenv(os.path.join(root_dir, ".env"), override=True)
 load_dotenv(os.path.join(root_dir, ".env.runtime"), override=True)
 
-from python_service.app.db.database import build_session_factory
-from python_service.app.db.repositories.job_repo import JobRepository
-from python_service.app.services.market_snapshot_service import MarketSnapshotService
-from python_service.app.services.analysis_job_service import AnalysisJobService
-from python_service.app.services.market_data_service import market_data_service
-from python_service.app.lake.parquet_store import ParquetMarketStore
+from app.db.database import build_session_factory
+from app.db.repositories.job_repo import JobRepository
+from app.services.market_snapshot_service import MarketSnapshotService
+from app.services.analysis_job_service import AnalysisJobService
+from app.services.market_data_service import market_data_service
+from app.lake.parquet_store import ParquetMarketStore
 
 CONFIG_FILE = os.path.expanduser("~/.alsa_config.json")
 
@@ -119,13 +119,14 @@ def unset(key):
 @click.option("--output", "-o", default=None, help="Custom path for HTML report.")
 @click.option("--model", default=None, help="Gemini model version (e.g. 1.5-pro, 2.0-flash).")
 @click.option("--guard", "-g", default="high", type=click.Choice(["none", "low", "medium", "high"]), help="Token guard level (none/low/medium/high).")
+@click.option("--verification-mode", "-v", default="quick", type=click.Choice(["quick", "quality", "extreme"]), help="Verification mode (matches web UI).")
 @click.option("--lang", default=None, type=click.Choice(["zh", "en"]), help="Report language (auto-detected from market if omitted).")
-def analyze(query, market, level, output, model, guard, lang):
-    """Analyze a stock and generate an HTML report."""
-    click.echo(f"Starting analysis for: {query} (Level: {level}, Guard: {guard})")
-    
+def analyze(query, market, level, output, model, guard, verification_mode, lang):
+    """Analyze a stock and generate an HTML report (same pipeline as the web UI)."""
+    click.echo(f"Starting analysis for: {query} (Level: {level}, Guard: {guard}, Verify: {verification_mode})")
+
     # Run async logic
-    asyncio.run(run_analysis_flow(query, market, level, output, model, guard, lang))
+    asyncio.run(run_analysis_flow(query, market, level, output, model, guard, verification_mode, lang))
 
 
 @cli.command("sector")
@@ -153,8 +154,8 @@ def sector_analyze(sector_name, output, model):
 def list_jobs(limit):
     """List recent analysis jobs from the database."""
     from sqlmodel import select, desc
-    from python_service.app.db.database import DATABASE_URL
-    from python_service.app.db.models import AnalysisJob
+    from app.db.database import DATABASE_URL
+    from app.db.models import AnalysisJob
 
     # Check if the SQLite database file exists
     if DATABASE_URL.startswith("sqlite:///"):
@@ -164,7 +165,7 @@ def list_jobs(limit):
             return
 
     try:
-        from python_service.app.db.database import session_factory as db_sf
+        from app.db.database import session_factory as db_sf
         with db_sf() as session:
             statement = select(AnalysisJob).order_by(desc(AnalysisJob.created_at)).limit(limit)
             jobs = session.exec(statement).all()
@@ -184,13 +185,16 @@ def list_jobs(limit):
         click.echo(f"Error listing jobs: {e}")
 
 
-async def run_analysis_flow(query, market, level, output_path, model, guard="high", lang=None):
+async def run_analysis_flow(query, market, level, output_path, model, guard="none", verification_mode="quick", lang=None):
+    # Force in-process local execution so `python cli.py` works standalone (no Redis/Celery).
+    os.environ.pop("REDIS_URL", None)
+
     # 0. Set token guard level
-    from python_service.app.services.token_guard import token_guard
+    from app.services.token_guard import token_guard
     token_guard.set_level(guard)
-    
+
     # 1. Initialize dependencies
-    from python_service.app.db.database import DATABASE_URL
+    from app.db.database import DATABASE_URL
     session_factory = build_session_factory(DATABASE_URL)
     job_repo = JobRepository(session_factory)
     parquet_store = ParquetMarketStore()
@@ -222,17 +226,20 @@ async def run_analysis_flow(query, market, level, output_path, model, guard="hig
     resolved_market = selected_match["market"]
     click.echo(f"Selected: {selected_match['name']} ({symbol} | {resolved_market})")
     
-    # Use model from CLI option or config; if None, discussion_service uses .env default
+    # Use model from CLI option or config; fall back to DEFAULT_LLM_MODEL (OpenRouter
+    # e.g. tencent/hy3:free). Passing it explicitly avoids discussion_service's
+    # deepseek-v4-pro fallback, which would hit the native DeepSeek tool loop with no key.
     cfg = load_config()
-    final_model = model or cfg.get("model") or cfg.get("gemini_model")
+    final_model = model or cfg.get("model") or cfg.get("gemini_model") or os.getenv("DEFAULT_LLM_MODEL", "tencent/hy3:free")
     if is_deprecated_model(final_model):
         # Deprecated model, fall back to default
-        final_model = None
+        final_model = os.getenv("DEFAULT_LLM_MODEL", "tencent/hy3:free")
     
     # 3. Start Job
     click.echo("\nFetching data and running expert discussion...")
     cli_config = {"language": f"{'zh-CN' if lang == 'zh' else 'en'}"} if lang else None
-    job_id = await service.start_job(symbol, resolved_market, level=level, model=final_model, config=cli_config)
+    job_id = await service.start_job(symbol, resolved_market, level=level, model=final_model,
+                                      config=cli_config, verification_mode=verification_mode)
     click.echo(f"Job ID: {job_id}")
     
     # 4. Wait for completion (polling)
@@ -264,7 +271,7 @@ async def run_analysis_flow(query, market, level, output_path, model, guard="hig
 
     # 5. Generate HTML Report
     click.echo("Generating HTML report...")
-    from python_service.app.services.report_generator_service import ReportGeneratorService
+    from app.services.report_generator_service import ReportGeneratorService
     
     report_service = ReportGeneratorService()
     
@@ -279,10 +286,10 @@ async def run_analysis_flow(query, market, level, output_path, model, guard="hig
 
 async def run_sector_flow(sector_name, output_path, model):
     """Run sector analysis flow: snapshot → expert discussion → report."""
-    from python_service.app.db.database import DATABASE_URL
+    from app.db.database import DATABASE_URL
     session_factory = build_session_factory(DATABASE_URL)
     job_repo = JobRepository(session_factory)
-    from python_service.app.services.sector_analysis_service import SectorAnalysisService
+    from app.services.sector_analysis_service import SectorAnalysisService
 
     service = SectorAnalysisService(job_repo)
 
@@ -326,7 +333,7 @@ async def run_sector_flow(sector_name, output_path, model):
 
     # Generate HTML Report
     click.echo("Generating sector HTML report...")
-    from python_service.app.services.sector_report_service import SectorReportService
+    from app.services.sector_report_service import SectorReportService
 
     report_service = SectorReportService()
     result = service.get_result(job_id)
@@ -352,8 +359,8 @@ async def run_sector_flow(sector_name, output_path, model):
 
 async def run_market_scan_then_sector(output_path, model):
     """Step 1: Scan market for promising sectors. Step 2: User picks one. Step 3: Deep sector analysis."""
-    from python_service.app.services.llm_gateway import llm_gateway
-    from python_service.app.prompting.runtime import prompt_runtime
+    from app.services.llm_gateway import llm_gateway
+    from app.prompting.runtime import prompt_runtime
 
     cfg = load_config()
     final_model = model or cfg.get("model") or cfg.get("gemini_model")

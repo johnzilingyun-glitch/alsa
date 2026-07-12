@@ -1,7 +1,4 @@
 
-# Apply AkShare requests.Session keep-alive patch BEFORE any other imports
-from app.utils.akshare_patch import *  # noqa: F401, F403
-
 # Initialize structured logging first
 from app.logging import setup_logging
 setup_logging()

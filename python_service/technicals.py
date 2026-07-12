@@ -3,7 +3,7 @@ Quantitative Technical Analysis Engine
 ──────────────────────────────────────
 Five-strategy weighted ensemble producing structured trading signals.
 Inspired by virattt/ai-hedge-fund (technicals.py) but adapted for
-A-Share / HK / US markets and our AkShare data pipeline.
+A-Share / HK / US markets and our data pipeline.
 
 Strategies:
   1. Trend Following     (EMA crossover + ADX strength)

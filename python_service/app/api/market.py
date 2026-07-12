@@ -4,11 +4,9 @@ import asyncio
 import datetime
 import logging
 import pandas as pd
-import akshare as ak
 from ..services.market_data_service import market_data_service
 from ..services.data_providers import data_router
 from ..services.search_service import search_service
-from ..utils.network import safe_ak_call
 from ..utils.responses import success_response, error_response
 
 logger = logging.getLogger(__name__)
@@ -23,7 +21,7 @@ def _format_yi(val: float) -> str:
 async def _fetch_sector_flow_data() -> Dict[str, Any]:
     """Fetch sector fund flow, used by /dashboard."""
     try:
-        df = await safe_ak_call(ak.stock_fund_flow_industry, symbol="即时")
+        df = await asyncio.to_thread(ak.stock_fund_flow_industry, symbol="即时")
         if df is not None and not df.empty:
             df["净额"] = pd.to_numeric(df["净额"], errors="coerce").fillna(0)
             df["行业-涨跌幅"] = pd.to_numeric(df["行业-涨跌幅"], errors="coerce").fillna(0)
@@ -38,9 +36,9 @@ async def _fetch_sector_flow_data() -> Dict[str, Any]:
         logger.warning(f"sector_flow primary failed: {e}")
 
     try:
-        df = await safe_ak_call(ak.stock_sector_fund_flow_rank, indicator="今日", sector_type="行业资金流")
+        df = await asyncio.to_thread(ak.stock_sector_fund_flow_rank, indicator="今日", sector_type="行业资金流")
         if df is None or df.empty:
-            df = await safe_ak_call(ak.stock_sector_fund_flow_rank, indicator="5日", sector_type="行业资金流")
+            df = await asyncio.to_thread(ak.stock_sector_fund_flow_rank, indicator="5日", sector_type="行业资金流")
         if df is not None and not df.empty:
             col_candidates = [c for c in df.columns if '主力' in c and '净额' in c]
             if col_candidates:
@@ -63,10 +61,10 @@ async def _fetch_sector_flow_data() -> Dict[str, Any]:
 async def _fetch_northbound_data() -> list:
     """Fetch northbound flow, used by /dashboard."""
     try:
-        df = await safe_ak_call(ak.stock_hsgt_fund_flow_summary_em)
+        df = await asyncio.to_thread(ak.stock_hsgt_fund_flow_summary_em)
         if df is not None and not df.empty:
             return df.to_dict(orient="records")
-        df_hist = await safe_ak_call(ak.stock_hsgt_board_rank_em, board="北上")
+        df_hist = await asyncio.to_thread(ak.stock_hsgt_board_rank_em, board="北上")
         if df_hist is not None and not df_hist.empty:
             return df_hist.head(5).to_dict(orient="records")
     except Exception:
@@ -102,7 +100,7 @@ router = APIRouter(prefix="/market", tags=["market"])
 async def market_status():
     return success_response({
         "status": "ok",
-        "sources": ["akshare", "sina", "yahoo", "router"],
+        "sources": ["api", "sina", "yahoo", "router"],
         "routerStats": data_router.get_runtime_stats(),
         "routerPolicies": data_router.get_policy_snapshot(),
     })
@@ -150,7 +148,7 @@ async def get_symbol_history(
 async def get_sector_fund_flow() -> Dict[str, Any]:
     # Primary: stock_fund_flow_industry (uses datacenter API, more reliable)
     try:
-        df = await safe_ak_call(ak.stock_fund_flow_industry, symbol="即时")
+        df = await asyncio.to_thread(ak.stock_fund_flow_industry, symbol="即时")
         if df is not None and not df.empty:
             df["净额"] = pd.to_numeric(df["净额"], errors="coerce").fillna(0)
             df["行业-涨跌幅"] = pd.to_numeric(df["行业-涨跌幅"], errors="coerce").fillna(0)
@@ -169,9 +167,9 @@ async def get_sector_fund_flow() -> Dict[str, Any]:
 
     # Fallback: stock_sector_fund_flow_rank (uses push2 API, may be blocked)
     try:
-        df = await safe_ak_call(ak.stock_sector_fund_flow_rank, indicator="今日", sector_type="行业资金流")
+        df = await asyncio.to_thread(ak.stock_sector_fund_flow_rank, indicator="今日", sector_type="行业资金流")
         if df is None or df.empty:
-            df = await safe_ak_call(ak.stock_sector_fund_flow_rank, indicator="5日", sector_type="行业资金流")
+            df = await asyncio.to_thread(ak.stock_sector_fund_flow_rank, indicator="5日", sector_type="行业资金流")
 
         if df is not None and not df.empty:
             col_candidates = [c for c in df.columns if '主力' in c and '净额' in c]
@@ -200,11 +198,11 @@ async def get_sector_fund_flow() -> Dict[str, Any]:
 @router.get("/northbound")
 async def get_northbound_flow() -> Dict[str, Any]:
     try:
-        df = await safe_ak_call(ak.stock_hsgt_fund_flow_summary_em)
+        df = await asyncio.to_thread(ak.stock_hsgt_fund_flow_summary_em)
         if df is not None and not df.empty:
             records = df.to_dict(orient="records")
         else:
-            df_hist = await safe_ak_call(ak.stock_hsgt_board_rank_em, board="北上")
+            df_hist = await asyncio.to_thread(ak.stock_hsgt_board_rank_em, board="北上")
             if df_hist is not None and not df_hist.empty:
                 records = df_hist.head(5).to_dict(orient="records")
             else:

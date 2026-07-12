@@ -48,6 +48,7 @@ class SectorScanRequest(BaseModel):
     force: Optional[bool] = False
     gemini_api_key: Optional[str] = None
     deepseek_api_key: Optional[str] = None
+    openrouter_api_key: Optional[str] = None
 
 
 class SectorAnalyzeRequest(BaseModel):
@@ -57,6 +58,7 @@ class SectorAnalyzeRequest(BaseModel):
     force: Optional[bool] = False
     gemini_api_key: Optional[str] = None
     deepseek_api_key: Optional[str] = None
+    openrouter_api_key: Optional[str] = None
     pipeline_version: Optional[str] = "production"
     verification_mode: str = "quick"  # Modes: 'extreme', 'quick', 'quality'
 
@@ -68,6 +70,7 @@ class SerenityAnalyzeRequest(BaseModel):
     force: Optional[bool] = False
     gemini_api_key: Optional[str] = None
     deepseek_api_key: Optional[str] = None
+    openrouter_api_key: Optional[str] = None
     pipeline_version: Optional[str] = "production"
     experts: Optional[list[str]] = None
     verification_mode: str = "quick"  # Modes: 'extreme', 'quick', 'quality'
@@ -181,7 +184,8 @@ async def start_scan(req: SectorScanRequest):
     task = asyncio.create_task(_run_scan(
         job_id, model, target_date, 
         gemini_api_key=req.gemini_api_key, 
-        deepseek_api_key=req.deepseek_api_key
+        deepseek_api_key=req.deepseek_api_key,
+        openrouter_api_key=req.openrouter_api_key
     ))
     _scan_tasks[job_id] = task
     task.add_done_callback(lambda t: _scan_tasks.pop(job_id, None))
@@ -212,7 +216,7 @@ async def cancel_scan(job_id: str):
     return error_response("NOT_FOUND", "Running scan job not found or already completed")
 
 
-async def _run_scan(job_id: str, model: str, target_date: str, gemini_api_key: str = None, deepseek_api_key: str = None):
+async def _run_scan(job_id: str, model: str, target_date: str, gemini_api_key: str = None, deepseek_api_key: str = None, openrouter_api_key: str = None):
     """Execute the market sector scan via LLM + tools."""
     from ..services.llm_gateway import llm_gateway
     from ..services.agent_orchestrator import agent_orchestrator
@@ -255,13 +259,15 @@ Market: A-Share (中国A股)
             scan_result = await agent_orchestrator.generate_with_tools(
                 context, model=model, max_tool_rounds=20,
                 on_chunk=_on_chunk,
-                gemini_api_key=gemini_api_key, deepseek_api_key=deepseek_api_key
+                gemini_api_key=gemini_api_key, deepseek_api_key=deepseek_api_key,
+                openrouter_api_key=openrouter_api_key
             )
         else:
             scan_result = await llm_gateway.generate_content(
                 context, model=model,
                 on_chunk=_on_chunk,
-                gemini_api_key=gemini_api_key, deepseek_api_key=deepseek_api_key
+                gemini_api_key=gemini_api_key, deepseek_api_key=deepseek_api_key,
+                openrouter_api_key=openrouter_api_key
             )
 
         if not scan_result:
@@ -392,7 +398,8 @@ async def start_sector_analysis(req: SectorAnalyzeRequest):
         req.sector_name, model=model, target_date=target_date,
         config={
             "geminiApiKey": req.gemini_api_key,
-            "deepseekApiKey": req.deepseek_api_key
+            "deepseekApiKey": req.deepseek_api_key,
+            "openrouterApiKey": req.openrouter_api_key,
         },
         verification_mode=req.verification_mode
     )
@@ -455,6 +462,7 @@ async def start_serenity_analysis(req: SerenityAnalyzeRequest):
         config={
             "geminiApiKey": req.gemini_api_key,
             "deepseekApiKey": req.deepseek_api_key,
+            "openrouterApiKey": req.openrouter_api_key,
             "experts": req.experts,
         },
         verification_mode=req.verification_mode

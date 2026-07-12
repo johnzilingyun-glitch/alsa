@@ -4,6 +4,7 @@ import os
 import re
 import time
 import yfinance as yf
+import pandas as pd
 from datetime import datetime
 from typing import List, Dict, Any, Optional, Tuple
 from ..utils.data_validation import validate_data
@@ -25,7 +26,7 @@ class _CircuitBreaker:
         self._failures[source] = self._failures.get(source, 0) + 1
         if self._failures[source] >= self._max_failures:
             self._open_until[source] = time.time() + self._cooldown
-            print(f"[CircuitBreaker] {source} OPEN for {self._cooldown}s after {self._failures[source]} failures")
+            logger.warning("[CircuitBreaker] %s OPEN for %ss after %s failures", source, self._cooldown, self._failures[source])
 
     def record_success(self, source: str):
         self._failures[source] = 0
@@ -92,7 +93,9 @@ class MarketDataService:
                         continue
                     name, code = parts[0], parts[2]
                     if type_code == "11":  # A-share
-                        if not (len(code) == 6 and code.startswith(("6", "0", "3", "8", "4"))):
+                        # Only Shanghai(6) and Shenzhen(0/3) are A-Share.
+                        # Beijing Exchange (8xxxxx) and NEEQ (4xxxxx) are separate markets.
+                        if not (len(code) == 6 and code.startswith(("6", "0", "3"))):
                             continue
                         market_label = "A-Share"
                     else:  # HK-share (type=21)
@@ -104,7 +107,7 @@ class MarketDataService:
                         out.append({"symbol": code, "name": name, "market": market_label})
                 return out[:5]
             except Exception as e:
-                print(f"Sina suggest ({type_code}) resolution error: {e}")
+                logger.error("Sina suggest (%s) resolution error: %s", type_code, e)
                 return []
 
         # 1. Check if it's already a code
@@ -127,7 +130,7 @@ class MarketDataService:
             try:
                 await search_service.search(f"{query} stock symbol yahoo finance", max_results=5)
             except Exception as e:
-                print(f"US-Share resolution error: {e}")
+                logger.error("US-Share resolution error: %s", e)
             if query.isascii() and query.isalpha() and len(query) <= 5:
                 results.append({"symbol": query.upper(), "name": query.upper(), "market": "US-Share"})
 
@@ -135,14 +138,27 @@ class MarketDataService:
 
     async def get_quotes(self, symbols: List[str]) -> List[Dict[str, Any]]:
         """
-        Fetch real-time quotes for multiple symbols using yfinance.
-        Handles A-Share symbol normalization (.SS/.SZ).
+        Fetch real-time quotes for multiple symbols.
+        For A-Shares: primary Tencent Finance path (fast, no rate limit) returns
+        marketCap/trailingPE/priceToBook/turnoverRate fields that match the
+        QuoteData schema from AStockDirectProvider (used by DataRouter.get_quote).
+        For US/HK: uses yfinance.
+        Note: This path diverges from DataRouter.get_quote which uses
+        AStockDirectProvider for A-Shares; the fields returned here match
+        intentionally but the provider differs.
+        Handles A-Share symbol normalization (.SS/.SZ/.BJ).
         """
         processed_symbols = []
         symbol_map = {}
         for s in symbols:
             if s.isdigit() and len(s) == 6:
-                suffixed = f"{s}.SS" if s.startswith(('6', '9')) else f"{s}.SZ"
+                # Shanghai(6xx) → .SS, Beijing(8xx) → .BJ, Shenzhen(0/3xx) → .SZ
+                if s.startswith(('6', '9')):
+                    suffixed = f"{s}.SS"
+                elif s.startswith('8'):
+                    suffixed = f"{s}.BJ"
+                else:
+                    suffixed = f"{s}.SZ"
                 processed_symbols.append(suffixed)
                 symbol_map[suffixed] = s
             elif s.isdigit() and len(s) <= 5:
@@ -218,45 +234,54 @@ class MarketDataService:
                     "priceToBook": float(parts[46]) if parts[46] else None,
                     "turnoverRate": float(parts[38]) if parts[38] else None,
                     "currency": "CNY",
-                    "lastUpdated": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "lastUpdated": f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} CST",
                 }
 
             def fetch_single(ps):
                 orig = symbol_map[ps]
                 # A-Share: use Tencent (fast, reliable, no rate limit)
-                if ps.endswith(".SS") or ps.endswith(".SZ"):
-                    if not self._breaker.is_open("yfinance"):
+                if ps.endswith(".SS") or ps.endswith(".SZ") or ps.endswith(".BJ"):
+                    if not self._breaker.is_open("tencent"):
                         try:
                             result = _fetch_tencent_quote(orig)
                             if result:
-                                self._breaker.record_success("yfinance")
+                                self._breaker.record_success("tencent")
                                 return result
                         except Exception as e:
+                            self._breaker.record_failure("tencent")
+                            logger.warning("Tencent quote failed for %s: %s", orig, e)
+                    # Fallback to yfinance if Tencent fails — last resort
+                    if not self._breaker.is_open("yfinance"):
+                        try:
+                            ticker = yf.Ticker(ps)
+                            info = ticker.info
+                            price = info.get("currentPrice") or info.get("regularMarketPrice")
+                            prev_close = info.get("regularMarketPreviousClose")
+                            change = price - prev_close if price and prev_close else 0
+                            change_pct = (change / prev_close * 100) if prev_close else 0
+                            cn_name = a_share_names.get(orig) or self.GLOBAL_INDEX_NAMES.get(orig)
+                            self._breaker.record_success("yfinance")
+                            return {
+                                "symbol": orig,
+                                "name": cn_name or info.get("shortName") or orig,
+                                "price": price,
+                                "change": round(change, 4) if change else 0,
+                                "changePercent": round(change_pct, 2) if change_pct else 0,
+                                "previousClose": prev_close,
+                                "marketCap": info.get("marketCap"),
+                                "trailingPE": info.get("trailingPE"),
+                                "priceToBook": info.get("priceToBook"),
+                                "turnoverRate": info.get("turnoverRate"),
+                                "currency": info.get("currency", "CNY"),
+                                "lastUpdated": f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} CST",
+                            }
+                        except Exception as e:
                             self._breaker.record_failure("yfinance")
-                            print(f"Tencent quote failed for {orig}: {e}")
-                    # Fallback to yfinance if Tencent fails and breaker is open
-                    try:
-                        ticker = yf.Ticker(ps)
-                        info = ticker.info
-                        price = info.get("currentPrice") or info.get("regularMarketPrice")
-                        prev_close = info.get("regularMarketPreviousClose")
-                        change = price - prev_close if price and prev_close else 0
-                        change_pct = (change / prev_close * 100) if prev_close else 0
-                        cn_name = a_share_names.get(orig) or self.GLOBAL_INDEX_NAMES.get(orig)
-                        return {
-                            "symbol": orig,
-                            "name": cn_name or info.get("shortName") or orig,
-                            "price": price,
-                            "change": round(change, 4) if change else 0,
-                            "changePercent": round(change_pct, 2) if change_pct else 0,
-                            "previousClose": prev_close,
-                            "currency": info.get("currency", "CNY"),
-                            "lastUpdated": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                        }
-                    except Exception as e:
-                        self._breaker.record_failure("yfinance")
-                        print(f"Error fetching quote for {ps}: {e}")
-                        return {"symbol": orig, "error": str(e)}
+                            logger.error("Error fetching yfinance quote for %s: %s", ps, e)
+                            return {"symbol": orig, "error": str(e)}
+                    else:
+                        logger.warning("yfinance breaker open for %s, skipping", ps)
+                        return {"symbol": orig, "error": "yfinance breaker open"}
                 else:
                     # US/HK: use yfinance
                     try:
@@ -278,10 +303,10 @@ class MarketDataService:
                             "trailingPE": info.get("trailingPE"),
                             "priceToBook": info.get("priceToBook"),
                             "currency": info.get("currency"),
-                            "lastUpdated": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                            "lastUpdated": f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} CST",
                         }
                     except Exception as e:
-                        print(f"Error fetching quote for {ps}: {e}")
+                        logger.error("Error fetching quote for %s: %s", ps, e)
                         return {"symbol": orig, "error": str(e)}
 
             from concurrent.futures import ThreadPoolExecutor
@@ -290,7 +315,7 @@ class MarketDataService:
                 results = await asyncio.gather(*blocking_tasks)
 
         except Exception as e:
-            print(f"Batch fetch failed: {e}")
+            logger.error("Batch fetch failed: %s", e)
             
         return results
 
@@ -308,7 +333,7 @@ class MarketDataService:
                 }.get(market, ["^GSPC"])
                 return await self._fetch_indices_tencent(symbols)
         except Exception as e:
-            print(f"Indices fetch failed for {market}: {e}")
+            logger.error("Indices fetch failed for %s: %s", market, e)
             return []
 
     async def _fetch_indices_tencent(self, symbols: List[str]) -> List[Dict[str, Any]]:
@@ -354,10 +379,10 @@ class MarketDataService:
                         "change": round(change, 4),
                         "changePercent": round(change_pct, 2),
                         "previousClose": prev_close,
-                        "lastUpdated": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                        "lastUpdated": f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} CST"
                     })
             except Exception as e:
-                print(f"Tencent index fetch failed for {sym}: {e}")
+                logger.error("Tencent index fetch failed for %s: %s", sym, e)
         return results
 
     async def get_history(self, symbol: str, period: str = "1mo", interval: str = "1d") -> List[Dict[str, Any]]:
@@ -371,7 +396,7 @@ class MarketDataService:
                 return df.to_dict(orient="records")
             return []
         except Exception as e:
-            print(f"History fetch failed for {symbol}: {e}")
+            logger.error("History fetch failed for %s: %s", symbol, e)
             return []
 
     async def get_quotes_with_meta(self, symbols: List[str]) -> List[Dict[str, Any]]:
@@ -411,7 +436,7 @@ class MarketDataService:
             records = df.to_dict(orient="records") if df is not None and not df.empty else []
             return records, route_meta
         except Exception as e:
-            print(f"History fetch (with meta) failed for {symbol}: {e}")
+            logger.error("History fetch (with meta) failed for %s: %s", symbol, e)
             return [], data_router.get_last_route_meta()
 
     async def get_news(self, market: str) -> List[Dict[str, Any]]:
@@ -460,16 +485,22 @@ class MarketDataService:
                     })
                 return items
         except Exception as e:
-            print(f"News fetch failed for {market}: {e}")
+            logger.error("News fetch failed for %s: %s", market, e)
             return []
 
     async def get_financial_summary(self, symbol: str, market: str = "US-Share") -> Dict[str, Any]:
         cache_key = f"{market}:{symbol}"
         if cache_key in self._cache:
-            return self._cache[cache_key]
+            entry = self._cache[cache_key]
+            if isinstance(entry, dict) and "_cached_at" in entry:
+                if time.time() - entry["_cached_at"] < self._cache_ttl:
+                    return entry["data"]
+            else:
+                # Legacy cache entry (no TTL), return as-is
+                return entry
 
         result = await self._fetch_financial_summary(symbol, market)
-        self._cache[cache_key] = result
+        self._cache[cache_key] = {"data": result, "_cached_at": time.time()}
         return result
 
     async def precompute_financial_summary(self, symbol: str, market: str = "US-Share") -> Dict[str, Any]:
@@ -477,7 +508,7 @@ class MarketDataService:
         Public method to trigger pre-computation and update cache.
         """
         result = await self._fetch_financial_summary(symbol, market)
-        self._cache[f"{market}:{symbol}"] = result
+        self._cache[f"{market}:{symbol}"] = {"data": result, "_cached_at": time.time()}
         return result
     async def _fetch_financial_summary(self, symbol: str, market: str) -> Dict[str, Any]:
         loop = asyncio.get_event_loop()
@@ -815,13 +846,19 @@ class MarketDataService:
                         logger.exception("Failed to process quarterly financials for A-Share %s", clean_symbol)
                         pass
 
-                ak_info = {}
-                
-                # Fetch financial indicator (Fallback)
-                ak_financials = {}
-                
-                # Fetch dividend info
-                latest_dividend = {}
+                # --- quarterly history rows ---
+                quarterly_history_rows = []
+                if quarterly_financials is not None and not quarterly_financials.empty:
+                    all_fields = {}
+                    for label in ['Total Revenue', 'Net Income', 'Gross Profit', 'Operating Income', 'EBITDA']:
+                        if label in quarterly_financials.index:
+                            row_data = quarterly_financials.loc[label].dropna()
+                            for date_key, val in row_data.items():
+                                period = str(date_key)[:10]
+                                if period not in all_fields:
+                                    all_fields[period] = {"period": period}
+                                all_fields[period][label] = val
+                    quarterly_history_rows = list(all_fields.values())[:5]
 
                 # --- CAPEX from cashflow statement (fallback) ---
                 a_capital_expenditure = yf_info.get("capitalExpenditure")
@@ -870,59 +907,48 @@ class MarketDataService:
                     except Exception:
                         pass
 
-                # Fallback to search if critical metrics are missing
-                if not ak_financials.get("latestNetProfitDeduct"):
-                    try:
-                        print(f"Critical financials missing for {symbol}, falling back to search...")
-                        query = f"{symbol} 最新财报 净利润 扣非净利润 营收环比 净利润同比 资本开支"
-                        search_res = await search_service.quick_search(query)
-                        ak_financials["searchContext"] = search_res
-                    except Exception as e:
-                        print(f"Search fallback for financials failed: {e}")
-
-
                 # Combine data
                 return {
-                    "marketCap": ak_info.get("总市值") or yf_info.get("marketCap"),
-                    "circulatingMarketCap": ak_info.get("流通市值"),
-                    "pe": yf_info.get("trailingPE") or ak_info.get("市盈率-动态"),
-                    "pb": yf_info.get("priceToBook") or ak_info.get("市净率"),
+                    "marketCap": yf_info.get("marketCap"),
+                    "circulatingMarketCap": None,
+                    "pe": yf_info.get("trailingPE"),
+                    "pb": yf_info.get("priceToBook"),
                     "pegRatio": yf_info.get("pegRatio"),
                     "priceToSales": yf_info.get("priceToSalesTrailing12Months"),
                     "enterpriseToEbitda": yf_info.get("enterpriseToEbitda"),
                     "enterpriseValue": yf_info.get("enterpriseValue"),
-                    "roe": yf_info.get("returnOnEquity") or ak_financials.get("latestRoe"),
+                    "roe": yf_info.get("returnOnEquity"),
                     "roa": yf_info.get("returnOnAssets"),
-                    "grossMargin": yf_info.get("grossMargins") or ak_financials.get("latestGrossMargin"),
+                    "grossMargin": yf_info.get("grossMargins"),
                     "operatingMargin": yf_info.get("operatingMargins"),
                     "profitMargin": yf_info.get("profitMargins"),
-                    "revenue": yf_info.get("totalRevenue") or ak_financials.get("latestRevenue"),
+                    "revenue": yf_info.get("totalRevenue"),
                     "revenueGrowth": yf_info.get("revenueGrowth") or revenue_yoy,
                     "revenueYoY": revenue_yoy,
                     "revenueQoQ": revenue_qoq,
                     "earningsGrowth": yf_info.get("earningsGrowth") or net_profit_yoy,
-                    "netProfit": ak_financials.get("latestNetProfit") or yf_info.get("netIncomeToCommon"),
-                    "netProfitDeduct": ak_financials.get("latestNetProfitDeduct"),
-                    "netProfitYoY": net_profit_yoy or ak_financials.get("latestGrowth"),
+                    "netProfit": yf_info.get("netIncomeToCommon"),
+                    "netProfitDeduct": None,
+                    "netProfitYoY": net_profit_yoy,
                     "netProfitQoQ": net_profit_qoq,
-                    "netProfitDeductYoY": ak_financials.get("latestNetProfitDeductYoY"),
-                    "netProfitDeductQoQ": ak_financials.get("latestNetProfitDeductQoQ"),
-                    "netProfitGrowth": ak_financials.get("latestGrowth") or net_profit_yoy,
+                    "netProfitDeductYoY": None,
+                    "netProfitDeductQoQ": None,
+                    "netProfitGrowth": net_profit_yoy,
                     "revenueCagr3y": revenue_cagr_3y,
                     "incomeCagr3y": income_cagr_3y,
                     "eps": yf_info.get("trailingEps"),
                     "debtToEquity": yf_info.get("debtToEquity"),
-                    "debtRatio": ak_financials.get("latestDebtRatio"),
-                    "currentRatio": ak_financials.get("latestCurrentRatio") or yf_info.get("currentRatio"),
-                    "quickRatio": ak_financials.get("latestQuickRatio") or yf_info.get("quickRatio"),
-                    "inventoryTurnover": ak_financials.get("latestInventoryTurnover") or yf_info.get("inventoryTurnover"),
-                    "assetTurnover": ak_financials.get("latestAssetTurnover") or yf_info.get("assetTurnover"),
+                    "debtRatio": None,
+                    "currentRatio": yf_info.get("currentRatio"),
+                    "quickRatio": yf_info.get("quickRatio"),
+                    "inventoryTurnover": yf_info.get("inventoryTurnover"),
+                    "assetTurnover": yf_info.get("assetTurnover"),
                     "freeCashflow": yf_info.get("freeCashflow"),
                     "operatingCashflow": yf_info.get("operatingCashflow"),
                     "capitalExpenditure": a_capital_expenditure,
                     "payoutRatio": yf_info.get("payoutRatio"),
-                    "dividend": latest_dividend.get("派息"),
-                    "dividendYield": ak_info.get("股息率") or yf_info.get("dividendYield"),
+                    "dividend": None,
+                    "dividendYield": yf_info.get("dividendYield"),
                     "heldPercentInsiders": yf_info.get("heldPercentInsiders"),
                     "heldPercentInstitutions": yf_info.get("heldPercentInstitutions"),
                     "fiftyTwoWeekHigh": yf_info.get("fiftyTwoWeekHigh"),
@@ -931,18 +957,18 @@ class MarketDataService:
                     "currency": "CNY",
                     "financialCurrency": "CNY",
                     "pePercentile": a_pe_percentile,
-                    "financials": ak_financials,
+                    "financials": {},
                     "quarterlyHistory": quarterly_history_rows,
                     # Company identity fields (for factual grounding)
-                    "longName": yf_info.get("longName") or ak_info.get("股票简称"),
-                    "industry": yf_info.get("industry") or ak_info.get("行业"),
+                    "longName": yf_info.get("longName"),
+                    "industry": yf_info.get("industry"),
                     "sector": yf_info.get("sector"),
                     "exchange": yf_info.get("exchange"),
-                    "listingDate": ak_info.get("上市时间"),
+                    "listingDate": None,
                     "longBusinessSummary": (yf_info.get("longBusinessSummary") or "")[:500],
                 }
         except Exception as e:
-            print(f"Financial summary fetch failed for {symbol}: {e}")
+            logger.error("Financial summary fetch failed for %s: %s", symbol, e)
             return {"error": str(e)}
         return {}
 

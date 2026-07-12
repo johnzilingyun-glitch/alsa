@@ -7,10 +7,51 @@ Sentiment data service: fetches real-time sentiment indicators from APIs.
 """
 
 import asyncio
+import time
 from typing import Dict, Any, Optional
 import logging
 
+import requests
+import pandas as pd
+
 logger = logging.getLogger(__name__)
+
+# EastMoney datacenter base URL (same as AStockDirectProvider)
+_DATACENTER_URL = "https://datacenter-web.eastmoney.com/api/data/v1/get"
+_UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
+
+
+def _eastmoney_datacenter(
+    report_name: str,
+    columns: str = "ALL",
+    filter_str: str = "",
+    page_size: int = 500,
+    sort_columns: str = "",
+    sort_types: str = "-1",
+) -> list:
+    """EastMoney datacenter unified query helper (mirrors a_stock_direct.py)."""
+    params = {
+        "reportName": report_name,
+        "columns": columns,
+        "filter": filter_str,
+        "pageNumber": "1",
+        "pageSize": str(page_size),
+        "sortColumns": sort_columns,
+        "sortTypes": sort_types,
+        "source": "WEB",
+        "client": "WEB",
+    }
+    try:
+        r = requests.get(
+            _DATACENTER_URL, params=params,
+            headers={"User-Agent": _UA}, timeout=15,
+        )
+        d = r.json()
+        if d.get("result") and d["result"].get("data"):
+            return d["result"]["data"]
+    except Exception as e:
+        logger.warning(f"EastMoney datacenter error ({report_name}): {e}", exc_info=True)
+    return []
 
 
 class SentimentDataService:
@@ -18,87 +59,142 @@ class SentimentDataService:
 
     def __init__(self):
         self._cache: Dict[str, Any] = {}
-        self._comment_cache: Optional[Any] = None  # Full stock_comment_em DataFrame
+        self._cache_ttl: int = 300  # 5 minutes, same as market_data_service
+        self._comment_cache: Optional[pd.DataFrame] = None  # Full stock_comment_em DataFrame
+        self._comment_cache_ts: float = 0.0  # timestamp for TTL check
+        self._comment_cache_ttl: int = 3600  # comment table is large; refresh hourly
+
+    def _cache_get(self, key: str) -> Optional[Any]:
+        """Get from cache if not expired."""
+        entry = self._cache.get(key)
+        if entry is None:
+            return None
+        value, ts = entry
+        if time.time() - ts < self._cache_ttl:
+            return value
+        del self._cache[key]
+        return None
+
+    def _cache_set(self, key: str, value: Any) -> None:
+        """Set cache entry with current timestamp."""
+        self._cache[key] = (value, time.time())
 
     async def get_northbound_flow(self, symbol: str, days: int = 10) -> Dict[str, Any]:
-        """Get northbound (陆股通) individual stock flow data."""
+        """Get northbound (陆股通) individual stock flow data.
+
+        Uses EastMoney datacenter's RPT_MUTUAL_STOCK_NORTHSTA report
+        (same data source as akshare's stock_hsgt_stock_statistics_em).
+        """
         cache_key = f"nb_{symbol}"
-        if cache_key in self._cache:
-            return self._cache[cache_key]
+        cached = self._cache_get(cache_key)
+        if cached is not None:
+            return cached
 
         result: Dict[str, Any] = {"symbol": symbol, "source": "陆股通个股"}
         try:
-            # Remove suffix for API
             code = symbol.replace(".SH", "").replace(".SZ", "")
-            df = await asyncio.to_thread(ak.stock_hsgt_individual_em, symbol=code)
-            if df is not None and not df.empty:
-                recent = df.tail(days)
+            data = await asyncio.to_thread(
+                lambda: _eastmoney_datacenter(
+                    "RPT_MUTUAL_STOCK_NORTHSTA",
+                    filter_str=f'(SECURITY_CODE="{code}")',
+                    page_size=days + 10,
+                    sort_columns="TRADE_DATE",
+                    sort_types="-1",
+                )
+            )
+            if data:
                 records = []
-                for _, row in recent.iterrows():
+                for row in data[:days]:
                     records.append({
-                        "date": str(row.get("持股日期", "")),
-                        "close": row.get("当日收盘价"),
-                        "change_pct": row.get("当日涨跌幅"),
-                        "shares_held": row.get("持股数量"),
-                        "market_value": row.get("持股市值"),
-                        "pct_of_float": row.get("持股数量占A股百分比"),
-                        "daily_change_shares": row.get("今日增持股数"),
-                        "daily_change_value": row.get("今日增持资金"),
+                        "date": str(row.get("TRADE_DATE", "")),
+                        "close": row.get("CLOSE_PRICE"),
+                        "change_pct": row.get("CHANGE_RATE"),
+                        "shares_held": row.get("HOLD_SHARES"),
+                        "market_value": row.get("HOLD_MARKET_CAP"),
+                        "pct_of_float": row.get("HOLD_RATIO"),
+                        "daily_change_shares": row.get("ADD_SHARES"),
+                        "daily_change_value": row.get("ADD_MARKET_CAP"),
                     })
                 result["data"] = records
                 result["latest"] = records[-1] if records else None
 
-                # Calculate 5-day net inflow
-                last5 = recent.tail(5)
-                total_inflow = last5["今日增持资金"].sum() if "今日增持资金" in last5.columns else None
+                # Calculate 5-day net inflow from ADD_MARKET_CAP
+                recent_additions = [
+                    r.get("ADD_MARKET_CAP") for r in data[:5]
+                    if r.get("ADD_MARKET_CAP") is not None
+                ]
+                total_inflow = sum(recent_additions) if recent_additions else None
                 result["five_day_net_inflow"] = total_inflow
                 result["five_day_trend"] = "净流入" if total_inflow and total_inflow > 0 else "净流出"
             else:
                 result["data"] = []
                 result["error"] = "无陆股通持股数据（可能不在沪港通/深港通名单中）"
         except Exception as e:
+            logger.error(f"Northbound flow fetch failed for {symbol}: {e}", exc_info=True)
             result["data"] = []
             result["error"] = str(e)
 
-        self._cache[cache_key] = result
+        self._cache_set(cache_key, result)
         return result
 
     async def get_stock_sentiment_score(self, symbol: str) -> Dict[str, Any]:
-        """Get Eastmoney comprehensive sentiment score for a stock."""
+        """Get Eastmoney comprehensive sentiment score for a stock.
+
+        Uses EastMoney datacenter's RPT_DMSK_TS_STOCKNEW report
+        (same data source as akshare's stock_comment_em).
+        """
         cache_key = f"sentiment_{symbol}"
-        if cache_key in self._cache:
-            return self._cache[cache_key]
+        cached = self._cache_get(cache_key)
+        if cached is not None:
+            return cached
 
         result: Dict[str, Any] = {"symbol": symbol, "source": "东方财富综合评价"}
         try:
-            # Load full comment table if not cached
-            if self._comment_cache is None:
-                self._comment_cache = await asyncio.to_thread(ak.stock_comment_em)
+            # Load full comment table if not cached or TTL expired
+            now = time.time()
+            if self._comment_cache is None or (now - self._comment_cache_ts) > self._comment_cache_ttl:
+                data = await asyncio.to_thread(
+                    lambda: _eastmoney_datacenter(
+                        "RPT_DMSK_TS_STOCKNEW",
+                        columns="ALL",
+                        page_size=500,
+                    )
+                )
+                if data:
+                    self._comment_cache = pd.DataFrame(data)
+                    self._comment_cache_ts = now
+                    logger.info(f"Loaded {len(data)} stock comment records from EastMoney")
+                else:
+                    self._comment_cache = pd.DataFrame()
+                    self._comment_cache_ts = now
 
             if self._comment_cache is not None and not self._comment_cache.empty:
                 code = symbol.replace(".SH", "").replace(".SZ", "")
-                row = self._comment_cache[self._comment_cache["代码"] == code]
-                if not row.empty:
-                    r = row.iloc[0]
+                # Determine code column: if already Chinese-named, use "代码"; otherwise use "SECURITY_CODE"
+                code_col = "代码" if "代码" in self._comment_cache.columns else "SECURITY_CODE"
+                match = self._comment_cache[self._comment_cache[code_col] == code]
+                if not match.empty:
+                    r = match.iloc[0]
                     result["data"] = {
-                        "composite_score": r.get("综合得分"),
-                        "institutional_participation": r.get("机构参与度"),
-                        "attention_index": r.get("关注指数"),
-                        "main_cost": r.get("主力成本"),
-                        "ranking": r.get("目前排名"),
-                        "ranking_change": r.get("上升"),
-                        "turnover_rate": r.get("换手率"),
-                        "pe": r.get("市盈率"),
-                        "date": str(r.get("交易日", "")),
+                        "composite_score": r.get("综合得分") if "综合得分" in self._comment_cache.columns else r.get("TOTAL_SCORE"),
+                        "institutional_participation": r.get("机构参与度") if "机构参与度" in self._comment_cache.columns else r.get("ORG_PARTICIPATE"),
+                        "attention_index": r.get("关注指数") if "关注指数" in self._comment_cache.columns else r.get("FOCUS_INDEX"),
+                        "main_cost": r.get("主力成本") if "主力成本" in self._comment_cache.columns else r.get("MAIN_COST"),
+                        "ranking": r.get("目前排名") if "目前排名" in self._comment_cache.columns else r.get("RANK"),
+                        "ranking_change": r.get("上升") if "上升" in self._comment_cache.columns else r.get("RISE"),
+                        "turnover_rate": r.get("换手率") if "换手率" in self._comment_cache.columns else r.get("TURNOVERRATE"),
+                        "pe": r.get("市盈率") if "市盈率" in self._comment_cache.columns else r.get("PE_DYNAMIC"),
+                        "date": str(r.get("交易日", "")) if "交易日" in self._comment_cache.columns else str(r.get("TRADE_DATE", "")),
                     }
                 else:
                     result["error"] = "未找到该股票评分数据"
             else:
                 result["error"] = "东方财富评分数据不可用"
         except Exception as e:
+            logger.error(f"Sentiment score fetch failed for {symbol}: {e}", exc_info=True)
             result["error"] = str(e)
 
-        self._cache[cache_key] = result
+        self._cache_set(cache_key, result)
         return result
 
     def _detect_market(self, symbol: str) -> str:
@@ -116,8 +212,9 @@ class SentimentDataService:
         HK stocks: 雪球 + 富途牛牛
         """
         cache_key = f"forum_{symbol}"
-        if cache_key in self._cache:
-            return self._cache[cache_key]
+        cached = self._cache_get(cache_key)
+        if cached is not None:
+            return cached
 
         result: Dict[str, Any] = {"symbol": symbol, "source": "论坛情绪抓取"}
         forum_data = []
@@ -193,7 +290,7 @@ class SentimentDataService:
                 logger.warning(f"Futu scrape failed: {e}")
 
         result["forums"] = forum_data
-        self._cache[cache_key] = result
+        self._cache_set(cache_key, result)
         return result
 
     async def _crawl_page(self, url: str) -> Optional[str]:

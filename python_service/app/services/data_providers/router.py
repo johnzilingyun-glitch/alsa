@@ -372,8 +372,8 @@ class DataRouter:
             # Run blocking DB operations in a thread
             def _check_db():
                 try:
-                    query = f"SELECT MAX(date) as max_date, COUNT(*) as cnt FROM daily_klines WHERE symbol = '{symbol}'"
-                    df_meta = pd.read_sql(query, engine)
+                    query = text("SELECT MAX(date) as max_date, COUNT(*) as cnt FROM daily_klines WHERE symbol = :symbol")
+                    df_meta = pd.read_sql(query, engine, params={"symbol": symbol})
                     if not df_meta.empty and df_meta['cnt'].iloc[0] > 0:
                         max_date_str = df_meta['max_date'].iloc[0]
                         if max_date_str:
@@ -391,7 +391,7 @@ class DataRouter:
 
                             if max_date.date() >= last_expected_date:
                                 logger.info(f"[Router Cache] HIT for {symbol}: max_date {max_date_str} >= expected {last_expected_date}")
-                                df_cache = pd.read_sql(f"SELECT date, open, high, low, close, volume FROM daily_klines WHERE symbol = '{symbol}' ORDER BY date ASC", engine)
+                                df_cache = pd.read_sql(text("SELECT date, open, high, low, close, volume FROM daily_klines WHERE symbol = :symbol ORDER BY date ASC"), engine, params={"symbol": symbol})
                                 df_cache['date'] = pd.to_datetime(df_cache['date']).dt.strftime('%Y-%m-%d')
                                 return df_cache
                 except Exception as e:
@@ -438,7 +438,7 @@ class DataRouter:
             def _write_db(data_df):
                 try:
                     with engine.begin() as conn:
-                        conn.execute(text(f"DELETE FROM daily_klines WHERE symbol = '{symbol}'"))
+                        conn.execute(text("DELETE FROM daily_klines WHERE symbol = :symbol"), {"symbol": symbol})
 
                     insert_df = data_df[['date', 'open', 'high', 'low', 'close', 'volume']].copy()
                     insert_df['symbol'] = symbol

@@ -1,3 +1,4 @@
+import logging
 from ..lake.parquet_store import ParquetMarketStore
 from typing import List, Dict, Any
 import asyncio
@@ -6,6 +7,8 @@ import pandas as pd
 import numpy as np
 import uuid
 from datetime import datetime, timezone
+
+logger = logging.getLogger(__name__)
 
 
 class MarketSnapshotService:
@@ -36,7 +39,7 @@ class MarketSnapshotService:
         """
         import time
         t0 = time.time()
-        print(f"Creating snapshot for {market} stock: {symbol}")
+        logger.info("Creating snapshot for %s stock: %s", market, symbol)
         try:
             from .data_providers import data_router
 
@@ -67,7 +70,7 @@ class MarketSnapshotService:
                             "float_shares": summary.get("floatShares"),
                         }
                 except Exception as e:
-                    print(f"Valuation fetch failed for {symbol}: {e}")
+                    logger.warning("Valuation fetch failed for %s: %s", symbol, e)
                 return {}
 
             async def _fetch_financials():
@@ -87,23 +90,38 @@ class MarketSnapshotService:
                 df = pd.DataFrame()
 
             if df.empty:
-                print(f"Snapshot: no history data for {symbol}, continuing with empty history")
+                logger.warning("Snapshot: no history data for %s, continuing with empty history", symbol)
             else:
                 # Data quality validation before storing
                 try:
                     from .data_quality import data_quality_pipeline
                     quality_report = data_quality_pipeline.validate(df, symbol)
-                    print(f"[DataQuality] {symbol}: score={quality_report.score:.2f}, passed={quality_report.overall_passed}")
+                    logger.info("[DataQuality] %s: score=%.2f, passed=%s", symbol, quality_report.score, quality_report.overall_passed)
                     if not quality_report.overall_passed:
                         critical_checks = [c for c in quality_report.checks if not c.passed and c.severity == "critical"]
                         for c in critical_checks:
-                            print(f"[DataQuality] CRITICAL: {c}")
+                            logger.warning("[DataQuality] CRITICAL: %s", c)
                 except Exception as e:
-                    print(f"[DataQuality] Validation failed for {symbol}: {e}")
+                    logger.warning("[DataQuality] Validation failed for %s: %s", symbol, e)
 
             # Run secondary fetches (use connection pool, not concurrent)
             valuation = await _fetch_valuation()
             financials = await _fetch_financials()
+
+            # Attach per-field financial data quality (flags missing/thin fields for LLM transparency)
+            if financials and isinstance(financials, dict) and "error" not in financials:
+                from .data_providers.base import score_financial_quality
+                _qf_fields = [
+                    "marketCap", "pe", "pb", "roe", "revenue",
+                    "netProfit", "revenueYoY", "netProfitYoY",
+                ]
+                financials["data_quality"] = {
+                    "score": score_financial_quality(financials),
+                    "total_fields": len(_qf_fields),
+                    "available_fields": sum(1 for k in _qf_fields if financials.get(k) is not None),
+                    "per_field": {k: financials.get(k) is not None for k in _qf_fields},
+                }
+
             quote = await _fetch_quotes()
 
             rows = df.tail(120).to_dict(orient="records") if not df.empty else []
@@ -130,7 +148,7 @@ class MarketSnapshotService:
                 cross_listing = await self._get_ah_cross_listing(quote.get("name", ""), symbol)
 
             elapsed = time.time() - t0
-            print(f"Snapshot created for {symbol} in {elapsed:.1f}s")
+            logger.info("Snapshot created for %s in %.1fs", symbol, elapsed)
             
             # Compute Quant Ensemble indicators
             quant_ensemble = self._compute_quant_ensemble(df)
@@ -153,7 +171,7 @@ class MarketSnapshotService:
                 "data_quality": self._score_snapshot_quality(rows, quote, financials),
             }
         except Exception as e:
-            print(f"Snapshot creation failed for {symbol}: {e}")
+            logger.error("Snapshot creation failed for %s: %s", symbol, e)
             return {}
 
     async def _get_ah_cross_listing(self, stock_name: str, symbol: str) -> dict | None:
@@ -261,7 +279,7 @@ class MarketSnapshotService:
                 }
             }
         except Exception as e:
-            print("Quant calc error:", e)
+            logger.exception("Quant calc error: %s", e)
             return {}
 
 # Singleton instance

@@ -6,7 +6,7 @@ import logging
 from abc import ABC, abstractmethod
 from enum import Enum
 from typing import Dict, Any, Optional
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import pandas as pd
 
@@ -52,6 +52,58 @@ class QuoteData:
             "turnover_pct": "turnoverRate",
         }
         return {key_map.get(k, k): v for k, v in raw.items()}
+
+
+@dataclass
+class DataQuality:
+    """Quality assessment for financial/market data (score in [0, 1]).
+
+    Supports numeric comparison so it can be used where a raw float was previously
+    expected (e.g. quality thresholds in DataRouter).
+    """
+    score: float = 0.0
+    total_fields: int = 0
+    available_fields: int = 0
+
+    def __lt__(self, other):
+        if isinstance(other, DataQuality):
+            return self.score < other.score
+        return self.score < other
+
+    def __le__(self, other):
+        if isinstance(other, DataQuality):
+            return self.score <= other.score
+        return self.score <= other
+
+    def __gt__(self, other):
+        if isinstance(other, DataQuality):
+            return self.score > other.score
+        return self.score > other
+
+    def __ge__(self, other):
+        if isinstance(other, DataQuality):
+            return self.score >= other.score
+        return self.score >= other
+
+    def __eq__(self, other):
+        if isinstance(other, DataQuality):
+            return self.score == other.score
+        if isinstance(other, (int, float)):
+            return self.score == other
+        return NotImplemented
+
+    def __hash__(self):
+        return hash(self.score)
+
+    def __float__(self):
+        return self.score
+
+
+@dataclass
+class FinancialData:
+    """Structured financial data with quarterly history and quality metadata."""
+    quarterly_history: list[dict[str, Any]] = field(default_factory=list)
+    data_quality: Optional["DataQuality"] = None
 
 
 # Standard OHLCV column names for historical data
@@ -223,16 +275,21 @@ def score_history_quality(df: pd.DataFrame) -> float:
     return round(sum(1 for c in checks if c) / len(checks), 4)
 
 
-def score_financial_quality(summary: Dict[str, Any]) -> float:
+def score_financial_quality(summary: Dict[str, Any]) -> DataQuality:
     """
-    Financial summary quality score in [0, 1] from key fields availability.
+    Financial summary quality in [0, 1] from key fields availability.
+    Returns a DataQuality object with score, total_fields, and available_fields.
     """
     if not isinstance(summary, dict) or not summary or "error" in summary:
-        return 0.0
+        return DataQuality(score=0.0, total_fields=0, available_fields=0)
 
     key_fields = [
         "marketCap", "pe", "pb", "roe", "revenue",
         "netProfit", "revenueYoY", "netProfitYoY",
     ]
     available = sum(1 for k in key_fields if summary.get(k) is not None)
-    return round(available / len(key_fields), 4)
+    return DataQuality(
+        score=round(available / len(key_fields), 4),
+        total_fields=len(key_fields),
+        available_fields=available,
+    )

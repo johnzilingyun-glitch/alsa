@@ -657,8 +657,43 @@ class AStockDirectProvider(DataProvider):
             "debtRatio": 24,
         }
 
+        # ---- Prefer header-name based mapping when THS titles array is available ----
+        TITLE_TO_KEY = {
+            "净利润": "netProfit", "净利润(元)": "netProfit",
+            "净利润同比增长率": "netProfitYoY",
+            "扣非净利润": "deduct", "扣非净利润(元)": "deduct",
+            "扣非净利润同比增长率": "deductYoY",
+            "营业总收入": "revenue", "营业收入": "revenue",
+            "营业总收入(元)": "revenue", "营业收入(元)": "revenue",
+            "营业总收入同比增长率": "revenueYoY", "营业收入同比增长率": "revenueYoY",
+            "基本每股收益": "eps", "每股收益": "eps",
+            "每股净资产": "bvps", "每股净资产(元)": "bvps",
+            "每股经营现金流": "ocfps",
+            "销售毛利率": "grossMargin", "毛利率": "grossMargin",
+            "销售净利率": "profitMargin", "净利率": "profitMargin",
+            "加权净资产收益率": "roe", "净资产收益率": "roe",
+            "存货周转率": "inventoryTurnover",
+            "流动比率": "currentRatio",
+            "速动比率": "quickRatio",
+            "资产负债率": "debtRatio",
+        }
+        titles = fd.get("titles", [])
+        if titles:
+            named_idx = {}
+            for pos, title_name in enumerate(titles):
+                key = TITLE_TO_KEY.get(str(title_name).strip())
+                if key:
+                    named_idx[key] = pos
+            if named_idx:
+                IDX = dict(IDX)
+                IDX.update(named_idx)
+                logger.info(f"[THS] Title-column mapping for {code}: {len(named_idx)} columns resolved")
+
         def col(i):
-            return report[i] if 0 <= i < len(report) else []
+            if 0 <= i < len(report):
+                return report[i]
+            logger.warning(f"[THS] Column index {i} >= report columns {len(report)} for {code}")
+            return []
 
         dates = col(IDX["revenue"]) and report[0] or report[0]
         periods = report[0]
@@ -1033,7 +1068,21 @@ class AStockDirectProvider(DataProvider):
         try:
             def _to_float(x):
                 try:
-                    return float(x) if x is not None else None
+                    if x is None:
+                        return None
+                    if isinstance(x, (int, float)):
+                        return float(x)
+                    s = str(x).strip().replace(",", "").replace("，", "")
+                    if s in ("--", "-", "", "False", "None"):
+                        return None
+                    # Chinese magnitude suffixes in Sina statement values
+                    mult = 1.0
+                    for suffix, factor in (("万亿", 1e12), ("亿", 1e8), ("万", 1e4)):
+                        if suffix in s:
+                            s = s.replace(suffix, "")
+                            mult = factor
+                            break
+                    return float(s) * mult
                 except (ValueError, TypeError):
                     return None
 
@@ -1179,6 +1228,43 @@ class AStockDirectProvider(DataProvider):
                     result["fiftyTwoWeekLow"] = lo
         except Exception as e:
             logger.debug(f"[{self.name}] 52-week range unavailable for {code}: {type(e).__name__}")
+
+        # 8. Quarterly history (for valuation guidance in discussion prompt)
+        #    Populated from the existing indicator rows, mapped to QuarterlyHistory schema.
+        try:
+            qh_list: List[Dict[str, Any]] = []
+            if indicators:
+                for row in indicators:
+                    q = {
+                        "period": str(row.get("REPORTDATE", ""))[:10] if row.get("REPORTDATE") else "",
+                        "revenue": row.get("TOTAL_OPERATE_INCOME"),
+                        "revenueYoY": row.get("YSTZ"),
+                        "netProfit": row.get("PARENT_NETPROFIT"),
+                        "netProfitYoY": row.get("SJLTZ"),
+                        "netProfitDeduct": row.get("DEDUCT_PARENT_NETPROFIT"),
+                        "grossMargin": row.get("XSMLL"),
+                        "roe": row.get("WEIGHTAVG_ROE"),
+                        "eps": row.get("BASIC_EPS"),
+                        "bvps": row.get("BPS"),
+                        "ocfPerShare": row.get("MGJYXJJE"),
+                    }
+                    # Compute net profit margin from available data
+                    rev = q["revenue"]
+                    np_ = q["netProfit"]
+                    if rev is not None and np_ is not None and float(rev) != 0:
+                        q["netMargin"] = float(np_) / float(rev)
+                    # YoY for deducted net profit across same-quarter-last-year
+                    qh_list.append(q)
+                for i, q in enumerate(qh_list):
+                    if i + 4 < len(qh_list):
+                        cur = q.get("netProfitDeduct")
+                        prv = qh_list[i + 4].get("netProfitDeduct")
+                        if cur is not None and prv is not None and prv != 0:
+                            q["netProfitDeductYoY"] = (cur - prv) / abs(prv) * 100
+            result["quarterlyHistory"] = qh_list
+        except Exception as e:
+            logger.warning(f"[{self.name}] Failed to build quarterlyHistory for {code}: {e}")
+            result["quarterlyHistory"] = []
 
         result["currency"] = "CNY"
         result["financialCurrency"] = "CNY"

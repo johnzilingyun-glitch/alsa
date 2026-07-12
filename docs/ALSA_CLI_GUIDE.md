@@ -1,38 +1,57 @@
 # ALSA Institutional CLI User Guide
 
-The ALSA CLI is a powerful terminal-based tool for professional equity research. It allows you to run deep-dive analyses, configure institutional parameters, and generate standalone research reports.
+The ALSA CLI is a terminal-based tool for professional equity research. It runs the same
+analysis pipeline as the web UI and generates standalone HTML research reports — for both
+individual stocks and whole sectors/industries.
 
 ## 1. Installation & Setup
-Ensure you are in the project root and your virtual environment is active:
-```powershell
-# Activate environment
-.\.venv\Scripts\activate
 
-# Basic test
+Run from the project root with the Python backend virtual environment active:
+
+```bash
+cd /home/ubuntu/work/alsa
+source python_service/.venv/bin/activate   # or your venv of choice
+
+# Verify the CLI is wired up
 python python_service/cli.py --help
 ```
 
+**API keys / credentials** are read from `.env` and `.env.runtime` via `load_dotenv`
+(the CLI loads them automatically at startup). You do **not** store keys in the CLI config —
+use the env files. The CLI config (`~/.alsa_config.json`) is only for non-secret preferences
+such as the default model.
+
 ## 2. Configuration (`config`)
-Before running your first analysis, configure your credentials and preferences. Settings are persisted in `~/.alsa_config.json`.
+
+Settings are persisted in `~/.alsa_config.json`. Only non-secret values should go here.
 
 | Command | Description |
 | :--- | :--- |
-| `python python_service/cli.py config show` | View current settings (API keys are masked) |
-| `python python_service/cli.py config set gemini_api_key "KEY"` | Set your Gemini API key |
-| `python python_service/cli.py config set gemini_model "3.0"` | Switch between `3.1` (flagship) and `3.0` models |
-| `python python_service/cli.py config set debug_mode true` | Enable detailed terminal logging |
-| `python python_service/cli.py config set feishu_url "URL"` | Configure Feishu Webhook for report distribution |
+| `python python_service/cli.py config show` | View current settings |
+| `python python_service/cli.py config set model "tencent/hy3:free"` | Set the default LLM used when `--model` is omitted |
+| `python python_service/cli.py config set gemini_model "..."` | Alternative key name for the default model |
+| `python python_service/cli.py config get model` | Read a single setting |
+| `python python_service/cli.py config unset model` | Remove a setting (asks for confirmation) |
+
+> Note: `analyze` / `sector` resolve the model in this order:
+> CLI `--model` → config `model` → config `gemini_model` → `DEFAULT_LLM_MODEL` env var.
+> Deprecated models (e.g. `gemini-1.5-pro`) are auto-downgraded to the default.
 
 ## 3. Stock Analysis (`analyze`)
-The `analyze` command uses **Smart Recognition**. You don't need to remember codes; just type the name.
 
-### Basic Usage
-```powershell
+The `analyze` command uses **Smart Recognition** — type a name or code, no need to remember
+market prefixes. It resolves the symbol, runs the expert discussion pipeline, and writes an
+HTML report.
+
+### Basic usage
+```bash
 python python_service/cli.py analyze "贵州茅台"
+python python_service/cli.py analyze "AAPL"
+python python_service/cli.py analyze "00700"          # Tencent (HK)
 ```
 
-### Interactive Resolution
-If you enter an abbreviation (e.g., "腾讯"), the CLI will prompt you to choose the correct asset:
+### Interactive resolution
+If a query matches multiple assets, the CLI prompts you to pick one:
 ```text
 Multiple matches found. Please choose:
 1. 腾讯控股 (00700 | HK-Share)
@@ -41,23 +60,75 @@ Enter ID to select [1]: 1
 ```
 
 ### Options
-- `--market` / `-m`: Explicitly set market (A-Share, HK-Share, US-Share).
-- `--level` / `-l`: Analysis depth (`quick`, `standard`, `deep`).
-- `--output` / `-o`: Custom path for the HTML report.
+| Option | Default | Values | Description |
+| :--- | :--- | :--- | :--- |
+| `--market` / `-m` | auto | `A-Share`, `HK-Share`, `US-Share` | Force a market instead of auto-detect |
+| `--level` / `-l` | `standard` | `quick`, `standard`, `deep` | Analysis depth (drives discussion rounds & fields) |
+| `--output` / `-o` | see §5 | any path | Custom HTML report path |
+| `--model` | config/default | any model id | LLM model to use |
+| `--guard` / `-g` | `high` | `none`, `low`, `medium`, `high` | Token spend guard level |
+| `--verification-mode` / `-v` | `quick` | `quick`, `quality`, `extreme` | Verification strictness (matches web UI) |
+| `--lang` | auto (by market) | `zh`, `en` | Report language |
 
-## 4. Report Location
-By default, ALSA generates a standalone HTML research report.
+Example:
+```bash
+python python_service/cli.py analyze "贵州茅台" -l deep -g medium -v quality
+python python_service/cli.py analyze "AAPL" -m US-Share -o ./reports/apple.html
+```
 
-- **Default Location**: The **Current Working Directory** where you ran the command.
-- **Default Filename**: `[SYMBOL]_report.html` (e.g., `600519_report.html`).
-- **Custom Location**:
-  ```powershell
-  python python_service/cli.py analyze "AAPL" -o ./reports/apple_june_report.html
-  ```
+## 4. Sector Analysis (`sector`)
 
----
+Analyzes an industry/sector with LLM-powered expert discussion and recommends stocks, then
+writes a sector HTML report.
 
-## 5. Troubleshooting
-- **Network Errors**: If data acquisition fails, ALSA will retry up to 3 times automatically. Ensure your internet connection is stable.
-- **API Key Invalid**: If you see `API_KEY_INVALID`, use the `config set` command to update your key.
-- **Garbled Text**: The CLI is optimized for UTF-8. On Windows, the tool automatically attempts to fix console encoding for emojis and Chinese characters.
+```bash
+# Direct deep analysis of a named sector
+python python_service/cli.py sector "半导体"
+python python_service/cli.py sector "新能车" -o ./reports/ev.html
+
+# No sector name → interactive A-share sector-rotation scan,
+# then pick a sector from the results to analyze in depth
+python python_service/cli.py sector
+```
+
+### Options
+| Option | Default | Description |
+| :--- | :--- | :--- |
+| `--output` / `-o` | see §5 | Custom HTML report path |
+| `--model` | config/default | LLM model to use |
+
+## 5. Report Location
+
+Reports are standalone HTML files.
+
+- **Default directory**: `<project root>/reports/` (the CLI creates it automatically).
+- **Default filename**:
+  - Stock: `[SYMBOL]_report_[YYYYMMDD_HHMMSS].html` (e.g. `600519_report_20260712_153000.html`)
+  - Sector: `sector_[NAME]_report_[YYYYMMDD_HHMMSS].html`
+- **Custom path**: pass `-o /path/to/file.html` to override.
+
+```bash
+python python_service/cli.py analyze "贵州茅台" -o ./reports/maotai_june.html
+```
+
+## 6. Listing Past Jobs (`list`)
+
+```bash
+python python_service/cli.py list            # last 10 jobs
+python python_service/cli.py list -n 20      # last 20 jobs
+```
+
+Shows Job ID, symbol, market, status, created-at, and level, read from the local SQLite DB.
+
+## 7. Troubleshooting
+
+- **`Could not find any assets matching ...`**: the symbol/name wasn't recognized. Try a fuller
+  name, or pass `--market` explicitly.
+- **`API_KEY_INVALID` / empty LLM output**: ensure the relevant key is set in `.env` /
+  `.env.runtime` (not in CLI config).
+- **`Database not found ... No jobs to list`**: the SQLite DB hasn't been initialized yet — run
+  an analysis first, or check `DATABASE_URL`.
+- **Garbled Chinese/emoji in terminal**: the CLI targets UTF-8. On a misconfigured locale,
+  `export LANG=C.UTF-8` (or `zh_CN.UTF-8`).
+- **Network errors during data fetch**: the pipeline retries automatically; ensure a stable
+  connection and that the Python service's data providers are reachable.

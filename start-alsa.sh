@@ -7,6 +7,17 @@
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$SCRIPT_DIR"
+
+# Load runtime secrets (.env.runtime) so child processes (Node gateway, Vite, Celery)
+# inherit API keys such as OPENROUTER_API_KEY. Python also loads this file via
+# load_dotenv; sourcing here keeps the Node gateway consistent with the backend.
+if [ -f "$PROJECT_DIR/.env.runtime" ]; then
+  set -a
+  # shellcheck source=/dev/null
+  source "$PROJECT_DIR/.env.runtime"
+  set +a
+fi
+
 PUBLIC_IP="${PUBLIC_IP:-localhost}"
 LOGS_DIR="$PROJECT_DIR/logs"
 

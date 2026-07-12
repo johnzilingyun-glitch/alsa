@@ -11,7 +11,7 @@ python_service/
 ├── app/
 │   ├── api/               # 26 route files (aggregated by router.py)
 │   ├── services/          # 50+ services (analysis, market, trading, LLM, etc.)
-│   │   ├── data_providers/ #   AkShare, yfinance, iwencai data sources
+│   │   ├── data_providers/ #   yfinance, iwencai, AStockDirect data sources
 │   │   └── tools/         #   AI tool registry (iwencai, search)
 │   ├── db/                # SQLModel ORM, SQLite (dev) / Postgres (Docker)
 │   │   └── repositories/  # 7 data access layers

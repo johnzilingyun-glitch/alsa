@@ -8,7 +8,6 @@ dependencies = [
     "polars",
     "duckdb",
     "lancedb",
-    "akshare",
     "yfinance",
     "celery",
     "redis",
@@ -19,6 +18,9 @@ dependencies = [
     "python-dotenv",
     "python-jose[cryptography]",
     "passlib[bcrypt]",
+    # Pinned: passlib 1.7.4 is incompatible with bcrypt>=4.1 (removed bcrypt.__about__),
+    # which breaks password verification (verify_password raises AttributeError).
+    "bcrypt==4.0.1",
     "openai",
     "anthropic",
     "jinja2",
@@ -36,6 +38,7 @@ dependencies = [
     "sqlalchemy",
     "pytest",
     "pytest-asyncio",
+    "thsdk",
 ]
 
 [project.scripts]

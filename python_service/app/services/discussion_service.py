@@ -114,6 +114,74 @@ async def _enrich_commodities_search(commodity_data: Dict[str, Any]) -> Dict[str
                 info["note"] = (info.get("note") or "") + " 近30日趋势由搜索估算。"
     return commodity_data
 
+
+def _extract_metric(text: str, keywords, is_pct: bool):
+    """从搜索文本提取某指标的【行业均值】。优先匹配'平均/均值'附近的数值, 支持'关键词+平均'与'平均+关键词'两种语序;
+    multiples 强制'倍'单位(规避抓到个股 PE), 比率强制'%'。返回 float 或 None (best-effort)。"""
+    if not text:
+        return None
+    unit = r"倍" if not is_pct else r"%?"
+    kw_alt = "|".join(re.escape(k) for k in keywords)
+    # 语序1: 平均/均值 + (修饰) + 关键词 + 数字[单位]
+    pat1 = r"(?:平均|均值)[^0-9一-鿿]{0,8}?" + f"({kw_alt})" + r"[^\d]{0,4}?(\d+\.?\d*)" + unit
+    # 语序2: 关键词 + 平均/均值 + 数字[单位]
+    pat2 = f"({kw_alt})" + r"(?:平均|均值)[^\d]{0,4}?(\d+\.?\d*)" + unit
+    pats = [pat1, pat2]
+    # 比率回退: 关键词 + 数字 + '%' (无需'平均'修饰)
+    if is_pct:
+        pats.append(f"({kw_alt})" + r"[^\d]{0,8}?(\d+\.?\d*)%")
+    for pat in pats:
+        for m in re.finditer(pat, text):
+            try:
+                return float(m.group(m.lastindex))
+            except (ValueError, IndexError):
+                continue
+    return None
+
+
+async def _enrich_peer_benchmark(industry: str, symbol: str, name: str) -> Dict[str, Any]:
+    """Web 搜索行业对标 均值/中位数 (PE/PB/PS/EV-EBITDA/ROE/毛利率/净利率/营收增速)。
+    best-effort: 关键词提取行业均值; iwencai '行业平均/行业中值' 表格补充 PE/PB 的中位数。解析不到为 None。
+    结果用于 7️⃣ 同业估值对比, 标注'搜索估算'。"""
+    from .search_service import search_service
+    ind = (industry or name or "").strip()
+    if not ind:
+        return {}
+    query = f"{ind} 行业 平均 市盈率 市净率 净资产收益率 毛利率 净利率 营收增速 中位数"
+    try:
+        text = await search_service.quick_search(query)
+    except Exception as e:
+        logger.warning("Peer benchmark search failed for %s: %s", ind, e)
+        return {}
+    if not text:
+        return {}
+    specs = {
+        "pe": (("市盈率", "PE"), False),
+        "pb": (("市净率", "PB"), False),
+        "ps": (("市销率", "PS"), False),
+        "ev_ebitda": (("EV/EBITDA", "EV EBITDA"), False),
+        "roe": (("净资产收益率", "ROE"), True),
+        "gross_margin": (("毛利率",), True),
+        "net_margin": (("净利率",), True),
+        "revenue_growth": (("营收增速", "营收增长率"), True),
+    }
+    out: Dict[str, Any] = {}
+    for key, (kws, is_pct) in specs.items():
+        v = _extract_metric(text, kws, is_pct)
+        if v is not None:
+            out[key + "_avg"] = v
+    # iwencai 行业平均/行业中值 表格: 列序 PE(TTM) PE(静) 市净率 总市值
+    m_avg = re.search(r"行业平均\s+(\d+\.?\d+)\s+\d+\.?\d+\s+(\d+\.?\d+)", text)
+    if m_avg:
+        out.setdefault("pe_avg", float(m_avg.group(1)))
+        out["pb_avg"] = float(m_avg.group(2))
+    m_med = re.search(r"行业中值\s+(\d+\.?\d+)\s+\d+\.?\d+\s+(\d+\.?\d+)", text)
+    if m_med:
+        out["pe_med"] = float(m_med.group(1))
+        out["pb_med"] = float(m_med.group(2))
+    return out
+
+
 # --- Topologies (Ported from orchestrator.ts) ---
 
 DEEP_TOPOLOGY = [
@@ -838,6 +906,59 @@ class DiscussionService:
             except Exception as e:
                 print(f"Industry peer search failed: {e}")
 
+        # 4.7 Earnings-quality audit facts (应收账款 + 非经常性损益)
+        # 这两项在 snapshot.financials 里缺失(API 不提供), 导致 LLM 写 N/A。
+        # 应收账款用 EastMoney 明细(比 yfinance 可靠); 非经常性损益 = 净利润 - 扣非净利润(来自 quarterlyHistory)。
+        audit_data = {}
+        if role == "Fundamental Analyst" and market == "A-Share":
+            try:
+                from .data_providers.a_stock_direct import fetch_a_share_balance_items
+                qh = fin.get("quarterlyHistory", []) or []
+                # 应收账款 (EastMoney 资产负债表明细)
+                bal = await fetch_a_share_balance_items(symbol, periods=1)
+                ar = None
+                if bal and bal[0].get("accountsRece") is not None:
+                    try:
+                        ar = float(bal[0]["accountsRece"])
+                    except (TypeError, ValueError):
+                        ar = None
+                if ar is not None and qh:
+                    # TTM 营收 = 最近 4 期营收之和, 与 OCF/NI 的 TTM 口径一致
+                    rev_ttm = 0.0
+                    for q in qh[:4]:
+                        rv = q.get("revenue")
+                        if rv is not None:
+                            try:
+                                rev_ttm += float(rv)
+                            except (TypeError, ValueError):
+                                pass
+                    if rev_ttm > 0:
+                        audit_data["accounts_receivable"] = round(ar, 2)
+                        audit_data["ar_revenue_ratio"] = round(ar / rev_ttm * 100, 2)
+                # 非经常性损益 = 净利润(归母) - 扣非净利润(归母), 最新一期
+                if qh:
+                    ni = qh[0].get("netProfit")
+                    deduct = qh[0].get("netProfitDeduct")
+                    if ni is not None and deduct is not None:
+                        try:
+                            ni_f = float(ni)
+                            deduct_f = float(deduct)
+                            nr = ni_f - deduct_f
+                            audit_data["non_recurring"] = round(nr, 2)
+                            if ni_f != 0:
+                                audit_data["non_recurring_pct"] = round(abs(nr) / abs(ni_f) * 100, 2)
+                        except (TypeError, ValueError):
+                            pass
+                # 7️⃣ 行业对标均值/中位数 (web 搜索兜底, 补同业估值对比)
+                try:
+                    benchmark = await _enrich_peer_benchmark(industry, symbol, name)
+                    if benchmark:
+                        peer_data.setdefault("IndustryBenchmark", benchmark)
+                except Exception as e:
+                    print(f"Peer benchmark failed: {e}")
+            except Exception as e:
+                print(f"Audit data fetch failed: {e}")
+
         # 5. Determine model & search capability
         if model:
             # If model is explicitly passed (e.g. from UI), use it
@@ -888,7 +1009,7 @@ class DiscussionService:
                 total_len = total_len - old_len + len(processed_history[k])
 
         # 6. Assemble Prompt (with search capability flag)
-        prompt = self._assemble_prompt(role, symbol, name, snapshot, processed_history, template, brain_context, language, macro_data, commodity_data, peer_data, has_search_tools=has_search_tools, search_enrichment=search_enrichment, use_native_tools=use_native_tools, macro_indicators=macro_indicators, sentiment_data=sentiment_data, market=market, macro_regime_text=macro_regime_text)
+        prompt = self._assemble_prompt(role, symbol, name, snapshot, processed_history, template, brain_context, language, macro_data, commodity_data, peer_data, audit_data=audit_data, has_search_tools=has_search_tools, search_enrichment=search_enrichment, use_native_tools=use_native_tools, macro_indicators=macro_indicators, sentiment_data=sentiment_data, market=market, macro_regime_text=macro_regime_text)
 
         # Inject agent memory context if available
         if memory_context:
@@ -991,7 +1112,7 @@ class DiscussionService:
             print(f"Failed to summarize expert {role}: {e}")
             return text[:800] + "... [truncated]"
 
-    def _assemble_prompt(self, role: str, symbol: str, name: str, snapshot: Dict[str, Any], history: Dict[str, Any], template: str, brain_ctx: Dict[str, Any], language: str, macro_data: Dict[str, Any] = None, commodity_data: Dict[str, Any] = None, peer_data: Dict[str, Any] = None, has_search_tools: bool = False, search_enrichment: Dict[str, Any] = None, use_native_tools: bool = False, macro_indicators: Dict[str, Any] = None, sentiment_data: Dict[str, Any] = None, market: str = "us", macro_regime_text: str = "") -> str:
+    def _assemble_prompt(self, role: str, symbol: str, name: str, snapshot: Dict[str, Any], history: Dict[str, Any], template: str, brain_ctx: Dict[str, Any], language: str, macro_data: Dict[str, Any] = None, commodity_data: Dict[str, Any] = None, peer_data: Dict[str, Any] = None, audit_data: Dict[str, Any] = None, has_search_tools: bool = False, search_enrichment: Dict[str, Any] = None, use_native_tools: bool = False, macro_indicators: Dict[str, Any] = None, sentiment_data: Dict[str, Any] = None, market: str = "us", macro_regime_text: str = "") -> str:
         import os
         from jinja2 import Environment, FileSystemLoader
 
@@ -1104,6 +1225,7 @@ class DiscussionService:
             "macro_indicators": macro_indicators,
             "macro_regime_text": macro_regime_text,
             "peer_data": peer_data,
+            "audit_data": audit_data,
             "sentiment_data": sentiment_data,
             "brain_ctx": brain_ctx,
             "history": history,

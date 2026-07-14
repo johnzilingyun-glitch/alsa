@@ -172,6 +172,22 @@ LPR利率: 1年期={{ lpr.get('1y') }}% | 5年期={{ lpr.get('5y', 'N/A') }}% �
 {{ peer_data.IndustryPeerSearch }}
 {% endif %}
 
+{% if peer_data and peer_data.get('IndustryBenchmark') %}
+{% set b = peer_data.IndustryBenchmark %}
+--- [WEB SEARCH] 行业对标均值/中位数 (搜索估算, 供 7️⃣ 同业估值对比) ---
+以下行业对标数据由 web 搜索聚合得到 (best-effort), 单位: 倍(估值倍数) / %(比率)。分析 7️⃣ 同业估值对比时直接使用并标注'搜索估算', 严禁编造 API 未提供的数值; 解析不到的指标标注 N/A。
+| 指标 | 行业均值 | 行业中位数 |
+|------|---------|-----------|
+| PE | {{ b.get('pe_avg') }} | {{ b.get('pe_med') }} |
+| PB | {{ b.get('pb_avg') }} | {{ b.get('pb_med') }} |
+| PS | {{ b.get('ps_avg') }} | {{ b.get('ps_med') }} |
+| EV/EBITDA | {{ b.get('ev_ebitda_avg') }} | {{ b.get('ev_ebitda_med') }} |
+| ROE | {{ b.get('roe_avg') }}% | {{ b.get('roe_med') }}% |
+| 毛利率 | {{ b.get('gross_margin_avg') }}% | {{ b.get('gross_margin_med') }}% |
+| 净利率 | {{ b.get('net_margin_avg') }}% | {{ b.get('net_margin_med') }}% |
+| 营收增速 | {{ b.get('revenue_growth_avg') }}% | {{ b.get('revenue_growth_med') }}% |
+{% endif %}
+
 {% if sentiment_data %}
 --- [API] SENTIMENT DATA (权威数据源) ---
 以下为实时情绪数据，来自API + 论坛抓取。优先使用这些数据，不要编造。
@@ -282,6 +298,13 @@ Target: {{ symbol }} ({{ name }})
 - 内部人持股(ADS口径): {{ get_val('heldPercentInsiders') }} | 机构持股(ADS口径): {{ get_val('heldPercentInstitutions') }}
 - 52周高: {{ get_val('fiftyTwoWeekHigh') }} | 52周低: {{ get_val('fiftyTwoWeekLow') }}
 - 营收3年CAGR: {{ get_val('revenueCagr3y') }} | 净利润3年CAGR: {{ get_val('incomeCagr3y') }}
+
+{% if audit_data %}
+--- [API] 盈利质量审计补充数据 (权威数据源, 优先级高于搜索) ---
+⚠ 以下为盈利质量审计所需的补充字段, 来自 EastMoney 资产负债表明细(应收账款)与季度财报(非经常性损益=净利润−扣非净利润)。分析 4️⃣ 盈利质量审计时必须直接使用, 严禁标注 N/A 或编造。
+- 应收账款(TTM营收口径): {{ audit_data.get('accounts_receivable') }} 元 | 应收/营收比: {{ audit_data.get('ar_revenue_ratio') }}%
+- 非经常性损益(最新一期): {{ audit_data.get('non_recurring') }} 元 | 非经常性损益占比(占净利润): {{ audit_data.get('non_recurring_pct') }}%
+{% endif %}
 
 {% if quarterly_history %}
 --- [API] 季度财务数据对比 (权威数据源，无需搜索) ---

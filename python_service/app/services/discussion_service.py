@@ -155,6 +155,9 @@ async def _enrich_peer_benchmark(industry: str, symbol: str, name: str) -> Dict[
         return {}
     if not text:
         return {}
+    # DDG/ddgs 常在 CJK 字符间插入空格 (如 "市 盈 率"), 会破坏关键词正则匹配。
+    # 归一化: 删除 CJK 与 CJK/数字 之间的空白, 保留数字之间的空白 (供表格正则使用)。
+    text = re.sub(r"\s+(?=[\u4e00-\u9fff])|(?<=[\u4e00-\u9fff])\s+", "", text)
     specs = {
         "pe": (("市盈率", "PE"), False),
         "pb": (("市净率", "PB"), False),

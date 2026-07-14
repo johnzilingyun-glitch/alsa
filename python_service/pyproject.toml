@@ -30,7 +30,11 @@ dependencies = [
     "pyyaml",
     "markdown2",
     "openbb",
-    "ddgs>=9.0.0",
+    # Pinned to <9.6.0: ddgs 9.6.0+ refactored the DuckDuckGo engine onto an httpx-based
+    # HttpClient2 that calls httpx.Client(proxy=...), which requires httpx>=0.26. That
+    # conflicts with the httpx<0.26 pin above (mootdx). Versions <9.6.0 use only primp
+    # (no httpx) and keep DDG search working under httpx 0.25.
+    "ddgs>=9.0.0,<9.6.0",
     "google-genai>=2.7.0",
     "langgraph>=1.2.4",
     "mem0ai>=2.0.4",

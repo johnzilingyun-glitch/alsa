@@ -667,14 +667,25 @@ class DiscussionService:
         
         # 4. Get Commodity Data
         commodity_data = {}
-        name_lower = f"{symbol} {name}".lower()
+        # Build a robust match string from BOTH the resolved name AND the real
+        # company profile in the snapshot. HK stocks often resolve to a
+        # placeholder name like "HK-Share Code", so matching on `name` alone
+        # leaves commodity_data empty and the LLM writes "N/A (数据缺失)" for
+        # 大宗商品价格. Inspect longName / industry / sector to detect exposure.
+        snap = snapshot or {}
+        fin = snap.get("financials", {}) or {}
+        quote = snap.get("quote", {}) or {}
+        real_name = fin.get("longName") or quote.get("name") or quote.get("long_name") or name
+        industry = fin.get("industry") or snap.get("industry") or ""
+        sector = fin.get("sector") or snap.get("sector") or ""
+        name_lower = f"{symbol} {name} {real_name} {industry} {sector}".lower()
         if any(keyword in name_lower for keyword in ["lithium", "锂", "battery", "电池", "ev", "电动车"]):
              commodity_data = await macro_service.get_commodity_prices(["Lithium Carbonate"])
         elif any(keyword in name_lower for keyword in ["copper", "铜", "gold", "金", "mining", "矿"]):
              commodity_data = await macro_service.get_commodity_prices(["Copper", "Gold"])
         elif any(keyword in name_lower for keyword in ["铝", "aluminum", "alumin", "bauxite", "铝土"]):
              commodity_data = await macro_service.get_commodity_prices(["Aluminum", "Alumina"])
-        elif any(keyword in name_lower for keyword in ["能源", "energy", "煤", "coal", "烯烃", "olefin", "化工", "chemical", "石化", "petro", "宝丰"]):
+        elif any(keyword in name_lower for keyword in ["能源", "energy", "煤", "coal", "烯烃", "olefin", "化工", "chemical", "石化", "petro", "宝丰", "oil", "原油", "石油", "油气", "中海油", "中石油", "中石化", "cnooc", "gas", "天然气", "petroleum"]):
              commodity_data = await macro_service.get_commodity_prices(["Crude Oil", "Methanol", "Polypropylene", "LLDPE"])
              # Also get Brent oil price (in USD) for international benchmark
              brent = await macro_service.get_brent_oil_price()

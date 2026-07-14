@@ -1,0 +1,3 @@
+[submodule "skills/a-stock-data"]
+	path = skills/a-stock-data
+	url = https://github.com/simonlin1212/a-stock-data.git

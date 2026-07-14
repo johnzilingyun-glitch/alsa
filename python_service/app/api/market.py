@@ -113,7 +113,7 @@ async def get_indices(market: str = "A-Share"):
 @router.get("/commodities")
 async def get_commodities():
     symbols = ["GC=F", "CL=F", "USDCNY=X", "^VIX", "^TNX"]
-    data = await market_data_service.get_quotes(symbols)
+    data = await market_data_service.get_commodities(symbols)
     return success_response(data)
 
 @router.get("/quote/{symbol}")

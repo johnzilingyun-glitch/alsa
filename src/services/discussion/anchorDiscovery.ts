@@ -20,6 +20,37 @@ const INDUSTRY_MAP: Record<string, string[]> = {
   "消费": ["CPI", "恐慌指数VIX", "美元/离岸人民币"],
 };
 
+/**
+ * Upstream commodities feed (yfinance via /api/market/commodities) returns
+ * quotes keyed by ticker symbol with English shortNames (e.g. "GC=F" →
+ * "Gold Aug 26", "USDCNY=X" → "USD/CNY"). The anchor names in INDUSTRY_MAP /
+ * macroNames below are Chinese ("黄金", "10年期国债收益率", ...), so the two
+ * never matched and industryAnchors / coreVariables stayed empty — which is
+ * exactly the "30日趋势 / 大宗商品价格 没数据" bug. This map bridges them.
+ */
+const COMMODITY_NAME_MAP: Record<string, string> = {
+  "GC=F": "黄金",
+  "CL=F": "WTI原油",
+  "USDCNY=X": "美元/离岸人民币",
+  "^VIX": "恐慌指数VIX",
+  "^TNX": "10年期国债收益率",
+  "gold": "黄金",
+  "crude oil": "WTI原油",
+  "wti": "WTI原油",
+  "brent": "布伦特原油",
+  "usd/cny": "美元/离岸人民币",
+  "usd/cnh": "美元/离岸人民币",
+  "cboe volatility index": "恐慌指数VIX",
+  "cboe interest rate 10 year": "10年期国债收益率",
+};
+
+function resolveCommodityVarName(c: any): string {
+  if (c?.symbol && COMMODITY_NAME_MAP[c.symbol]) return COMMODITY_NAME_MAP[c.symbol];
+  const lower = (c?.name || "").toString().toLowerCase();
+  if (COMMODITY_NAME_MAP[lower]) return COMMODITY_NAME_MAP[lower];
+  return c?.name ?? c?.symbol ?? "";
+}
+
 export function discoverIndustryAnchors(analysis: Partial<StockAnalysis>, commodities: any[]): { coreVariables: CoreVariable[], industryAnchors: IndustryAnchor[] } {
   const coreVariables: CoreVariable[] = [];
   const industryAnchors: IndustryAnchor[] = [];
@@ -40,13 +71,15 @@ export function discoverIndustryAnchors(analysis: Partial<StockAnalysis>, commod
 
   // 3. Match with real-time commodities data
   commodities.forEach(c => {
-    if (targetVarNames.has(c.name)) {
+    const varName = resolveCommodityVarName(c);
+    const trend = c.change30d != null ? c.change30d : c.changePercent;
+    if (targetVarNames.has(varName)) {
       coreVariables.push({
-        name: c.name,
+        name: varName,
         value: c.price,
-        unit: c.unit || "",
+        unit: c.unit || c.currency || "",
         marketExpect: "Consistent with benchmark",
-        delta: `${c.changePercent > 0 ? '+' : ''}${c.changePercent}%`,
+        delta: `${trend > 0 ? '+' : ''}${trend}%`,
         reason: "Real-time market quote.",
         evidenceLevel: "第三方监控",
         source: "Market API",
@@ -54,10 +87,10 @@ export function discoverIndustryAnchors(analysis: Partial<StockAnalysis>, commod
       });
 
       industryAnchors.push({
-        variable: c.name,
-        currentValue: `${c.price} ${c.unit || ""}`,
+        variable: varName,
+        currentValue: `${c.price} ${c.unit || c.currency || ""}`,
         weight: "High",
-        monthlyChange: `${c.changePercent}%`,
+        monthlyChange: `${trend}%`,
         logic: "Key cost/revenue driver for the sector."
       });
     }
@@ -66,13 +99,15 @@ export function discoverIndustryAnchors(analysis: Partial<StockAnalysis>, commod
   // 4. Default Macro Anchors (always relevant)
   const macroNames = ["10年期国债收益率", "美元/离岸人民币", "恐慌指数VIX"];
   commodities.forEach(c => {
-    if (macroNames.includes(c.name) && !targetVarNames.has(c.name)) {
+    const varName = resolveCommodityVarName(c);
+    const trend = c.change30d != null ? c.change30d : c.changePercent;
+    if (macroNames.includes(varName) && !targetVarNames.has(varName)) {
       coreVariables.push({
-        name: c.name,
+        name: varName,
         value: c.price,
-        unit: c.unit || "",
+        unit: c.unit || c.currency || "",
         marketExpect: "Normal",
-        delta: `${c.changePercent}%`,
+        delta: `${trend}%`,
         reason: "Macro anchor sentiment.",
         evidenceLevel: "第三方监控",
         source: "Market API",

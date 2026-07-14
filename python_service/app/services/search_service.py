@@ -12,6 +12,9 @@ import asyncio
 # China servers typically can't reach DuckDuckGo/Google reliably
 _IS_CHINA_SERVER = os.getenv("IS_CHINA_SERVER", "true").lower() in ("true", "1", "yes")
 
+# Common User-Agent for HTTP requests to Chinese financial sites
+_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+
 
 class SearchService:
     BLOCKED_SOURCE_DOMAINS = [
@@ -22,7 +25,7 @@ class SearchService:
 
     def __init__(self):
         self.max_results = 20
-        self._ddg_timeout = 8  # Reduced from 12 — fail fast on China servers
+        self._ddg_timeout = 15  # ddgs takes ~7-10s; give it headroom
         # SearXNG configuration
         self._searxng_base_url = os.getenv("SEARXNG_BASE_URL", "http://localhost:8080")
         self._searxng_timeout = 15
@@ -131,13 +134,18 @@ class SearchService:
 
         def _search():
             from ddgs import DDGS
-            # Pass proxy explicitly — primp doesn't read env vars automatically
             proxy = self._http_proxy or None
-            max_attempts = 1 if _IS_CHINA_SERVER else 3
+            max_attempts = 2  # Always try twice; ddgs sometimes needs a warm-up
             for attempt in range(max_attempts):
                 try:
                     d = DDGS(proxy=proxy)
-                    return d.text(query, max_results=max_results)
+                    results = d.text(query, max_results=max_results)
+                    if results:
+                        return results
+                    # Empty results — retry
+                    if attempt < max_attempts - 1:
+                        import time
+                        time.sleep(1 * (attempt + 1))
                 except Exception as e:
                     if attempt < max_attempts - 1:
                         import time
@@ -152,9 +160,13 @@ class SearchService:
                 loop.run_in_executor(None, _search),
                 timeout=self._ddg_timeout
             )
-        except (asyncio.TimeoutError, asyncio.CancelledError, Exception) as e:
+        except (asyncio.TimeoutError, asyncio.CancelledError):
+            logger.warning(f"DDG search timed out for '{query}'")
+            return []
+        except Exception as e:
             logger.warning(f"DDG Search Error for '{query}': {e}")
             return []
+
         formatted = []
         for r in (ddg_results or []):
             url = r.get("href", "")
@@ -182,6 +194,7 @@ class SearchService:
     # ────────── Stock code detection ──────────
     _STOCK_CODE_RE = re.compile(r'\b\d{6}\b')
     _CHINESE_STOCK_KEYWORDS = re.compile(r'[沪深股涨停跌停板块煤炭白酒医药新能源]')
+    _TICKER_RE = re.compile(r'\b[A-Z]{1,5}\b')  # US/HK ticker symbols
 
     def _is_chinese_stock_query(self, query: str) -> bool:
         """Detect if the query is about Chinese stocks (by stock code or keywords)."""
@@ -191,12 +204,22 @@ class SearchService:
             return True
         return False
 
+    def _extract_stock_code(self, query: str) -> str | None:
+        """Extract a 6-digit Chinese stock code from query text."""
+        match = self._STOCK_CODE_RE.search(query)
+        return match.group() if match else None
+
+    def _extract_ticker(self, query: str) -> str | None:
+        """Extract a potential US/HK ticker symbol from query text."""
+        match = self._TICKER_RE.search(query)
+        return match.group() if match else None
+
     # ────────── Iwencai (同花顺问财) search — China-friendly, primary source ──────────
     async def _iwencai_search(self, query: str, max_results: int = 10) -> List[Dict[str, Any]]:
         """Search via 同花顺问财 (Iwencai) OpenAPI. Primary source for Chinese financial queries.
         Uses news + announcement + report channels combined."""
         try:
-            from .data_providers.iwencai_news import search_comprehensive, search_news, search_announcements, search_reports
+            from .data_providers.iwencai_news import search_comprehensive
         except ImportError:
             return []
 
@@ -225,112 +248,305 @@ class SearchService:
 
         return results
 
-    
-        # Extract stock code from query
-        stock_code = None
-        match = self._STOCK_CODE_RE.search(query)
-        if match:
-            stock_code = match.group()
+    # ────────── EastMoney fallback (push2 API — stock data as search results) ──────────
+    async def _eastmoney_search(self, query: str, max_results: int = 5) -> List[Dict[str, Any]]:
+        """Search via EastMoney push2 API. Returns stock quote/data as structured results.
+        Used as fallback when web search and Iwencai are unavailable."""
+        stock_code = self._extract_stock_code(query)
+        if not stock_code:
+            return []
+
+        # Determine market prefix: 0=sz, 1=sh
+        prefix = "0" if stock_code.startswith(("0", "3", "2")) else "1"
+        secid = f"{prefix}.{stock_code}"
+        em_code = f"sh{stock_code}" if prefix == "1" else f"sz{stock_code}"
 
         results = []
 
-        if stock_code:
+        # 1. Real-time quote via push2 API
+        try:
+            loop = asyncio.get_event_loop()
+            def _get_quote():
+                import urllib.request
+                fields = "f43,f44,f45,f46,f47,f48,f50,f57,f58,f116,f117,f162,f167,f168,f169,f170,f171"
+                url = f"https://push2delay.eastmoney.com/api/qt/stock/get?secid={secid}&fields={fields}"
+                req = urllib.request.Request(url, headers={
+                    "User-Agent": _UA,
+                    "Referer": "https://quote.eastmoney.com/",
+                })
+                resp = urllib.request.urlopen(req, timeout=10)
+                import json
+                return json.loads(resp.read())
+
+            data = await asyncio.wait_for(loop.run_in_executor(None, _get_quote), timeout=12)
+            d = (data or {}).get("data", {}) or {}
+            if d:
+                name = d.get("f58", "")
+                price = d.get("f43", 0)
+                change_pct = d.get("f170", 0)  # 涨跌幅
+                change_amt = d.get("f169", 0)  # 涨跌额
+                volume = d.get("f47", 0)
+                amount = d.get("f48", 0)
+                high = d.get("f44", 0)
+                low = d.get("f45", 0)
+                pe = d.get("f162", 0)
+                pb = d.get("f167", 0)
+                mkt_cap = d.get("f116", 0)
+
+                title = f"{name}({stock_code}) 实时行情"
+                content = (
+                    f"最新价:{price} 涨跌幅:{change_pct}% 涨跌额:{change_amt} "
+                    f"最高:{high} 最低:{low} 成交量:{volume} 成交额:{amount} "
+                    f"总市值:{mkt_cap}亿 PE:{pe} PB:{pb}"
+                )
+                results.append({
+                    "title": title,
+                    "url": f"https://quote.eastmoney.com/{em_code}.html",
+                    "content": content,
+                    "source": "EastMoney"
+                })
+        except Exception as e:
+            logger.warning(f"EastMoney quote fetch error for {stock_code}: {e}")
+
+        # 2. Latest kline data for additional context
+        if len(results) < max_results:
             try:
-                df = await asyncio.to_thread(ak.stock_news_em, symbol=stock_code)
-                if df is not None and not df.empty:
-                    for _, row in df.head(max_results).iterrows():
-                        title = row.get("新闻标题", row.get("title", ""))
-                        url = row.get("新闻链接", row.get("url", ""))
-                        content = row.get("内容", row.get("content", "")) or title
-                        results.append({
-                            "title": str(title)[:200],
-                            "url": str(url) if url else "",
-                            "content": str(content)[:500],
-                            "source": "EastMoney"
-                        })
+                loop = asyncio.get_event_loop()
+                def _get_kline():
+                    import urllib.request
+                    url = (
+                        f"https://push2delay.eastmoney.com/api/qt/stock/kline/get"
+                        f"?secid={secid}&fields1=f1,f2,f3,f4,f5,f6"
+                        f"&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61"
+                        f"&klt=101&fqt=0&end=20500101&lmt=10"
+                    )
+                    req = urllib.request.Request(url, headers={
+                        "User-Agent": _UA,
+                        "Referer": "https://quote.eastmoney.com/",
+                    })
+                    resp = urllib.request.urlopen(req, timeout=10)
+                    import json
+                    return json.loads(resp.read())
+
+                data = await asyncio.wait_for(loop.run_in_executor(None, _get_kline), timeout=12)
+                d = (data or {}).get("data", {}) or {}
+                klines = d.get("klines", [])
+                if klines:
+                    # Format last 10 trading days as summary
+                    lines = []
+                    for k in klines[-10:]:
+                        parts = k.split(",")
+                        if len(parts) >= 11:
+                            date, o, c, h, l, vol, amt = parts[0], parts[1], parts[2], parts[3], parts[4], parts[5], parts[6]
+                            change = round((float(c) - float(o)) / float(o) * 100, 2) if float(o) != 0 else 0
+                            lines.append(f"{date} O:{o} C:{c} H:{h} L:{l} V:{vol} Chg:{change}%")
+                    content = " | ".join(lines[-5:])
+                    results.append({
+                        "title": f"{stock_code} 近期K线数据",
+                        "url": f"https://quote.eastmoney.com/{em_code}.html",
+                        "content": content,
+                        "source": "EastMoney"
+                    })
             except Exception as e:
-                logger.warning(f"API news error for {stock_code}: {e}")
-
-            if len(results) < max_results:
-                try:
-                    df2 = await asyncio.to_thread(ak.stock_individual_notice_report, stock_code)
-                    if df2 is not None and not df2.empty:
-                        for _, row in df2.head(max_results - len(results)).iterrows():
-                            results.append({
-                                "title": str(row.get("公告标题", row.get("title", "")))[:200],
-                                "url": str(row.get("公告链接", row.get("url", ""))),
-                                "content": str(row.get("内容", row.get("content", "公司公告")))[:500],
-                                "source": "EastMoney_Announcement"
-                            })
-                except Exception as e:
-                    logger.warning(f"API notice error for {stock_code}: {e}")
-
-
+                logger.warning(f"EastMoney kline fetch error for {stock_code}: {e}")
 
         return results
 
-    async def search(self, query: str, max_results: int = 10) -> List[Dict[str, Any]]:
-        """Search with fallback chain: DDG → 同花顺问财 → API → SearXNG.
+    # ────────── Sina fallback (Sina suggest + quotes) ──────────
+    async def _sina_search(self, query: str, max_results: int = 5) -> List[Dict[str, Any]]:
+        """Search via Sina finance APIs. Uses suggest API to resolve stock names,
+        then returns structured stock information."""
+        results = []
 
-        Priority:
-        1. DDG (ddgs v9, via system proxy)
-        2. 同花顺问财 (Iwencai, for Chinese stock/financial queries, requires IWENCAI_API_KEY)
-        3. API (EastMoney, for Chinese stock queries)
-        4. SearXNG (if enabled)
+        # Use Sina suggest API to resolve stock name → code
+        try:
+            loop = asyncio.get_event_loop()
+            def _sina_suggest():
+                import urllib.request
+                from urllib.parse import quote
+                encoded = quote(query[:50])  # Limit query length
+                url = f"https://suggest3.sinajs.cn/suggest/type=11&key={encoded}"
+                req = urllib.request.Request(url, headers={
+                    "User-Agent": _UA,
+                    "Referer": "https://finance.sina.com.cn",
+                })
+                resp = urllib.request.urlopen(req, timeout=10)
+                text = resp.read().decode("gbk", errors="replace")
+                return text
+
+            text = await asyncio.wait_for(loop.run_in_executor(None, _sina_suggest), timeout=12)
+            # Format: var suggestvalue="name,11,code,shcode,...;name2,11,code2,...;"
+            m = re.search(r'"([^"]*)"', text)
+            if m:
+                items = m.group(1).split(";")
+                for item in items[:max_results]:
+                    parts = item.split(",")
+                    if len(parts) < 4 or parts[1] != "11":
+                        continue
+                    name, code, shcode = parts[0], parts[2], parts[3]
+                    if not (len(code) == 6 and code.startswith(("6", "0", "3", "8", "4"))):
+                        continue
+                    prefix = "sh" if code.startswith("6") else "sz"
+                    results.append({
+                        "title": f"{name}({code}) — A股实时行情",
+                        "url": f"https://finance.sina.com.cn/realstock/company/{prefix}{code}/nc.shtml",
+                        "content": f"股票代码: {code}, 简称: {name}, 市场: A-Share, 新浪实时行情页面",
+                        "source": "Sina"
+                    })
+        except Exception as e:
+            logger.warning(f"Sina suggest error: {e}")
+
+        # Augment with Sina quotes API for first match (richer content)
+        if results:
+            try:
+                name = results[0]["title"].split("(")[0] if "(" in results[0]["title"] else ""
+                code = self._extract_stock_code(results[0].get("title", ""))
+                if not code:
+                    code = self._extract_stock_code(query)
+                if name and code:
+                    prefix = "sh" if code.startswith("6") else "sz"
+                    results[0]["content"] = (
+                        f"股票代码: {code}, 简称: {name}, 市场: A-Share. "
+                        f"更多信息请访问新浪财经: https://finance.sina.com.cn/realstock/company/{prefix}{code}/nc.shtml"
+                    )
+            except Exception:
+                pass
+
+        return results
+
+    # ────────── Yahoo Finance fallback (global stocks) ──────────
+    async def _yfinance_search(self, query: str, max_results: int = 5) -> List[Dict[str, Any]]:
+        """Search via Yahoo Finance for US/HK/global tickers. Returns company info
+        and news as structured results."""
+        results = []
+
+        ticker = self._extract_ticker(query)
+        if not ticker or len(ticker) < 2:
+            return []
+
+        try:
+            loop = asyncio.get_event_loop()
+            def _yf_lookup():
+                import yfinance as yf
+                out = []
+                # Try direct ticker lookup
+                for suffix in ["", ".HK", ".SZ", ".SS", ".T"]:
+                    sym = ticker + suffix
+                    try:
+                        t = yf.Ticker(sym)
+                        info = t.info
+                        if info and info.get("shortName") and info.get("quoteType"):
+                            name = info.get("shortName", "")
+                            mkt = info.get("market", info.get("quoteType", ""))
+                            price = info.get("currentPrice") or info.get("regularMarketPrice") or info.get("previousClose", "N/A")
+                            currency = info.get("currency", "")
+                            out.append({
+                                "title": f"{name} ({sym}) — Yahoo Finance",
+                                "url": f"https://finance.yahoo.com/quote/{sym}",
+                                "content": f"Symbol: {sym}, Market: {mkt}, Price: {price} {currency}, "
+                                           f"Industry: {info.get('industry','')}, "
+                                           f"Sector: {info.get('sector','')}, "
+                                           f"Market Cap: {info.get('marketCap','')}",
+                                "source": "YahooFinance"
+                            })
+                    except Exception:
+                        continue
+                return out
+
+            items = await asyncio.wait_for(loop.run_in_executor(None, _yf_lookup), timeout=15)
+            results.extend(items[:max_results])
+        except (asyncio.TimeoutError, Exception) as e:
+            logger.warning(f"Yahoo Finance search error for '{ticker}': {e}")
+
+        return results
+
+    # ────────── MAIN SEARCH ──────────
+    async def search(self, query: str, max_results: int = 10) -> List[Dict[str, Any]]:
+        """Search with fallback chain: DDG → Iwencai → SearXNG → EastMoney → Sina → yfinance.
+
+        Each tier tries in order; returns as soon as any tier produces results.
+        If ALL tiers fail, returns [] (but this should be rare with the fallbacks).
         """
         from .tools_config import is_skill_enabled
 
         if not query:
             return []
 
-        # 1. DDG (primary default — via system proxy)
+        # 1. DDG (primary web search — via ddgs package)
         if is_skill_enabled("ddg_fallback"):
             results = await self._ddg_text(query, max_results)
             if results:
                 return self._sanitize_results(results)
 
-        # 2. 同花顺问财 (primary source for Chinese financial data)
+        # 2. Iwencai (primary source for Chinese financial data)
         if _IS_CHINA_SERVER or self._is_chinese_stock_query(query):
             results = await self._iwencai_search(query, max_results)
             if results:
                 return self._sanitize_results(results)
 
-            if results:
-                return self._sanitize_results(results)
-
-        # 4. SearXNG fallback (if enabled)
+        # 3. SearXNG fallback (if enabled and reachable)
         if is_skill_enabled("searxng_backend"):
             results = await self._searxng_search(query, max_results)
             if results:
                 return self._sanitize_results(results)
 
+        # 4. EastMoney stock data fallback (for Chinese stock code queries)
+        results = await self._eastmoney_search(query, max_results)
+        if results:
+            return self._sanitize_results(results)
+
+        # 5. Sina finance fallback (stock name → code resolution)
+        results = await self._sina_search(query, max_results)
+        if results:
+            return self._sanitize_results(results)
+
+        # 6. Yahoo Finance fallback (global tickers)
+        results = await self._yfinance_search(query, max_results)
+        if results:
+            return self._sanitize_results(results)
+
         return []
 
     async def search_news(self, query: str, max_results: int = 10, global_only: bool = False) -> List[Dict[str, Any]]:
-        """Search news with fallback chain: DDG → 同花顺问财 → API → SearXNG."""
+        """Search news with fallback chain: DDG → Iwencai → SearXNG → EastMoney → Sina → yfinance."""
         from .tools_config import is_skill_enabled
 
         if not query:
             return []
 
-        # 1. DDG (primary default)
+        # 1. DDG (primary web search)
         if is_skill_enabled("ddg_fallback"):
             results = await self._ddg_text(f"{query} latest news 2025", max_results)
             if results:
                 return self._sanitize_results(results)
 
         if not global_only:
-            # 2. 同花顺问财 (primary source for Chinese financial news)
+            # 2. Iwencai (primary source for Chinese financial news)
             if _IS_CHINA_SERVER or self._is_chinese_stock_query(query):
                 results = await self._iwencai_search(query, max_results)
                 if results:
                     return self._sanitize_results(results)
 
-        # 4. SearXNG fallback (or global primary if global_only=True)
+        # 3. SearXNG fallback (or global primary if global_only=True)
         if is_skill_enabled("searxng_backend"):
             results = await self._searxng_search(f"{query} latest news 2025", max_results, categories="news")
             if results:
                 return self._sanitize_results(results)
+
+        # 4. EastMoney stock data fallback
+        results = await self._eastmoney_search(query, max_results)
+        if results:
+            return self._sanitize_results(results)
+
+        # 5. Sina finance fallback
+        results = await self._sina_search(query, max_results)
+        if results:
+            return self._sanitize_results(results)
+
+        # 6. Yahoo Finance fallback (global tickers)
+        results = await self._yfinance_search(query, max_results)
+        if results:
+            return self._sanitize_results(results)
 
         return []
 

@@ -505,8 +505,8 @@ class AStockDirectProvider(DataProvider):
     async def _fetch_eastmoney_kline(
         self, code: str, market_code: int, klt: str, limit: int, period: str
     ) -> pd.DataFrame:
-        """Fetch K-line from EastMoney push2his (blocked from non-China IPs)."""
-        url = "https://push2his.eastmoney.com/api/qt/stock/kline/get"
+        """Fetch K-line from EastMoney push2delay (accessible from non-China IPs)."""
+        url = "https://push2delay.eastmoney.com/api/qt/stock/kline/get"
         params = {
             "secid": f"{market_code}.{code}",
             "fields1": "f1,f2,f3,f4,f5,f6",
@@ -903,11 +903,10 @@ class AStockDirectProvider(DataProvider):
             })
 
         # 2. EastMoney stock info (industry, total shares, etc.)
-        # NOTE: EastMoney push2 is blocked from non-China IPs, use short timeout
         try:
             def _fetch_info():
                 market_code = 1 if code.startswith("6") else 0
-                url = "https://push2.eastmoney.com/api/qt/stock/get"
+                url = "https://push2delay.eastmoney.com/api/qt/stock/get"
                 params = {
                     "fltt": "2", "invt": "2",
                     "fields": "f57,f58,f84,f85,f127,f116,f117,f189,f43",

@@ -17,6 +17,131 @@ from ..observability.failure_capture import capture_failure_incident
 
 PROGRESS_REDIS_PREFIX = "analysis_progress"
 
+
+def _build_fundamentals(snapshot: Dict[str, Any]) -> Dict[str, Any]:
+    """Derive a StockFundamentals-shaped dict from the analysis snapshot.
+
+    The analysis result previously omitted ``fundamentals`` entirely, so the
+    entire fundamental-metrics grid (StockHeroCard / reportGenerator / prompts
+    / comparison & quantitative services) rendered empty for every analysis —
+    the "很多数据N/A" symptom for A-shares like 600584.
+
+    The snapshot already carries rich, reliable data from the DataRouter
+    (AStockDirectProvider for A-shares, YFinanceProvider for US/HK), so we
+    surface it here instead of depending on the flakier yfinance A-share path.
+    """
+    if not isinstance(snapshot, dict):
+        return {}
+    fin = snapshot.get("financials") or {}
+    if not isinstance(fin, dict) or not fin:
+        return {}
+
+    def _num(key):
+        v = fin.get(key)
+        if v is None:
+            return None
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return None
+
+    debt_to_equity = None
+    td, eq = _num("totalDebt"), _num("equity")
+    if td is not None and eq not in (None, 0):
+        debt_to_equity = round(td / eq * 100, 1)
+
+    # Valuation percentile ≈ price percentile over available history.
+    # PE_t ∝ price_t for roughly constant TTM EPS, so the percentile of the
+    # current price within the historical range equals the PE percentile.
+    valuation_percentile = None
+    hist = snapshot.get("history") or []
+    if isinstance(hist, list) and len(hist) > 1:
+        closes = [r.get("close") for r in hist if isinstance(r, dict) and r.get("close") is not None]
+        if len(closes) > 1:
+            cur = closes[-1]
+            below = sum(1 for c in closes if c <= cur)
+            valuation_percentile = round(below / len(closes) * 100, 1)
+
+    rev_growth = _num("revenueGrowthYoY")
+    if rev_growth is None:
+        rev_growth = _num("revenueYoY")
+    np_growth = _num("netProfitGrowthYoY")
+    if np_growth is None:
+        np_growth = _num("netProfitGrowth")
+
+    # StockFundamentals is string-typed (src/types.ts). Downstream consumers
+    # call string methods on these values — e.g. driftDetection.ts does
+    # `analysis.fundamentals.pe.replace(/[^0-9.\-]/g, '')`. Return strings,
+    # not floats, so we honor the contract and avoid a runtime TypeError.
+    def _s(v):
+        if v is None:
+            return None
+        if isinstance(v, float) and v.is_integer():
+            return str(int(v))
+        return str(v)
+
+    return {
+        "marketCap": _s(_num("marketCap")),
+        "pe": _s(_num("pe")),
+        "pb": _s(_num("pb")),
+        "roe": _s(_num("roe")),
+        "eps": _s(_num("eps")),
+        "grossMargin": _s(_num("grossMargin")),
+        "revenue": _s(_num("revenue")),
+        "netProfit": _s(_num("netProfit")),
+        "nonGaapNetProfit": _s(_num("netProfitDeduct")),
+        "revenueGrowth": _s(rev_growth),
+        "netProfitGrowth": _s(np_growth),
+        "debtToEquity": _s(debt_to_equity),
+        "dividend": _s(_num("dividendPerShare")),
+        "dividendYield": _s(_num("dividendYield")),
+        "valuationPercentile": _s(valuation_percentile),
+    }
+
+
+def _derive_forward_pe(snapshot: Dict[str, Any]) -> Optional[float]:
+    """Approximate forward PE for markets where yfinance provides no forwardPE
+    (e.g. A-shares). forwardPE ≈ PE / (1 + net profit growth).
+
+    Returns None if inputs are missing or the estimate is implausible. Growth
+    from EastMoney is a percentage (e.g. 15.5 == 15.5%), so values with
+    abs > 1.0 are normalized to a ratio before use.
+    """
+    if not isinstance(snapshot, dict):
+        return None
+    fin = snapshot.get("financials")
+    if not isinstance(fin, dict) or not fin:
+        return None
+
+    def _f(v):
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return None
+
+    pe = _f(fin.get("pe")) or _f(fin.get("trailingPE"))
+    if pe is None or pe <= 0:
+        return None
+
+    growth = (
+        _f(fin.get("netProfitGrowth"))
+        or _f(fin.get("netProfitGrowthYoY"))
+        or _f(fin.get("revenueGrowthYoY"))
+    )
+    if growth is None:
+        return None
+    if abs(growth) > 1.0:
+        growth = growth / 100.0
+    # Guard against implausible estimates (e.g. growth near -100% would blow up)
+    if growth <= -0.9:
+        return None
+
+    fwd = pe / (1.0 + growth)
+    if fwd <= 0:
+        return None
+    return round(fwd, 2)
+
+
 class AnalysisJobService:
     def __init__(self, job_repo: JobRepository, snapshot_service: MarketSnapshotService):
         self.job_repo = job_repo
@@ -374,6 +499,13 @@ class AnalysisJobService:
                 if not snapshot:
                     raise ValueError("Failed to fetch market data")
                 snapshot["market"] = market
+
+                # Derive forwardPE (yfinance-only field, absent for A-shares) so the
+                # expert prompt / report / stockInfo don't surface N/A. Approximation:
+                # forwardPE ≈ PE / (1 + net profit growth).
+                _fwd_pe = _derive_forward_pe(snapshot)
+                if _fwd_pe is not None:
+                    snapshot.setdefault("financials", {})["forwardPE"] = _fwd_pe
                 
                 self.update_job_progress(job_id, "quant", 30)
                 # 2. Compute quantitative factors using Polars
@@ -456,8 +588,8 @@ class AnalysisJobService:
                         "previousClose": quote.get("previousClose"),
                         "marketCap": quote.get("marketCap"),
                         "pe": quote.get("trailingPE"),
-                        "forwardPE": quote.get("forwardPE"),
-                        "pb": quote.get("priceToBook"),
+                        "forwardPE": quote.get("forwardPE") or _fwd_pe,
+                        "pb": quote.get("pb"),
                         "dividendYield": quote.get("dividendYield"),
                         "lastUpdated": utc_now().strftime("%Y/%m/%d %H:%M:%S") + " CST",
                     },
@@ -466,6 +598,7 @@ class AnalysisJobService:
                     "valuation": snapshot.get("valuation"),
                     "financials": snapshot.get("financials"),
                     "snapshot": snapshot,
+                    "fundamentals": _build_fundamentals(snapshot),
                     "discussion": discussion_messages,
                     "critique": critique_res,
                     "summary": self._extract_summary(discussion_messages),
@@ -673,6 +806,7 @@ class AnalysisJobService:
             "valuation": snapshot.get("valuation"),
             "financials": snapshot.get("financials"),
             "snapshot": snapshot,
+            "fundamentals": _build_fundamentals(snapshot),
             "discussion": valid_messages,
             "summary": self._extract_summary(valid_messages),
             "partial": True  # Flag indicating partial results

@@ -86,6 +86,7 @@ Every conclusion must include: evidence, confidence (HIGH/MEDIUM/LOW), risks, mi
 {% if macro_data %}
 {% if macro_data.get('USD/CNY') %}
 ★ 实时汇率 USD/CNY: {{ macro_data.get('USD/CNY') }} — {{ macro_data.get('Source', '') }} [{{ macro_data.get('Date', '') }}]
+{% if macro_data.get('change30d') is not none %}  | 近30日趋势(change30d): {{ macro_data.get('change30d') }}%{% endif %}
   >>> 所有涉及USD↔CNY换算必须使用此汇率 {{ macro_data.get('USD/CNY') }}，严禁使用估算值 <<<
 {% endif %}
 {% for k, v in macro_data.items() %}
@@ -112,6 +113,7 @@ Every conclusion must include: evidence, confidence (HIGH/MEDIUM/LOW), risks, mi
    >>> 严禁使用训练数据中的{{ k }}价格。必须标注'数据缺失'。<<<
 {% elif v.price is not none %}
 ★ {{ k }}: {{ v.price }} {{ v.get('unit', '') }} — {{ v.get('source', '') }} [{{ v.get('date', '') }}]
+{% if v.get('change30d') is not none %}  | 近30日趋势(change30d): {{ v.get('change30d') }}%{% endif %}
   >>> 此为交易所实时报价，比搜索结果更准确。分析{{ k }}影响时必须使用此价格 {{ v.price }}，严禁使用搜索到的过期价格 <<<
 {% else %}
 ⚠ {{ k }}: 暂无权威报价

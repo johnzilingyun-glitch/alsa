@@ -107,5 +107,5 @@ skills:
     enabled: true
     description: "Use SearXNG as primary search backend (via privoxy proxy)"
   ddg_fallback:
-    enabled: false
-    description: "DuckDuckGo as fallback search engine (disabled on China servers — GFW blocked)"
+    enabled: true
+    description: "DuckDuckGo via ddgs package as fallback search engine"

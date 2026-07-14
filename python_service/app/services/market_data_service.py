@@ -319,6 +319,50 @@ class MarketDataService:
             
         return results
 
+    async def get_commodities(self, symbols: List[str]) -> List[Dict[str, Any]]:
+        """
+        Fetch real-time commodity quotes and enrich each with a 30-day
+        period change (change30d), computed from 1-month daily history.
+
+        The 30-day change drives the report / live-UI "30日趋势" field.
+        Previously that field fell back to the daily changePercent, so it
+        never reflected an actual 30-day trend. Enrichment is best-effort:
+        if history is unavailable the original quote (without change30d) is
+        returned and the TypeScript layer falls back to changePercent.
+        """
+        quotes = await self.get_quotes(symbols)
+        loop = asyncio.get_event_loop()
+
+        def _fetch_30d(sym: str) -> Optional[float]:
+            try:
+                hist = yf.Ticker(sym).history(period="1mo")
+                if hist is None or len(hist) < 2:
+                    return None
+                closes = hist["Close"].dropna()
+                if len(closes) < 2:
+                    return None
+                first = float(closes.iloc[0])
+                last = float(closes.iloc[-1])
+                if first == 0:
+                    return None
+                return round((last / first - 1) * 100, 2)
+            except Exception as e:  # noqa: BLE001 - best-effort enrichment
+                logger.warning("Commodity 30d history failed for %s: %s", sym, e)
+                return None
+
+        syms = [q.get("symbol") for q in quotes if q.get("symbol") and "error" not in q]
+        if syms:
+            results_30d = await asyncio.gather(
+                *[loop.run_in_executor(None, _fetch_30d, s) for s in syms]
+            )
+            by_sym = dict(zip(syms, results_30d))
+            for q in quotes:
+                sym = q.get("symbol")
+                chg = by_sym.get(sym) if sym else None
+                if chg is not None:
+                    q["change30d"] = chg
+        return quotes
+
     async def get_indices(self, market: str = "A-Share") -> List[Dict[str, Any]]:
         """
         Fetch major indices for a given market using Tencent Finance API.

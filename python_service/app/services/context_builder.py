@@ -239,6 +239,7 @@ class ContextBuilder:
             return ""
         # 取核心字段, 丢弃长文本
         core_keys = ["revenue", "net_profit", "roe", "gross_margin", "net_margin",
+                     "grossMarginQoQ", "grossMarginYoY",
                      "pe", "pb", "ps", "debt_ratio", "eps", "market_cap",
                      "营业收入", "净利润", "净资产收益率", "毛利率", "净利率",
                      "市盈率", "市净率", "资产负债率"]

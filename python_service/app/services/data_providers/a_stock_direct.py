@@ -1507,6 +1507,22 @@ class AStockDirectProvider(DataProvider):
                         if cur is not None and prv is not None and prv != 0:
                             q["netProfitDeductYoY"] = (cur - prv) / abs(prv) * 100
             result["quarterlyHistory"] = qh_list
+            # 毛利率趋势: 用季度 grossMargin 计算 环比(QoQ) 与 同比(YoY)
+            gm_rows = [q for q in qh_list if q.get("grossMargin") is not None]
+            if len(gm_rows) >= 2:
+                try:
+                    g0, g1 = float(gm_rows[0]["grossMargin"]), float(gm_rows[1]["grossMargin"])
+                    if g1 != 0:
+                        result["grossMarginQoQ"] = round((g0 - g1) / abs(g1) * 100, 2)
+                except (ValueError, TypeError, ZeroDivisionError):
+                    pass
+            if len(gm_rows) >= 5:
+                try:
+                    g0, g4 = float(gm_rows[0]["grossMargin"]), float(gm_rows[4]["grossMargin"])
+                    if g4 != 0:
+                        result["grossMarginYoY"] = round((g0 - g4) / abs(g4) * 100, 2)
+                except (ValueError, TypeError, ZeroDivisionError):
+                    pass
         except Exception as e:
             logger.warning(f"[{self.name}] Failed to build quarterlyHistory for {code}: {e}")
             result["quarterlyHistory"] = []

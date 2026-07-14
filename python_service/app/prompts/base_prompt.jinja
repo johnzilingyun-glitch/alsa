@@ -134,7 +134,7 @@ Every conclusion must include: evidence, confidence (HIGH/MEDIUM/LOW), risks, mi
 以下为权威宏观经济指标，来自央行/官方数据源。
 {% set m2 = macro_indicators.get('M2', {}) %}
 {% if m2.get('value') is not none %}
-中国M2货币供应量: {{ m2.get('value') }} {{ m2.get('unit', '') }} (同比增长: {{ m2.get('yoy', 'N/A') }}) — {{ m2.get('source', '') }} [{{ m2.get('date', '') }}]
+中国M2货币供应量: {{ m2.get('value') }} {{ m2.get('unit', '') }} (同比增长: {{ m2.get('yoy', 'N/A') }}){% if m2.get('change30d') is not none %} | 近30日趋势(环比): {{ m2.get('change30d') }}%{% endif %} — {{ m2.get('source', '') }} [{{ m2.get('date', '') }}]
 {% elif m2.get('error') %}
 ⚠ 中国M2: {{ m2.error }}
 {% endif %}
@@ -153,7 +153,7 @@ LPR利率: 1年期={{ lpr.get('1y') }}% | 5年期={{ lpr.get('5y', 'N/A') }}% �
 {% endif %}
 {% set rf = macro_indicators.get('rf_10y_cn', {}) %}
 {% if rf.get('value') is not none %}
-★★ 中国10年期国债收益率 (无风险利率Rf): {{ rf.get('value') }}{{ rf.get('unit', '%') }} — {{ rf.get('source', '') }} [{{ rf.get('date', '') }}]
+★★ 中国10年期国债收益率 (无风险利率Rf): {{ rf.get('value') }}{{ rf.get('unit', '%') }}{% if rf.get('change30d') is not none %} | 近30日趋势: {{ rf.get('change30d') }}%{% endif %} — {{ rf.get('source', '') }} [{{ rf.get('date', '') }}]
   >>> DCF估值/RIM模型/资本成本计算必须使用此Rf={{ rf.get('value') }}{{ rf.get('unit', '%') }}，严禁使用训练数据中的过期利率 <<<
 {% if rf.get('note') %}  ({{ rf.note }}){% endif %}
 {% elif rf.get('error') %}

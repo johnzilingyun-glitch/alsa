@@ -1,5 +1,6 @@
 import os
 import json
+import re
 import asyncio
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta
@@ -14,6 +15,104 @@ from .expert_tools import format_tool_descriptions
 from ..logging import get_logger
 
 logger = get_logger(__name__)
+
+
+def _extract_price(text: str) -> Optional[float]:
+    """从搜索文本中提取首个价格数字 (支持 元/W, 元/Wh, 元/吨 等)。"""
+    if not text:
+        return None
+    m = re.search(r"(\d+\.?\d*)\s*(?:元|万)?\s*/?\s*(?:W|Wh|吨|kg)", text)
+    if m:
+        try:
+            return float(m.group(1))
+        except ValueError:
+            return None
+    return None
+
+
+_RISE = ("涨", "升", "上扬", "攀升", "反弹", "走高", "上行")
+_FALL = ("跌", "回落", "下滑", "下挫", "下降", "走低", "下行")
+
+
+def _extract_trend_pct(text: str) -> Optional[float]:
+    """从搜索文本中提取近一月涨跌幅(%)并带符号。无则返回 None。"""
+    if not text:
+        return None
+    m = re.search(r"(?:" + "|".join(_FALL) + r")[^。，％；]{0,12}?(\d+\.?\d*)%", text)
+    if m:
+        try:
+            return -abs(float(m.group(1)))
+        except ValueError:
+            return None
+    m = re.search(r"(?:" + "|".join(_RISE) + r")[^。，％；]{0,12}?(\d+\.?\d*)%", text)
+    if m:
+        try:
+            return abs(float(m.group(1)))
+        except ValueError:
+            return None
+    return None
+
+
+# 各品种搜索查询：API 历史/品种缺失时，用 web 搜索补 30 日趋势/现货价
+_COMMODITY_SEARCH = {
+    "Alumina": "氧化铝 期货 近一个月 价格 涨跌幅 走势",
+    "Aluminum": "铝 期货 近一个月 价格 涨跌幅 走势",
+    "Polysilicon": "多晶硅 价格 近一个月 涨跌幅 走势",
+    "多晶硅": "多晶硅 价格 近一个月 涨跌幅 走势",
+    "光伏组件": "光伏组件 现货 近一个月 价格 涨跌幅",
+    "储能电芯": "储能电芯 磷酸铁锂 现货 近一个月 价格 涨跌幅",
+    "Lithium Carbonate": "碳酸锂 期货 近一个月 价格 涨跌幅 走势",
+    "Copper": "铜 期货 近一个月 价格 涨跌幅 走势",
+    "Gold": "黄金 期货 近一个月 价格 涨跌幅 走势",
+    "Silicon": "工业硅 期货 近一个月 价格 涨跌幅 走势",
+    "Crude Oil": "原油 期货 近一个月 价格 涨跌幅 走势",
+    "Methanol": "甲醇 期货 近一个月 价格 涨跌幅 走势",
+    "Polypropylene": "聚丙烯 期货 近一个月 价格 涨跌幅 走势",
+    "LLDPE": "线性低密度聚乙烯 期货 近一个月 价格 涨跌幅 走势",
+}
+_COMMODITY_UNIT = {
+    "光伏组件": "元/W",
+    "储能电芯": "元/Wh",
+    "多晶硅": "元/吨",
+}
+
+
+async def _enrich_commodities_search(commodity_data: Dict[str, Any]) -> Dict[str, Any]:
+    """API 历史/品种缺失时，用 web 搜索兜底：
+    - 不支持的品种：搜现货价填入 price/unit；
+    - 有价无趋势(change30d 为空)的品种：搜近一月涨跌幅填入 change30d。
+    best-effort，失败则保持原样。"""
+    from .search_service import search_service
+    for name, info in commodity_data.items():
+        if not isinstance(info, dict):
+            continue
+        unsupported = bool(info.get("error"))
+        no_trend = info.get("price") is not None and info.get("change30d") is None
+        if not (unsupported or no_trend):
+            continue
+        q = _COMMODITY_SEARCH.get(name)
+        if not q:
+            continue
+        try:
+            text = await search_service.quick_search(q)
+        except Exception as e:
+            logger.warning("Commodity search failed for %s: %s", name, e)
+            continue
+        if unsupported:
+            price = _extract_price(text)
+            if price is not None:
+                info["price"] = price
+                info["unit"] = _COMMODITY_UNIT.get(name, info.get("unit"))
+                info["source"] = "搜索兜底 (web)"
+                info["date"] = datetime.now().strftime("%Y-%m-%d")
+                info.pop("error", None)
+                info["note"] = "搜索引擎现货报价，非期货交易所权威数据，仅供参考。"
+        if info.get("price") is not None and info.get("change30d") is None:
+            trend = _extract_trend_pct(text)
+            if trend is not None:
+                info["change30d"] = trend
+                info["note"] = (info.get("note") or "") + " 近30日趋势由搜索估算。"
+    return commodity_data
 
 # --- Topologies (Ported from orchestrator.ts) ---
 
@@ -685,13 +784,20 @@ class DiscussionService:
              commodity_data = await macro_service.get_commodity_prices(["Copper", "Gold"])
         elif any(keyword in name_lower for keyword in ["铝", "aluminum", "alumin", "bauxite", "铝土"]):
              commodity_data = await macro_service.get_commodity_prices(["Aluminum", "Alumina"])
+        elif any(keyword in name_lower for keyword in ["光伏", "储能", "逆变器", "太阳能", "阳光电源", "solar", "photovoltaic", "energy storage", "storage"]):
+             # 光伏/储能(逆变器)企业：核心成本/收入驱动为 光伏组件、储能电芯、多晶硅
+             commodity_data = await macro_service.get_commodity_prices(["光伏组件", "储能电芯", "多晶硅"])
         elif any(keyword in name_lower for keyword in ["能源", "energy", "煤", "coal", "烯烃", "olefin", "化工", "chemical", "石化", "petro", "宝丰", "oil", "原油", "石油", "油气", "中海油", "中石油", "中石化", "cnooc", "gas", "天然气", "petroleum"]):
              commodity_data = await macro_service.get_commodity_prices(["Crude Oil", "Methanol", "Polypropylene", "LLDPE"])
              # Also get Brent oil price (in USD) for international benchmark
              brent = await macro_service.get_brent_oil_price()
              if brent:
                  commodity_data["Brent Crude Oil (USD)"] = brent
-        
+
+        # 对所有行业：API 未覆盖/缺趋势(change30d 为空)的品种，用 web 搜索兜底补价/补趋势
+        if commodity_data:
+            commodity_data = await _enrich_commodities_search(commodity_data)
+
         # Get macro indicators (M2, LPR, Fed Rate) for all stocks
         macro_indicators = {}
         try:

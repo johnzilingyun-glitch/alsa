@@ -6,7 +6,7 @@ import re
 import pandas as pd
 import aiohttp
 import requests
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from datetime import datetime
 
 import asyncio
@@ -35,6 +35,8 @@ class MacroService:
         "Aluminum":           "元/吨",
         "Alumina":            "元/吨",
         "Silicon":            "元/吨",
+        "Polysilicon":        "元/吨",
+        "多晶硅":            "元/吨",
         "Crude Oil":          "元/桶",
         "Methanol":           "元/吨",
         "Polypropylene":      "元/吨",
@@ -49,6 +51,8 @@ class MacroService:
         "Aluminum":           "ALI=F",
         "Alumina":            None,
         "Silicon":            None,
+        "Polysilicon":        None,
+        "多晶硅":            None,
         "Crude Oil":          "CL=F",
         "Methanol":           None,
         "Polypropylene":      None,
@@ -63,6 +67,8 @@ class MacroService:
         "Aluminum":           "AL0",
         "Alumina":            "AO0",
         "Silicon":            "SI0",
+        "Polysilicon":        "PS0",
+        "多晶硅":            "PS0",
         "Crude Oil":          "SC0",
         "Methanol":           "MA0",
         "Polypropylene":      "PP0",
@@ -308,11 +314,18 @@ class MacroService:
             m1_val = latest.get("CURRENCY")               # M1 存量 (亿元)
             m0_val = latest.get("FREE_CASH")              # M0 流通现金 (亿元)
             date_val = str(latest.get("REPORT_DATE", "")).split(" ")[0]
+            # 近30日趋势(环比): M2 为月度数据，用最新月 vs 上一月近似近30日变化
+            change30d = None
+            if len(rows) > 1:
+                prev_val = rows[1].get("BASIC_CURRENCY")
+                if prev_val and float(prev_val) != 0:
+                    change30d = round((float(m2_val) - float(prev_val)) / float(prev_val) * 100, 2)
             return {
                 "value": m2_val,
                 "yoy": m2_yoy,
                 "m1": m1_val,
                 "m0": m0_val,
+                "change30d": change30d,
                 "unit": "亿元",
                 "source": "中国人民银行 (via Eastmoney 数据中心)",
                 "date": date_val,
@@ -431,6 +444,8 @@ class MacroService:
         API 端点均已失效返回 404。Eastmoney datacenter 无国债收益率报表。
         当前使用 Sina 国债指数作为近似参考，配合经验证的最新值。
         """
+        # 近30日趋势(反向估算): 债券指数涨≈收益率跌，故取负值
+        chg30 = await self._calc_china_10y_change30d()
         # Plan A: Sina 国债指数 (sh000012) — 债券总指数，反映市场走势
         try:
             url = "https://hq.sinajs.cn/list=sh000012"
@@ -459,7 +474,8 @@ class MacroService:
                             "unit": "%",
                             "source": f"中国国债 (Sina {idx_name} 指数={idx_current}, 经验证收益率)",
                             "date": trade_date,
-                            "note": f"国债指数收盘={idx_current}, 昨收={idx_prev}。10年期国债收益率基于市场公开数据验证。",
+                            "change30d": chg30,
+                            "note": f"国债指数收盘={idx_current}, 昨收={idx_prev}。10年期国债收益率基于市场公开数据验证；近30日趋势由国债指数反向估算。",
                         }
         except Exception as e:
             logger.warning(f"China 10Y yield Sina fetch failed: {e}")
@@ -470,8 +486,32 @@ class MacroService:
             "unit": "%",
             "source": "中国债券信息网 (验证值 2026-07-10)",
             "date": "2026-07-10",
-            "note": "当前网络环境下 chinabond.com.cn / chinamoney.com.cn API 不可用，使用经验证的最新值。",
+            "change30d": chg30,
+            "note": "当前网络环境下 chinabond.com.cn / chinamoney.com.cn API 不可用，使用经验证的最新值；近30日趋势由国债指数反向估算。",
         }
+
+    async def _calc_china_10y_change30d(self) -> Optional[float]:
+        """通过 Sina 国债指数(sh000012)日K线估算中国10年期国债收益率近30日变化(%)。
+        债券指数与收益率反向变动，故返回 (指数涨跌幅) 的负值作为收益率变化近似。
+        无数据或失败时返回 None。"""
+        try:
+            url = ("https://money.finance.sina.com.cn/quotes_service/api/json_v2.php/"
+                    "CN_MarketData.getKLineData?symbol=sh000012&scale=240&ma=no&datalen=30")
+            resp = self._http_get(url, timeout=10)
+            if resp.status_code != 200:
+                return None
+            rows = resp.json()
+            closes = [float(r["close"]) for r in rows if r.get("close")]
+            if len(closes) < 2:
+                return None
+            first, last = closes[0], closes[-1]
+            if first == 0:
+                return None
+            # 反向：指数上涨 → 收益率下行
+            return round(-(last - first) / first * 100, 2)
+        except Exception as e:
+            logger.warning("China 10Y kline change30d failed: %s", e)
+            return None
 
     async def get_macro_indicators(self) -> Dict[str, Any]:
         """获取关键宏观经济指标：M2、LPR、美联储利率、中国10年期国债收益率(Rf)。"""

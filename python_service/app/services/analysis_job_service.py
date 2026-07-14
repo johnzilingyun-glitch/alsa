@@ -500,6 +500,20 @@ class AnalysisJobService:
                     raise ValueError("Failed to fetch market data")
                 snapshot["market"] = market
 
+                # Path B: enrich A-Share snapshot with intraday volume (分时量能)
+                # from the a-stock-analysis skill so the pipeline LLM sees it
+                # directly in its prompt (weak models can't call the tool itself).
+                if market == "A-Share":
+                    try:
+                        from .data_providers.a_stock_direct import fetch_intraday_volume
+                        intraday = await fetch_intraday_volume(symbol)
+                        if intraday:
+                            snapshot["intraday_volume"] = intraday
+                    except Exception as exc:
+                        logger.warning(
+                            "Intraday volume enrichment failed for %s: %s", symbol, exc
+                        )
+
                 # Derive forwardPE (yfinance-only field, absent for A-shares) so the
                 # expert prompt / report / stockInfo don't surface N/A. Approximation:
                 # forwardPE ≈ PE / (1 + net profit growth).
@@ -534,15 +548,16 @@ class AnalysisJobService:
     
                 try:
                     discussion_messages = await discussion_service.run_discussion(
-                        symbol, 
-                        snapshot.get("name", symbol), 
-                        snapshot, 
+                        symbol,
+                        snapshot.get("name", symbol),
+                        snapshot,
                         level=level,
                         language=language,
                         model=requested_model,
                         on_progress=report_discussion_progress,
                         job_id=job_id,
                         config=safe_config,
+                        market=market,
                         verification_mode=verification_mode
                     )
                 finally:

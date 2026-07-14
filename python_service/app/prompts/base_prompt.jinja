@@ -306,6 +306,29 @@ Target: {{ symbol }} ({{ name }})
 - 非经常性损益(最新一期): {{ audit_data.get('non_recurring') }} 元 | 非经常性损益占比(占净利润): {{ audit_data.get('non_recurring_pct') }}%
 {% endif %}
 
+{% if intraday_volume %}
+--- [SKILL] 分时量能分析 (a-stock-analysis · 新浪实时分时) ---
+以下为当日分时量能分布与主力盘口信号 (best-effort, 由 skill 实时抓取), 分析量价关系 / 主力动向 / 抢筹出货时直接使用, 严禁编造 API 未提供的数值。
+{% set dist = intraday_volume.get('distribution', {}) %}
+- 当日总成交量: {{ intraday_volume.get('total_volume') }} 手 | 总成交额: {{ intraday_volume.get('total_amount') }} 元
+- 分时量能分布 (占全天成交量 %):
+  - 早盘 30min (09:30-10:00): {{ dist.get('open_30min', {}).get('volume') }} 手 ({{ dist.get('open_30min', {}).get('percent') }}%)
+  - 上午盘 (10:00-11:30): {{ dist.get('mid_am', {}).get('volume') }} 手 ({{ dist.get('mid_am', {}).get('percent') }}%)
+  - 下午盘 (13:00-14:30): {{ dist.get('mid_pm', {}).get('volume') }} 手 ({{ dist.get('mid_pm', {}).get('percent') }}%)
+  - 尾盘 30min (14:30-15:00): {{ dist.get('close_30min', {}).get('volume') }} 手 ({{ dist.get('close_30min', {}).get('percent') }}%)
+{% set tops = intraday_volume.get('top_volumes', []) %}
+{% if tops %}
+- 当日成交量 Top 时点 (时间 | 价格 | 成交量(手) | 成交额(元)):
+{% for t in tops %}
+  - {{ t.get('time') }} | {{ t.get('price') }} | {{ t.get('volume') }} | {{ t.get('amount') }}
+{% endfor %}
+{% endif %}
+{% set sigs = intraday_volume.get('signals', []) %}
+{% if sigs %}
+- 主力/量能信号: {% for s in sigs %}{{ s }}　{% endfor %}
+{% endif %}
+{% endif %}
+
 {% if quarterly_history %}
 --- [API] 季度财务数据对比 (权威数据源，无需搜索) ---
 {% if market == 'A-Share' %}

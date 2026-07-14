@@ -374,6 +374,191 @@ async def fetch_a_share_dividends(code: str, periods: int = 5) -> List[Dict[str,
         return out
 
 
+async def fetch_industry_valuation(industry_name: str) -> Dict[str, Any]:
+    """Fetch industry valuation benchmarks from EastMoney datacenter.
+
+    Queries RPT_VALUEANALYSIS_DET by BOARD_NAME to get peer-company
+    valuation metrics (PE, PB, PS) and computes industry medians/means.
+    Also samples up to 40 largest constituents to compute net margin and
+    revenue growth from income statements.
+
+    Returns {} on any failure (graceful degradation).
+    The returned dict may contain any of:
+      pe_avg, pe_med, pb_avg, pb_med, ps_avg, ps_med,
+      net_margin_avg, net_margin_med, revenue_growth_avg, revenue_growth_med.
+    """
+    def _fetch_page(page_number: int) -> List[Dict]:
+        url = "https://datacenter.eastmoney.com/securities/api/data/v1/get"
+        params = {
+            "reportName": "RPT_VALUEANALYSIS_DET",
+            "columns": "ALL",
+            "filter": f'(BOARD_NAME="{industry_name}")',
+            "pageNumber": str(page_number),
+            "pageSize": "500",
+            "sortColumns": "",
+            "sortTypes": "-1",
+            "source": "WEB",
+            "client": "PC",
+        }
+        try:
+            r = requests.get(url, params=params, headers={"User-Agent": UA}, timeout=30)
+            d = r.json()
+            if d.get("result") and d["result"].get("data"):
+                return d["result"]["data"]
+        except Exception as e:
+            logger.warning(f"[IndustryValuation] Page {page_number} error: {type(e).__name__}: {e}")
+        return []
+
+    try:
+        rows = await asyncio.to_thread(_fetch_page, 1)
+        if not rows:
+            return {}
+        all_rows = list(rows)
+        while len(rows) == 500 and len(all_rows) < 1000:
+            next_page = len(all_rows) // 500 + 1
+            rows = await asyncio.to_thread(_fetch_page, next_page)
+            if rows:
+                all_rows.extend(rows)
+            else:
+                break
+    except Exception as e:
+        logger.warning(f"[IndustryValuation] Failed to fetch for {industry_name}: {type(e).__name__}: {e}")
+        return {}
+
+    pe_vals: List[float] = []
+    pb_vals: List[float] = []
+    ps_vals: List[float] = []
+
+    for row in all_rows:
+        try:
+            pe = row.get("PE_TTM")
+            if pe is not None and float(pe) > 0:
+                pe_vals.append(float(pe))
+        except (TypeError, ValueError):
+            pass
+        try:
+            pb = row.get("PB_MRQ")
+            if pb is not None and float(pb) > 0:
+                pb_vals.append(float(pb))
+        except (TypeError, ValueError):
+            pass
+        try:
+            ps = row.get("PS_TTM")
+            if ps is not None and float(ps) > 0:
+                ps_vals.append(float(ps))
+        except (TypeError, ValueError):
+            pass
+
+    def _stats(vals: List[float]):
+        if not vals:
+            return None, None
+        sorted_vals = sorted(vals)
+        n = len(sorted_vals)
+        mean = sum(sorted_vals) / n
+        if n % 2 == 0:
+            med = (sorted_vals[n // 2 - 1] + sorted_vals[n // 2]) / 2
+        else:
+            med = sorted_vals[n // 2]
+        return mean, med
+
+    out: Dict[str, Any] = {}
+
+    pe_mean, pe_med = _stats(pe_vals)
+    if pe_mean is not None:
+        out["pe_avg"] = round(pe_mean, 2)
+        out["pe_med"] = round(pe_med, 2)
+
+    pb_mean, pb_med = _stats(pb_vals)
+    if pb_mean is not None:
+        out["pb_avg"] = round(pb_mean, 2)
+        out["pb_med"] = round(pb_med, 2)
+
+    ps_mean, ps_med = _stats(ps_vals)
+    if ps_mean is not None:
+        out["ps_avg"] = round(ps_mean, 2)
+        out["ps_med"] = round(ps_med, 2)
+
+    # --- Net margin & revenue growth from income statements ---
+    # Pick up to 40 largest constituents (by TOTAL_MARKET_CAP)
+    constituents = sorted(
+        all_rows,
+        key=lambda r: float(r.get("TOTAL_MARKET_CAP") or 0),
+        reverse=True,
+    )[:40]
+
+    income_codes: List[str] = []
+    for c in constituents:
+        secucode = c.get("SECURITY_CODE") or c.get("SECUCODE") or ""
+        code = secucode.split(".")[0] if secucode else ""
+        # Must be a 6-digit A-share code
+        code = code.strip()
+        if len(code) == 6 and code.isdigit():
+            income_codes.append(code)
+
+    if income_codes:
+        # Bound concurrency: 40 simultaneous requests fail in this sandbox
+        # (rate-limit / connection-pool exhaustion); a semaphore keeps it reliable.
+        sem = asyncio.Semaphore(8)
+
+        async def _fetch_inc(code: str):
+            async with sem:
+                return await fetch_a_share_income_items(code, periods=5)
+
+        income_results = await asyncio.gather(
+            *[_fetch_inc(c) for c in income_codes], return_exceptions=True
+        )
+
+        net_margins: List[float] = []
+        revenue_growths: List[float] = []
+
+        for inc in income_results:
+            if isinstance(inc, Exception) or not inc:
+                continue
+            r0 = inc[0]
+            rev0 = r0.get("revenue")
+            np0 = r0.get("netProfit")
+            if rev0 is not None and np0 is not None:
+                try:
+                    rev0_f = float(rev0)
+                    np0_f = float(np0)
+                    if rev0_f > 0:
+                        net_margins.append(np0_f / rev0_f)
+                except (TypeError, ValueError):
+                    pass
+            # Revenue growth: year-over-year (latest quarter vs same quarter 1y earlier).
+            # Income data is quarterly sorted desc; index 4 = 4 quarters prior = YoY.
+            if len(inc) >= 5:
+                rev0 = inc[0].get("revenue")
+                rev4 = inc[4].get("revenue")
+                if rev0 is not None and rev4 is not None:
+                    try:
+                        rev0_f = float(rev0)
+                        rev4_f = float(rev4)
+                        if rev4_f > 0:
+                            revenue_growths.append((rev0_f - rev4_f) / abs(rev4_f))
+                    except (TypeError, ValueError):
+                        pass
+
+        nm_mean, nm_med = _stats(net_margins)
+        if nm_mean is not None:
+            out["net_margin_avg"] = round(nm_mean * 100, 2)
+            out["net_margin_med"] = round(nm_med * 100, 2)
+
+        rg_mean, rg_med = _stats(revenue_growths)
+        if rg_mean is not None:
+            out["revenue_growth_avg"] = round(rg_mean * 100, 2)
+            out["revenue_growth_med"] = round(rg_med * 100, 2)
+
+    logger.info(
+        "[IndustryValuation] %s: %d constituents, PE=%d PB=%d PS=%d codes=%d nm=%s rg=%s",
+        industry_name, len(all_rows), len(pe_vals), len(pb_vals), len(ps_vals),
+        len(income_codes),
+        "yes" if "net_margin_avg" in out else "no",
+        "yes" if "revenue_growth_avg" in out else "no",
+    )
+    return out
+
+
 # ── Extended-metrics helpers (Part B: β / ROIC / WACC / buyback / coal) ──
 def _compute_beta(stock_df, bench_df):
     """Beta of a stock vs benchmark, from aligned daily close returns."""
@@ -1574,6 +1759,96 @@ class AStockDirectProvider(DataProvider):
                 f"[{self.name}] Section 9 derivations failed for {code}: {exc_s9}"
             )
 
-        result["currency"] = "CNY"
-        result["financialCurrency"] = "CNY"
-        return result
+            result["currency"] = "CNY"
+            result["financialCurrency"] = "CNY"
+            return result
+
+
+# ---------------------------------------------------------------------------
+# Intraday volume enrichment via the a-stock-analysis skill
+#
+# The pipeline LLM (often a weak model that cannot call tools itself) needs the
+# 分时量能 (intraday volume distribution + main-force signals) that the
+# a-stock-analysis skill produces. We proactively run the skill's `analyze.py`
+# for A-Shares and fold the result into the analysis snapshot, where it is
+# rendered into the expert prompt.
+#
+# The skill script is an agent artifact (not part of this repo); its path is
+# configurable via A_STOCK_SKILL_SCRIPT and the enrichment degrades gracefully
+# if the script is missing, times out, or returns an error. A failure here must
+# never break the snapshot or the analysis job.
+# ---------------------------------------------------------------------------
+
+import os as _os
+import sys as _sys
+import subprocess as _subprocess
+import json as _json
+
+A_STOCK_SKILL_SCRIPT = _os.getenv(
+    "A_STOCK_SKILL_SCRIPT",
+    "/home/ubuntu/.agents/skills/a-stock-analysis/scripts/analyze.py",
+)
+# Hard cap so a hung Sina fetch can never stall the analysis job.
+A_STOCK_SKILL_TIMEOUT = float(_os.getenv("A_STOCK_SKILL_TIMEOUT", "20"))
+
+
+async def fetch_intraday_volume(symbol: str) -> Optional[dict]:
+    """Run the a-stock-analysis skill's analyze.py to collect intraday volume
+    distribution + main-force signals for an A-share `symbol` (6-digit code).
+
+    Returns the parsed `minute_analysis` dict, or None on any failure (missing
+    script, network error, parse error, non-zero exit). Best-effort only.
+    """
+    script = A_STOCK_SKILL_SCRIPT
+    if not _os.path.isfile(script):
+        logger.warning(
+            "[intraday] a-stock-analysis skill script not found at %s; skipping intraday enrichment",
+            script,
+        )
+        return None
+    try:
+        proc = await asyncio.to_thread(
+            _subprocess.run,
+            [_sys.executable, script, symbol, "--minute", "--json"],
+            capture_output=True,
+            text=True,
+            timeout=A_STOCK_SKILL_TIMEOUT,
+        )
+    except Exception as exc:
+        logger.warning(
+            "[intraday] a-stock-analysis skill execution failed for %s: %s",
+            symbol,
+            exc,
+        )
+        return None
+
+    if proc.returncode != 0:
+        logger.warning(
+            "[intraday] a-stock-analysis skill exited %d for %s: %s",
+            proc.returncode,
+            symbol,
+            (proc.stderr or "").strip()[:300],
+        )
+        return None
+
+    try:
+        results = _json.loads(proc.stdout)
+    except Exception as exc:
+        logger.warning(
+            "[intraday] failed to parse a-stock-analysis skill output for %s: %s",
+            symbol,
+            exc,
+        )
+        return None
+
+    if not isinstance(results, list) or not results:
+        return None
+    first = results[0] or {}
+    if first.get("error"):
+        logger.warning(
+            "[intraday] a-stock-analysis skill returned error for %s: %s",
+            symbol,
+            first.get("error"),
+        )
+        return None
+    return first.get("minute_analysis")

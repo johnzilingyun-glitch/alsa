@@ -140,23 +140,44 @@ def _extract_metric(text: str, keywords, is_pct: bool):
 
 
 async def _enrich_peer_benchmark(industry: str, symbol: str, name: str) -> Dict[str, Any]:
-    """Web 搜索行业对标 均值/中位数 (PE/PB/PS/EV-EBITDA/ROE/毛利率/净利率/营收增速)。
-    best-effort: 关键词提取行业均值; iwencai '行业平均/行业中值' 表格补充 PE/PB 的中位数。解析不到为 None。
-    结果用于 7️⃣ 同业估值对比, 标注'搜索估算'。"""
-    from .search_service import search_service
+    """行业对标均值/中位数 — EastMoney 直连为主力，web 搜索兜底。
+    
+    PRIMARY: EastMoney datacenter 的 RPT_VALUEANALYSIS_DET 报表返回行业成分股
+    的 PE/PB/PS/净利率/营收增速，计算均值与中位数，供 7️⃣ 同业估值对比。
+    FALLBACK: 搜索引擎关键词提取（原有逻辑保留）。
+    """
     ind = (industry or name or "").strip()
     if not ind:
         return {}
+
+    # PRIMARY: EastMoney datacenter (authoritative source, A股专用)
+    try:
+        from .data_providers.a_stock_direct import fetch_industry_valuation
+        data = await fetch_industry_valuation(ind)
+        if data:
+            out: Dict[str, Any] = {}
+            for key in ("pe_avg", "pe_med", "pb_avg", "pb_med",
+                        "ps_avg", "ps_med",
+                        "net_margin_avg", "net_margin_med",
+                        "revenue_growth_avg", "revenue_growth_med"):
+                if key in data and data[key] is not None:
+                    out[key] = data[key]
+            if out:
+                logger.info("Peer benchmark for %s: EastMoney direct (%d keys)", ind, len(out))
+                return out
+    except Exception as e:
+        logger.warning("EastMoney peer benchmark failed for %s: %s", ind, e)
+
+    # FALLBACK: web search (原有逻辑)
+    from .search_service import search_service
     query = f"{ind} 行业 平均 市盈率 市净率 净资产收益率 毛利率 净利率 营收增速 中位数"
     try:
         text = await search_service.quick_search(query)
     except Exception as e:
-        logger.warning("Peer benchmark search failed for %s: %s", ind, e)
+        logger.warning("Peer benchmark web search failed for %s: %s", ind, e)
         return {}
     if not text:
         return {}
-    # DDG/ddgs 常在 CJK 字符间插入空格 (如 "市 盈 率"), 会破坏关键词正则匹配。
-    # 归一化: 删除 CJK 与 CJK/数字 之间的空白, 保留数字之间的空白 (供表格正则使用)。
     text = re.sub(r"\s+(?=[\u4e00-\u9fff])|(?<=[\u4e00-\u9fff])\s+", "", text)
     specs = {
         "pe": (("市盈率", "PE"), False),
@@ -173,7 +194,6 @@ async def _enrich_peer_benchmark(industry: str, symbol: str, name: str) -> Dict[
         v = _extract_metric(text, kws, is_pct)
         if v is not None:
             out[key + "_avg"] = v
-    # iwencai 行业平均/行业中值 表格: 列序 PE(TTM) PE(静) 市净率 总市值
     m_avg = re.search(r"行业平均\s+(\d+\.?\d+)\s+\d+\.?\d+\s+(\d+\.?\d+)", text)
     if m_avg:
         out.setdefault("pe_avg", float(m_avg.group(1)))
@@ -182,6 +202,20 @@ async def _enrich_peer_benchmark(industry: str, symbol: str, name: str) -> Dict[
     if m_med:
         out["pe_med"] = float(m_med.group(1))
         out["pb_med"] = float(m_med.group(2))
+    if "pe_avg" not in out:
+        m_idx_pe = re.search(r"平均市盈率[是为：:\s]*(\d+\.?\d+)\s*倍", text)
+        if m_idx_pe:
+            try:
+                out["pe_avg"] = float(m_idx_pe.group(1))
+            except (TypeError, ValueError):
+                pass
+    if "pb_avg" not in out:
+        m_idx_pb = re.search(r"平均市净率[是为：:\s]*(\d+\.?\d+)", text)
+        if m_idx_pb:
+            try:
+                out["pb_avg"] = float(m_idx_pb.group(1))
+            except (TypeError, ValueError):
+                pass
     return out
 
 
@@ -910,14 +944,18 @@ class DiscussionService:
                 print(f"Industry peer search failed: {e}")
 
         # 4.7 Earnings-quality audit facts (应收账款 + 非经常性损益)
-        # 这两项在 snapshot.financials 里缺失(API 不提供), 导致 LLM 写 N/A。
-        # 应收账款用 EastMoney 明细(比 yfinance 可靠); 非经常性损益 = 净利润 - 扣非净利润(来自 quarterlyHistory)。
+        # A股基本面用 EastMoney 直连(比 yfinance 可靠): 资产负债表明细给应收账款;
+        # 利润表(income_items)给 TTM 营收 / 归母净利润 / 扣非净利润。
+        # 注: 生产环境 fin 来自 market_data_service(yfinance 风格, quarterlyHistory 键为
+        # 'Total Revenue'/'Net Income', 且不含 netProfitDeduct), 直接读 quarterlyHistory
+        # 会因键名不匹配整段落空 → 4️⃣ 写 N/A。故此处统一走 EastMoney 直连源, 与 fin 形状无关。
         audit_data = {}
         if role == "Fundamental Analyst" and market == "A-Share":
             try:
-                from .data_providers.a_stock_direct import fetch_a_share_balance_items
-                qh = fin.get("quarterlyHistory", []) or []
-                # 应收账款 (EastMoney 资产负债表明细)
+                from .data_providers.a_stock_direct import (
+                    fetch_a_share_balance_items,
+                    fetch_a_share_income_items,
+                )
                 bal = await fetch_a_share_balance_items(symbol, periods=1)
                 ar = None
                 if bal and bal[0].get("accountsRece") is not None:
@@ -925,33 +963,30 @@ class DiscussionService:
                         ar = float(bal[0]["accountsRece"])
                     except (TypeError, ValueError):
                         ar = None
-                if ar is not None and qh:
-                    # TTM 营收 = 最近 4 期营收之和, 与 OCF/NI 的 TTM 口径一致
-                    rev_ttm = 0.0
-                    for q in qh[:4]:
-                        rv = q.get("revenue")
-                        if rv is not None:
-                            try:
-                                rev_ttm += float(rv)
-                            except (TypeError, ValueError):
-                                pass
-                    if rev_ttm > 0:
-                        audit_data["accounts_receivable"] = round(ar, 2)
-                        audit_data["ar_revenue_ratio"] = round(ar / rev_ttm * 100, 2)
-                # 非经常性损益 = 净利润(归母) - 扣非净利润(归母), 最新一期
-                if qh:
-                    ni = qh[0].get("netProfit")
-                    deduct = qh[0].get("netProfitDeduct")
-                    if ni is not None and deduct is not None:
+                inc = await fetch_a_share_income_items(symbol, periods=4)
+                rev_ttm = 0.0
+                for r in inc[:4]:
+                    rv = r.get("revenue")
+                    if rv is not None:
                         try:
-                            ni_f = float(ni)
-                            deduct_f = float(deduct)
-                            nr = ni_f - deduct_f
-                            audit_data["non_recurring"] = round(nr, 2)
-                            if ni_f != 0:
-                                audit_data["non_recurring_pct"] = round(abs(nr) / abs(ni_f) * 100, 2)
+                            rev_ttm += float(rv)
                         except (TypeError, ValueError):
                             pass
+                ni = inc[0].get("parentNetProfit") if inc else None
+                deduct = inc[0].get("deductNetProfit") if inc else None
+                if ar is not None and rev_ttm > 0:
+                    audit_data["accounts_receivable"] = round(ar, 2)
+                    audit_data["ar_revenue_ratio"] = round(ar / rev_ttm * 100, 2)
+                if ni is not None and deduct is not None:
+                    try:
+                        ni_f = float(ni)
+                        deduct_f = float(deduct)
+                        nr = ni_f - deduct_f
+                        audit_data["non_recurring"] = round(nr, 2)
+                        if ni_f != 0:
+                            audit_data["non_recurring_pct"] = round(abs(nr) / abs(ni_f) * 100, 2)
+                    except (TypeError, ValueError):
+                        pass
                 # 7️⃣ 行业对标均值/中位数 (web 搜索兜底, 补同业估值对比)
                 try:
                     benchmark = await _enrich_peer_benchmark(industry, symbol, name)
@@ -1090,6 +1125,34 @@ class DiscussionService:
             except Exception as e:
                 logger.debug(f"[AgentMemory] Store failed: {e}")
 
+        # 4️⃣/7️⃣ 确定性硬填: 弱模型(tencent/hy3:free)会丢弃注入的 audit_data /
+        # IndustryBenchmark, 导致最终报告 4️⃣/7️⃣ 写 N/A。直接在 Fundamental
+        # Analyst 输出后追加 EastMoney 直连的核实表格, 保证报告出现真实数值
+        # (不经模型文本, 不受模型能力影响)。
+        if role == "Fundamental Analyst":
+            _filled = False
+            _bm = peer_data.get("IndustryBenchmark") if isinstance(peer_data, dict) else None
+            _has_benchmark = isinstance(_bm, dict) and _bm.get("pe_med") is not None
+            # 仅当确认真实基准(has_benchmark)时, 清理模型自己写的同业对比节里的
+            # N/A 占位 —— 按"行业估值对比"主题定位该节, 不误删其他节, 也不动我们
+            # 随后追加的【数据核实】表格。必须在追加核实表之前执行(此时 content
+            # 还是模型原始文本, 不含我们的表格)。
+            if _has_benchmark:
+                content = _strip_model_peer_na(content)
+            if isinstance(audit_data, dict) and audit_data:
+                _audit_tbl = _format_audit_table(audit_data)
+                if _audit_tbl:
+                    content = (content or "") + _audit_tbl
+                    _filled = True
+            if _has_benchmark:
+                content = (content or "") + _format_industry_benchmark_table(_bm)
+                _filled = True
+            # We appended authoritative EastMoney values for sections the weak
+            # model had left as "N/A" — drop the model's placeholder N/A line so
+            # the report no longer shows N/A for those sections.
+            if _filled:
+                content = _strip_na_line(content)
+
         return {
             "role": role,
             "content": content,
@@ -1134,6 +1197,7 @@ class DiscussionService:
         valuation = snapshot.get("valuation", {})
         financials = snapshot.get("financials", {})
         indicators = snapshot.get("indicators", {})
+        intraday_volume = snapshot.get("intraday_volume")
 
         def get_val(*keys, sources=None):
             srcs = sources or [financials, quote, valuation]
@@ -1229,6 +1293,7 @@ class DiscussionService:
             "macro_regime_text": macro_regime_text,
             "peer_data": peer_data,
             "audit_data": audit_data,
+            "intraday_volume": intraday_volume,
             "sentiment_data": sentiment_data,
             "brain_ctx": brain_ctx,
             "history": history,
@@ -1380,3 +1445,139 @@ class DiscussionService:
 
 
 discussion_service = DiscussionService()
+
+
+# --- 报告核验辅助(模块级, 由 _call_expert 调用, 固化 EastMoney 确定值) ---
+def _fmt_val(v, suffix: str = "") -> str:
+    """Format a numeric value for the verified benchmark/audit tables."""
+    if v is None:
+        return "—"
+    try:
+        return f"{float(v):.2f}{suffix}"
+    except (TypeError, ValueError):
+        return "—"
+
+
+def _format_audit_table(audit_data: Dict[str, Any]) -> str:
+    """固化 4️⃣ 盈利质量审计(EastMoney 直连)为核实表格, 追加到 Fundamental Analyst 输出。
+
+    弱模型(tencent/hy3:free)会丢弃注入的 audit_data, 直接在专家文本后追加确定值
+    表格, 保证最终报告 4️⃣ 显示真实数值(不经模型文本, 不受模型能力影响)。
+    """
+    rows: list = []
+    ar = audit_data.get("accounts_receivable")
+    if ar is not None:
+        try:
+            line = f"- **应收账款**: {float(ar):,.2f} 元"
+            ratio = audit_data.get("ar_revenue_ratio")
+            if ratio is not None:
+                line += f"（占 TTM 营收 {float(ratio):.2f}%）"
+            rows.append(line)
+        except (TypeError, ValueError):
+            pass
+    nr = audit_data.get("non_recurring")
+    if nr is not None:
+        try:
+            line = f"- **非经常性损益**（扣非前净利 − 扣非后净利）: {float(nr):,.2f} 元"
+            pct = audit_data.get("non_recurring_pct")
+            if pct is not None:
+                line += f"（占归母净利润 {float(pct):.2f}%）"
+            rows.append(line)
+        except (TypeError, ValueError):
+            pass
+    if not rows:
+        return ""
+    body = "\n".join(rows)
+    return (
+        "\n\n**【数据核实 · 盈利质量审计（EastMoney 直连确定值，非模型估算）】**\n\n"
+        f"{body}\n\n"
+        "> 数据来源：EastMoney 资产负债表/利润表明细直连。\n"
+    )
+
+
+def _format_industry_benchmark_table(benchmark: Dict[str, Any]) -> str:
+    """固化 7️⃣ 行业估值对标(EastMoney 直连)为核实表格, 追加到 Fundamental Analyst 输出。
+
+    弱模型会丢弃注入的 IndustryBenchmark, 直接追加确定值表格以保证报告 7️⃣ 显示真实数值。
+    """
+    rows = [
+        ("市盈率 PE (TTM)", _fmt_val(benchmark.get("pe_med")), _fmt_val(benchmark.get("pe_avg"))),
+        ("市净率 PB", _fmt_val(benchmark.get("pb_med")), _fmt_val(benchmark.get("pb_avg"))),
+        ("市销率 PS (TTM)", _fmt_val(benchmark.get("ps_med")), _fmt_val(benchmark.get("ps_avg"))),
+        ("净利率", _fmt_val(benchmark.get("net_margin_med"), "%"), _fmt_val(benchmark.get("net_margin_avg"), "%")),
+        ("营收增速 (YoY)", _fmt_val(benchmark.get("revenue_growth_med"), "%"), _fmt_val(benchmark.get("revenue_growth_avg"), "%")),
+    ]
+    header = "| 指标 | 行业中位数 | 行业均值 |\n| --- | --- | --- |"
+    body = "\n".join(f"| {r[0]} | {r[1]} | {r[2]} |" for r in rows)
+    return (
+        "\n\n**【数据核实 · 行业估值对标（EastMoney 直连确定值，非模型估算）】**\n\n"
+        f"{header}\n{body}\n\n"
+        "> 数据来源：EastMoney 行业估值报表直连（RPT_VALUEANALYSIS_DET）。\n"
+    )
+
+
+# N/A keywords that mark a model's empty/placeholder claim for a numbered section.
+_NA_KEYWORDS = ("n/a", "数据缺失", "暂无", "无法获取", "缺失", "无数据", "未能获取", "暂无数据")
+# Only strip a line that carries a numbered section marker (4️⃣/7️⃣) AND an N/A keyword,
+# so legitimate prose is never touched.
+_NA_LINE_RE = re.compile(r"^\s*[47][\uFE0F\u20E3]*\s*.*?(?:" + "|".join(re.escape(k) for k in _NA_KEYWORDS) + r")", re.IGNORECASE)
+
+
+def _strip_na_line(content: str) -> str:
+    """Remove the model's placeholder N/A claim for a numbered section we have
+    real data for (4️⃣/7️⃣). Conservative: only matches a line with the section
+    marker AND an N/A keyword, leaving all other content intact."""
+    return "\n".join(line for line in content.split("\n") if not _NA_LINE_RE.search(line))
+
+
+# --- Peer-comparison (同业估值对比) N/A cleanup ---------------------------------
+# Locate the model's OWN peer/industry valuation section by THEME. The number
+# emoji is unstable across models (5️⃣ in one run, 6️⃣ in another), so we match the
+# section heading text instead of the digit.
+_PEER_SECTION_RE = re.compile(r"同业估值对比|行业估值对比|同业对比", re.IGNORECASE)
+# A new numbered section header (e.g. "6️⃣ ...") ends the peer section.
+_NEW_SECTION_RE = re.compile(r"^\s*(?:#{1,6}\s*)?\d+[\uFE0F\u20E3]*")
+# An "N/A" placeholder token (case-insensitive; tolerates spaces around slash).
+_NA_TOKEN_RE = re.compile(r"N\s*/\s*A", re.IGNORECASE)
+
+
+def _strip_model_peer_na(content: str) -> str:
+    """Clear N/A placeholders the weak model left inside its OWN peer-comparison
+    (同业估值对比) section.
+
+    Operates ONLY within that section — located by theme, bounded by the next
+    numbered section header — leaving every other section and our authoritative
+    【数据核实】 tables untouched. Caller MUST gate this on a confirmed real
+    benchmark (has_benchmark) before calling — see _call_expert.
+    """
+    lines = content.split("\n")
+    # 1) Locate the peer-comparison section header by THEME.
+    start = None
+    for i, line in enumerate(lines):
+        if _PEER_SECTION_RE.search(line):
+            start = i
+            break
+    if start is None:
+        return content
+    # 2) Section ends at the next numbered section header.
+    end = len(lines)
+    for j in range(start + 1, len(lines)):
+        if _NEW_SECTION_RE.match(lines[j]):
+            end = j
+            break
+    head, body, tail = lines[:start], lines[start:end], lines[end:]
+    # 3) Within the section, clear N/A tokens (incl. "N/A N/A N/A" runs and
+    #    standalone "N/A" prose). Real cells/values are preserved.
+    cleaned = []
+    for line in body:
+        new_line = _NA_TOKEN_RE.sub("", line)
+        # collapse the gap left by removed tokens; keep markdown pipe shape
+        new_line = re.sub(r"[ \t]{2,}", " ", new_line).strip()
+        if not new_line:
+            continue
+        cleaned.append(new_line)
+    if not cleaned:
+        # Entire section was N/A garbage — drop it (header included) to avoid a
+        # dangling, empty "5️⃣ 同业估值对比" heading.
+        return "\n".join(head + tail)
+    return "\n".join(head + cleaned + tail)

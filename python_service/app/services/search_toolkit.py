@@ -302,9 +302,9 @@ class SearchToolkit:
         lines = []
         lines.append("--- [SEARCH ENRICHMENT] 预搜索数据 ---" if is_zh else "--- [SEARCH ENRICHMENT] Pre-Search Data ---")
         lines.append(
-            "以下数据由系统在分析开始前自动搜索获取 (SearxNG/DuckDuckGo)，供参考。"
+            "以下数据由系统在分析开始前自动搜索获取 (SearxNG/Iwencai)，供参考。"
             if is_zh else
-            "The following data was automatically retrieved by the system before analysis (SearxNG/DuckDuckGo), for reference."
+            "The following data was automatically retrieved by the system before analysis (SearxNG/Iwencai), for reference."
         )
         lines.append(
             "⚠ 搜索数据可能存在时效性或准确性问题，请结合 [API DATA] 交叉验证。"

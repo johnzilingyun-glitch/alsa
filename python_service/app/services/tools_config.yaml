@@ -106,6 +106,3 @@ skills:
   searxng_backend:
     enabled: true
     description: "Use SearXNG as primary search backend (via privoxy proxy)"
-  ddg_fallback:
-    enabled: true
-    description: "DuckDuckGo via ddgs package as fallback search engine"

@@ -9,7 +9,7 @@ import asyncio
 
 
 # Determine if we're on a China-based server (check network environment)
-# China servers typically can't reach DuckDuckGo/Google reliably
+# China servers typically can't reach Google reliably
 _IS_CHINA_SERVER = os.getenv("IS_CHINA_SERVER", "true").lower() in ("true", "1", "yes")
 
 # Common User-Agent for HTTP requests to Chinese financial sites
@@ -21,17 +21,18 @@ class SearchService:
         "baidu.com", "baijiahao.baidu.com",
         "zhidao.baidu.com", "tieba.baidu.com", "wenku.baidu.com",
         "sogou.com", "360.cn", "so.com", "toutiao.com", "163.com",
-    ]
+        ]
+
+    # Class-level flag: emit the unreachable warning only ONCE per process,
+    # regardless of how many SearchService instances the app creates.
+    _searxng_warned = False
 
     def __init__(self):
         self.max_results = 20
-        self._ddg_timeout = 15  # ddgs takes ~7-10s; give it headroom
         # SearXNG configuration
         self._searxng_base_url = os.getenv("SEARXNG_BASE_URL", "http://localhost:8080")
         self._searxng_timeout = 15
         self._searxng_enabled = os.getenv("SEARXNG_ENABLED", "true").lower() in ("true", "1", "yes")
-        # HTTP proxy for ddgs (primp doesn't read env vars)
-        self._http_proxy = os.getenv("http_proxy", "")
 
     def _is_blocked_source(self, url: str) -> bool:
         return any(d in url for d in self.BLOCKED_SOURCE_DOMAINS)
@@ -87,15 +88,36 @@ class SearchService:
             sanitized.append(item)
         return sanitized
 
+    def _warn_searxng_unreachable(self, detail: str) -> None:
+        """Emit ONE actionable warning when the configured SearXNG backend is
+        unreachable, so operators notice the silent fallback (EastMoney/Sina/
+        yfinance) instead of it being swallowed by the per-query `return []`."""
+        if SearchService._searxng_warned:
+            return
+        SearchService._searxng_warned = True
+        logger.warning(
+            "SearXNG backend UNREACHABLE at %s (%s). Web searches will silently "
+            "fall back to EastMoney/Sina/yfinance. Start SearXNG or set "
+            "SEARXNG_ENABLED=false to suppress this warning.",
+            self._searxng_base_url, detail,
+        )
+
     # ────────── SearXNG ──────────
     async def _searxng_search(self, query: str, max_results: int = 10, categories: str = "general") -> List[Dict[str, Any]]:
         """Search via local SearXNG instance. Returns formatted results."""
         if not self._searxng_enabled:
             return []
+        # Force China-friendly engines. This deployment uses
+        # `use_default_settings: true`, whose default `general` category does
+        # NOT include baidu/sogou — so Chinese queries (e.g. 茅台) returned 0
+        # results. Pinning these engines guarantees Chinese financial content
+        # resolves. `engines` overrides `categories` in SearXNG, so the
+        # category arg above is intentionally ignored for engine selection.
         params = {
             "q": query,
             "format": "json",
             "categories": categories,
+            "engines": "baidu,sogou",
             "language": "auto",
             "pageno": 1,
         }
@@ -107,11 +129,11 @@ class SearchService:
                     timeout=aiohttp.ClientTimeout(total=self._searxng_timeout)
                 ) as resp:
                     if resp.status != 200:
-                        logger.warning(f"SearXNG returned status {resp.status}")
+                        self._warn_searxng_unreachable(f"HTTP {resp.status}")
                         return []
                     data = await resp.json()
         except Exception as e:
-            logger.error(f"SearXNG Search Error for '{query}': {e}")
+            self._warn_searxng_unreachable(str(e))
             return []
 
         formatted = []
@@ -124,59 +146,6 @@ class SearchService:
                 "url": url,
                 "content": r.get("content", ""),
                 "source": "SearXNG"
-            })
-        return formatted
-
-    # ────────── DuckDuckGo (via ddgs v9+) ──────────
-    async def _ddg_text(self, query: str, max_results: int = 10) -> List[Dict[str, Any]]:
-        """Search via ddgs package (v9+). Uses system proxy if configured."""
-        loop = asyncio.get_event_loop()
-
-        def _search():
-            from ddgs import DDGS
-            proxy = self._http_proxy or None
-            max_attempts = 2  # Always try twice; ddgs sometimes needs a warm-up
-            for attempt in range(max_attempts):
-                try:
-                    d = DDGS(proxy=proxy)
-                    results = d.text(query, max_results=max_results)
-                    if results:
-                        return results
-                    # Empty results — retry
-                    if attempt < max_attempts - 1:
-                        import time
-                        time.sleep(1 * (attempt + 1))
-                except Exception as e:
-                    if attempt < max_attempts - 1:
-                        import time
-                        time.sleep(1 * (attempt + 1))
-                        continue
-                    logger.warning(f"DDG search failed after {max_attempts} attempts: {e}")
-                    return []
-            return []
-
-        try:
-            ddg_results = await asyncio.wait_for(
-                loop.run_in_executor(None, _search),
-                timeout=self._ddg_timeout
-            )
-        except (asyncio.TimeoutError, asyncio.CancelledError):
-            logger.warning(f"DDG search timed out for '{query}'")
-            return []
-        except Exception as e:
-            logger.warning(f"DDG Search Error for '{query}': {e}")
-            return []
-
-        formatted = []
-        for r in (ddg_results or []):
-            url = r.get("href", "")
-            if self._is_blocked_source(url):
-                continue
-            formatted.append({
-                "title": r.get("title", ""),
-                "url": url,
-                "content": r.get("body", ""),
-                "source": "DuckDuckGo"
             })
         return formatted
 
@@ -462,7 +431,7 @@ class SearchService:
 
     # ────────── MAIN SEARCH ──────────
     async def search(self, query: str, max_results: int = 10) -> List[Dict[str, Any]]:
-        """Search with fallback chain: DDG → Iwencai → SearXNG → EastMoney → Sina → yfinance.
+        """Search with fallback chain: Iwencai → SearXNG → EastMoney → Sina → yfinance.
 
         Each tier tries in order; returns as soon as any tier produces results.
         If ALL tiers fail, returns [] (but this should be rare with the fallbacks).
@@ -472,13 +441,7 @@ class SearchService:
         if not query:
             return []
 
-        # 1. DDG (primary web search — via ddgs package)
-        if is_skill_enabled("ddg_fallback"):
-            results = await self._ddg_text(query, max_results)
-            if results:
-                return self._sanitize_results(results)
-
-        # 2. Iwencai (primary source for Chinese financial data)
+        # 1. Iwencai (primary source for Chinese financial data)
         if _IS_CHINA_SERVER or self._is_chinese_stock_query(query):
             results = await self._iwencai_search(query, max_results)
             if results:
@@ -508,17 +471,11 @@ class SearchService:
         return []
 
     async def search_news(self, query: str, max_results: int = 10, global_only: bool = False) -> List[Dict[str, Any]]:
-        """Search news with fallback chain: DDG → Iwencai → SearXNG → EastMoney → Sina → yfinance."""
+        """Search news with fallback chain: Iwencai → SearXNG → EastMoney → Sina → yfinance."""
         from .tools_config import is_skill_enabled
 
         if not query:
             return []
-
-        # 1. DDG (primary web search)
-        if is_skill_enabled("ddg_fallback"):
-            results = await self._ddg_text(f"{query} latest news 2025", max_results)
-            if results:
-                return self._sanitize_results(results)
 
         if not global_only:
             # 2. Iwencai (primary source for Chinese financial news)

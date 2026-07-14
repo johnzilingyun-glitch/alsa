@@ -107,17 +107,21 @@ class SearchService:
         """Search via local SearXNG instance. Returns formatted results."""
         if not self._searxng_enabled:
             return []
-        # Force China-friendly engines. This deployment uses
-        # `use_default_settings: true`, whose default `general` category does
-        # NOT include baidu/sogou — so Chinese queries (e.g. 茅台) returned 0
-        # results. Pinning these engines guarantees Chinese financial content
-        # resolves. `engines` overrides `categories` in SearXNG, so the
-        # category arg above is intentionally ignored for engine selection.
+        # Force engines. Baidu/sogou were previously pinned because the default
+        # `general` category excluded them (Chinese queries returned 0). Now:
+        #  - google: cleanest Chinese index, reached via the overseas proxy
+        #    configured per-engine in settings.yml (google.com is GFW-blocked
+        #    from this CN server) — this is the quality ceiling for Chinese.
+        #  - sogou: kept DIRECT (no proxy) for its exclusive WeChat indexing;
+        #    used as the web-search fallback behind iwencai (financial primary).
+        #  - baidu: deliberately DROPPED — SEO/spam-heavy for financial queries.
+        # `engines` overrides `categories` in SearXNG, so the category arg above
+        # is intentionally ignored for engine selection.
         params = {
             "q": query,
             "format": "json",
             "categories": categories,
-            "engines": "baidu,sogou",
+            "engines": "google,sogou",
             "language": "auto",
             "pageno": 1,
         }

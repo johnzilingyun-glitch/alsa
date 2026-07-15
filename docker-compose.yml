@@ -12,6 +12,7 @@ services:
       - PORT=8000
       - DATABASE_URL=postgresql://${POSTGRES_USER:-alsa}:${POSTGRES_PASSWORD:-alsa}@postgres:5432/${POSTGRES_DB:-alsadb}
       - REDIS_URL=redis://redis:6379/0
+      - SEARXNG_BASE_URL=http://searxng:8080
     depends_on:
       postgres:
         condition: service_healthy
@@ -95,6 +96,31 @@ services:
         limits:
           cpus: '2.0'
           memory: 2G
+
+  searxng:
+    image: searxng/searxng:latest
+    container_name: searxng
+    restart: unless-stopped
+    # Bound to localhost only — do not expose publicly.
+    ports:
+      - "127.0.0.1:8080:8080"
+    environment:
+      # Internal instance URL (used by SearXNG for self-links).
+      - SEARXNG_BASE_URL=http://localhost:8080/
+      # Route outbound search traffic through the host privoxy -> SOCKS5
+      # overseas proxy (privoxy listens on the host's :8118).
+      - HTTP_PROXY=http://host.docker.internal:8118
+      - HTTPS_PROXY=http://host.docker.internal:8118
+      - NO_PROXY=localhost,127.0.0.1
+    # Resolve host.docker.internal to the host gateway so the container can
+    # reach the host's privoxy on :8118 from any Docker network.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      # Canonical, version-controlled SearXNG config (see config/searxng/).
+      - ./config/searxng:/etc/searxng:rw
+    networks:
+      - alsa_network
 
   redis:
     image: redis:7-alpine

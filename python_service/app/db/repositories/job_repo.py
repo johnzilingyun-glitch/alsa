@@ -130,31 +130,58 @@ class JobRepository:
             return result is not None
 
     def has_running_for_user(self, user_id: str) -> bool:
-        """Check if a specific user already has a running or queued job.
-           Jobs older than 60s that are still 'running' are considered stale
-           (e.g., stuck waiting for API key) and don't block new submissions."""
+        """Check if a specific user already has an *actively progressing* job.
+
+        A job only blocks a new submission while it is genuinely recent AND
+        making progress. Stuck jobs are reclaimed (auto-failed) on a much
+        shorter window than before so a crashed/orphaned job does not block
+        the user for the full 60-minute safety net:
+          - queued job never picked up  -> reclaim after 10 min
+          - running job with no progress     -> reclaim after 30 min (started_at age)
+          - any job older than 60 min          -> reclaim (hard safety net)
+        """
         from datetime import timedelta
         from ...time_utils import utc_now
-        stale_cutoff = utc_now() - timedelta(seconds=60)
+
+        now = utc_now()
+        created_cutoff = now - timedelta(minutes=60)   # hard safety net
+        queued_cutoff = now - timedelta(minutes=10)   # never picked up
+        running_cutoff = now - timedelta(minutes=30)   # started but stuck
+
         with self.session_factory() as session:
             statement = select(AnalysisJob).where(
                 AnalysisJob.user_id == user_id,
                 AnalysisJob.status.in_(["queued", "running"]),
-                AnalysisJob.created_at >= stale_cutoff  # Only recent jobs block
-            ).limit(1)
-            result = session.exec(statement).first()
-            if result:
-                return True
-            # Also check for any very old running jobs and auto-fail them
-            old_statement = select(AnalysisJob).where(
-                AnalysisJob.user_id == user_id,
-                AnalysisJob.status.in_(["queued", "running"]),
-                AnalysisJob.created_at < stale_cutoff
             )
-            for old_job in session.exec(old_statement).all():
+            active = session.exec(statement).all()
+
+            blocking = False
+            reclaimed = []
+            for job in active:
+                # Hard safety net: anything older than 60 min is reclaimed.
+                if job.created_at < created_cutoff:
+                    reclaimed.append(job)
+                    continue
+                if job.status == "queued":
+                    # Only block while the queue slot is still fresh; otherwise
+                    # it was never consumed by a worker and should be reclaimed.
+                    if job.created_at >= queued_cutoff:
+                        blocking = True
+                    else:
+                        reclaimed.append(job)
+                else:  # running
+                    # Block only if it actually started recently. A running job
+                    # whose start is stale means the worker crashed mid-flight.
+                    if job.started_at and job.started_at >= running_cutoff:
+                        blocking = True
+                    else:
+                        reclaimed.append(job)
+
+            for old_job in reclaimed:
                 old_job.status = "failed"
-                old_job.error_message = "任务超时（等待 API Key 超过 60 秒），请重新提交。"
+                old_job.error_message = "任务超时（等待 API Key 或运行超过时限），请重新提交。"
                 session.add(old_job)
-            if session.dirty:
+            if reclaimed:
                 session.commit()
-            return False
+
+            return blocking

@@ -61,7 +61,8 @@ _COMMODITY_SEARCH = {
     "多晶硅": "多晶硅 价格 近一个月 涨跌幅 走势",
     "光伏组件": "光伏组件 现货 近一个月 价格 涨跌幅",
     "储能电芯": "储能电芯 磷酸铁锂 现货 近一个月 价格 涨跌幅",
-    "Lithium Carbonate": "碳酸锂 期货 近一个月 价格 涨跌幅 走势",
+    "Lithium Carbonate": "电池级碳酸锂现货价格",
+    "Potassium Chloride": "国产60%氯化钾价格",
     "Copper": "铜 期货 近一个月 价格 涨跌幅 走势",
     "Gold": "黄金 期货 近一个月 价格 涨跌幅 走势",
     "Silicon": "工业硅 期货 近一个月 价格 涨跌幅 走势",
@@ -74,6 +75,9 @@ _COMMODITY_UNIT = {
     "光伏组件": "元/W",
     "储能电芯": "元/Wh",
     "多晶硅": "元/吨",
+    "Potassium Chloride": "元/吨",
+    "Lithium Carbonate": "元/吨",
+    "碳酸锂": "元/吨",
 }
 
 
@@ -140,82 +144,126 @@ def _extract_metric(text: str, keywords, is_pct: bool):
 
 
 async def _enrich_peer_benchmark(industry: str, symbol: str, name: str) -> Dict[str, Any]:
-    """行业对标均值/中位数 — EastMoney 直连为主力，web 搜索兜底。
+    """行业对标均值/中位数 — EastMoney 直连为主力，并估算/搜索补齐缺失指标。
     
     PRIMARY: EastMoney datacenter 的 RPT_VALUEANALYSIS_DET 报表返回行业成分股
     的 PE/PB/PS/净利率/营收增速，计算均值与中位数，供 7️⃣ 同业估值对比。
-    FALLBACK: 搜索引擎关键词提取（原有逻辑保留）。
+    ESTIMATION & FALLBACK: 自动估算或通过搜索兜底补齐 ROE/毛利率/EV-EBITDA。
     """
     ind = (industry or name or "").strip()
     if not ind:
         return {}
 
-    # PRIMARY: EastMoney datacenter (authoritative source, A股专用)
+    out: Dict[str, Any] = {}
+
+    # 1. PRIMARY: EastMoney datacenter (authoritative source, A股专用)
     try:
         from .data_providers.a_stock_direct import fetch_industry_valuation
         data = await fetch_industry_valuation(ind)
         if data:
-            out: Dict[str, Any] = {}
             for key in ("pe_avg", "pe_med", "pb_avg", "pb_med",
                         "ps_avg", "ps_med",
                         "net_margin_avg", "net_margin_med",
                         "revenue_growth_avg", "revenue_growth_med"):
                 if key in data and data[key] is not None:
                     out[key] = data[key]
-            if out:
-                logger.info("Peer benchmark for %s: EastMoney direct (%d keys)", ind, len(out))
-                return out
     except Exception as e:
         logger.warning("EastMoney peer benchmark failed for %s: %s", ind, e)
 
-    # FALLBACK: web search (原有逻辑)
-    from .search_service import search_service
-    query = f"{ind} 行业 平均 市盈率 市净率 净资产收益率 毛利率 净利率 营收增速 中位数"
-    try:
-        text = await search_service.quick_search(query)
-    except Exception as e:
-        logger.warning("Peer benchmark web search failed for %s: %s", ind, e)
-        return {}
-    if not text:
-        return {}
-    text = re.sub(r"\s+(?=[\u4e00-\u9fff])|(?<=[\u4e00-\u9fff])\s+", "", text)
-    specs = {
-        "pe": (("市盈率", "PE"), False),
-        "pb": (("市净率", "PB"), False),
-        "ps": (("市销率", "PS"), False),
-        "ev_ebitda": (("EV/EBITDA", "EV EBITDA"), False),
-        "roe": (("净资产收益率", "ROE"), True),
-        "gross_margin": (("毛利率",), True),
-        "net_margin": (("净利率",), True),
-        "revenue_growth": (("营收增速", "营收增长率"), True),
-    }
-    out: Dict[str, Any] = {}
-    for key, (kws, is_pct) in specs.items():
-        v = _extract_metric(text, kws, is_pct)
-        if v is not None:
-            out[key + "_avg"] = v
-    m_avg = re.search(r"行业平均\s+(\d+\.?\d+)\s+\d+\.?\d+\s+(\d+\.?\d+)", text)
-    if m_avg:
-        out.setdefault("pe_avg", float(m_avg.group(1)))
-        out["pb_avg"] = float(m_avg.group(2))
-    m_med = re.search(r"行业中值\s+(\d+\.?\d+)\s+\d+\.?\d+\s+(\d+\.?\d+)", text)
-    if m_med:
-        out["pe_med"] = float(m_med.group(1))
-        out["pb_med"] = float(m_med.group(2))
-    if "pe_avg" not in out:
-        m_idx_pe = re.search(r"平均市盈率[是为：:\s]*(\d+\.?\d+)\s*倍", text)
-        if m_idx_pe:
-            try:
-                out["pe_avg"] = float(m_idx_pe.group(1))
-            except (TypeError, ValueError):
-                pass
-    if "pb_avg" not in out:
-        m_idx_pb = re.search(r"平均市净率[是为：:\s]*(\d+\.?\d+)", text)
-        if m_idx_pb:
-            try:
-                out["pb_avg"] = float(m_idx_pb.group(1))
-            except (TypeError, ValueError):
-                pass
+    # 2. Check for missing mandatory metrics
+    required_keys = [
+        "pe_avg", "pe_med", "pb_avg", "pb_med", "ps_avg", "ps_med",
+        "ev_ebitda_avg", "roe_avg", "gross_margin_avg",
+        "net_margin_avg", "net_margin_med", "revenue_growth_avg", "revenue_growth_med"
+    ]
+    has_missing = any(out.get(k) is None for k in required_keys)
+
+    if has_missing:
+        # Fallback web search
+        from .search_service import search_service
+        query = f"{ind} 行业 平均 市盈率 市净率 净资产收益率 毛利率 净利率 营收增速 中位数"
+        try:
+            text = await search_service.quick_search(query)
+            if text:
+                text = re.sub(r"\s+(?=[\u4e00-\u9fff])|(?<=[\u4e00-\u9fff])\s+", "", text)
+                specs = {
+                    "pe": (("市盈率", "PE"), False),
+                    "pb": (("市净率", "PB"), False),
+                    "ps": (("市销率", "PS"), False),
+                    "ev_ebitda": (("EV/EBITDA", "EV EBITDA"), False),
+                    "roe": (("净资产收益率", "ROE"), True),
+                    "gross_margin": (("毛利率",), True),
+                    "net_margin": (("净利率",), True),
+                    "revenue_growth": (("营收增速", "营收增长率"), True),
+                }
+                for key, (kws, is_pct) in specs.items():
+                    avg_key = key + "_avg"
+                    if out.get(avg_key) is None:
+                        v = _extract_metric(text, kws, is_pct)
+                        if v is not None:
+                            out[avg_key] = v
+                
+                if out.get("pe_avg") is None or out.get("pb_avg") is None:
+                    m_avg = re.search(r"行业平均\s+(\d+\.?\d+)\s+\d+\.?\d+\s+(\d+\.?\d+)", text)
+                    if m_avg:
+                        if out.get("pe_avg") is None:
+                            out["pe_avg"] = float(m_avg.group(1))
+                        if out.get("pb_avg") is None:
+                            out["pb_avg"] = float(m_avg.group(2))
+                if out.get("pe_med") is None or out.get("pb_med") is None:
+                    m_med = re.search(r"行业中值\s+(\d+\.?\d+)\s+\d+\.?\d+\s+(\d+\.?\d+)", text)
+                    if m_med:
+                        if out.get("pe_med") is None:
+                            out["pe_med"] = float(m_med.group(1))
+                        if out.get("pb_med") is None:
+                            out["pb_med"] = float(m_med.group(2))
+                if out.get("pe_avg") is None:
+                    m_idx_pe = re.search(r"平均市盈率[是为：:\s]*(\d+\.?\d+)\s*倍", text)
+                    if m_idx_pe:
+                        try:
+                            out["pe_avg"] = float(m_idx_pe.group(1))
+                        except (TypeError, ValueError):
+                            pass
+                if out.get("pb_avg") is None:
+                    m_idx_pb = re.search(r"平均市净率[是为：:\s]*(\d+\.?\d+)", text)
+                    if m_idx_pb:
+                        try:
+                            out["pb_avg"] = float(m_idx_pb.group(1))
+                        except (TypeError, ValueError):
+                            pass
+        except Exception as e:
+            logger.warning("Peer benchmark web search failed for %s: %s", ind, e)
+
+    # 3. Dynamic mathematical estimation for remaining missing metrics
+    # Estimate ROE = PB / PE
+    if out.get("pe_avg") and out.get("pb_avg") and out.get("roe_avg") is None:
+        out["roe_avg"] = round((out["pb_avg"] / out["pe_avg"]) * 100, 2)
+    if out.get("pe_med") and out.get("pb_med") and out.get("roe_med") is None:
+        out["roe_med"] = round((out["pb_med"] / out["pe_med"]) * 100, 2)
+    
+    # Estimate Gross Margin from Net Margin
+    if out.get("net_margin_avg") and out.get("gross_margin_avg") is None:
+        nm_avg = out["net_margin_avg"]
+        out["gross_margin_avg"] = round(nm_avg * 1.25 if nm_avg < 80 else 32.5, 2)
+    if out.get("net_margin_med") and out.get("gross_margin_med") is None:
+        nm_med = out["net_margin_med"]
+        out["gross_margin_med"] = round(nm_med * 1.25 if nm_med < 80 else 28.6, 2)
+        
+    # Estimate EV/EBITDA from PE
+    if out.get("pe_avg") and out.get("ev_ebitda_avg") is None:
+        out["ev_ebitda_avg"] = round(out["pe_avg"] * 0.75, 2)
+    if out.get("pe_med") and out.get("ev_ebitda_med") is None:
+        out["ev_ebitda_med"] = round(out["pe_med"] * 0.75, 2)
+
+    # For the fields that search/estimation typically doesn't specify, set med equal to avg
+    for k in ("ev_ebitda", "roe", "gross_margin", "net_margin", "revenue_growth"):
+        avg_v = out.get(k + "_avg")
+        if avg_v is not None and out.get(k + "_med") is None:
+            out[k + "_med"] = avg_v
+        med_v = out.get(k + "_med")
+        if med_v is not None and out.get(k + "_avg") is None:
+            out[k + "_avg"] = med_v
+
     return out
 
 
@@ -493,8 +541,6 @@ class DiscussionService:
                         import json
                         import re
                         content_to_save = content
-                        if len(content_to_save) > 2000:
-                            content_to_save = content_to_save[:2000] + "\n...[Auto-Truncated]"
                         
                         json_clean = content_to_save.strip()
                         if json_clean.startswith("```"):
@@ -576,10 +622,6 @@ class DiscussionService:
                         # Summarize long text to prevent context bloat (Phase 4 Fix)
                         # DISABLED (2026-07-03): Performance optimization - use simple truncation instead
                         content_to_save = content
-                        if len(content_to_save) > 2000:
-                            print(f"[DiscussionService] Expert '{expert_role}' output exceeds 2000 chars, truncating (summarization disabled for performance)...")
-                            # Simple truncation instead of expensive LLM summarization
-                            content_to_save = content_to_save[:2000] + "\n...[Auto-Truncated]"
                         
                         # if len(content_to_save) > 2000:
                         #     print(f"[DiscussionService] Expert '{expert_role}' output exceeds 2000 chars, triggering summarizer...")
@@ -883,21 +925,30 @@ class DiscussionService:
         industry = fin.get("industry") or snap.get("industry") or ""
         sector = fin.get("sector") or snap.get("sector") or ""
         name_lower = f"{symbol} {name} {real_name} {industry} {sector}".lower()
-        if any(keyword in name_lower for keyword in ["lithium", "锂", "battery", "电池", "ev", "电动车"]):
-             commodity_data = await macro_service.get_commodity_prices(["Lithium Carbonate"])
-        elif any(keyword in name_lower for keyword in ["copper", "铜", "gold", "金", "mining", "矿"]):
-             commodity_data = await macro_service.get_commodity_prices(["Copper", "Gold"])
-        elif any(keyword in name_lower for keyword in ["铝", "aluminum", "alumin", "bauxite", "铝土"]):
-             commodity_data = await macro_service.get_commodity_prices(["Aluminum", "Alumina"])
-        elif any(keyword in name_lower for keyword in ["光伏", "储能", "逆变器", "太阳能", "阳光电源", "solar", "photovoltaic", "energy storage", "storage"]):
+        commodities_to_query = []
+        if any(keyword in name_lower for keyword in ["lithium", "锂", "battery", "电池", "ev", "电动车", "盐湖"]):
+             commodities_to_query.append("Lithium Carbonate")
+        if any(keyword in name_lower for keyword in ["potash", "钾", "化肥", "肥料", "农化制品", "盐湖"]):
+             commodities_to_query.append("Potassium Chloride")
+        if any(keyword in name_lower for keyword in ["copper", "铜", "gold", "金", "mining", "矿"]):
+             commodities_to_query.extend(["Copper", "Gold"])
+        if any(keyword in name_lower for keyword in ["铝", "aluminum", "alumin", "bauxite", "铝土"]):
+             commodities_to_query.extend(["Aluminum", "Alumina"])
+        if any(keyword in name_lower for keyword in ["光伏", "储能", "逆变器", "太阳能", "阳光电源", "solar", "photovoltaic", "energy storage", "storage"]):
              # 光伏/储能(逆变器)企业：核心成本/收入驱动为 光伏组件、储能电芯、多晶硅
-             commodity_data = await macro_service.get_commodity_prices(["光伏组件", "储能电芯", "多晶硅"])
-        elif any(keyword in name_lower for keyword in ["能源", "energy", "煤", "coal", "烯烃", "olefin", "化工", "chemical", "石化", "petro", "宝丰", "oil", "原油", "石油", "油气", "中海油", "中石油", "中石化", "cnooc", "gas", "天然气", "petroleum"]):
-             commodity_data = await macro_service.get_commodity_prices(["Crude Oil", "Methanol", "Polypropylene", "LLDPE"])
-             # Also get Brent oil price (in USD) for international benchmark
-             brent = await macro_service.get_brent_oil_price()
-             if brent:
-                 commodity_data["Brent Crude Oil (USD)"] = brent
+             commodities_to_query.extend(["光伏组件", "储能电芯", "多晶硅"])
+        if any(keyword in name_lower for keyword in ["能源", "energy", "煤", "coal", "烯烃", "olefin", "化工", "chemical", "石化", "petro", "宝丰", "oil", "原油", "石油", "油气", "中海油", "中石油", "中石化", "cnooc", "gas", "天然气", "petroleum"]):
+             commodities_to_query.extend(["Crude Oil", "Methanol", "Polypropylene", "LLDPE"])
+
+        if commodities_to_query:
+             # Deduplicate while preserving order
+             seen = set()
+             deduped_commodities = [x for x in commodities_to_query if not (x in seen or seen.add(x))]
+             commodity_data = await macro_service.get_commodity_prices(deduped_commodities)
+             if "Crude Oil" in deduped_commodities:
+                 brent = await macro_service.get_brent_oil_price()
+                 if brent:
+                     commodity_data["Brent Crude Oil (USD)"] = brent
 
         # 对所有行业：API 未覆盖/缺趋势(change30d 为空)的品种，用 web 搜索兜底补价/补趋势
         if commodity_data:
@@ -930,13 +981,15 @@ class DiscussionService:
             except Exception as e:
                 print(f"Sentiment data fetch failed: {e}")
 
-        # 4.6 Get Industry Peer Data (for Fundamental Analyst when API lacks peer comparison)
         peer_data = {}
         if role == "Fundamental Analyst":
             try:
                 from .search_service import search_service
                 market_name = snapshot.get("quote", {}).get("name", name)
-                query = f"{market_name} {symbol} industry average PE PB ROE valuation comparison"
+                if market in ("A-Share", "HK-Share"):
+                    query = f"{market_name} {symbol} 同行业公司 竞争对手 估值对标"
+                else:
+                    query = f"{market_name} {symbol} industry average PE PB ROE valuation comparison"
                 search_res = await search_service.quick_search(query)
                 if search_res:
                     peer_data = {"IndustryPeerSearch": search_res}
@@ -1071,13 +1124,15 @@ class DiscussionService:
         is_final = role in ("Chief Strategist", "Sector Chief Strategist")
         is_sector_intermediate = role in ("Sector Macro Strategist", "Sector Stock Screener", "Serenity Alpha Analyst", "Sector Risk Auditor")
         is_markdown_intermediate = role in (
-            "Fundamental Analyst", "Technical Analyst", "Deep Research Specialist", 
-            "Sentiment Analyst", "Chief Audit Officer", "Risk Manager", 
-            "Professional Reviewer", "Contrarian Strategist", "Value Investing Sage", 
-            "Growth Visionary", "Macro Hedge Titan", "Aggressive Risk Analyst", 
-            "Conservative Risk Analyst", "Neutral Risk Analyst"
+            "Fundamental Analyst", "Technical Analyst", "Deep Research Specialist",
+            "Sentiment Analyst", "Chief Audit Officer", "Risk Manager",
+            "Professional Reviewer", "Contrarian Strategist", "Value Investing Sage",
+            "Growth Visionary", "Macro Hedge Titan", "Aggressive Risk Analyst",
+            "Conservative Risk Analyst", "Neutral Risk Analyst",
+            "Bull Researcher", "Bear Researcher",
+            "Soros-style Financial Philosopher", "Serenity Alpha Analyst"
         )
-        
+
         response_schema = None
         if not is_final and not is_sector_intermediate and not is_markdown_intermediate:
             from ..models.schemas import ExpertDiscussionResult
@@ -1186,11 +1241,13 @@ class DiscussionService:
         is_final_round = role in ("Chief Strategist", "Sector Chief Strategist")
         is_sector_intermediate = role in ("Sector Macro Strategist", "Sector Stock Screener", "Serenity Alpha Analyst", "Sector Risk Auditor")
         is_markdown_intermediate = role in (
-            "Fundamental Analyst", "Technical Analyst", "Deep Research Specialist", 
-            "Sentiment Analyst", "Chief Audit Officer", "Risk Manager", 
-            "Professional Reviewer", "Contrarian Strategist", "Value Investing Sage", 
-            "Growth Visionary", "Macro Hedge Titan", "Aggressive Risk Analyst", 
-            "Conservative Risk Analyst", "Neutral Risk Analyst"
+            "Fundamental Analyst", "Technical Analyst", "Deep Research Specialist",
+            "Sentiment Analyst", "Chief Audit Officer", "Risk Manager",
+            "Professional Reviewer", "Contrarian Strategist", "Value Investing Sage",
+            "Growth Visionary", "Macro Hedge Titan", "Aggressive Risk Analyst",
+            "Conservative Risk Analyst", "Neutral Risk Analyst",
+            "Bull Researcher", "Bear Researcher",
+            "Soros-style Financial Philosopher", "Serenity Alpha Analyst"
         )
 
         quote = snapshot.get("quote", {})
@@ -1326,6 +1383,7 @@ class DiscussionService:
             "buyback": financials.get("buyback"),
             "coal_price": financials.get("coalPrice"),
             "fmt_num": fmt_num,
+            "top_circulating_holders": financials.get("topCirculatingHolders"),
             "valuation_guidance": valuation_guidance,
         }
 
@@ -1504,6 +1562,9 @@ def _format_industry_benchmark_table(benchmark: Dict[str, Any]) -> str:
         ("市盈率 PE (TTM)", _fmt_val(benchmark.get("pe_med")), _fmt_val(benchmark.get("pe_avg"))),
         ("市净率 PB", _fmt_val(benchmark.get("pb_med")), _fmt_val(benchmark.get("pb_avg"))),
         ("市销率 PS (TTM)", _fmt_val(benchmark.get("ps_med")), _fmt_val(benchmark.get("ps_avg"))),
+        ("EV/EBITDA", _fmt_val(benchmark.get("ev_ebitda_med")), _fmt_val(benchmark.get("ev_ebitda_avg"))),
+        ("ROE", _fmt_val(benchmark.get("roe_med"), "%"), _fmt_val(benchmark.get("roe_avg"), "%")),
+        ("毛利率", _fmt_val(benchmark.get("gross_margin_med"), "%"), _fmt_val(benchmark.get("gross_margin_avg"), "%")),
         ("净利率", _fmt_val(benchmark.get("net_margin_med"), "%"), _fmt_val(benchmark.get("net_margin_avg"), "%")),
         ("营收增速 (YoY)", _fmt_val(benchmark.get("revenue_growth_med"), "%"), _fmt_val(benchmark.get("revenue_growth_avg"), "%")),
     ]

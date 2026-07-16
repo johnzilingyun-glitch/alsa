@@ -42,6 +42,8 @@ const roleIcons: Record<AgentRole, React.ReactNode> = {
   "Value Investing Sage": <Database size={18} />,
   "Growth Visionary": <Target size={18} />,
   "Macro Hedge Titan": <Activity size={18} />,
+  "Soros-style Financial Philosopher": <Activity size={18} />,
+  "Serenity Alpha Analyst": <Target size={18} />,
 };
 
 // Role color and icon mappings remain as they are visual/functional.
@@ -63,6 +65,8 @@ const roleColors: Record<AgentRole, string> = {
   "Value Investing Sage": "text-teal-600 bg-teal-50 border-teal-200/60",
   "Growth Visionary": "text-fuchsia-600 bg-fuchsia-50 border-fuchsia-200/60",
   "Macro Hedge Titan": "text-cyan-700 bg-cyan-50 border-cyan-200/60",
+  "Soros-style Financial Philosopher": "text-violet-700 bg-violet-50 border-violet-200/60",
+  "Serenity Alpha Analyst": "text-teal-700 bg-teal-50 border-teal-200/60",
 };
 
 interface DiscussionPanelProps {

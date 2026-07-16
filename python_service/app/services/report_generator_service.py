@@ -158,8 +158,45 @@ class ReportGeneratorService:
             "discussion": [
                 {"role": m["role"], "content": content, "model": m.get("model", model)}
                 for m, content in zip(cleaned_msgs, normalized_contents)
-            ]
+            ],
+            "northbound": snapshot.get("northbound") or {},
+            "baijiu_price": snapshot.get("baijiu_price") or {},
         }
+
+        # Merge snapshot peer_comparison (real fetched data) with LLM peers.
+        # Real data takes precedence; LLM peers are kept only when their
+        # symbol does not overlap with a real peer.
+        _snap_peers = snapshot.get("peer_comparison") or []
+        _llm_peers = data.get("peer_comparison") or []
+        if _snap_peers and isinstance(_snap_peers, list):
+            _llm_peers_map = {}
+            for p in _llm_peers:
+                if isinstance(p, dict) and p.get("symbol"):
+                    _llm_peers_map[p["symbol"]] = p
+
+            _merged = []
+            _real_symbols = set()
+            for rp in _snap_peers:
+                if not isinstance(rp, dict):
+                    continue
+                sym = rp.get("symbol")
+                if not sym:
+                    _merged.append(rp)
+                    continue
+                _real_symbols.add(sym)
+                
+                llp = _llm_peers_map.get(sym)
+                if llp:
+                    for k in ["vs_target", "rationale", "evaluation"]:
+                        if k in llp and llp[k]:
+                            rp["vs_target"] = llp[k]
+                            break
+                _merged.append(rp)
+
+            for p in _llm_peers:
+                if isinstance(p, dict) and p.get("symbol") not in _real_symbols:
+                    _merged.append(p)
+            data["peer_comparison"] = _merged
 
         # Surface the COMPUTED data quality (from the snapshot pipeline), not just the
         # LLM-estimated one, so the report honestly reflects real data completeness.
@@ -179,6 +216,20 @@ class ReportGeneratorService:
                 data["data_integrity_warning"] = "⚠ 数据完整度提示: " + "; ".join(
                     f"[{w.get('severity', '')}] {w.get('message', '')}" for w in _dq_warnings if isinstance(w, dict)
                 )
+
+        # Compute deterministic factor scores from snapshot fundamentals
+        data["factor_scores"] = self._compute_factor_scores(snapshot)
+
+        # Compute WACC/DCF valuation from snapshot; only override the LLM-derived
+        # wacc_breakdown if the computation produces a valid WACC value.
+        valuation = self._compute_valuation(snapshot, {
+            "price": quote.get("price"),
+            "market": market,
+            "symbol": symbol,
+            "currency": currency,
+        })
+        if valuation and valuation.get("wacc"):
+            data["wacc_breakdown"] = valuation
 
         html = self._render_html(data)
         
@@ -1875,6 +1926,13 @@ CONTENT:
                 "card_wind_control": "⚠️ Market Event & Funding Control",
                 "card_lr_signal": "🚦 Left/Right Side Signal Conditions",
                 "card_drawdown": "🛡️ Drawdown Control & Thesis Invalidation",
+                "card_flow_positioning": "💰 Flow & Positioning (资金面与筹码)",
+                "label_northbound_hold": "Northbound Hold %:",
+                "label_northbound_5d": "5-Day Net Inflow:",
+                "label_northbound_trend": "5-Day Trend:",
+                "label_baijiu_price": "飞天茅台批价:",
+                "label_no_northbound": "No northbound data available",
+                "label_no_baijiu": "Baijiu wholesale data unavailable",
                 "label_thesis_narrative": "Investment Thesis Narrative",
                 "label_size": "Size:",
                 "label_style": "Style:",
@@ -1943,6 +2001,13 @@ CONTENT:
                 "card_wind_control": "⚠️ 市场原生事件与筹码风控 (Event & Funding Control)",
                 "card_lr_signal": "🚦 左右侧交易信号条件",
                 "card_drawdown": "🛡️ 回撤风控与逻辑证伪出局",
+                "card_flow_positioning": "💰 资金面与筹码 (Flow & Positioning)",
+                "label_northbound_hold": "北向持仓占比：",
+                "label_northbound_5d": "5日净流入：",
+                "label_northbound_trend": "5日趋势：",
+                "label_baijiu_price": "飞天茅台批价：",
+                "label_no_northbound": "暂无北向资金数据",
+                "label_no_baijiu": "白酒批发价数据暂不可用",
                 "label_thesis_narrative": "核心定调 (Investment Thesis Narrative)",
                 "label_size": "市值:",
                 "label_style": "风格:",
@@ -1978,6 +2043,508 @@ CONTENT:
             "cat_market": "市场环境 (Market Context)",
         }
 
+    # ── Factor Scoring & Chart Helpers ─────────────────────────────
+
+    def _compute_factor_scores(self, snapshot: dict) -> dict:
+        """Compute 5-factor scores (0-100) deterministically from snapshot.
+
+        Axes: 价值(Value), 质量(Quality), 成长(Growth), 动量(Momentum), 波动(Volatility)
+        """
+        scores: dict = {}
+        if not isinstance(snapshot, dict):
+            return scores
+
+        v = snapshot.get("valuation") or {}
+        f = snapshot.get("financials") or {}
+        q = snapshot.get("quote") or {}
+
+        def _get(*keys):
+            sources = [v, f, q]
+            for k in keys:
+                for s in sources:
+                    val = s.get(k)
+                    if val is not None:
+                        return val
+            return None
+
+        def _clip(v, lo=0, hi=100):
+            if v is None:
+                return 50
+            return max(lo, min(hi, round(v)))
+
+        # 1. Value (价值) — lower PE/PB = higher score
+        pe = _get("trailingPE", "pe", "forwardPE")
+        pb = _get("priceToBook", "pb")
+        pe_score = 50
+        if pe is not None and isinstance(pe, (int, float)) and pe > 0:
+            if pe < 10:
+                pe_score = 95
+            elif pe < 15:
+                pe_score = 80
+            elif pe < 20:
+                pe_score = 65
+            elif pe < 30:
+                pe_score = 45
+            elif pe < 50:
+                pe_score = 25
+            else:
+                pe_score = 10
+        pb_score = 50
+        if pb is not None and isinstance(pb, (int, float)) and pb > 0:
+            if pb < 1:
+                pb_score = 95
+            elif pb < 2:
+                pb_score = 80
+            elif pb < 3:
+                pb_score = 60
+            elif pb < 5:
+                pb_score = 40
+            elif pb < 10:
+                pb_score = 20
+            else:
+                pb_score = 10
+        scores["value"] = _clip((pe_score + pb_score) / 2)
+
+        # 2. Quality (质量) — high ROE + high net margin
+        roe = _get("returnOnEquity", "roe")
+        nm = _get("profitMargins", "profitMargin", "netMargin")
+        roe_score = 50
+        if roe is not None and isinstance(roe, (int, float)):
+            roe_pct = roe * 100 if abs(roe) < 1 else roe
+            if roe_pct > 25:
+                roe_score = 95
+            elif roe_pct > 20:
+                roe_score = 80
+            elif roe_pct > 15:
+                roe_score = 65
+            elif roe_pct > 10:
+                roe_score = 45
+            elif roe_pct > 5:
+                roe_score = 25
+            else:
+                roe_score = 10
+        nm_score = 50
+        if nm is not None and isinstance(nm, (int, float)):
+            nm_pct = nm * 100 if abs(nm) < 1 else nm
+            if nm_pct > 20:
+                nm_score = 95
+            elif nm_pct > 15:
+                nm_score = 80
+            elif nm_pct > 10:
+                nm_score = 60
+            elif nm_pct > 5:
+                nm_score = 40
+            elif nm_pct > 2:
+                nm_score = 20
+            else:
+                nm_score = 10
+        scores["quality"] = _clip((roe_score + nm_score) / 2)
+
+        # 3. Growth (成长) — revenue YoY + net profit YoY
+        rev_g = _get("revenueYoY_annual", "revenueYoY", "revenueGrowth")
+        np_g = _get("netProfitYoY", "earningsGrowth", "netProfitGrowth")
+        rev_score = 50
+        if rev_g is not None and isinstance(rev_g, (int, float)):
+            rev_pct = rev_g * 100 if abs(rev_g) < 1 else rev_g
+            if rev_pct > 30:
+                rev_score = 95
+            elif rev_pct > 20:
+                rev_score = 80
+            elif rev_pct > 10:
+                rev_score = 65
+            elif rev_pct > 5:
+                rev_score = 45
+            elif rev_pct > 0:
+                rev_score = 25
+            else:
+                rev_score = 10
+        np_score = 50
+        if np_g is not None and isinstance(np_g, (int, float)):
+            np_pct = np_g * 100 if abs(np_g) < 1 else np_g
+            if np_pct > 30:
+                np_score = 95
+            elif np_pct > 20:
+                np_score = 80
+            elif np_pct > 10:
+                np_score = 65
+            elif np_pct > 5:
+                np_score = 45
+            elif np_pct > 0:
+                np_score = 25
+            else:
+                np_score = 10
+        scores["growth"] = _clip((rev_score + np_score) / 2)
+
+        # 4. Momentum (动量) — recent price change
+        chg = _get("changePercent")
+        mom_score = 50
+        if chg is not None and isinstance(chg, (int, float)):
+            if chg > 10:
+                mom_score = 95
+            elif chg > 5:
+                mom_score = 80
+            elif chg > 2:
+                mom_score = 65
+            elif chg > 0:
+                mom_score = 50
+            elif chg > -5:
+                mom_score = 35
+            elif chg > -10:
+                mom_score = 20
+            else:
+                mom_score = 10
+        scores["momentum"] = _clip(mom_score)
+
+        # 5. Volatility (波动) — lower beta = higher score (stability preference)
+        beta = _get("beta")
+        vol_score = 50
+        if beta is not None and isinstance(beta, (int, float)):
+            if beta < 0.5:
+                vol_score = 95
+            elif beta < 0.8:
+                vol_score = 80
+            elif beta < 1.0:
+                vol_score = 65
+            elif beta < 1.2:
+                vol_score = 50
+            elif beta < 1.5:
+                vol_score = 35
+            elif beta < 2.0:
+                vol_score = 20
+            else:
+                vol_score = 10
+        scores["volatility"] = _clip(vol_score)
+
+        return scores
+
+    @staticmethod
+    def _svg_radar(scores: dict, size: int = 200) -> str:
+        """Generate inline SVG radar chart for 5 factor scores.
+
+        scores keys: value, quality, growth, momentum, volatility
+        """
+        import math
+
+        axes = [
+            ("价值", "value"),
+            ("质量", "quality"),
+            ("成长", "growth"),
+            ("动量", "momentum"),
+            ("波动", "volatility"),
+        ]
+        cx, cy = size / 2, size / 2
+        r = size * 0.35
+        label_r = size * 0.44
+
+        grid_color = "#e2e8f0"
+        fill_color = "rgba(37, 99, 235, 0.25)"
+        stroke_color = "#2563eb"
+        text_color = "#334155"
+
+        n = len(axes)
+        angles = [-math.pi / 2 + 2 * math.pi * i / n for i in range(n)]
+
+        parts = [
+            f'<svg viewBox="0 0 {size} {size}" xmlns="http://www.w3.org/2000/svg" style="max-width:220px; width:100%;">'
+        ]
+
+        # Grid pentagons at 20% intervals
+        for level in range(1, 6):
+            lr = r * level / 5
+            pts = []
+            for a in angles:
+                x = cx + lr * math.cos(a)
+                y = cy + lr * math.sin(a)
+                pts.append(f"{x:.1f},{y:.1f}")
+            fill = "none"
+            sw = "0.5" if level < 5 else "1"
+            parts.append(
+                f'<polygon points="{" ".join(pts)}" fill="{fill}" stroke="{grid_color}" stroke-width="{sw}"/>'
+            )
+
+        # Axis lines
+        for a in angles:
+            x = cx + r * math.cos(a)
+            y = cy + r * math.sin(a)
+            parts.append(
+                f'<line x1="{cx:.1f}" y1="{cy:.1f}" x2="{x:.1f}" y2="{y:.1f}" stroke="{grid_color}" stroke-width="0.5"/>'
+            )
+
+        # Data polygon
+        data_pts = []
+        for i, (_label, key) in enumerate(axes):
+            score = scores.get(key, 50)
+            score = max(5, min(100, score))
+            a = angles[i]
+            dr = r * score / 100
+            x = cx + dr * math.cos(a)
+            y = cy + dr * math.sin(a)
+            data_pts.append(f"{x:.1f},{y:.1f}")
+        parts.append(
+            f'<polygon points="{" ".join(data_pts)}" fill="{fill_color}" stroke="{stroke_color}" stroke-width="1.5"/>'
+        )
+
+        # Data points (dots) + score labels
+        for i, (_label, key) in enumerate(axes):
+            score = scores.get(key, 50)
+            score = max(5, min(100, score))
+            a = angles[i]
+            dr = r * score / 100
+            x = cx + dr * math.cos(a)
+            y = cy + dr * math.sin(a)
+            parts.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="3" fill="{stroke_color}"/>')
+            sx = cx + (dr + 12) * math.cos(a)
+            sy = cy + (dr + 12) * math.sin(a)
+            parts.append(
+                f'<text x="{sx:.1f}" y="{sy:.1f}" text-anchor="middle" dominant-baseline="middle" font-size="9" fill="{text_color}" font-family="Inter,Outfit,sans-serif">{int(score)}</text>'
+            )
+
+        # Axis labels
+        for i, (label, _key) in enumerate(axes):
+            a = angles[i]
+            lx = cx + label_r * math.cos(a)
+            ly = cy + label_r * math.sin(a)
+            parts.append(
+                f'<text x="{lx:.1f}" y="{ly:.1f}" text-anchor="middle" dominant-baseline="middle" font-size="11" fill="{text_color}" font-family="Inter,Outfit,sans-serif" font-weight="600">{label}</text>'
+            )
+
+        parts.append("</svg>")
+        return "\n".join(parts)
+
+    @staticmethod
+    def _svg_hbars(items: list, title: str = "", unit_str: str = "", label_key: str = "label", value_key: str = "value") -> str:
+        """Generate modern inline SVG horizontal bar chart from items list."""
+        if not items:
+            return ""
+
+        import uuid
+        uid = str(uuid.uuid4())[:8]
+
+        bar_h = 24
+        gap = 12
+        left_margin = 130
+        right_margin = 80
+        chart_w = 400
+
+        n = len(items)
+        svg_h = n * (bar_h + gap) + gap + 40
+        svg_w = left_margin + chart_w + right_margin
+
+        vals = [item.get(value_key, 0) for item in items if isinstance(item.get(value_key), (int, float))]
+        if not vals:
+            return ""
+        max_val = max(max(vals), 1)
+
+        text_color = "#1e293b"
+        label_color = "#475569"
+        
+        parts = [
+            f'<svg viewBox="0 0 {svg_w} {svg_h}" xmlns="http://www.w3.org/2000/svg" style="max-width:100%; display:block; background:#ffffff; border-radius:12px; border:1px solid #e2e8f0; padding: 10px; margin: 15px 0;">',
+            '<defs>',
+            f'  <linearGradient id="barGradient_{uid}" x1="0%" y1="0%" x2="100%" y2="0%">',
+            '    <stop offset="0%" stop-color="#818CF8" />',
+            '    <stop offset="100%" stop-color="#4F46E5" />',
+            '  </linearGradient>',
+            f'  <filter id="shadow_{uid}" x="-5%" y="-10%" width="120%" height="130%">',
+            '    <feDropShadow dx="0" dy="2" stdDeviation="2" flood-color="#4F46E5" flood-opacity="0.15"/>',
+            '  </filter>',
+            '</defs>'
+        ]
+
+        y_offset = gap + 10
+        if title:
+            parts.append(
+                f'<text x="{svg_w / 2:.0f}" y="20" text-anchor="middle" font-size="14" font-weight="700" fill="{text_color}" font-family="Inter,Outfit,sans-serif">{title}</text>'
+            )
+            y_offset += 24
+
+        for i, item in enumerate(items):
+            val = item.get(value_key, 0)
+            if not isinstance(val, (int, float)):
+                continue
+            label = str(item.get(label_key, ""))[:18]
+            y = y_offset + i * (bar_h + gap)
+
+            bar_w = max(val / max_val * chart_w, 4) if max_val > 0 else 4
+
+            # Label
+            parts.append(
+                f'<text x="{left_margin - 12}" y="{y + bar_h / 2 + 4:.0f}" text-anchor="end" font-size="12" font-weight="500" fill="{label_color}" font-family="Inter,Outfit,sans-serif">{label}</text>'
+            )
+            
+            # Background track
+            parts.append(
+                f'<rect x="{left_margin}" y="{y:.0f}" width="{chart_w}" height="{bar_h}" rx="6" fill="#f1f5f9" />'
+            )
+            
+            # The Bar
+            parts.append(
+                f'<rect x="{left_margin}" y="{y:.0f}" width="{bar_w:.1f}" height="{bar_h}" rx="6" fill="url(#barGradient_{uid})" filter="url(#shadow_{uid})">'
+            )
+            parts.append(
+                f'  <animate attributeName="width" from="0" to="{bar_w:.1f}" dur="1s" fill="freeze" calcMode="spline" keySplines="0.25 0.1 0.25 1" keyTimes="0;1"/>'
+            )
+            parts.append('</rect>')
+            
+            # Value text
+            val_str = f"{int(val)}" if val == int(val) else f"{val:.2f}"
+            parts.append(
+                f'<text x="{left_margin + bar_w + 10:.0f}" y="{y + bar_h / 2 + 4:.0f}" font-size="12" fill="{text_color}" font-family="Inter,Outfit,sans-serif" font-weight="700">{val_str}</text>'
+            )
+
+        parts.append("</svg>")
+        return "\n".join(parts)
+
+    def _compute_valuation(self, snapshot: dict, info: dict) -> dict:
+        """Compute WACC and DCF target price from snapshot fundamentals.
+
+        Returns dict with keys: rf, beta, erp, kd, tc, d_v, e_v, wacc,
+        source, sensitivity, dcf_target.
+        Returns empty dict if critical inputs are missing.
+        """
+        if not isinstance(snapshot, dict):
+            return {}
+
+        v: dict = snapshot.get("valuation") or {}
+        f: dict = snapshot.get("financials") or {}
+        q: dict = snapshot.get("quote") or {}
+
+        def _get(*keys):
+            sources = [v, f, q]
+            for k in keys:
+                for s in sources:
+                    val = s.get(k)
+                    if val is not None:
+                        return val
+            return None
+
+        # Risk-free rate
+        rf_val = _get("riskFreeRate", "rf")
+        if rf_val is not None and isinstance(rf_val, (int, float)):
+            rf = rf_val / 100 if rf_val > 1 else rf_val
+        else:
+            market = info.get("market", "US-Share")
+            if market in ("US-Share", "us"):
+                rf = 0.043  # ~4.3% US 10Y mid-2026
+            elif market in ("HK-Share", "hk"):
+                rf = 0.035  # ~3.5% HK
+            else:
+                rf = 0.0173  # ~1.73% CN 10Y mid-2026
+
+        # Beta
+        beta_val = _get("beta")
+        if beta_val is not None and isinstance(beta_val, (int, float)) and beta_val > 0:
+            beta = beta_val
+        else:
+            beta = 1.1  # default equity beta
+
+        # ERP (equity risk premium)
+        erp = 0.045  # 4.5%
+
+        # Ke = Rf + beta * ERP
+        ke = rf + beta * erp
+
+        # Cost of debt
+        kd_val = _get("costOfDebt", "kd")
+        if kd_val is not None and isinstance(kd_val, (int, float)):
+            kd = kd_val / 100 if kd_val > 1 else kd_val
+        else:
+            kd = 0.05  # default 5%
+
+        # Tax rate
+        tc_val = _get("taxRate", "tc")
+        if tc_val is not None and isinstance(tc_val, (int, float)):
+            tc = tc_val / 100 if tc_val > 1 else tc_val
+        else:
+            market_str = info.get("market", "US-Share")
+            if market_str in ("US-Share", "us"):
+                tc = 0.21
+            elif market_str in ("HK-Share", "hk"):
+                tc = 0.165
+            else:
+                tc = 0.25  # China statutory rate
+
+        # D/V and E/V
+        total_debt = _get("totalDebt")
+        market_cap = _get("marketCap")
+        d_v_label = "默认假设 (无资产负债表明细)"
+        if (
+            total_debt is not None
+            and isinstance(total_debt, (int, float))
+            and total_debt > 0
+            and market_cap is not None
+            and isinstance(market_cap, (int, float))
+            and market_cap > 0
+        ):
+            ev = market_cap + total_debt
+            d_v = total_debt / ev
+            e_v = market_cap / ev
+            d_v_label = f"从资产负债推导 (D≈{total_debt/1e8:.1f}亿, E≈{market_cap/1e8:.1f}亿)"
+        else:
+            d_v = 0.3
+            e_v = 0.7
+
+        # WACC
+        wacc = e_v * ke + d_v * kd * (1 - tc)
+
+        # DCF target price
+        fcf = _get("freeCashflow")
+        if fcf is None or not isinstance(fcf, (int, float)):
+            ocf = _get("operatingCashflow")
+            capex = _get("capitalExpenditure")
+            if ocf is not None and capex is not None and isinstance(ocf, (int, float)) and isinstance(capex, (int, float)):
+                fcf = ocf - abs(capex) if ocf > 0 else None
+
+        dcf_target = None
+        if fcf is not None and isinstance(fcf, (int, float)) and fcf > 0 and wacc > 0:
+            g = 0.05  # default perpetual growth rate 5%
+            if wacc <= g:
+                g = min(wacc * 0.5, 0.03)
+            try:
+                intrinsic_value = fcf * (1 + g) / (wacc - g)
+            except ZeroDivisionError:
+                intrinsic_value = None
+            if intrinsic_value is not None:
+                shares = _get("sharesOutstanding", "shares", "impliedShares")
+                price = q.get("price") or info.get("price")
+                if shares is not None and isinstance(shares, (int, float)) and shares > 0:
+                    dcf_target = intrinsic_value / shares
+                elif market_cap is not None and price is not None and isinstance(price, (int, float)) and price > 0:
+                    dcf_target = intrinsic_value / market_cap * price
+                if dcf_target is not None:
+                    dcf_target = round(dcf_target, 2)
+
+        source_parts = [
+            f"Rf={rf*100:.1f}% (市场基准默认)",
+            f"β={beta:.2f}",
+            f"ERP={erp*100:.1f}%",
+            f"Ke=Rf+β×ERP={ke*100:.1f}%",
+            f"Kd={kd*100:.1f}%",
+            f"Tc={tc*100:.0f}%",
+            f"D/V={d_v*100:.0f}% ({d_v_label})",
+            f"E/V={e_v*100:.0f}%",
+            f"WACC=E/V×Ke+D/V×Kd×(1-Tc)={wacc*100:.2f}%",
+        ]
+
+        result: dict = {
+            "rf": f"{rf*100:.2f}%",
+            "beta": f"{beta:.2f}",
+            "erp": f"{erp*100:.1f}%",
+            "kd": f"{kd*100:.1f}%",
+            "tc": f"{tc*100:.0f}%",
+            "d_v": f"{d_v*100:.1f}%",
+            "e_v": f"{e_v*100:.1f}%",
+            "wacc": f"{wacc*100:.2f}%",
+            "source": "; ".join(source_parts),
+            "sensitivity": "",
+        }
+
+        if dcf_target is not None:
+            currency = info.get("currency", "CNY")
+            result["dcf_target"] = f"{dcf_target} {currency}"
+
+        return result
+
     def _render_html(self, d: dict) -> str:
         info = d["info"]
         fund = d["fund"]
@@ -1989,6 +2556,14 @@ CONTENT:
         def md(t): return markdown2.markdown(t) if t else ""
         import html
         def esc(t): return html.escape(str(t)) if t else ""
+        cur = info.get("currency", "CNY")
+        def money_v(val, c=None):
+            cu = c or cur
+            if val is None or not isinstance(val, (int, float)): return "N/A"
+            if abs(val) >= 1e12: return f"{round(val/1e12, 2)}万亿 {cu}"
+            if abs(val) >= 1e8: return f"{round(val/1e8, 2)}亿 {cu}"
+            if abs(val) >= 1e6: return f"{round(val/1e6, 2)}百万 {cu}"
+            return f"{round(val, 2)} {cu}"
 
         # Raw variable extractions with safe defaults
         GARBAGE_VALUES = {"---", "—", "N/A", "n/a", "TBD", "tbd", "TODO", "todo", "None", "null", ""}
@@ -2022,6 +2597,8 @@ CONTENT:
         else:
             thesis = thesis_raw
         factor = d.get("factor_profile") or {}
+        factor_scores = d.get("factor_scores") or {}
+        factor_radar_html = self._svg_radar(factor_scores) if factor_scores else ""
         consensus = d.get("consensus_vs_non_consensus") or {}
         the_call_raw = d.get("the_call") or verdict or "暂无明确决断建议"
         the_call = the_call_raw if str(the_call_raw).strip() not in GARBAGE_VALUES and len(str(the_call_raw).strip()) >= 5 else "暂无明确决断建议"
@@ -2117,6 +2694,7 @@ CONTENT:
                         <td colspan="8" class="wacc-source"><strong>WACC 参数来源与逻辑：</strong> {wacc_data.get("source", "未披露")}</td>
                     </tr>
                     {"<tr><td colspan='8' class='wacc-source'><strong>敏感性分析：</strong></td></tr><tr><td colspan='8' class='wacc-source'>" + markdown2.markdown(self._format_sensitivity_table(wacc_data.get("sensitivity", "")), extras=["tables"]) + "</td></tr>" if wacc_data.get("sensitivity") else ""}
+                    {"<tr><td colspan='8' class='wacc-source'><strong>DCF 每股目标价：</strong> " + esc(str(wacc_data.get("dcf_target", "N/A"))) + "</td></tr>" if wacc_data.get("dcf_target") else ""}
                 </tbody>
             </table>
             '''
@@ -2126,7 +2704,42 @@ CONTENT:
         # Peer comparison table
         peers = d.get("peer_comparison", [])
         peer_section_html = ""
+        peer_chart_html = ""
+        flow_section_html = ""
+        # Fundamentals live inside the snapshot, not in the top-level data dict.
+        _snapshot = d.get("snapshot", {}) or {}
+        financials = _snapshot.get("financials", {}) or {}
+        valuation = _snapshot.get("valuation", {}) or {}
         if peers and isinstance(peers, list) and len(peers) > 0:
+            target_name = info.get("longName") or info.get("shortName") or "本公司"
+            def _cn(val):
+                if isinstance(val, (int, float)): return val
+                if isinstance(val, str):
+                    try: return float(val.replace("%", "").replace(",", "").replace("亿", "").strip())
+                    except: return val
+                return val
+
+            t_roe = _cn(financials.get("roe") or valuation.get("ROE") or "N/A")
+            if isinstance(t_roe, (int, float)) and -1.0 <= t_roe <= 1.0 and not valuation.get("ROE"): t_roe *= 100
+            
+            t_margin = _cn(financials.get("net_margin") or financials.get("profitMargins") or "N/A")
+            if isinstance(t_margin, (int, float)) and -1.0 <= t_margin <= 1.0: t_margin *= 100
+
+            t_mc = _cn(valuation.get("总市值") or info.get("marketCap") or "N/A")
+            if isinstance(t_mc, (int, float)) and t_mc > 1e7: t_mc /= 1e8
+
+            target_peer = {
+                "name": f"🌟 {target_name}",
+                "symbol": info.get("symbol", ""),
+                "pe": _cn(valuation.get("市盈率(动)") or valuation.get("PE") or info.get("trailingPE") or "N/A"),
+                "pb": _cn(valuation.get("市净率") or valuation.get("PB") or info.get("priceToBook") or "N/A"),
+                "roe": t_roe,
+                "margin": t_margin,
+                "marketCap": t_mc,
+                "vs_target": "当前分析标的 (Target)"
+            }
+            peers = [target_peer] + [p for p in peers if p.get("symbol") != info.get("symbol")]
+
             peer_rows = ""
             def _fv(v, suffix=""):
                 if v is None or v == "N/A": return "N/A"
@@ -2163,6 +2776,64 @@ CONTENT:
                     <tbody>{peer_rows}</tbody>
                 </table>
             </div>'''
+            # Peer chart
+            chart_items = []
+            for p in peers:
+                if not isinstance(p, dict):
+                    continue
+                name = p.get("name") or p.get("company", "N/A")
+                roe_val = _alt(p, "roe", "roe_fy2025_pct")
+                if roe_val is not None and isinstance(roe_val, (int, float)):
+                    chart_items.append({"label": str(name), "value": float(roe_val)})
+                else:
+                    pe_val = _alt(p, "pe", "pe_ttm")
+                    if pe_val is not None and isinstance(pe_val, (int, float)):
+                        chart_items.append({"label": str(name), "value": float(pe_val)})
+            if chart_items:
+                peer_chart_html = self._svg_hbars(chart_items, title="可比公司 ROE/PE 对比")
+
+        # Flow & Positioning card (北向资金 + 茅台批价)
+        nb = d.get("northbound") or {}
+        bp = d.get("baijiu_price") or {}
+        has_nb = isinstance(nb, dict) and nb.get("latest_hold_pct") is not None
+        has_bp = isinstance(bp, dict) and bp.get("price") is not None
+        if has_nb or has_bp:
+            flow_rows = ""
+            if has_nb:
+                hold_pct = nb.get("latest_hold_pct")
+                if hold_pct is not None and isinstance(hold_pct, (int, float)):
+                    flow_rows += f'<tr><td>{locale["label_northbound_hold"]}</td><td><strong>{round(float(hold_pct), 2)}%</strong></td></tr>'
+                inflow_5d = nb.get("five_day_net_inflow")
+                if inflow_5d is not None and isinstance(inflow_5d, (int, float)):
+                    sign = "+" if inflow_5d > 0 else ""
+                    flow_rows += f'<tr><td>{locale["label_northbound_5d"]}</td><td><strong style="color:{"#10b981" if inflow_5d > 0 else "#ef4444"}">{sign}{money_v(inflow_5d)}</strong></td></tr>'
+                trend = nb.get("five_day_trend")
+                if trend:
+                    trend_color = "#10b981" if "流入" in str(trend) else "#ef4444"
+                    flow_rows += f'<tr><td>{locale["label_northbound_trend"]}</td><td><strong style="color:{trend_color}">{esc(trend)}</strong></td></tr>'
+            if has_bp:
+                bp_price = bp.get("price")
+                bp_unit = bp.get("unit", "")
+                bp_as_of = bp.get("as_of", "")
+                if bp_price is not None:
+                    bp_str = f"{bp_price} {bp_unit}" if bp_unit else str(bp_price)
+                    if bp_as_of:
+                        bp_str += f" <span style='font-size:11px;color:#94a3b8;'>({esc(bp_as_of)})</span>"
+                    flow_rows += f'<tr><td>{locale["label_baijiu_price"]}</td><td><strong>{bp_str}</strong></td></tr>'
+            if not flow_rows:
+                flow_rows = f'<tr><td colspan="2" style="color:#94a3b8;font-style:italic;">{locale["label_no_northbound"]}</td></tr>'
+            flow_section_html = f'''
+        <section class="section">
+            <h2 class="section-title">{locale["card_flow_positioning"]}</h2>
+            <div class="dashboard-grid">
+                <div class="dashboard-card full-width">
+                    <table class="fund-table">
+                        <thead><tr><th>指标</th><th>数值</th></tr></thead>
+                        <tbody>{flow_rows}</tbody>
+                    </table>
+                </div>
+            </div>
+        </section>'''
 
         # Categorized Metrics
         categories = [
@@ -2298,6 +2969,28 @@ CONTENT:
                     expected_return_html = f'<div style="margin-top: 10px; font-weight: bold; font-size: 14px; text-align: right;">概率加权期望目标价: {exp_price:.2f} 现价({current_price}) 期望回报: <span style="color: {color};">{exp_ret:+.2f}%</span></div>'
         except Exception as e:
             print(f"Error calculating expected return: {e}")
+
+        # Scenario chart
+        scenario_chart_html = ""
+        if isinstance(scenarios, list) and len(scenarios) > 0:
+            chart_items = []
+            for s in scenarios:
+                if not isinstance(s, dict):
+                    continue
+                case = s.get("case") or s.get("name", "N/A")
+                target_str = str(s.get("targetPrice") or s.get("target", "N/A"))
+                try:
+                    t_str = target_str.replace("元", "").replace("HKD", "").replace("USD", "").replace("¥", "").strip()
+                    if "-" in t_str:
+                        parts = t_str.split("-")
+                        t_val = (float(parts[0]) + float(parts[1])) / 2.0
+                    else:
+                        t_val = float(t_str)
+                except (ValueError, TypeError):
+                    continue
+                chart_items.append({"label": str(case), "value": t_val})
+            if chart_items:
+                scenario_chart_html = self._svg_hbars(chart_items, title="情景目标价对比", unit_str=info.get("currency", ""))
 
 
         # Trading Plan Grid
@@ -2970,6 +3663,7 @@ CONTENT:
                 <div style="font-size: 13px; color: var(--text); font-weight: 500;">
                     <strong>{locale["label_expected_return"]}</strong> {factor.get("expected_return") or locale["label_no_expectation"]}
                 </div>
+                <div style="margin-top: 14px; text-align: center;">{factor_radar_html}</div>
             </div>
             
             <div class="dashboard-card">
@@ -3000,6 +3694,7 @@ CONTENT:
                     <tbody>{sc_rows}</tbody>
                 </table>
                 {expected_return_html}
+                <div style="margin-top: 16px;">{scenario_chart_html}</div>
             </div>
         </div>
         
@@ -3042,6 +3737,9 @@ CONTENT:
         </section>
         
         {peer_section_html}
+        <div style="margin-top: 16px; margin-bottom: 16px;">{peer_chart_html}</div>
+
+        {flow_section_html}
 
         <section class="section">
             <h2 class="section-title">{locale["core_variables"]}</h2>

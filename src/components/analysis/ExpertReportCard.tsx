@@ -36,6 +36,8 @@ const roleThemes: Record<AgentRole, { color: string; bg: string; border: string;
   "Value Investing Sage": { color: "text-teal-600", bg: "bg-teal-50/50", border: "border-teal-200/60", icon: Database },
   "Growth Visionary": { color: "text-fuchsia-600", bg: "bg-fuchsia-50/50", border: "border-fuchsia-200/60", icon: Target },
   "Macro Hedge Titan": { color: "text-cyan-700", bg: "bg-cyan-50/50", border: "border-cyan-200/60", icon: BarChart3 },
+  "Soros-style Financial Philosopher": { color: "text-violet-700", bg: "bg-violet-50/50", border: "border-violet-200/60", icon: BarChart3 },
+  "Serenity Alpha Analyst": { color: "text-teal-700", bg: "bg-teal-50/50", border: "border-teal-200/60", icon: Target },
   "Chief Strategist": { color: "text-amber-600", bg: "bg-amber-50/50", border: "border-amber-200/60", icon: Award },
   "Professional Reviewer": { color: "text-blue-600", bg: "bg-blue-50/50", border: "border-blue-200/60", icon: ShieldCheck },
   "Moderator": { color: "text-zinc-600", bg: "bg-zinc-50/50", border: "border-zinc-200/60", icon: Search }

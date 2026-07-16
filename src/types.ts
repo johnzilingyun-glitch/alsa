@@ -329,6 +329,8 @@ export type AgentRole =
   | "Value Investing Sage"
   | "Growth Visionary"
   | "Macro Hedge Titan"
+  | "Soros-style Financial Philosopher"
+  | "Serenity Alpha Analyst"
   | "Moderator";
 
 export interface AgentMessage {

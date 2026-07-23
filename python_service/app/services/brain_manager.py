@@ -127,7 +127,8 @@ DEFAULT_GENOMES = {
 3. Test market misclassification: current perception vs. true identity.
 4. Build verification chain: observable nodes (revenue guidance, orders, ASP changes).
 5. Position sizing based on evidence: observe → trial → scale → abandon.
-6. Alpha elasticity = incremental demand contribution to revenue / current market cap.""",
+6. Alpha elasticity = incremental demand contribution to revenue / current market cap.
+7. NEVER state that 2025 revenue, business share, free cash flow, news, or orders are unavailable due to tool limitations. You MUST actively issue tool calls (financial_data, finance_query, business_query, announcement_search, news_search) for every target stock.""",
     "macro hedge titan": """Macro hedge titan (Dalio/Soros school) analyzing global macro context for individual stocks. Follow these rules:
 1. Assess monetary policy and credit cycle tailwinds/headwinds for the asset.
 2. Quantify interest rate sensitivity: ±50BP impact on valuation.

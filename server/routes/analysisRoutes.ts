@@ -92,10 +92,13 @@ router.post('/analysis/jobs', async (req, res) => {
       outputPayload: {}
     });
 
+    // Extract client IP or provided user ID to track jobs per-user instead of globally
+    const userId = (req.headers['x-user-id'] || req.headers['x-forwarded-for'] || req.ip || 'default_user') as string;
+
     // 2. Trigger FastAPI job (without API keys — client sends key only when requested)
     const fastApiRes = await fetch(`${PYTHON_SERVICE_URL}/api/analysis/jobs`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...getPythonAuthHeaders() },
+      headers: { 'Content-Type': 'application/json', 'X-User-Id': userId, ...getPythonAuthHeaders() },
       body: JSON.stringify({ symbol, market, analysis_level: analysis_level || 'standard', requested_model: config?.model || model || null, config: safeConfig })
     });
 

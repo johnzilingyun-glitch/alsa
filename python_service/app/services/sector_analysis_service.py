@@ -323,8 +323,71 @@ class SectorAnalysisService:
         return None
 
     async def _fetch_sector_stocks(self, sector_name: str) -> List[Dict[str, Any]]:
-        """Fetch constituent stocks for a sector with real-time prices from API."""
-        
+        """Fetch constituent stocks for a sector with real-time prices and core financial metrics from API."""
+        from .data_providers import data_router
+        from .search_service import search_service
+
+        # Curated presets for common sectors
+        sector_presets = {
+            "PCB": ["002463", "300476", "002916", "688183", "002384", "603228", "600183", "300657"],
+            "印制电路板": ["002463", "300476", "002916", "688183", "002384", "603228", "600183", "300657"],
+            "半导体": ["603986", "688981", "600584", "002371", "300782", "688012", "603501"],
+            "光伏": ["601012", "600438", "300274", "688599", "600732", "002459"],
+            "铝": ["601600", "000807", "600219", "002532", "601702"],
+            "锂": ["002466", "300014", "002460", "002756", "300438"],
+            "铜": ["600362", "000630", "601168", "000878"],
+            "人工智能": ["002230", "300418", "688041", "300308", "000977"],
+        }
+
+        codes = []
+        for key, preset_codes in sector_presets.items():
+            if key.lower() in sector_name.lower():
+                codes.extend(preset_codes)
+                break
+
+        if not codes:
+            # Fallback: search web for sector concept stocks
+            try:
+                search_res = await search_service.search(f"{sector_name} 概念股 龙头 股票代码", max_results=5)
+                all_text = " ".join([r.get("title", "") + " " + r.get("content", "") for r in search_res or []])
+                found_codes = re.findall(r'\b([0368]\d{5})\b', all_text)
+                for c in found_codes:
+                    if c not in codes:
+                        codes.append(c)
+                    if len(codes) >= 8:
+                        break
+            except Exception as e:
+                logger.warning(f"Failed to search constituent stocks for sector {sector_name}: {e}")
+
+        if not codes:
+            return []
+
+        # Deduplicate & cap to 8 stocks
+        codes = list(dict.fromkeys(codes))[:8]
+
+        stocks_info = []
+        async def _fetch_one(c: str):
+            try:
+                summary = await data_router.get_financial_summary(c)
+                if summary and "error" not in summary:
+                    stocks_info.append({
+                        "code": c,
+                        "name": summary.get("name") or c,
+                        "price": summary.get("price", "N/A"),
+                        "change_pct": summary.get("turnoverPct", "N/A"),
+                        "pe": summary.get("pe", "N/A"),
+                        "pb": summary.get("pb", "N/A"),
+                        "market_cap_yi": summary.get("marketCap", "N/A"),
+                        "turnover_pct": summary.get("turnoverPct", "N/A"),
+                        "revenue": summary.get("revenue", "N/A"),
+                        "net_profit": summary.get("netProfit", "N/A"),
+                        "free_cashflow": summary.get("freeCashflow", "N/A"),
+                    })
+            except Exception as e:
+                logger.warning(f"Failed to fetch financial summary for stock {c} in sector {sector_name}: {e}")
+
+        await asyncio.gather(*[_fetch_one(c) for c in codes], return_exceptions=True)
+        return stocks_info
     async def _enrich_result_with_prices(self, result: Dict[str, Any]) -> Dict[str, Any]:
         """Extract stock codes from discussion, fetch real-time prices, add to result."""
         import yfinance as yf

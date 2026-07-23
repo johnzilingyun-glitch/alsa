@@ -15,7 +15,8 @@ with session_factory() as session:
     job = session.exec(statement).first()
     if job:
         print(f"Job ID: {job.job_id}")
-        payload = json.loads(job.result_payload)
+        payload = job.result_payload or {}
         discussion = payload.get("discussion", [])
         for m in discussion:
-            print(f"Role: {m['role']} | Content Start: {m['content'][:50].replace('\n', ' ')}")
+            start_content = m['content'][:50].replace('\n', ' ')
+            print(f"Role: {m['role']} | Content Start: {start_content}")

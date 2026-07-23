@@ -141,6 +141,8 @@ export function useStockAnalysis() {
             const runData = await runRes.json();
             if (runData.success) {
               updateJob(bgId, { status: 'completed', result: runData.data });
+              // Save completed background job to history context
+              void saveAnalysisToHistory('stock', { ...runData.data, _jobId: bgJobId });
             } else {
               updateJob(bgId, { status: 'failed', error: '获取结果失败' });
             }
@@ -362,6 +364,8 @@ export function useStockAnalysis() {
     if (job.result.discussion) {
       setDiscussionMessages(job.result.discussion);
     }
+    // Save to history when loading completed background job
+    void saveAnalysisToHistory('stock', { ...job.result, _jobId: job.jobId });
     if (job.result.stockInfo) {
       addRecentSearch({
         symbol: job.result.stockInfo.symbol,

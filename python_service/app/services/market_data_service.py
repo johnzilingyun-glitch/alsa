@@ -951,6 +951,39 @@ class MarketDataService:
                     except Exception:
                         pass
 
+                # --- Enhance cash/debt/netCash via AStockDirectProvider (reliable A-Share source) ---
+                # yfinance lacks balance-sheet cash/debt for A-Share (.SS/.SZ) → netCash was always
+                # None. Reuse the SAME provider the report/snapshot path uses (data_router._a_stock_primary)
+                # so comprehensive_financials matches the HTML report. Handles zero-debt names (e.g. 茅台)
+                # where netCash should be a positive amount, not skipped.
+                _a_cash_debt = {}
+                _a_ownership = {}
+                try:
+                    from .data_providers import data_router
+                    a_provider = data_router._a_stock_primary
+                    a_summary = await a_provider.get_financial_summary(symbol)
+                    if a_summary and "error" not in a_summary:
+                        _a_cash_debt = {
+                            "totalCash": a_summary.get("totalCash"),
+                            "totalDebt": a_summary.get("totalDebt"),
+                            "netCash": a_summary.get("netCash"),
+                            "netCashPerShare": a_summary.get("netCashPerShare"),
+                            "enterpriseValue": a_summary.get("enterpriseValue") or yf_info.get("enterpriseValue"),
+                        }
+                        # A-share-native ownership (EastMoney F10): correct institutional
+                        # %, real top-10 circulating holders. yfinance heldPercent* is
+                        # meaningless for A-shares and was the source of the 100x distortion.
+                        _a_ownership = {
+                            "heldPercentInsiders": a_summary.get("heldPercentInsiders"),
+                            "heldPercentInstitutions": a_summary.get("heldPercentInstitutions"),
+                            "topCirculatingHolders": a_summary.get("topCirculatingHolders"),
+                        }
+                    else:
+                        logger.warning("AStockDirectProvider returned error/empty for A-Share %s in comprehensive_financials; falling back to yfinance", symbol)
+                        _a_ownership = {}
+                except Exception as e:
+                    logger.warning("AStockDirectProvider financial summary failed for A-Share %s in comprehensive_financials: %s", symbol, e)
+
                 # Combine data
                 return {
                     "marketCap": yf_info.get("marketCap"),
@@ -960,7 +993,7 @@ class MarketDataService:
                     "pegRatio": yf_info.get("pegRatio"),
                     "priceToSales": yf_info.get("priceToSalesTrailing12Months"),
                     "enterpriseToEbitda": yf_info.get("enterpriseToEbitda"),
-                    "enterpriseValue": yf_info.get("enterpriseValue"),
+                    "enterpriseValue": _a_cash_debt.get("enterpriseValue", yf_info.get("enterpriseValue")),
                     "roe": yf_info.get("returnOnEquity"),
                     "roa": yf_info.get("returnOnAssets"),
                     "grossMargin": yf_info.get("grossMargins"),
@@ -990,11 +1023,16 @@ class MarketDataService:
                     "freeCashflow": yf_info.get("freeCashflow"),
                     "operatingCashflow": yf_info.get("operatingCashflow"),
                     "capitalExpenditure": a_capital_expenditure,
+                    "totalCash": _a_cash_debt.get("totalCash"),
+                    "totalDebt": _a_cash_debt.get("totalDebt"),
+                    "netCash": _a_cash_debt.get("netCash"),
+                    "netCashPerShare": _a_cash_debt.get("netCashPerShare"),
                     "payoutRatio": yf_info.get("payoutRatio"),
                     "dividend": None,
                     "dividendYield": yf_info.get("dividendYield"),
-                    "heldPercentInsiders": yf_info.get("heldPercentInsiders"),
-                    "heldPercentInstitutions": yf_info.get("heldPercentInstitutions"),
+                    "heldPercentInsiders": _a_ownership.get("heldPercentInsiders", yf_info.get("heldPercentInsiders")),
+                    "heldPercentInstitutions": _a_ownership.get("heldPercentInstitutions", yf_info.get("heldPercentInstitutions")),
+                    "topCirculatingHolders": _a_ownership.get("topCirculatingHolders"),
                     "fiftyTwoWeekHigh": yf_info.get("fiftyTwoWeekHigh"),
                     "fiftyTwoWeekLow": yf_info.get("fiftyTwoWeekLow"),
                     "price": yf_info.get("currentPrice") or yf_info.get("regularMarketPrice"),

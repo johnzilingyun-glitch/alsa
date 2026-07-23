@@ -23,7 +23,7 @@ category: strategy-decision
 
 | 标记 | 含义 |
 |------|------|
-| `[🔴 CIO_DASHBOARD_MISSING]` | 首席策略师遗漏 CIO 面板 |
+| `[🔴 CIO_DASHBOARD_MISSING]` | 专家报告（包括非策略师）遗漏 CIO 面板 |
 | `[🔴 AR_MISMATCH]` | 品类自适应方法论错配 |
 | `[🔴 KILL_SWITCH_MISSING]` | 遗漏防伪红线判定 |
 | `[🔴 WACC_BLACKBOX]` | WACC 未白箱化 |
@@ -44,7 +44,7 @@ category: strategy-decision
 
 | 审计项 | 检查内容 |
 |--------|---------|
-| CIO Dashboard | 核心定调/因子雷达/多空共识差/一句话决断是否完整 |
+| CIO Dashboard | 所有专家的报告开头是否都包含完整的核心定调/因子雷达/多空共识差/一句话决断 |
 | 品类自适应 | 是否正确识别品类并采用对应估值方法 |
 | Gordon 模型 | g ≥ r 则数学错误，估值无效 |
 | DCF 参数 | WACC/Beta/ERP 必须有构成逻辑 |

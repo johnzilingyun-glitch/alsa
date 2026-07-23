@@ -17,11 +17,15 @@ router.post('/llm/generate', async (req, res) => {
     const response = await gatewayGenerate(prompt, model, (event, data) => console.log(`[Gateway] ${event}`, data), config);
     const generatedText = response.text;
     
-    // Ensure we always have a fallback numeric structure, even if API returned empty
-    const usage = response.usageMetadata || {
-      promptTokenCount: 0,
-      candidatesTokenCount: 0,
-      totalTokenCount: 0
+    // Ensure we always have a fallback numeric structure, estimating tokens if missing or zero
+    const promptTokens = response.usageMetadata?.promptTokenCount || Math.ceil(prompt.length / 3);
+    const completionTokens = response.usageMetadata?.candidatesTokenCount || Math.ceil(generatedText.length / 3);
+    const totalTokens = response.usageMetadata?.totalTokenCount || (promptTokens + completionTokens);
+
+    const usage = {
+      promptTokenCount: promptTokens,
+      candidatesTokenCount: completionTokens,
+      totalTokenCount: totalTokens
     };
     
     return res.json({

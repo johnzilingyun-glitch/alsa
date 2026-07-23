@@ -233,8 +233,8 @@ class AnalysisJobService:
 
     async def start_job(self, symbol: str, market: str, level: str = "standard", model: Optional[str] = None, config: Optional[Dict[str, Any]] = None, user_id: str = "default_user", verification_mode: str = "quick") -> str:
         import re
-        if not re.match(r"^[A-Za-z0-9.\-_]+$", symbol) or not re.match(r"^[A-Za-z0-9.\-_]+$", market):
-            raise ValueError("Invalid symbol or market format. Must be alphanumeric.")
+        if not re.match(r"^[A-Za-z0-9.\-_\u4e00-\u9fa5]+$", symbol) or not re.match(r"^[A-Za-z0-9.\-_\u4e00-\u9fa5]+$", market):
+            raise ValueError("Invalid symbol or market format. Must be alphanumeric or Chinese.")
 
         # Deduplicate: if same symbol+market already has a running/queued job within 60s, reuse it
         existing = self.job_repo.find_recent_running(symbol, market, within_seconds=60)

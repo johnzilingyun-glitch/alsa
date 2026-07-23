@@ -60,15 +60,24 @@ async def create_job(payload: AnalysisJobCreate, request: Request, service: Anal
     if service.job_repo.has_running_for_user(user_id):
         return error_response("QUEUE_FULL", "您当前已有分析任务正在进行中，请等待其完成后再提交新任务。")
 
-    job_id = await service.start_job(
-        symbol=payload.symbol, 
-        market=payload.market, 
-        level=payload.analysis_level,
-        model=payload.requested_model,
-        config=payload.config,
-        user_id=user_id,
-        verification_mode=payload.verification_mode
-    )
+    try:
+        job_id = await service.start_job(
+            symbol=payload.symbol, 
+            market=payload.market, 
+            level=payload.analysis_level,
+            model=payload.requested_model,
+            config=payload.config,
+            user_id=user_id,
+            verification_mode=payload.verification_mode
+        )
+    except ValueError as e:
+        from fastapi.responses import JSONResponse
+        return JSONResponse(status_code=400, content=error_response("INVALID_INPUT", str(e)))
+    except Exception as e:
+        from fastapi.responses import JSONResponse
+        logger.exception(f"Unexpected error in create_job: {e}")
+        return JSONResponse(status_code=500, content=error_response("INTERNAL_ERROR", "Internal Server Error"))
+
     return success_response({
         "job_id": job_id, 
         "status": "queued"

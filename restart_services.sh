@@ -12,6 +12,7 @@ mkdir -p "$LOGS_DIR"
 # Kill existing processes
 echo "Stopping existing services..."
 pkill -f "uvicorn.*8001" 2>/dev/null || true
+pkill -f "run_py_service.py" 2>/dev/null || true
 pkill -f "tsx server.ts" 2>/dev/null || true
 pkill -f "vite --host" 2>/dev/null || true
 sleep 2

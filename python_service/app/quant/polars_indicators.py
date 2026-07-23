@@ -19,7 +19,10 @@ def compute_indicator_frame(rows: List[Dict[str, Any]]) -> pl.DataFrame:
     df = df.with_columns([
         pl.col("close").rolling_mean(5).alias("ma_5"),
         pl.col("close").rolling_mean(20).alias("ma_20"),
+        pl.col("close").rolling_mean(50).alias("ma_50"),
         pl.col("close").rolling_mean(60).alias("ma_60"),
+        pl.col("close").rolling_mean(150).alias("ma_150"),
+        pl.col("close").rolling_mean(200).alias("ma_200"),
         pl.col("volume").rolling_mean(5).alias("avg_volume_5"),
         pl.col("volume").rolling_mean(20).alias("avg_volume_20"),
         pl.col("close").rolling_std(20).alias("std_20"),

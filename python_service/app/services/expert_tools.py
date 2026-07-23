@@ -464,14 +464,15 @@ ROLE_TOOLS_MAP = {
     "Deep Research Specialist": ["web_search", "news_search", "deep_scrape", "knowledge_search", "report_search", "announcement_search"],
     "Technical Analyst": ["minervini_stage", "stop_loss_validator", "position_sizer", "risk_reward", "futures_query", "commodity_price_query", "financial_data", "web_search", "news_search", "announcement_search"],
     "Fundamental Analyst": ["financial_data", "dcf_calculator", "dupont_decomposition", "comps_valuation", "earnings_quality_audit", "cagr_calculator", "macro_query", "business_query", "finance_query", "management_query", "valuation_query", "web_search", "news_search", "announcement_search"],
-    "Serenity Alpha Analyst": ["minervini_stage", "position_sizer", "financial_data", "beat_miss_scorer", "comps_valuation", "cagr_calculator", "web_search", "news_search", "announcement_search"],
+    "Serenity Alpha Analyst": ["minervini_stage", "position_sizer", "financial_data", "beat_miss_scorer", "comps_valuation", "cagr_calculator", "web_search", "news_search", "announcement_search", "finance_query", "business_query", "report_search", "macro_query"],
     "Chief Audit Officer": ["pillar_scorer", "earnings_quality_audit", "web_search", "news_search", "announcement_search", "financial_data"],
     "Risk Manager": ["drawdown_scenario", "position_sizer", "kelly_calculator", "web_search", "news_search", "announcement_search", "financial_data"],
     "Sentiment Analyst": ["news_search", "web_search", "industry_query", "policy_query", "announcement_search"],
     "Bull Researcher": ["pillar_scorer", "web_search", "news_search", "announcement_search", "financial_data"],
     "Bear Researcher": ["pillar_scorer", "web_search", "news_search", "announcement_search", "financial_data"],
     "Professional Reviewer": ["pillar_scorer", "web_search", "news_search", "announcement_search", "financial_data"],
-    "Chief Strategist": ["position_sizer", "drawdown_scenario", "kelly_calculator", "web_search", "news_search", "announcement_search", "financial_data"]
+    "Chief Strategist": ["dcf_calculator", "comps_valuation", "position_sizer", "drawdown_scenario", "kelly_calculator", "web_search", "news_search", "announcement_search", "financial_data"],
+    "Value Investing Sage": ["dcf_calculator", "comps_valuation", "pillar_scorer", "web_search", "news_search", "announcement_search", "financial_data"]
 }
 
 def format_tool_descriptions(role: str = None, language: str = "zh-CN") -> str:
@@ -1337,13 +1338,35 @@ class ToolExecutor:
             return "\n".join(lines)
         except Exception as e:
             self._iwencai_disabled = True
-            # FALLBACK to SearchService for all iwencai queries
+            # FALLBACK to SearchService for all iwencai queries + DataRouter if stock code present
             from .search_service import search_service
+            from ..services.data_providers import data_router
+            import re
+            
+            # Check if query contains an A-share stock code
+            code_match = re.search(r'\b([0368]\d{5})\b', query)
+            extra_data_text = ""
+            if code_match:
+                code = code_match.group(1)
+                try:
+                    summary = await data_router.get_financial_summary(code)
+                    if summary and "error" not in summary:
+                        f_parts = []
+                        for k, label_name in [("name", "名称"), ("price", "股价"), ("pe", "PE"), ("pb", "PB"), ("roe", "ROE"), ("revenue", "营收"), ("netProfit", "净利润"), ("freeCashflow", "自由现金流"), ("operatingCashflow", "经营现金流")]:
+                            if summary.get(k) is not None:
+                                f_parts.append(f"{label_name}:{summary[k]}")
+                        if f_parts:
+                            extra_data_text = f"结构化数据 [{code}]: " + " | ".join(f_parts) + "\n\n"
+                except Exception as ex:
+                    logger.debug(f"DataRouter fallback lookup failed for {code}: {ex}")
+
             try:
                 results = await search_service.search(query, max_results=8)
-                if results:
-                    lines = ["<tool_observation>", f"{label} (Fallback Web Search): {query}", ""]
-                    for count, r in enumerate(results):
+                if results or extra_data_text:
+                    lines = ["<tool_observation>", f"{label} (Fallback): {query}", ""]
+                    if extra_data_text:
+                        lines.append(extra_data_text)
+                    for count, r in enumerate(results or []):
                         title = str(r.get("title", ""))[:100]
                         content = str(r.get("content", ""))[:200]
                         source = str(r.get("source", ""))[:20]
@@ -1589,7 +1612,8 @@ class ToolExecutor:
                             core_fields = ["name", "price", "pe", "pb", "roe", "marketCap",
                                           "revenue", "netProfit", "revenueGrowthYoY", "netProfitGrowthYoY",
                                           "revenueGrowth", "netProfitGrowth",
-                                          "eps", "bvps", "grossMargin", "turnoverPct", "industry"]
+                                          "eps", "bvps", "grossMargin", "turnoverPct", "industry",
+                                          "freeCashflow", "operatingCashflow", "capitalExpenditure", "totalCash", "netCash"]
                             parts = []
                             for f in core_fields:
                                 v = summary.get(f)
@@ -1602,7 +1626,7 @@ class ToolExecutor:
                             # Extended metrics (growth, margins, CAGR)
                             ext_fields = ["netProfitDeduct", "netProfitDeductYoY",
                                          "revenueCagr3y", "incomeCagr3y", "revenueQoQ", "netProfitQoQ",
-                                         "operatingCashflowPerShare", "netProfitYoY"]
+                                         "operatingCashflowPerShare", "netProfitYoY", "freeCashflow", "operatingCashflow"]
                             ext_parts = []
                             for f in ext_fields:
                                 v = summary.get(f)
@@ -1700,13 +1724,26 @@ class ToolExecutor:
                         logger.warning(f"[ToolExecutor] Balance sheet failed for {symbol}: {e}")
 
                 # --- Cash flow ---
-                if _budget_ok() and any(kw in query_lower for kw in ["cash flow", "capex", "fcf", "现金流", "资本开支"]):
+                if _budget_ok() and any(kw in query_lower for kw in ["cash flow", "capex", "fcf", "现金流", "资本开支", "自由现金流", "经营现金流"]):
+                    if summary and any(k in summary for k in ["freeCashflow", "operatingCashflow", "capitalExpenditure"]):
+                        lines.append("## 现金流概览 (DataRouter)")
+                        cf_parts = []
+                        if summary.get("freeCashflow") is not None:
+                            cf_parts.append(f"自由现金流(FCF):{_fmt_num(summary['freeCashflow'])}")
+                        if summary.get("operatingCashflow") is not None:
+                            cf_parts.append(f"经营现金流净额:{_fmt_num(summary['operatingCashflow'])}")
+                        if summary.get("capitalExpenditure") is not None:
+                            cf_parts.append(f"资本支出(CAPEX):{_fmt_num(summary['capitalExpenditure'])}")
+                        if cf_parts:
+                            lines.append(" | ".join(cf_parts))
+                            lines.append("")
+
                     try:
                         yf_symbol = f"{symbol}.SS" if symbol.startswith('6') else f"{symbol}.SZ"
                         ticker = yf.Ticker(yf_symbol)
                         cf = await asyncio.to_thread(getattr, ticker, "cashflow")
                         if cf is not None and not cf.empty:
-                            lines.append("## 现金流量表")
+                            lines.append("## 现金流量表 (yfinance)")
                             key_items = ['Operating Cash Flow', 'Capital Expenditure', 'Free Cash Flow']
                             for item in key_items:
                                 if item in cf.index:

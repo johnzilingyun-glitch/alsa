@@ -29,7 +29,8 @@ class MacroService:
         "LLDPE":              "L",
     }
     COMMODITY_UNITS = {
-        "Lithium Carbonate": "元/吨",
+        "Lithium Carbonate":  "元/吨",
+        "Potassium Chloride": "元/吨",
         "Copper":             "元/吨",
         "Gold":               "元/克",
         "Aluminum":           "元/吨",
@@ -45,7 +46,8 @@ class MacroService:
     COMMODITY_SOURCE = "期货主力合约 (Sina Finance)"
 
     COMMODITY_YF_TICKER = {
-        "Lithium Carbonate": None,
+        "Lithium Carbonate":  None,
+        "Potassium Chloride": None,
         "Copper":             "HG=F",
         "Gold":               "GC=F",
         "Aluminum":           "ALI=F",

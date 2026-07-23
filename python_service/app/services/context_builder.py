@@ -193,6 +193,15 @@ class ContextBuilder:
                     return None
             close = _val("close")
             ma5, ma20, ma60 = _val("ma_5"), _val("ma_20"), _val("ma_60")
+            ma50, ma150, ma200 = _val("ma_50"), _val("ma_150"), _val("ma_200")
+            ma200_prev = None
+            if df.height > 1:
+                try:
+                    ma200_prev = df.tail(2).select("ma_200").head(1).item()
+                    if ma200_prev is not None:
+                        ma200_prev = round(float(ma200_prev), 4)
+                except Exception:
+                    pass
             macd, macd_sig, macd_hist = _val("macd"), _val("macd_signal"), _val("macd_hist")
             rsi = _val("rsi_14") or _val("rsi")
             atr = _val("atr_14") or _val("atr")
@@ -202,6 +211,8 @@ class ContextBuilder:
                 f"price={close} trend={trend}",
                 f"MA5={ma5} MA20={ma20} MA60={ma60}",
             ]
+            if ma50 is not None:
+                lines.append(f"MA50={ma50} MA150={ma150} MA200={ma200} MA200_prev={ma200_prev}")
             if macd is not None:
                 lines.append(f"MACD={macd} signal={macd_sig} hist={macd_hist}")
             if rsi is not None:

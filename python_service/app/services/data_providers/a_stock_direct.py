@@ -161,16 +161,23 @@ def _eastmoney_datacenter(
     return []
 
 
-async def fetch_a_share_ownership(code: str) -> Dict[str, float]:
-    """Best-effort A-share ownership ratios from EastMoney F10 (with datacenter
-    fallback for top holders). Returns a dict with any of
-    {heldPercentInsiders, heldPercentInstitutions} that could be resolved, else {}.
+async def fetch_a_share_ownership(code: str) -> Dict[str, Any]:
+    """Best-effort A-share ownership from EastMoney F10. Returns a dict that may
+    contain:
+      - heldPercentInsiders:     float  (decimal fraction of shares held by top-10 holders)
+      - heldPercentInstitutions: float  (decimal fraction held by institutions, EastMoney 机构持股)
+      - topCirculatingHolders:   List[Dict]  (前十大流通股东: rank/name/type/shares/pct/change/endDate)
 
     Kept module-level so the router can backfill ownership regardless of which
     provider won the concurrent financials race (e.g. yfinance, which lacks
     A-share holder data).
+
+    UNIT NOTE (fixes the 100x distortion): EastMoney `TOTAL_SHARES_RATIO` and
+    `HOLD_NUM_RATIO` are already decimal fractions (0.0085 == 0.85%). The old code
+    did `inst_ratio / 100`, understating institutional holdings by 100x — this is
+    the "筹码结构严重失真" bug for non-dual-listed A-shares. Do NOT divide by 100.
     """
-    out: Dict[str, float] = {}
+    out: Dict[str, Any] = {}
     prefix = "SH" if code.startswith("6") else "SZ"
 
     def _fetch_holders():
@@ -186,16 +193,34 @@ async def fetch_a_share_ownership(code: str) -> Dict[str, float]:
         holders = None
 
     if holders:
-        sdgd = holders.get("sdgd") or holders.get("sdltgd") or []
-        if isinstance(sdgd, list) and sdgd:
-            top_sum = sum((h.get("HOLD_NUM_RATIO") or 0) for h in sdgd)
+        # 前十大流通股东 — the REAL A-share chip structure. Prefer `sdltgd`
+        # (carries HOLDER_TYPE + FREE_HOLDNUM_RATIO for circulating shares) over
+        # `sdgd`.
+        sdltgd = holders.get("sdltgd") or holders.get("sdgd") or []
+        if isinstance(sdltgd, list) and sdltgd:
+            top_sum = sum((h.get("HOLD_NUM_RATIO") or 0) for h in sdltgd)
             if top_sum > 0:
-                out["heldPercentInsiders"] = top_sum / 100  # decimal
+                # HOLD_NUM_RATIO is a percent (54.4) -> divide by 100 for decimal.
+                out["heldPercentInsiders"] = top_sum / 100
+            top_holders = []
+            for h in sdltgd[:10]:
+                top_holders.append({
+                    "rank": h.get("HOLDER_RANK"),
+                    "name": h.get("HOLDER_NAME"),
+                    "type": h.get("HOLDER_TYPE"),
+                    "shares": h.get("HOLD_NUM"),
+                    "pct": h.get("FREE_HOLDNUM_RATIO") or h.get("HOLD_NUM_RATIO"),
+                    "change": h.get("HOLD_NUM_CHANGE"),
+                    "endDate": str(h.get("END_DATE"))[:10] if h.get("END_DATE") else None,
+                })
+            if top_holders:
+                out["topCirculatingHolders"] = top_holders
+        # 机构持股 (institutions) — EastMoney jgcc TOTAL_SHARES_RATIO is a percentage (e.g., 12.5117 = 12.5117%)
         jgcc = holders.get("jgcc") or []
         if isinstance(jgcc, list) and jgcc:
             inst_ratio = jgcc[0].get("TOTAL_SHARES_RATIO") or jgcc[0].get("ALL_SHARES_RATIO")
             if inst_ratio:
-                out["heldPercentInstitutions"] = inst_ratio / 100  # decimal
+                out["heldPercentInstitutions"] = float(inst_ratio) / 100.0
 
     # Fallback: F10 PageAjax can return empty for some boards (ChiNext/STAR).
     # Use the datacenter top-10 circulating holders if insiders still missing.
@@ -559,6 +584,209 @@ async def fetch_industry_valuation(industry_name: str) -> Dict[str, Any]:
     return out
 
 
+async def fetch_industry_peers(
+    industry_name: str,
+    top_n: int = 10,
+    exclude_symbol: str = "",
+) -> List[Dict[str, Any]]:
+    """Fetch top-N industry peer companies with valuation data.
+
+    Uses EastMoney RPT_VALUEANALYSIS_DET for per-company PE / PB / market cap
+    (single bulk call), then best-effort fetches ROE and computes net margin
+    from RPT_LICO_FN_CPD for each peer.
+
+    Returns a list of dicts shaped for the report comps table::
+
+        [{name, symbol, pe, pb, roe, margin, marketCap, vs_target}, ...]
+
+    Returns empty list on any failure (graceful degradation).
+    The ``top_n`` peers are selected by total market cap (descending).
+    ``exclude_symbol`` (e.g. the target stock itself) is stripped from results.
+    ``roe`` and ``margin`` may be None when the API is unreachable.
+    """
+    # ── Phase 1: constituent list with PE/PB/MCap ──────────────────────
+    try:
+        def _fetch_page(page_number: int) -> List[Dict]:
+            url = "https://datacenter-web.eastmoney.com/api/data/v1/get"
+            params = {
+                "reportName": "RPT_VALUEANALYSIS_DET",
+                "columns": (
+                    "SECURITY_CODE,SECURITY_NAME_ABBR,PE_TTM,PB_MRQ,"
+                    "TOTAL_MARKET_CAP,TRADE_DATE"
+                ),
+                "filter": f'(BOARD_NAME="{industry_name}")',
+                "pageNumber": str(page_number),
+                "pageSize": "500",
+                "sortColumns": "TRADE_DATE,SECURITY_CODE",
+                "sortTypes": "-1,1",
+                "source": "WEB",
+                "client": "PC",
+            }
+            r = requests.get(url, params=params, headers={"User-Agent": UA}, timeout=30)
+            d = r.json()
+            if d.get("result") and d["result"].get("data"):
+                return d["result"]["data"]
+            return []
+
+        rows = await asyncio.to_thread(_fetch_page, 1)
+        if not rows:
+            return []
+        all_rows = list(rows)
+        # Paginate if page was full (up to safety cap of 2000)
+        while len(rows) == 500 and len(all_rows) < 2000:
+            next_page = len(all_rows) // 500 + 1
+            rows = await asyncio.to_thread(_fetch_page, next_page)
+            if rows:
+                all_rows.extend(rows)
+            else:
+                break
+    except Exception as e:
+        logger.warning(
+            "[IndustryPeers] RPT_VALUEANALYSIS_DET failed for %s: %s",
+            industry_name, e,
+        )
+        return []
+
+    # Deduplicate: latest TRADE_DATE row per SECURITY_CODE
+    seen: Dict[str, Dict[str, Any]] = {}
+    for row in all_rows:
+        code = str(row.get("SECURITY_CODE", "")).strip()
+        if not code or len(code) != 6 or not code.isdigit():
+            continue
+        if code == exclude_symbol:
+            continue
+        if code not in seen:
+            seen[code] = row
+        # (first occurrence is the latest because sort is TRADE_DATE desc)
+
+    # Sort by market cap, take top N
+    def _mcap(r: Dict[str, Any]) -> float:
+        try:
+            return float(r.get("TOTAL_MARKET_CAP") or 0)
+        except (TypeError, ValueError):
+            return 0.0
+
+    top = sorted(seen.values(), key=_mcap, reverse=True)[:top_n]
+    if not top:
+        return []
+
+    # ── Phase 2: ROE & net margin (best-effort, concurrent) ────────────
+    sem = asyncio.Semaphore(8)
+
+    async def _fetch_financials(code: str) -> Dict[str, Any]:
+        """Single-company financial indicators → {roe, margin} or {}."""
+        async with sem:
+            try:
+                def _req():
+                    url = "https://datacenter-web.eastmoney.com/api/data/v1/get"
+                    params = {
+                        "reportName": "RPT_LICO_FN_CPD",
+                        "columns": (
+                            "REPORTDATE,WEIGHTAVG_ROE,TOTAL_OPERATE_INCOME,"
+                            "PARENT_NETPROFIT"
+                        ),
+                        "filter": f'(SECURITY_CODE="{code}")',
+                        "pageNumber": "1",
+                        "pageSize": "5",
+                        "sortColumns": "REPORTDATE",
+                        "sortTypes": "-1",
+                        "source": "WEB",
+                        "client": "PC",
+                    }
+                    r = requests.get(
+                        url, params=params,
+                        headers={"User-Agent": UA}, timeout=12,
+                    )
+                    return r.json()
+
+                data = await asyncio.to_thread(_req)
+                rows = (data or {}).get("result", {}).get("data") or []
+                if not rows:
+                    return {}
+
+                # Pick the latest annual (12-31) report; fall back to latest
+                latest_annual = None
+                for r in rows:
+                    rd = str(r.get("REPORTDATE", ""))
+                    if rd.endswith("-12-31"):
+                        latest_annual = r
+                        break
+                best = latest_annual or rows[0]
+
+                result: Dict[str, Any] = {}
+                roe = best.get("WEIGHTAVG_ROE")
+                if roe is not None:
+                    try:
+                        result["roe"] = round(float(roe), 2)
+                    except (TypeError, ValueError):
+                        pass
+
+                rev = best.get("TOTAL_OPERATE_INCOME")
+                np_ = best.get("PARENT_NETPROFIT")
+                if rev is not None and np_ is not None:
+                    try:
+                        rev_f, np_f = float(rev), float(np_)
+                        if rev_f > 0:
+                            result["margin"] = round(np_f / rev_f * 100, 2)
+                    except (TypeError, ValueError):
+                        pass
+                return result
+            except Exception as e:
+                logger.debug(
+                    "[IndustryPeers] Financials fetch failed for %s: %s",
+                    code, e,
+                )
+                return {}
+
+    fin_results = await asyncio.gather(
+        *[_fetch_financials(r["SECURITY_CODE"]) for r in top],
+        return_exceptions=True,
+    )
+
+    # ── Phase 3: assemble peer dicts ────────────────────────────────────
+    peers: List[Dict[str, Any]] = []
+    for row, fin in zip(top, fin_results):
+        if isinstance(fin, Exception):
+            fin = {}
+        if not isinstance(fin, dict):
+            fin = {}
+
+        try:
+            mcap_raw = float(row.get("TOTAL_MARKET_CAP") or 0)
+            mcap_yi = round(mcap_raw / 1e8, 1)  # 元 → 亿元
+        except (TypeError, ValueError):
+            mcap_yi = None
+
+        peer: Dict[str, Any] = {
+            "name": row.get("SECURITY_NAME_ABBR", ""),
+            "symbol": row.get("SECURITY_CODE", ""),
+            "pe": _safe_float(row.get("PE_TTM")),
+            "pb": _safe_float(row.get("PB_MRQ")),
+            "roe": fin.get("roe"),
+            "margin": fin.get("margin"),
+            "marketCap": mcap_yi,               # 亿元
+            "market_cap_cny_bn": mcap_yi,       # alias for renderer _alt()
+            "vs_target": None,
+        }
+        peers.append(peer)
+
+    logger.info(
+        "[IndustryPeers] %s: %d peers (top %d by mcap)",
+        industry_name, len(peers), top_n,
+    )
+    return peers
+
+
+def _safe_float(val: Any) -> Optional[float]:
+    """Convert to float or return None (never raise)."""
+    if val is None:
+        return None
+    try:
+        return round(float(val), 2)
+    except (TypeError, ValueError):
+        return None
+
+
 # ── Extended-metrics helpers (Part B: β / ROIC / WACC / buyback / coal) ──
 def _compute_beta(stock_df, bench_df):
     """Beta of a stock vs benchmark, from aligned daily close returns."""
@@ -746,7 +974,7 @@ class AStockDirectProvider(DataProvider):
         # Map period to day count for Tencent API
         period_days = {
             "1mo": 30, "3mo": 90, "6mo": 180,
-            "1y": 365, "2y": 730, "5y": 1825, "max": 3650,
+            "1y": 365, "2y": 730, "5y": 1825, "10y": 3650, "max": 3650,
         }
         days = period_days.get(period, 90)
 
@@ -1600,13 +1828,15 @@ class AStockDirectProvider(DataProvider):
                 bonds = _to_float(b.get("应付债券")) or 0
                 short_bonds = _to_float(b.get("应付短期债券")) or 0
                 total_debt = short_debt + long_debt + bonds + short_bonds
+                # netCash (净现金) = 现金及等价物 - 有息负债. 即使公司近乎无息负债
+                # (如茅台), 也应计入为一笔正的净现金, 而非因 total_debt==0 而漏算.
                 if total_cash > 0:
                     result["totalCash"] = total_cash
+                    result["netCash"] = total_cash - total_debt
                 if total_debt > 0:
                     result["totalDebt"] = total_debt
-                    result["netCash"] = total_cash - total_debt
                 # Enterprise value = market cap + total debt - cash
-                if market_cap and total_debt > 0:
+                if market_cap and total_cash > 0:
                     result["enterpriseValue"] = market_cap + total_debt - total_cash
                 # Asset / inventory turnover (use TTM flows)
                 if total_assets and ttm_revenue and "assetTurnover" not in result:
@@ -1759,9 +1989,9 @@ class AStockDirectProvider(DataProvider):
                 f"[{self.name}] Section 9 derivations failed for {code}: {exc_s9}"
             )
 
-            result["currency"] = "CNY"
-            result["financialCurrency"] = "CNY"
-            return result
+        result["currency"] = "CNY"
+        result["financialCurrency"] = "CNY"
+        return result
 
 
 # ---------------------------------------------------------------------------

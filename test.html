@@ -1,0 +1,21 @@
+<svg viewBox="0 0 610 160" xmlns="http://www.w3.org/2000/svg" style="max-width:100%; display:block; background:#ffffff; border-radius:12px; border:1px solid #e2e8f0; padding: 10px; margin: 15px 0;">
+<defs>
+  <linearGradient id="barGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+    <stop offset="0%" stop-color="#818CF8" />
+    <stop offset="100%" stop-color="#4F46E5" />
+  </linearGradient>
+  <filter id="shadow" x="-5%" y="-10%" width="120%" height="130%">
+    <feDropShadow dx="0" dy="2" stdDeviation="2" flood-color="#4F46E5" flood-opacity="0.15"/>
+  </filter>
+  <style>
+    @keyframes scaleX { from { stroke-dashoffset: 1000; } to { stroke-dashoffset: 0; } }
+    .bar-line { stroke-dasharray: 1000; stroke-dashoffset: 0; animation: scaleX 1.2s ease-out forwards; }
+  </style>
+</defs>
+<rect x="130" y="22" width="400" height="24" rx="6" fill="#f1f5f9" />
+<line class="bar-line" x1="133" y1="34" x2="527" y2="34" stroke="url(#barGradient)" stroke-width="24" stroke-linecap="round" filter="url(#shadow)"/>
+<rect x="130" y="58" width="400" height="24" rx="6" fill="#f1f5f9" />
+<line class="bar-line" x1="133" y1="70" x2="451" y2="70" stroke="url(#barGradient)" stroke-width="24" stroke-linecap="round" filter="url(#shadow)"/>
+<rect x="130" y="94" width="400" height="24" rx="6" fill="#f1f5f9" />
+<line class="bar-line" x1="133" y1="106" x2="401" y2="106" stroke="url(#barGradient)" stroke-width="24" stroke-linecap="round" filter="url(#shadow)"/>
+</svg>

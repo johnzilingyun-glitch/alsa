@@ -13,24 +13,24 @@ logger = logging.getLogger(__name__)
 # Patterns that match common financial figure mentions in Chinese/English
 NUMERIC_PATTERNS = [
     # Chinese: "PE约XX倍" "市盈率为XX" "ROE达到XX%"
-    (r'(?:PE|市盈率|P/E)[^\d]{0,10}(?:约为?|是|为|达到|在)?\s*(\d+\.?\d*)\s*(倍|x|X)?', 'pe'),
-    (r'(?:PB|市净率|P/B)[^\d]{0,10}(?:约为?|是|为|达到|在)?\s*(\d+\.?\d*)\s*(倍|x|X)?', 'pb'),
-    (r'(?:ROE|净资产收益率)[^\d]{0,10}(?:约为?|是|为|达到|在)?\s*(\d+\.?\d*)\s*(%)?', 'roe'),
-    (r'(?:总营收|营业总收入|营业收入)[^\d]{0,15}(?:约为?|是|为|达到|在)?\s*(\d+\.?\d*)\s*(亿|万|百万|B|M|K)?', 'revenue'),
-    (r'(?:净利润|归母净利润|扣非净利润)[^\d]{0,15}(?:约为?|是|为|达到|在)?\s*(\d+\.?\d*)\s*(亿|万|百万|B|M|K)?', 'net_income'),
-    (r'(?:市值|总市值)[^\d]{0,10}(?:约为?|是|为|达到|在)?\s*(\d+\.?\d*)\s*(亿|万|百万|B|M|K)?', 'market_cap'),
-    (r'(?:股息率|分红率)[^\d]{0,10}(?:约为?|是|为|达到|在)?\s*(\d+\.?\d*)\s*(%)?', 'dividend_yield'),
-    (r'(?:毛利率)[^\d]{0,10}(?:约为?|是|为|达到|在)?\s*(\d+\.?\d*)\s*(%)?', 'gross_margin'),
-    (r'(?:净利率)[^\d]{0,10}(?:约为?|是|为|达到|在)?\s*(\d+\.?\d*)\s*(%)?', 'net_margin'),
-    (r'(?:资产负债率)[^\d]{0,10}(?:约为?|是|为|达到|在)?\s*(\d+\.?\d*)\s*(%)?', 'debt_ratio'),
-    (r'(?:EPS|每股收益)[^\d]{0,10}(?:约为?|是|为|达到|在)?\s*(\d+\.?\d*)()?', 'eps'),
+    (r'(?:PE|市盈率|P/E)[\s:：=是为约达到在]{0,5}\s*(\d+\.?\d*)\s*(倍|x|X)?', 'pe'),
+    (r'(?:PB|市净率|P/B)[\s:：=是为约达到在]{0,5}\s*(\d+\.?\d*)\s*(倍|x|X)?', 'pb'),
+    (r'(?:ROE|净资产收益率)[\s:：=是为约达到在]{0,5}\s*(\d+\.?\d*)\s*(%)?', 'roe'),
+    (r'(?:总营收|营业总收入|营业收入)[\s:：=是为约达到在]{0,5}\s*(\d+\.?\d*)\s*(亿|万|百万|B|M|K)?', 'revenue'),
+    (r'(?:净利润|归母净利润|扣非净利润)[\s:：=是为约达到在]{0,5}\s*(\d+\.?\d*)\s*(亿|万|百万|B|M|K)?', 'net_income'),
+    (r'(?:市值|总市值)[\s:：=是为约达到在]{0,5}\s*(\d+\.?\d*)\s*(亿|万|百万|B|M|K)?', 'market_cap'),
+    (r'(?:股息率|分红率)[\s:：=是为约达到在]{0,5}\s*(\d+\.?\d*)\s*(%)?', 'dividend_yield'),
+    (r'(?:毛利率)[\s:：=是为约达到在]{0,5}\s*(\d+\.?\d*)\s*(%)?', 'gross_margin'),
+    (r'(?:净利率)[\s:：=是为约达到在]{0,5}\s*(\d+\.?\d*)\s*(%)?', 'net_margin'),
+    (r'(?:资产负债率)[\s:：=是为约达到在]{0,5}\s*(\d+\.?\d*)\s*(%)?', 'debt_ratio'),
+    (r'(?:EPS|每股收益)[\s:：=是为约达到在]{0,5}\s*(\d+\.?\d*)()?', 'eps'),
     # English patterns
-    (r'(?:PE|P/E)\s*(?:ratio)?\s*(?:of|at|is|=)?\s*(\d+\.?\d*)()?', 'pe'),
-    (r'(?:PB|P/B)\s*(?:ratio)?\s*(?:of|at|is|=)?\s*(\d+\.?\d*)()?', 'pb'),
-    (r'ROE\s*(?:of|at|is|=)?\s*(\d+\.?\d*)\s*(%)?', 'roe'),
-    (r'(?:revenue|Revenue)\s*(?:of|at|is|=)?\s*(\d+\.?\d*)\s*(B|M|bn|mn)?', 'revenue'),
-    (r'(?:net income|Net Income)\s*(?:of|at|is|=)?\s*(\d+\.?\d*)\s*(B|M|bn|mn)?', 'net_income'),
-    (r'(?:market cap|Market Cap|marketcap)\s*(?:of|at|is|=)?\s*(\d+\.?\d*)\s*(B|T|M|bn|tn)?', 'market_cap'),
+    (r'(?:PE|P/E)\s*(?:ratio)?[\s:=]{0,3}\s*(\d+\.?\d*)()?', 'pe'),
+    (r'(?:PB|P/B)\s*(?:ratio)?[\s:=]{0,3}\s*(\d+\.?\d*)()?', 'pb'),
+    (r'ROE[\s:=]{0,3}\s*(\d+\.?\d*)\s*(%)?', 'roe'),
+    (r'(?:revenue|Revenue)[\s:=]{0,3}\s*(\d+\.?\d*)\s*(B|M|bn|mn)?', 'revenue'),
+    (r'(?:net income|Net Income)[\s:=]{0,3}\s*(\d+\.?\d*)\s*(B|M|bn|mn)?', 'net_income'),
+    (r'(?:market cap|Market Cap|marketcap)[\s:=]{0,3}\s*(\d+\.?\d*)\s*(B|T|M|bn|tn)?', 'market_cap'),
 ]
 
 # Unit conversion factors (to standard units)
@@ -160,18 +160,26 @@ class GroundingVerifier:
         annotated = llm_output
         
         # Sort claims by start_idx descending to replace from back to front
-        # This ensures text replacements don't shift indices for preceding claims
         sorted_claims = sorted(
             [c for c in verification.claims if c.start_idx >= 0 and c.end_idx >= 0], 
             key=lambda x: x.start_idx, 
             reverse=True
         )
 
+        annotated_indices = set()
+
         for claim in sorted_claims:
+            # Check if any index in the range is already annotated
+            overlap = False
+            for idx in range(claim.start_idx, claim.end_idx):
+                if idx in annotated_indices:
+                    overlap = True
+                    break
+            if overlap:
+                continue
+
             if not claim.verified and claim.actual is not None:
                 num_str = annotated[claim.start_idx:claim.end_idx]
-                # Skip range/list values (e.g. "10-20%", "3~5%") — these are
-                # structural descriptions, not single verifiable claims.
                 around = annotated[max(0, claim.start_idx - 1):min(len(annotated), claim.end_idx + 2)]
                 if re.search(r'[-~\u2013\u2014\uff5e]\s*\d', around):
                     continue
@@ -184,14 +192,18 @@ class GroundingVerifier:
                     actual_fmt = f"{claim.actual / 1e4:.2f}\u4e07"
                 else:
                     actual_fmt = f"{claim.actual:.2f}"
+                
+                # Mark original indices as annotated
+                for idx in range(claim.start_idx, claim.end_idx):
+                    annotated_indices.add(idx)
+
                 annotated = (
                     annotated[:claim.start_idx]
                     + f"{num_str}\uff08\u5b9e\u9645{actual_fmt}\uff09"
                     + annotated[claim.end_idx:]
                 )
             elif not claim.verified and claim.actual is None:
-                # No data to verify — add general warning
-                pass  # Don't annotate these — they might be correct but unverifiable
+                pass
 
         return annotated
 

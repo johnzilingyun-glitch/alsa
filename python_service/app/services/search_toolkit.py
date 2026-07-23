@@ -71,17 +71,43 @@ SEARCH_CATEGORIES = {
         "label_zh": "管理层与内部人交易",
         "label_en": "Management & Insider Activity",
     },
+    "business_query": {
+        "query": "{name} {symbol} 主营业务收入构成 分产品营收占比 核心业务 毛利率",
+        "max_results": 3,
+        "label_zh": "主营业务与分产品营收占比",
+        "label_en": "Business Query & Product Revenue Breakdown",
+    },
+    "announcement_search": {
+        "query": "{name} {symbol} 最新公司公告 重大事件 业绩预告",
+        "max_results": 3,
+        "label_zh": "最新公司公告",
+        "label_en": "Company Announcements",
+    },
+    "research_report_search": {
+        "query": "{name} {symbol} 机构研报深度分析 评级 目标价 业绩预测",
+        "max_results": 3,
+        "label_zh": "分析师深度研报",
+        "label_en": "Analyst Research Reports",
+    },
+    "conference_search": {
+        "query": "{name} {symbol} 业绩说明会 投资者交流 重大会议纪要",
+        "max_results": 3,
+        "label_zh": "投资者交流与重大会议",
+        "label_en": "Conferences & Investor Relations",
+    },
 }
 
 # Which search categories each expert role needs
 ROLE_CATEGORY_MAP = {
     "Deep Research Specialist": [
         "latest_news", "financial_performance", "competitive_landscape",
-        "management_insider", "industry_trends",
+        "management_insider", "industry_trends", "business_query", 
+        "announcement_search", "research_report_search", "conference_search"
     ],
     "Technical Analyst": ["latest_news"],
     "Fundamental Analyst": [
         "financial_performance", "competitive_landscape", "analyst_ratings",
+        "business_query", "announcement_search", "research_report_search", "conference_search"
     ],
     "Sentiment Analyst": [
         "sentiment_social", "latest_news",
@@ -114,8 +140,12 @@ ROLE_CATEGORY_MAP = {
     "Value Investing Sage": [
         "financial_performance", "competitive_landscape",
     ],
+    "Serenity Alpha Analyst": [
+        "latest_news", "financial_performance", "business_query", 
+        "announcement_search", "research_report_search", "conference_search", "industry_trends"
+    ],
     "Chief Strategist": [
-        "latest_news", "analyst_ratings", "risk_factors",
+        "latest_news", "analyst_ratings", "risk_factors", "announcement_search", "research_report_search"
     ],
 }
 
@@ -151,19 +181,27 @@ A_SHARE_EXTRA_CATEGORIES = {
         "label_zh": "股东减持公告",
         "label_en": "Shareholder Reduction",
     },
+    "chip_concentration": {
+        "query": "{name} {symbol} 筹码分布 筹码集中度 机构持股比例 公募持仓拥挤度",
+        "max_results": 3,
+        "label_zh": "筹码集中度与公募持仓",
+        "label_en": "Chip Concentration & Mutual Fund Holdings",
+    },
 }
 
 # A-share roles get extra categories
 A_SHARE_ROLE_EXTRAS = {
+    "Serenity Alpha Analyst": ["northbound_flow", "chip_concentration", "shareholder_reduction"],
     "Sentiment Analyst": ["northbound_flow", "dragon_tiger", "margin_trading"],
-    "Deep Research Specialist": ["northbound_flow", "lockup_release", "shareholder_reduction"],
+    "Deep Research Specialist": ["northbound_flow", "lockup_release", "shareholder_reduction", "chip_concentration"],
     "Bull Researcher": ["northbound_flow"],
-    "Bear Researcher": ["dragon_tiger", "lockup_release", "shareholder_reduction"],
-    "Risk Manager": ["lockup_release", "shareholder_reduction"],
-    "Aggressive Risk Analyst": ["lockup_release", "shareholder_reduction"],
-    "Conservative Risk Analyst": ["lockup_release", "shareholder_reduction"],
-    "Neutral Risk Analyst": ["lockup_release", "shareholder_reduction"],
-    "Chief Strategist": ["lockup_release", "shareholder_reduction"],
+    "Bear Researcher": ["dragon_tiger", "lockup_release", "shareholder_reduction", "chip_concentration"],
+    "Risk Manager": ["lockup_release", "shareholder_reduction", "chip_concentration"],
+    "Aggressive Risk Analyst": ["lockup_release", "shareholder_reduction", "chip_concentration"],
+    "Conservative Risk Analyst": ["lockup_release", "shareholder_reduction", "chip_concentration"],
+    "Neutral Risk Analyst": ["lockup_release", "shareholder_reduction", "chip_concentration"],
+    "Chief Strategist": ["lockup_release", "shareholder_reduction", "chip_concentration"],
+    "Technical Analyst": ["lockup_release", "shareholder_reduction", "chip_concentration"],
 }
 
 
@@ -245,8 +283,10 @@ class SearchToolkit:
                     print(f"  [SearchToolkit] {cat_name}: {len(cat_results)} results")
                 else:
                     print(f"  [SearchToolkit] {cat_name}: no results")
+                    results[cat_name] = [{"title": "无最新相关数据 / No Recent Data", "content": "系统已执行自动搜索，未发现近期有相关的解禁计划、减持公告、或该维度的对应数据记录。请直接判定为无或N/A。", "source": "system"}]
             except Exception as e:
                 print(f"  [SearchToolkit] {cat_name} failed: {e}")
+                results[cat_name] = [{"title": "获取超时或失败 / Fetch Failed", "content": f"系统自动获取过程中出现超时或失败，暂无对应数据。可视为暂无近期重大记录。", "source": "system"}]
 
             # Rate limiting to avoid overloading search provider
             if self._rate_limit_delay > 0:
@@ -277,7 +317,8 @@ class SearchToolkit:
         categories = list(ROLE_CATEGORY_MAP.get(role, ["latest_news"]))
 
         # Add A-share extras if applicable
-        if market == "a_share" and role in A_SHARE_ROLE_EXTRAS:
+        market_lower = (market or "us").lower().replace("-", "_")
+        if market_lower == "a_share" and role in A_SHARE_ROLE_EXTRAS:
             categories.extend(A_SHARE_ROLE_EXTRAS[role])
 
         enrichment = {}

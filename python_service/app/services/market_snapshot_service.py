@@ -45,7 +45,7 @@ class MarketSnapshotService:
 
             async def _fetch_history():
                 """Use DataRouter for history (AStockDirect → Tencent → Fallback)."""
-                df = await data_router.get_history(symbol, period="6mo", interval="1d")
+                df = await data_router.get_history(symbol, period="2y", interval="1d")
                 if df is not None and not df.empty:
                     df = df.rename(columns={'date': 'trade_date'})
                     trade_dates = pd.to_datetime(df['trade_date'], errors='coerce')
@@ -53,29 +53,36 @@ class MarketSnapshotService:
                     df = df.dropna(subset=['trade_date'])
                 return df
 
+            async def _fetch_financials():
+                """Get financial summary. For A-Share, call AStockDirectProvider
+                directly to guarantee comprehensive A-Share-specific fields
+                (扣非净利润, 资本支出, 净现金, 机构持仓, β, ROIC, WACC等).
+                The router's concurrent-fallback strategy calls yfinance in
+                parallel and will return its result if AStockDirectProvider
+                times out (>30s of serial HTTP calls: THS, EastMoney, Sina
+                ×5 statements, Tencent kline for beta, ownership, etc.).
+                yfinance lacks these fields → report renders N/A.  Direct call
+                avoids the race entirely."""
+                if market == "A-Share":
+                    try:
+                        provider = data_router._a_stock_primary
+                        summary = await provider.get_financial_summary(symbol)
+                        if summary and "error" not in summary:
+                            return summary
+                        logger.warning("AStockDirectProvider returned error/empty for %s, falling back to router", symbol)
+                    except Exception as e:
+                        logger.warning("AStockDirectProvider financial summary failed for %s: %s; falling back to router", symbol, e)
+                return await data_router.get_financial_summary(symbol)
+
             async def _fetch_valuation():
-                """Get valuation from DataRouter's financial summary."""
+                """Extract valuation-relevant fields from the financial summary
+                (which is already fetched above for A-Share, or via router for
+                non-A-Share).  Avoids a duplicate router call."""
                 if market != "A-Share":
                     return {}
-                try:
-                    summary = await data_router.get_financial_summary(symbol)
-                    if summary and "error" not in summary:
-                        # Pull out valuation-relevant fields
-                        return {
-                            "pe": summary.get("pe"),
-                            "pb": summary.get("pb"),
-                            "market_cap": summary.get("marketCap"),
-                            "industry": summary.get("industry"),
-                            "total_shares": summary.get("totalShares"),
-                            "float_shares": summary.get("floatShares"),
-                        }
-                except Exception as e:
-                    logger.warning("Valuation fetch failed for %s: %s", symbol, e)
+                # For A-Share, derive from financials (already fetched or about to be)
+                # NB: _fetch_financials() runs before _fetch_valuation() for A-Share.
                 return {}
-
-            async def _fetch_financials():
-                """Get financial summary from DataRouter."""
-                return await data_router.get_financial_summary(symbol)
 
             async def _fetch_quotes():
                 """Get real-time quote from DataRouter (Tencent API)."""
@@ -104,9 +111,27 @@ class MarketSnapshotService:
                 except Exception as e:
                     logger.warning("[DataQuality] Validation failed for %s: %s", symbol, e)
 
-            # Run secondary fetches (use connection pool, not concurrent)
-            valuation = await _fetch_valuation()
-            financials = await _fetch_financials()
+            # Run secondary fetches (use connection pool, not concurrent).
+            # For A-Share: fetch financials FIRST (direct AStockDirectProvider
+            # call, guaranteed comprehensive) then derive valuation from it.
+            # For non-A-Share: valuation first (router), then financials (router).
+            if market == "A-Share":
+                financials = await _fetch_financials()
+                # Derive valuation from the already-fetched financials
+                if financials and isinstance(financials, dict) and "error" not in financials:
+                    valuation = {
+                        "pe": financials.get("pe"),
+                        "pb": financials.get("pb"),
+                        "market_cap": financials.get("marketCap"),
+                        "industry": financials.get("industry"),
+                        "total_shares": financials.get("totalShares"),
+                        "float_shares": financials.get("floatShares"),
+                    }
+                else:
+                    valuation = {}
+            else:
+                valuation = await _fetch_valuation()
+                financials = await _fetch_financials()
 
             # Attach per-field financial data quality (flags missing/thin fields for LLM transparency)
             if financials and isinstance(financials, dict) and "error" not in financials:
@@ -147,6 +172,83 @@ class MarketSnapshotService:
             if market == "A-Share":
                 cross_listing = await self._get_ah_cross_listing(quote.get("name", ""), symbol)
 
+            # Northbound flow (北向资金): per-stock holdings, daily change, 5-day net inflow.
+            # Best-effort; failure is non-fatal.
+            northbound = None
+            if market == "A-Share":
+                try:
+                    from .sentiment_data_service import SentimentDataService
+                    nb_result = await SentimentDataService().get_northbound_flow(symbol, days=5)
+                    if nb_result and "error" not in nb_result:
+                        latest = nb_result.get("latest") or {}
+                        northbound = {
+                            "latest_hold_pct": latest.get("pct_of_float"),
+                            "daily_change_shares": latest.get("daily_change_shares"),
+                            "daily_change_value": latest.get("daily_change_value"),
+                            "five_day_net_inflow": nb_result.get("five_day_net_inflow"),
+                            "five_day_trend": nb_result.get("five_day_trend"),
+                            "as_of": latest.get("date"),
+                        }
+                except Exception as e:
+                    logger.warning("Northbound flow fetch failed for %s: %s", symbol, e)
+
+            # Industry peer comparison (可比公司/Comps): best-effort for A-Share.
+            # Fetches real peer companies with PE/PB/ROE/net margin/market cap
+            # using EastMoney datacenter. Failure is non-fatal.
+            peer_comparison = None
+            if market == "A-Share":
+                industry_cn = None
+                # Direct EastMoney lookup for Chinese industry name (f127).
+                # The valuation/financials dict may carry an English yfinance
+                # industry when the AStockDirectProvider times out; RPT_VALUEANALYSIS_DET
+                # requires the Chinese name, so we query it directly.
+                try:
+                    import requests as _requests
+                    _clean = symbol.strip()
+                    _mk = 1 if _clean.startswith("6") else 0
+                    _url = "https://push2delay.eastmoney.com/api/qt/stock/get"
+                    _params = {
+                        "fltt": "2", "invt": "2",
+                        "fields": "f127",
+                        "secid": f"{_mk}.{_clean}",
+                    }
+                    loop = asyncio.get_event_loop()
+                    def _do():
+                        r = _requests.get(
+                            _url, params=_params,
+                            headers={"User-Agent": "Mozilla/5.0"}, timeout=5,
+                        )
+                        return r.json()
+                    _info = await loop.run_in_executor(None, _do)
+                    _d = _info.get("data") if isinstance(_info, dict) else None
+                    industry_cn = _d.get("f127", "").strip() if isinstance(_d, dict) else ""
+                except Exception:
+                    pass
+                # Fallback: use the valuation/financials industry (might be English)
+                if not industry_cn:
+                    industry_cn = (
+                        valuation.get("industry") if isinstance(valuation, dict) else ""
+                    ) or ""
+                if industry_cn:
+                    try:
+                        from .data_providers.a_stock_direct import fetch_industry_peers
+                        peers = await fetch_industry_peers(
+                            industry_name=industry_cn.strip(),
+                            top_n=10,
+                            exclude_symbol=symbol,
+                        )
+                        if peers:
+                            peer_comparison = peers
+                    except Exception as e:
+                        logger.warning("Industry peer comparison fetch failed for %s (industry=%s): %s",
+                                       symbol, industry_cn, e)
+
+            # Baijiu wholesale price (飞天茅台批价): best-effort only via akshare.
+            # Do NOT fabricate — if the API is unavailable, leave it None.
+            baijiu_price = None
+            if market == "A-Share" and "600519" in symbol:
+                baijiu_price = await self._fetch_baijiu_price(symbol)
+
             elapsed = time.time() - t0
             logger.info("Snapshot created for %s in %.1fs", symbol, elapsed)
             
@@ -169,6 +271,9 @@ class MarketSnapshotService:
                 "crossListing": cross_listing,
                 "source_observations": [ohlc_observation] if ohlc_observation else [],
                 "data_quality": self._score_snapshot_quality(rows, quote, financials),
+                "northbound": northbound,
+                "baijiu_price": baijiu_price,
+                "peer_comparison": peer_comparison,
             }
         except Exception as e:
             logger.error("Snapshot creation failed for %s: %s", symbol, e)
@@ -281,6 +386,27 @@ class MarketSnapshotService:
         except Exception as e:
             logger.exception("Quant calc error: %s", e)
             return {}
+
+    @staticmethod
+    async def _fetch_baijiu_price(symbol: str) -> dict | None:
+        """Best-effort fetch of 飞天茅台 wholesale price via akshare liquor endpoint.
+        Returns {price, unit, as_of} or None on any failure.
+        Only relevant for 白酒 (baijiu) stocks like 600519 贵州茅台."""
+        try:
+            import akshare as ak
+            df = await asyncio.to_thread(
+                lambda: ak.liquor_price(category="飞天茅台")
+            )
+            if df is not None and not df.empty:
+                row = df.iloc[0].to_dict() if hasattr(df, "iloc") else {}
+                price = row.get("价格") or row.get("price") or row.get("最新价")
+                unit = row.get("单位") or "元/瓶"
+                as_of = str(row.get("日期") or row.get("date") or "")
+                if price is not None:
+                    return {"price": float(price), "unit": unit, "as_of": as_of}
+        except Exception as e:
+            logger.warning("Baijiu price fetch failed for %s: %s", symbol, e)
+        return None
 
 # Singleton instance
 from ..lake.parquet_store import ParquetMarketStore

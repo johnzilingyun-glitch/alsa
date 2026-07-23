@@ -5,7 +5,7 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$SCRIPT_DIR"
 
-pkill -9 -f uvicorn || true
+pkill -9 -f "python -m uvicorn python_service.main:app" || true
 sleep 1
 
 cd "$PROJECT_DIR"

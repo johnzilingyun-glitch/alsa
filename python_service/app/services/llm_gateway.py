@@ -429,8 +429,14 @@ class LLMGateway:
                     
                     if prompt_tokens == 0:
                         prompt_tokens = len(str(prompt).encode('utf-8')) // 3
+                        usage_ctx["promptTokens"] += prompt_tokens
                     if cand_tokens == 0 and result_text:
                         cand_tokens = len(str(result_text).encode('utf-8')) // 3
+                        usage_ctx["candidatesTokens"] += cand_tokens
+                    
+                    if usage_ctx.get("totalTokens", 0) == 0:
+                        usage_ctx["totalTokens"] = usage_ctx.get("promptTokens", 0) + usage_ctx.get("candidatesTokens", 0)
+
                         
                     # Schema validation
                     schema_passed = True

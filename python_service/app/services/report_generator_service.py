@@ -161,6 +161,7 @@ class ReportGeneratorService:
             ],
             "northbound": snapshot.get("northbound") or {},
             "baijiu_price": snapshot.get("baijiu_price") or {},
+            "snapshot": snapshot,
         }
 
         # Merge snapshot peer_comparison (real fetched data) with LLM peers.
@@ -2395,6 +2396,101 @@ CONTENT:
         parts.append("</svg>")
         return "\n".join(parts)
 
+    @staticmethod
+    def _svg_vbars(items: list, title: str = "", unit_str: str = "", label_key: str = "label", value_key: str = "value") -> str:
+        """Generate modern inline SVG vertical bar chart from items list."""
+        if not items:
+            return ""
+
+        import uuid
+        uid = str(uuid.uuid4())[:8]
+
+        bar_w = 32
+        gap = 32
+        bottom_margin = 60
+        top_margin = 60
+        left_margin = 40
+        right_margin = 40
+        chart_h = 200
+
+        n = len(items)
+        svg_w = n * (bar_w + gap) + left_margin + right_margin - gap
+        svg_h = top_margin + chart_h + bottom_margin
+
+        vals = [item.get(value_key, 0) for item in items if isinstance(item.get(value_key), (int, float))]
+        if not vals:
+            return ""
+        max_val = max(max(vals), 1)
+
+        text_color = "#1e293b"
+        label_color = "#475569"
+        
+        parts = [
+            f'<svg viewBox="0 0 {svg_w} {svg_h}" xmlns="http://www.w3.org/2000/svg" style="max-width:100%; display:block; background:#ffffff; border-radius:12px; border:1px solid #e2e8f0; padding: 10px; margin: 15px 0;">',
+            '<defs>',
+            f'  <linearGradient id="barGradient_{uid}" x1="0%" y1="100%" x2="0%" y2="0%">',
+            '    <stop offset="0%" stop-color="#818CF8" />',
+            '    <stop offset="100%" stop-color="#4F46E5" />',
+            '  </linearGradient>',
+            f'  <filter id="shadow_{uid}" x="-10%" y="-5%" width="130%" height="120%">',
+            '    <feDropShadow dx="0" dy="2" stdDeviation="2" flood-color="#4F46E5" flood-opacity="0.15"/>',
+            '  </filter>',
+            '</defs>'
+        ]
+
+        if title:
+            parts.append(
+                f'<text x="{svg_w / 2:.0f}" y="25" text-anchor="middle" font-size="14" font-weight="700" fill="{text_color}" font-family="Inter,Outfit,sans-serif">{title}</text>'
+            )
+
+        x_offset = left_margin
+        base_y = top_margin + chart_h
+
+        for i, item in enumerate(items):
+            val = item.get(value_key, 0)
+            if not isinstance(val, (int, float)):
+                continue
+            
+            # For x-axis labels, limit characters
+            label = str(item.get(label_key, ""))
+            if len(label) > 6:
+                label = label[:5] + ".."
+            
+            x = x_offset + i * (bar_w + gap)
+
+            bar_h_scaled = max(val / max_val * chart_h, 4) if max_val > 0 else 4
+            y = base_y - bar_h_scaled
+
+            # Label on X-axis (rotated if needed, but here simple horizontal or slight offset)
+            parts.append(
+                f'<text x="{x + bar_w / 2:.0f}" y="{base_y + 20:.0f}" text-anchor="middle" font-size="12" font-weight="500" fill="{label_color}" font-family="Inter,Outfit,sans-serif">{label}</text>'
+            )
+            
+            # Background track
+            parts.append(
+                f'<rect x="{x:.0f}" y="{top_margin:.0f}" width="{bar_w}" height="{chart_h}" rx="6" fill="#f1f5f9" />'
+            )
+            
+            # The Bar
+            parts.append(
+                f'<rect x="{x:.0f}" y="{y:.0f}" width="{bar_w}" height="{bar_h_scaled:.1f}" rx="6" fill="url(#barGradient_{uid})" filter="url(#shadow_{uid})">'
+            )
+            parts.append(
+                f'  <animate attributeName="height" from="0" to="{bar_h_scaled:.1f}" dur="1s" fill="freeze" calcMode="spline" keySplines="0.25 0.1 0.25 1" keyTimes="0;1"/>'
+            )
+            parts.append(
+                f'  <animate attributeName="y" from="{base_y:.1f}" to="{y:.1f}" dur="1s" fill="freeze" calcMode="spline" keySplines="0.25 0.1 0.25 1" keyTimes="0;1"/>'
+            )
+            parts.append('</rect>')
+            
+            # Value text
+            val_str = f"{int(val)}" if val == int(val) else f"{val:.1f}"
+            parts.append(
+                f'<text x="{x + bar_w / 2:.0f}" y="{y - 8:.0f}" text-anchor="middle" font-size="12" fill="{text_color}" font-family="Inter,Outfit,sans-serif" font-weight="700">{val_str}</text>'
+            )
+
+        parts.append("</svg>")
+
     def _compute_valuation(self, snapshot: dict, info: dict) -> dict:
         """Compute WACC and DCF target price from snapshot fundamentals.
 
@@ -2710,6 +2806,8 @@ CONTENT:
         _snapshot = d.get("snapshot", {}) or {}
         financials = _snapshot.get("financials", {}) or {}
         valuation = _snapshot.get("valuation", {}) or {}
+        quote = _snapshot.get("quote", {}) or {}
+        
         if peers and isinstance(peers, list) and len(peers) > 0:
             target_name = info.get("longName") or info.get("shortName") or "本公司"
             def _cn(val):
@@ -2719,26 +2817,32 @@ CONTENT:
                     except: return val
                 return val
 
-            t_roe = _cn(financials.get("roe") or valuation.get("ROE") or "N/A")
+            t_roe = _cn(financials.get("roe") or valuation.get("roe") or valuation.get("ROE") or "N/A")
             if isinstance(t_roe, (int, float)) and -1.0 <= t_roe <= 1.0 and not valuation.get("ROE"): t_roe *= 100
             
             t_margin = _cn(financials.get("net_margin") or financials.get("profitMargins") or "N/A")
             if isinstance(t_margin, (int, float)) and -1.0 <= t_margin <= 1.0: t_margin *= 100
 
-            t_mc = _cn(valuation.get("总市值") or info.get("marketCap") or "N/A")
+            t_mc = _cn(financials.get("marketCap") or valuation.get("market_cap") or valuation.get("总市值") or quote.get("marketCap") or info.get("marketCap") or "N/A")
             if isinstance(t_mc, (int, float)) and t_mc > 1e7: t_mc /= 1e8
 
             target_peer = {
                 "name": f"🌟 {target_name}",
                 "symbol": info.get("symbol", ""),
-                "pe": _cn(valuation.get("市盈率(动)") or valuation.get("PE") or info.get("trailingPE") or "N/A"),
-                "pb": _cn(valuation.get("市净率") or valuation.get("PB") or info.get("priceToBook") or "N/A"),
+                "pe": _cn(financials.get("pe") or valuation.get("pe") or valuation.get("市盈率(动)") or valuation.get("PE") or quote.get("trailingPE") or info.get("trailingPE") or "N/A"),
+                "pb": _cn(financials.get("pb") or valuation.get("pb") or valuation.get("市净率") or valuation.get("PB") or quote.get("pb") or info.get("priceToBook") or "N/A"),
                 "roe": t_roe,
                 "margin": t_margin,
                 "marketCap": t_mc,
                 "vs_target": "当前分析标的 (Target)"
             }
-            peers = [target_peer] + [p for p in peers if p.get("symbol") != info.get("symbol")]
+            
+            def _normalize_sym(s):
+                if not s: return ""
+                return str(s).upper().replace(".HK", "").replace(".SZ", "").replace(".SH", "").replace(".SS", "").replace(".US", "").strip()
+                
+            target_sym_norm = _normalize_sym(info.get("symbol"))
+            peers = [target_peer] + [p for p in peers if _normalize_sym(p.get("symbol")) != target_sym_norm]
 
             peer_rows = ""
             def _fv(v, suffix=""):
@@ -2749,7 +2853,7 @@ CONTENT:
                 # net_margin_pct / market_cap_cny_bn / roe_fy2025_pct / pe_ttm)
                 for k in keys:
                     v = p.get(k)
-                    if v is not None and v != "N/A":
+                    if v is not None and str(v).strip().upper() not in ["N/A", "NONE", "NULL"]:
                         return v
                 return None
             for p in peers:
@@ -2757,15 +2861,20 @@ CONTENT:
                 mc = _alt(p, "marketCap", "market_cap_cny_bn", "market_cap")
                 if isinstance(mc, (int, float)):
                     mc = f"{mc}亿"  # market_cap_cny_bn is in 亿元
+                
+                s_name = p.get("name") or p.get("company")
+                s_sym = p.get("symbol")
+                s_vs = p.get("vs_target") or p.get("rationale")
+                
                 peer_rows += f'''<tr>
-                    <td>{p.get("name") or p.get("company", "")}</td>
-                    <td>{p.get("symbol", "")}</td>
+                    <td>{s_name if s_name else "N/A"}</td>
+                    <td>{s_sym if s_sym else "N/A"}</td>
                     <td>{_fv(_alt(p, "pe", "pe_ttm"))}</td>
                     <td>{_fv(_alt(p, "pb"))}</td>
                     <td>{_fv(_alt(p, "roe", "roe_fy2025_pct"), "%")}</td>
                     <td>{_fv(_alt(p, "margin", "net_margin_pct", "net_margin"), "%")}</td>
                     <td>{_fv(mc)}</td>
-                    <td>{p.get("vs_target") or p.get("rationale", "")}</td>
+                    <td>{s_vs if s_vs else "N/A"}</td>
                 </tr>'''
             peer_section_html = f'''
             <div class="comps-wrapper">
@@ -2790,7 +2899,7 @@ CONTENT:
                     if pe_val is not None and isinstance(pe_val, (int, float)):
                         chart_items.append({"label": str(name), "value": float(pe_val)})
             if chart_items:
-                peer_chart_html = self._svg_hbars(chart_items, title="可比公司 ROE/PE 对比")
+                peer_chart_html = self._svg_vbars(chart_items, title="可比公司 ROE/PE 对比")
 
         # Flow & Positioning card (北向资金 + 茅台批价)
         nb = d.get("northbound") or {}
@@ -2970,28 +3079,7 @@ CONTENT:
         except Exception as e:
             print(f"Error calculating expected return: {e}")
 
-        # Scenario chart
-        scenario_chart_html = ""
-        if isinstance(scenarios, list) and len(scenarios) > 0:
-            chart_items = []
-            for s in scenarios:
-                if not isinstance(s, dict):
-                    continue
-                case = s.get("case") or s.get("name", "N/A")
-                target_str = str(s.get("targetPrice") or s.get("target", "N/A"))
-                try:
-                    t_str = target_str.replace("元", "").replace("HKD", "").replace("USD", "").replace("¥", "").strip()
-                    if "-" in t_str:
-                        parts = t_str.split("-")
-                        t_val = (float(parts[0]) + float(parts[1])) / 2.0
-                    else:
-                        t_val = float(t_str)
-                except (ValueError, TypeError):
-                    continue
-                chart_items.append({"label": str(case), "value": t_val})
-            if chart_items:
-                scenario_chart_html = self._svg_hbars(chart_items, title="情景目标价对比", unit_str=info.get("currency", ""))
-
+        # Scenario chart generation removed as per user request
 
         # Trading Plan Grid
         trading_steps = d.get("trading_steps", [])
@@ -3694,7 +3782,6 @@ CONTENT:
                     <tbody>{sc_rows}</tbody>
                 </table>
                 {expected_return_html}
-                <div style="margin-top: 16px;">{scenario_chart_html}</div>
             </div>
         </div>
         

@@ -26,6 +26,7 @@ category: alpha-generation
 | 测试市场误分类 | 市场当前认知 vs 真实身份 |
 | 构建验证链条 | 可观察节点（营收指引、订单、ASP） |
 | 基于证据定仓位 | 条件式指导（观察/试错/加仓/放弃） |
+| 个股数据必须查实 | **绝对禁止**声称"因工具限制未能获取2025年营收/业务占比/自由现金流/新闻/订单"。必须主动使用 `financial_data`, `finance_query`, `business_query`, `announcement_search`, `news_search` 工具查询个股真实数据。 |
 
 **核心判断标准**：α弹性 = 增量需求对营收的边际贡献 / 当前市值
 

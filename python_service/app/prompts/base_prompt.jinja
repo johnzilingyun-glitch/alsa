@@ -42,12 +42,14 @@ Every conclusion must include: evidence, confidence (HIGH/MEDIUM/LOW), risks, mi
    - 善用 Markdown 表格展示关键数据对比。
    - 严禁输出 JSON 格式。严禁输出工具调用计划或内部推理过程。
 2. **单次输出**: 在所有必要的工具调用结束后，只输出一次完整分析内容。
+3. **CIO Dashboard (MANDATORY)**: 报告第一段必须包含一页纸 CIO 决策面板（Markdown表格格式），整合你的分析视角。必须包含：【核心定调、因子雷达、多空共识差、一句话决断】。
 {% else %}
 1. **Professional Markdown Output**: Your output will be rendered directly in the investment report. Use standard Markdown formatting (headers, tables, lists, bold, etc.) for professional investor-facing analysis.
    - Use Emoji numbers (1️⃣, 2️⃣) for main section headers.
    - Use Markdown tables for key data comparisons.
    - Do NOT output JSON. Do NOT output tool plans or internal reasoning.
 2. **Single Pass**: Output only the final analysis after all necessary tools are used.
+3. **CIO Dashboard (MANDATORY)**: The first paragraph of your report MUST contain a 1-pager CIO Dashboard (Markdown table), integrating your perspective. It MUST include: [Core Thesis, Factor Radar, Consensus vs Alpha Gap, One-sentence Verdict].
 {% endif %}
 {% elif not is_final_round %}
 {% if is_zh %}
@@ -66,7 +68,8 @@ Every conclusion must include: evidence, confidence (HIGH/MEDIUM/LOW), risks, mi
 1. **最终输出要求**: 你的输出必须100%是面向投资者的专业分析内容。严禁包含工具调用计划（如'让我调用XX'）、内部推理过程、工具返回结果的元描述、或任何面向系统而非读者的过渡语。
 2. **活泼的排版**: 强制使用标准 Markdown 语法排版。为了让报告看起来更生动，主标题推荐使用 Emoji 序号标号（如 1️⃣, 2️⃣ 等），增加活泼感。
 3. **单次输出**: 在所有必要的工具调用结束后，只输出一次最终完整报告，删除任何中间草稿。
-4. **结构化数据尾注 (CRITICAL)**: 在报告的最末尾，你必须附加一段包含 `<structured_data>` 标签的 JSON 数据，供系统提取交易计划。格式必须如下：
+4. **CIO Dashboard (MANDATORY)**: 报告第一段必须包含一页纸 CIO 决策面板（Markdown表格格式）。必须包含：【核心定调、因子雷达、多空共识差、一句话决断】（若你的角色模板已规定该面板，请以角色模板为准）。
+5. **结构化数据尾注 (CRITICAL)**: 在报告的最末尾，你必须附加一段包含 `<structured_data>` 标签的 JSON 数据，供系统提取交易计划。格式必须如下：
    <structured_data>
    {"sentiment": "Bullish/Bearish/Neutral", "recommendation": "Strong Buy/Buy/Hold/Underweight/Sell", "targetPrice": 123.45, "stopLossPrice": 110.0, "confidence": 85, "keyRisks": ["risk1", "risk2"]}
    </structured_data>
@@ -74,7 +77,8 @@ Every conclusion must include: evidence, confidence (HIGH/MEDIUM/LOW), risks, mi
 1. **Final Output Rule**: Your output MUST be 100% professional analysis for investors. NO tool plans ('I will now call...'), internal reasoning, meta-descriptions of tool results, or transitional phrases.
 2. **Lively Formatting**: Mandatory use of standard Markdown. To make the report more engaging, it is recommended to use Emoji numbers (e.g., 1️⃣, 2️⃣) for main section headers.
 3. **Single Pass**: Output only the final comprehensive report after all necessary tools are used. Delete intermediate drafts.
-4. **Structured Data Footer (CRITICAL)**: At the very end of your report, you MUST append a JSON object wrapped in `<structured_data>` tags for system parsing. Exact format:
+4. **CIO Dashboard (MANDATORY)**: The first paragraph of your report MUST contain a 1-pager CIO Dashboard (Markdown table). It MUST include: [Core Thesis, Factor Radar, Consensus vs Alpha Gap, One-sentence Verdict].
+5. **Structured Data Footer (CRITICAL)**: At the very end of your report, you MUST append a JSON object wrapped in `<structured_data>` tags for system parsing. Exact format:
    <structured_data>
    {"sentiment": "Bullish/Bearish/Neutral", "recommendation": "Strong Buy/Buy/Hold/Underweight/Sell", "targetPrice": 123.45, "stopLossPrice": 110.0, "confidence": 85, "keyRisks": ["risk1", "risk2"]}
    </structured_data>
@@ -295,7 +299,13 @@ Target: {{ symbol }} ({{ name }})
 - 总资产: {{ get_val('totalAssets') }} | 净资产(股东权益): {{ get_val('equity') }}
 - 每股净现金({{ fin_currency }}): {{ get_val('netCashPerShare') }} | 流通股数: {{ get_val('sharesOutstanding') }}
 - EPS(TTM): {{ get_val('eps', 'trailingEps') }} | 股息率: {{ get_val('dividendYield') }} | 分红率: {{ get_val('payoutRatio') }}
-- 内部人持股(ADS口径): {{ get_val('heldPercentInsiders') }} | 机构持股(ADS口径): {{ get_val('heldPercentInstitutions') }}
+- {% if market == 'A-Share' %}前十大流通股东持股(东财F10口径){% else %}内部人/机构持股(ADS口径){% endif %}: 内部人 {{ get_val('heldPercentInsiders') }} | 机构 {{ get_val('heldPercentInstitutions') }}
+{% if top_circulating_holders %}
+- A股前十大流通股东 (真实筹码结构, 东财F10, 截至 {{ top_circulating_holders[0].get('endDate') if top_circulating_holders[0] else '' }}):
+{% for h in top_circulating_holders %}
+  {{ loop.index }}. {{ h.get('name') }} | 性质: {{ h.get('type') }} | 流通股占比: {{ "%.2f"|format(h.get('pct') or 0) }}% | 较上期: {{ h.get('change') }}
+{% endfor %}
+{% endif %}
 - 52周高: {{ get_val('fiftyTwoWeekHigh') }} | 52周低: {{ get_val('fiftyTwoWeekLow') }}
 - 营收3年CAGR: {{ get_val('revenueCagr3y') }} | 净利润3年CAGR: {{ get_val('incomeCagr3y') }}
 
@@ -477,7 +487,7 @@ Rules:
 {% if state_data is mapping %}
 [{{ agent_role }}]: {{ state_data | tojson }}
 {% else %}
-[{{ agent_role }}]: {{ state_data | string | truncate(8000, True) }}
+[{{ agent_role }}]: {{ state_data | string }}
 {% endif %}
 {% endfor %}
 {% endif %}

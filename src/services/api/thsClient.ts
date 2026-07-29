@@ -98,6 +98,19 @@ export interface QuoteRecord {
   [key: string]: any;
 }
 
+export function getMarketType(symbol: ThsSymbol | string): 'hk' | 'us' | 'cn' {
+  const code = (typeof symbol === 'string' ? symbol : symbol.THSCODE || symbol.Code || '').toUpperCase();
+  const display = (typeof symbol === 'string' ? '' : symbol.MarketDisplay || symbol.MarketStr || '').toUpperCase();
+
+  if (code.startsWith('UHKG') || code.endsWith('.HK') || display.includes('港')) {
+    return 'hk';
+  }
+  if (code.startsWith('UNQQ') || code.startsWith('UNYS') || code.endsWith('.US') || display.includes('美') || display.includes('纳斯达克') || display.includes('纽交所') || display.includes('纽约')) {
+    return 'us';
+  }
+  return 'cn';
+}
+
 export async function thsQuoteCn(codes: string[], queryKey: string = '基础数据'): Promise<{ data: QuoteRecord[]; columns: string[] }> {
   return thsFetch('/quote/cn', { codes: codes.join(','), query_key: queryKey });
 }
@@ -108,6 +121,18 @@ export async function thsQuoteHk(code: string, queryKey: string = '基础数据'
 
 export async function thsQuoteUs(code: string, queryKey: string = '基础数据'): Promise<{ data: QuoteRecord[]; columns: string[] }> {
   return thsFetch('/quote/us', { code, query_key: queryKey });
+}
+
+export async function thsQuoteAuto(symbol: ThsSymbol | string, queryKey: string = '基础数据'): Promise<{ data: QuoteRecord[]; columns: string[] }> {
+  const code = typeof symbol === 'string' ? symbol : symbol.THSCODE;
+  const market = getMarketType(symbol);
+  if (market === 'hk') {
+    return thsQuoteHk(code, queryKey);
+  } else if (market === 'us') {
+    return thsQuoteUs(code, queryKey);
+  } else {
+    return thsQuoteCn([code], queryKey);
+  }
 }
 
 // ── Index ───────────────────────────────────────────────────

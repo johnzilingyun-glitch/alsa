@@ -9,11 +9,11 @@ class AlertRepository:
 
     def create(self, symbol: str, name: str, market: str, entry_price: float, target_price: float, stop_loss: float, currency: str = "CNY") -> SearchAlert:
         with self.session_factory() as session:
-            # Check if an active alert already exists for this symbol
+            # Check if an active/triggered alert already exists for this symbol
             statement = select(SearchAlert).where(
                 SearchAlert.symbol == symbol, 
                 SearchAlert.market == market,
-                SearchAlert.status == "active"
+                SearchAlert.status.in_(["active", "triggered"])
             )
             existing = session.exec(statement).first()
             
@@ -23,6 +23,8 @@ class AlertRepository:
                 existing.target_price = target_price
                 existing.stop_loss = stop_loss
                 existing.currency = currency
+                existing.status = "active"
+                existing.monitoring_enabled = True
                 existing.created_at = utc_now()
                 session.add(existing)
                 session.commit()
@@ -37,7 +39,8 @@ class AlertRepository:
                 entry_price=entry_price, 
                 target_price=target_price, 
                 stop_loss=stop_loss,
-                currency=currency
+                currency=currency,
+                monitoring_enabled=True,
             )
             session.add(alert)
             session.commit()
@@ -46,20 +49,22 @@ class AlertRepository:
 
     def list_active(self) -> List[SearchAlert]:
         with self.session_factory() as session:
-            statement = select(SearchAlert).where(SearchAlert.status == "active").order_by(SearchAlert.created_at.desc())
+            statement = select(SearchAlert).where(
+                SearchAlert.status.in_(["active", "triggered"])
+            ).order_by(SearchAlert.created_at.desc())
             return session.exec(statement).all()
 
-    def update_status(self, alert_id: int, status: str):
+    def update_status(self, alert_id: str, status: str):
         with self.session_factory() as session:
-            alert = session.get(SearchAlert, alert_id)
+            alert = session.get(SearchAlert, str(alert_id))
             if alert:
                 alert.status = status
                 session.add(alert)
                 session.commit()
 
-    def delete_by_id(self, alert_id: int):
+    def delete_by_id(self, alert_id: str):
         with self.session_factory() as session:
-            alert = session.get(SearchAlert, alert_id)
+            alert = session.get(SearchAlert, str(alert_id))
             if alert:
                 session.delete(alert)
                 session.commit()
@@ -170,13 +175,13 @@ class AlertRepository:
     def mark_triggered(self, alert_id: str, trigger_type: str, price: float):
         """Mark an alert as triggered."""
         with self.session_factory() as session:
-            alert = session.get(SearchAlert, alert_id)
+            alert = session.get(SearchAlert, str(alert_id))
             if alert:
                 alert.status = "triggered"
                 alert.trigger_type = trigger_type
                 alert.triggered_at = utc_now()
                 alert.last_price = price
-                alert.monitoring_enabled = False  # Stop monitoring after trigger
+                alert.monitoring_enabled = True  # Keep monitoring enabled so user can track live status
                 session.add(alert)
                 session.commit()
 

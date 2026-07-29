@@ -188,3 +188,27 @@ def test_list_closed_alerts():
     assert resp.status_code == 200
     items = resp.json()["items"]
     assert any(i["symbol"] == "NFLX" for i in items)
+
+
+def test_triggered_alerts_remain_in_list():
+    client = TestClient(app)
+    create_resp = client.post("/api/alerts/", json={
+        "symbol": "300750", "name": "宁德时代", "market": "A-Share",
+        "entry_price": 200, "target_price": 250, "stop_loss": 180,
+    }, headers=HEADERS)
+    alert_id = create_resp.json()["alert_id"]
+
+    # Import repo and mark triggered
+    from python_service.main import get_alert_repo
+    repo = get_alert_repo()
+    repo.mark_triggered(alert_id, "target", 255.0)
+
+    # Verify that triggered alert is STILL listed in GET /api/alerts/ and not lost
+    resp = client.get("/api/alerts/", headers=HEADERS)
+    assert resp.status_code == 200
+    items = resp.json()["items"]
+    found = [i for i in items if i["alert_id"] == alert_id]
+    assert len(found) == 1
+    assert found[0]["status"] == "triggered"
+    assert found[0]["monitoring_enabled"] is True
+

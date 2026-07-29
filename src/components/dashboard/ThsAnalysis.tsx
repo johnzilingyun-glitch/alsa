@@ -8,7 +8,7 @@ import {
 import { useUIStore } from '../../stores/useUIStore';
 import {
   thsSearch, thsKlines, thsDepth, thsBigOrder, thsIndustry, thsConcept,
-  thsBlockConstituents, thsBlockQuote, thsWencai, thsNews, thsQuoteCn,
+  thsBlockConstituents, thsBlockQuote, thsWencai, thsNews, thsQuoteCn, thsQuoteAuto, getMarketType,
   type ThsSymbol, type KlineBar, type DepthRecord
 } from '../../services/api/thsClient';
 import {
@@ -92,8 +92,8 @@ export function ThsAnalysis() {
     setTab('overview');
     setLoading(true);
     try {
-      // THS SDK is NOT thread-safe — sequential calls required
-      const quoteData = await thsQuoteCn([stock.THSCODE], '基础数据');
+      // THS SDK is NOT thread-safe — sequential calls required; auto-route HK/US/CN market
+      const quoteData = await thsQuoteAuto(stock, '基础数据');
       setQuote(quoteData.data?.[0] || null);
       const klineData = await thsKlines(stock.THSCODE, 'day', 60);
       setKlines(klineData.data || []);
@@ -237,7 +237,7 @@ export function ThsAnalysis() {
 
       <div className="max-w-7xl mx-auto px-4 md:px-8 py-6">
         {!selectedStock ? (
-          <EmptyState />
+          <EmptyState onSelectSample={selectStock} />
         ) : (
           <div className="space-y-6">
             {/* Stock header */}
@@ -306,7 +306,14 @@ export function ThsAnalysis() {
 
 // ── Sub-components ──────────────────────────────────────────
 
-function EmptyState() {
+function EmptyState({ onSelectSample }: { onSelectSample?: (s: ThsSymbol) => void }) {
+  const samples: ThsSymbol[] = [
+    { THSCODE: 'USHA600519', Name: '贵州茅台', MarketStr: 'USHA', Code: '600519', MarketDisplay: '沪A' },
+    { THSCODE: 'UHKG00700', Name: '腾讯控股', MarketStr: 'UHKG', Code: '00700', MarketDisplay: '港股' },
+    { THSCODE: 'UNQQAAPL', Name: '苹果公司', MarketStr: 'UNQQ', Code: 'AAPL', MarketDisplay: '美股' },
+    { THSCODE: 'UNQQNVDA', Name: '英伟达', MarketStr: 'UNQQ', Code: 'NVDA', MarketDisplay: '美股' },
+  ];
+
   return (
     <div className="flex flex-col items-center justify-center py-32 text-center">
       <div className="w-20 h-20 rounded-2xl bg-indigo-50 flex items-center justify-center mb-6">
@@ -314,11 +321,14 @@ function EmptyState() {
       </div>
       <h2 className="text-xl font-bold text-zinc-900 mb-2">同花顺高级分析</h2>
       <p className="text-sm text-zinc-500 max-w-md">
-        输入股票名称、代码或拼音开始分析。支持分钟K线、盘口深度、大单流向、板块行情、问财选股等功能。
+        输入股票名称、代码或拼音开始分析。全流程支持A股、港股、美股行情与K线，以及板块分析、问财选股等功能。
       </p>
-      <div className="mt-8 grid grid-cols-2 md:grid-cols-4 gap-3 text-xs text-zinc-400">
-        {['贵州茅台', '宁德时代', '比亚迪', '腾讯'].map(name => (
-          <div key={name} className="px-3 py-2 bg-zinc-50 rounded-lg">{name}</div>
+      <div className="mt-8 flex flex-wrap justify-center gap-3 text-xs">
+        {samples.map(s => (
+          <button key={s.THSCODE} onClick={() => onSelectSample?.(s)}
+            className="px-3.5 py-2 bg-zinc-50 hover:bg-indigo-50 hover:text-indigo-600 rounded-xl transition-all font-medium text-zinc-700 border border-zinc-100">
+            {s.Name} <span className="text-[10px] text-zinc-400 font-normal">({s.MarketDisplay})</span>
+          </button>
         ))}
       </div>
     </div>
@@ -410,7 +420,7 @@ function OverviewTab({ quote, klines }: { quote: any; klines: KlineBar[] }) {
 
 function DepthTab({ data, loading }: { data: DepthRecord[]; loading: boolean }) {
   if (loading) return <div className="flex justify-center py-12"><Loader2 className="animate-spin text-zinc-300" /></div>;
-  if (!data.length) return <div className="text-center py-12 text-zinc-400 text-sm">无盘口数据</div>;
+  if (!data.length) return <div className="text-center py-12 text-zinc-400 text-sm">无盘口数据（当前港股/美股市场仅提供基础行情与K线，五档盘口针对A股开放）</div>;
 
   const row = data[0];
   const bids = [1, 2, 3, 4, 5].map(i => ({ price: row[`买${i}价`], vol: row[`买${i}量`] }));
@@ -447,7 +457,7 @@ function DepthTab({ data, loading }: { data: DepthRecord[]; loading: boolean }) 
 
 function BigOrderTab({ data, loading, formatNum }: { data: any[]; loading: boolean; formatNum: (v: any) => string }) {
   if (loading) return <div className="flex justify-center py-12"><Loader2 className="animate-spin text-zinc-300" /></div>;
-  if (!data.length) return <div className="text-center py-12 text-zinc-400 text-sm">无大单数据（可能非交易时段）</div>;
+  if (!data.length) return <div className="text-center py-12 text-zinc-400 text-sm">无大单数据（当前港股/美股市场仅提供基础行情与K线，大单监控针对A股开放）</div>;
 
   const totalBuy = data.filter(r => r['成交方向']?.includes('买')).reduce((s, r) => s + (r['总金额'] || 0), 0);
   const totalSell = data.filter(r => r['成交方向']?.includes('卖')).reduce((s, r) => s + (r['总金额'] || 0), 0);

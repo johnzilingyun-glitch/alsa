@@ -22,8 +22,9 @@ export function startFeishuWsClient() {
       const actionValue = data.action.value as any;
       if (actionValue.action === 'acknowledge_alert' && actionValue.alert_id) {
         try {
+          const pythonUrl = process.env.PYTHON_BACKEND_URL || 'http://127.0.0.1:8001';
           const apiToken = process.env.API_TOKEN;
-          const response = await fetch(`http://127.0.0.1:8644/api/v1/alerts/${actionValue.alert_id}/acknowledge`, {
+          const response = await fetch(`${pythonUrl}/api/alerts/${actionValue.alert_id}/acknowledge`, {
             method: 'POST',
             headers: {
               'Authorization': `Bearer ${apiToken}`,
@@ -33,8 +34,9 @@ export function startFeishuWsClient() {
 
           if (response.ok) {
             console.log(`[Feishu WS] Successfully acknowledged alert ${actionValue.alert_id}`);
-            // Return updated card
+            // Return updated card & toast
             return {
+              toast: { type: 'success', content: '已确认关注预警' },
               config: { wide_screen_mode: true },
               header: {
                 title: { tag: "plain_text", content: "✅ 已阅确认成功" },

@@ -234,8 +234,9 @@ router.post('/feishu/callback', async (req, res) => {
       
       if (actionValue.action === 'acknowledge_alert' && actionValue.alert_id) {
         // Call internal Python API to acknowledge
+        const pythonUrl = process.env.PYTHON_BACKEND_URL || 'http://127.0.0.1:8001';
         const apiToken = process.env.API_TOKEN;
-        const response = await fetch(`http://127.0.0.1:8644/api/v1/alerts/${actionValue.alert_id}/acknowledge`, {
+        const response = await fetch(`${pythonUrl}/api/alerts/${actionValue.alert_id}/acknowledge`, {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${apiToken}`,
@@ -244,8 +245,9 @@ router.post('/feishu/callback', async (req, res) => {
         });
 
         if (response.ok) {
-          // Return an updated card JSON to Feishu to reflect the acknowledged state
+          // Return an updated card JSON & toast to Feishu to reflect the acknowledged state
           return res.json({
+            toast: { type: 'success', content: '已确认关注预警' },
             config: { wide_screen_mode: true },
             header: {
               title: { tag: "plain_text", content: "✅ 已阅确认成功" },

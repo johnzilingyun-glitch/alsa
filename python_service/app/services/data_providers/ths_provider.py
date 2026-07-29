@@ -8,6 +8,31 @@ from thsdk import THS
 logger = logging.getLogger(__name__)
 
 
+def format_ths_code(code: str, market_hint: str = "") -> str:
+    """Format raw stock symbol into standard THSCODE with market prefix."""
+    if not code:
+        return code
+    s = code.strip().upper()
+    prefixes = ("USHA", "USZA", "USTM", "USHI", "USZI", "UHKG", "UNQQ", "UNYS", "URFI", "UFXB", "UCFS", "USHD")
+    if any(s.startswith(p) for p in prefixes):
+        return s
+
+    clean = s.replace(".HK", "").replace(".SH", "").replace(".SS", "").replace(".SZ", "").replace(".US", "")
+
+    if market_hint == "hk" or (clean.isdigit() and len(clean) <= 5):
+        return f"UHKG{clean.zfill(5)}"
+    elif market_hint == "us" or clean.isalpha():
+        return f"UNQQ{clean}"
+    elif clean.isdigit() and len(clean) == 6:
+        if clean.startswith("6"):
+            return f"USHA{clean}"
+        elif clean.startswith(("0", "3")):
+            return f"USZA{clean}"
+        elif clean.startswith(("8", "4")):
+            return f"USTM{clean}"
+    return s
+
+
 class THSProvider:
     """Wrapper around thsdk for async usage in FastAPI."""
 
@@ -36,26 +61,33 @@ class THSProvider:
             return resp.data if resp else []
 
     async def get_klines(self, ths_code: str, interval: str = "5m", count: int = 78, adjust: str = "") -> Dict:
+        formatted_code = format_ths_code(ths_code)
         with THS() as ths:
-            kwargs = {"ths_code": ths_code, "interval": interval, "count": count}
+            kwargs = {"ths_code": formatted_code, "interval": interval, "count": count}
             if adjust:
                 kwargs["adjust"] = adjust
             resp = await self._run_sync(ths.klines, **kwargs)
             return self._to_records(resp)
 
     async def get_intraday(self, ths_code: str) -> Dict:
+        formatted_code = format_ths_code(ths_code)
         with THS() as ths:
-            resp = await self._run_sync(ths.intraday_data, ths_code)
+            resp = await self._run_sync(ths.intraday_data, formatted_code)
             return self._to_records(resp)
 
     async def get_depth(self, ths_codes: Union[str, List[str]]) -> Dict:
+        if isinstance(ths_codes, list):
+            formatted_codes = [format_ths_code(c) for c in ths_codes]
+        else:
+            formatted_codes = format_ths_code(ths_codes)
         with THS() as ths:
-            resp = await self._run_sync(ths.depth, ths_codes)
+            resp = await self._run_sync(ths.depth, formatted_codes)
             return self._to_records(resp)
 
     async def get_big_order_flow(self, ths_code: str) -> Dict:
+        formatted_code = format_ths_code(ths_code)
         with THS() as ths:
-            resp = await self._run_sync(ths.big_order_flow, ths_code)
+            resp = await self._run_sync(ths.big_order_flow, formatted_code)
             return self._to_records(resp)
 
     async def get_call_auction_anomaly(self, market: str = "USHA") -> Dict:
@@ -64,18 +96,38 @@ class THSProvider:
             return self._to_records(resp)
 
     async def get_market_data_cn(self, ths_codes: Union[str, List[str]], query_key: str = "基础数据") -> Dict:
+        if isinstance(ths_codes, list):
+            formatted_codes = [format_ths_code(c, market_hint="cn") for c in ths_codes]
+        else:
+            formatted_codes = format_ths_code(ths_codes, market_hint="cn")
+
+        # Auto-route HK/US codes if passed to get_market_data_cn
+        if isinstance(formatted_codes, str):
+            if formatted_codes.startswith("UHKG"):
+                return await self.get_market_data_hk(formatted_codes, query_key)
+            elif formatted_codes.startswith(("UNQQ", "UNYS")):
+                return await self.get_market_data_us(formatted_codes, query_key)
+        elif isinstance(formatted_codes, list) and len(formatted_codes) == 1:
+            code_single = formatted_codes[0]
+            if code_single.startswith("UHKG"):
+                return await self.get_market_data_hk(code_single, query_key)
+            elif code_single.startswith(("UNQQ", "UNYS")):
+                return await self.get_market_data_us(code_single, query_key)
+
         with THS() as ths:
-            resp = await self._run_sync(ths.market_data_cn, ths_codes, query_key)
+            resp = await self._run_sync(ths.market_data_cn, formatted_codes, query_key)
             return self._to_records(resp)
 
     async def get_market_data_hk(self, ths_code: str, query_key: str = "基础数据") -> Dict:
+        formatted_code = format_ths_code(ths_code, market_hint="hk")
         with THS() as ths:
-            resp = await self._run_sync(ths.market_data_hk, ths_code, query_key)
+            resp = await self._run_sync(ths.market_data_hk, formatted_code, query_key)
             return self._to_records(resp)
 
     async def get_market_data_us(self, ths_code: str, query_key: str = "基础数据") -> Dict:
+        formatted_code = format_ths_code(ths_code, market_hint="us")
         with THS() as ths:
-            resp = await self._run_sync(ths.market_data_us, ths_code, query_key)
+            resp = await self._run_sync(ths.market_data_us, formatted_code, query_key)
             return self._to_records(resp)
 
     async def get_market_data_index(self, ths_codes: Union[str, List[str]]) -> Dict:

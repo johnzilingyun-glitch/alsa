@@ -44,6 +44,25 @@ def do_interactive_card(data: lark.Card) -> None:
                 repo = AlertRepository(session_factory)
                 repo.acknowledge_alert(alert_id)
                 logger.info(f"[FeishuWS] Acknowledged alert {alert_id}")
+                return {
+                    "toast": {"type": "success", "content": "已确认关注预警"},
+                    "card": {
+                        "config": {"wide_screen_mode": True},
+                        "header": {
+                            "title": {"tag": "plain_text", "content": "✅ 已阅确认成功"},
+                            "template": "green"
+                        },
+                        "elements": [
+                            {
+                                "tag": "div",
+                                "text": {
+                                    "tag": "lark_md",
+                                    "content": "您已成功确认此警报，**今日及后续将不再发送此股票的通知**。\n如需恢复，请前往 ALSA 系统前端的 [信号监控] - [历史触发] 列表中点击恢复。"
+                                }
+                            }
+                        ]
+                    }
+                }
     except Exception as e:
         logger.error(f"[FeishuWS] Error handling card action: {e}", exc_info=True)
 

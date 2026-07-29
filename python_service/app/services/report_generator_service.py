@@ -66,11 +66,19 @@ class ReportGeneratorService:
             # UI Data Expert Pass - REFINED CONTENT (RESTORING RAW LOGS)
             ui_data = await self._run_ui_data_expert(symbol, market, snapshot, full_discussion, model=model, deepseek_api_key=deepseek_api_key, gemini_api_key=gemini_api_key, openrouter_api_key=openrouter_api_key)
 
-            # If UI data expert failed (empty dict) OR quality is too low, build fallback
+            # If ui_data is missing/empty (LLM API error or JSON parse failure), attempt fallback extraction from discussion
+            if not ui_data or not isinstance(ui_data, dict):
+                fallback_ui = self._build_fallback_ui_data(symbol, cleaned_msgs, snapshot)
+                if fallback_ui:
+                    ui_data = fallback_ui
+
+            # Run validation & backfilling on ui_data
+            if ui_data and isinstance(ui_data, dict):
+                self._validate_and_backfill_ui_data(ui_data, cleaned_msgs, snapshot)
+
+            # If UI data is STILL missing or low quality, raise schema validation error
             if not ui_data or self._is_low_quality_ui_data(ui_data):
                 raise ReportSchemaValidationError(self._describe_ui_data_schema_failure(ui_data))
-
-            self._validate_and_backfill_ui_data(ui_data, cleaned_msgs, snapshot)
 
             # Backstop: if any figure was sourced from the model's own knowledge, downgrade
             # data completeness and surface an integrity warning instead of presenting it as fact.
@@ -440,7 +448,10 @@ Now extract from the following discussion:
                 cleaned = re.sub(r'\n?```\s*$', '', cleaned)
                 cleaned = cleaned.strip()
 
-                json_str = self._extract_balanced_json(cleaned)
+                start_idx = cleaned.find('{')
+                json_str = ""
+                if start_idx != -1:
+                    json_str = self._extract_balanced_json(cleaned[start_idx:])
                 if not json_str:
                     # Regex fallback: find first {...} block
                     match = re.search(r'\{.*\}', cleaned, re.DOTALL)
@@ -451,14 +462,23 @@ Now extract from the following discussion:
                     # Robust JSON parsing with repair for common LLM output issues
                     try:
                         result = json.loads(json_str)
-                        return result
+                        if isinstance(result, dict) and result:
+                            return result
                     except json.JSONDecodeError:
                         # Fix common LLM JSON issues: trailing commas
                         fixed = re.sub(r',(\s*[}\]])', r'\1', json_str)
                         try:
-                            return json.loads(fixed)
+                            result = json.loads(fixed)
+                            if isinstance(result, dict) and result:
+                                return result
                         except json.JSONDecodeError:
-                            pass
+                            # Try ast.literal_eval if LLM returned python dict format
+                            try:
+                                result = ast.literal_eval(json_str)
+                                if isinstance(result, dict) and result:
+                                    return result
+                            except Exception:
+                                pass
 
                 print(f"UI Data Expert Pass Attempt {attempt+1} Failed to parse JSON. Result: {res[:100]}...")
                 last_exception = ValueError(f"Failed to parse JSON. Result preview: {res[:100]}...")
@@ -650,6 +670,8 @@ Now extract from the following discussion:
 
     def _validate_and_backfill_ui_data(self, ui_data: dict, discussion_msgs: list, snapshot: dict):
         """Validate critical UI fields; backfill from discussion if LLM returned empty or thinking text."""
+        GARBAGE_VALUES = {"---", "—", "N/A", "n/a", "TBD", "tbd", "TODO", "todo", "None", "null", ""}
+
         # Clean thinking prefixes from structured fields
         for field in ["investment_thesis", "tagline", "verdict", "action_stance", "the_call"]:
             if ui_data.get(field):
@@ -666,12 +688,39 @@ Now extract from the following discussion:
                 return False
             return any(val.strip().startswith(prefix) for prefix in thinking_indicators)
 
-        # Fix investment_thesis if it contains thinking text
-        if not ui_data.get("investment_thesis") or _is_thinking_text(ui_data.get("investment_thesis", "")):
-            ui_data["investment_thesis"] = self._extract_first_substantive_sentence(discussion_msgs)
+        # Normalize recommendation
+        rec_raw = str(ui_data.get("recommendation", "")).strip().upper()
+        if rec_raw in ("BUY", "STRONG BUY", "买入", "增持", "OVERWEIGHT", "长多"):
+            ui_data["recommendation"] = "BUY"
+        elif rec_raw in ("SELL", "STRONG SELL", "REDUCE", "AVOID", "卖出", "减持", "看空", "避险"):
+            ui_data["recommendation"] = "SELL"
+        elif rec_raw in ("HOLD", "WATCH", "NEUTRAL", "中性", "观望"):
+            ui_data["recommendation"] = "HOLD"
+        elif rec_raw not in ("BUY", "HOLD", "SELL", "STRONG BUY", "STRONG SELL", "WATCH"):
+            ui_data["recommendation"] = "HOLD"
 
-        tagline = ui_data.get("tagline", "")
-        if not tagline or _is_thinking_text(tagline):
+        # Ensure verdict exists — try to extract from discussion
+        verdict = str(ui_data.get("verdict", "")).strip()
+        if not verdict or verdict in GARBAGE_VALUES or len(verdict) < 3 or _is_thinking_text(verdict):
+            verdict = self._extract_verdict_from_discussion(discussion_msgs)
+            if verdict and verdict not in GARBAGE_VALUES:
+                ui_data["verdict"] = verdict
+            elif ui_data.get("summary"):
+                s_first = str(ui_data["summary"]).split("。")[0].strip()
+                if len(s_first) >= 3:
+                    ui_data["verdict"] = s_first[:60]
+
+        # Fix investment_thesis if empty, garbage, thinking text, or too long
+        thesis = str(ui_data.get("investment_thesis", "")).strip()
+        if not thesis or thesis in GARBAGE_VALUES or _is_thinking_text(thesis):
+            thesis = self._extract_first_substantive_sentence(discussion_msgs) or str(ui_data.get("verdict", ""))
+        if len(thesis) > 500:
+            thesis = thesis[:495] + "..."
+        ui_data["investment_thesis"] = thesis
+
+        # Ensure tagline exists
+        tagline = str(ui_data.get("tagline", "")).strip()
+        if not tagline or tagline in GARBAGE_VALUES or len(tagline) < 3 or _is_thinking_text(tagline):
             symbol = snapshot.get("quote", {}).get("symbol", "股票")
             first_sent = ui_data.get("investment_thesis", "").split("。")[0].split("！")[0].split("?")[0].strip()
             first_sent = first_sent.split("\n")[0].strip() # Avoid capturing multiline markdown
@@ -680,16 +729,22 @@ Now extract from the following discussion:
             else:
                 ui_data["tagline"] = f"{symbol} 深度投资分析报告"
 
-        # Ensure verdict exists — try to extract from discussion
-        if not ui_data.get("verdict"):
-            verdict = self._extract_verdict_from_discussion(discussion_msgs)
-            if verdict:
-                ui_data["verdict"] = verdict
-
         # Ensure action_stance exists
-        if not ui_data.get("action_stance"):
+        action_stance = str(ui_data.get("action_stance", "")).strip()
+        if not action_stance or action_stance in GARBAGE_VALUES or len(action_stance) < 3 or _is_thinking_text(action_stance):
             rec = ui_data.get("recommendation", "WATCH")
             ui_data["action_stance"] = f"当前建议 {rec}，详见专家研讨记录中的交易计划"
+
+        # Ensure the_call exists and is substantive
+        the_call = str(ui_data.get("the_call", "")).strip()
+        if not the_call or the_call in GARBAGE_VALUES or len(the_call) < 3 or _is_thinking_text(the_call):
+            ui_data["the_call"] = (
+                ui_data.get("action_stance")
+                or ui_data.get("verdict")
+                or f"建议对该标的关注{ui_data.get('recommendation', 'HOLD')}机会"
+            )
+        if len(ui_data["the_call"]) > 200:
+            ui_data["the_call"] = ui_data["the_call"][:195] + "..."
 
         # Backfill lists if they are empty
         if not ui_data.get("upside"):
@@ -1135,6 +1190,9 @@ Now extract from the following discussion:
         macro_summary = self._extract_narrative_section("macro", ["宏观", "技术面", "资金面", "Technical", "Macro", "行业格局", "供给", "需求"], discussion_msgs)
         trading_plan_summary = self._extract_narrative_section("trading", ["交易计划", "操作步骤", "Trading Plan", "建仓", "仓位", "止损", "风控", "Execution"], discussion_msgs)
 
+        investment_thesis = (summary_text[:490] if len(summary_text) > 490 else summary_text) or verdict
+        the_call = action_stance[:100] if action_stance else (verdict[:100] if verdict else f"关注{symbol}后续信号")
+
         return {
             "summary": summary_text,
             "moat_summary": moat_summary or "暂无基本面护城河深度解析数据",
@@ -1152,6 +1210,8 @@ Now extract from the following discussion:
             "tagline": tagline,
             "verdict": verdict,
             "action_stance": action_stance,
+            "investment_thesis": investment_thesis,
+            "the_call": the_call,
         }
 
     def _extract_thesis_from_discussion(self, discussion_msgs: list) -> dict:
@@ -1306,7 +1366,7 @@ CONTENT:
             if escape:
                 escape = False
                 continue
-            if ch == '\\\\' and in_string:
+            if ch == '\\' and in_string:
                 escape = True
                 continue
             if ch == '"' and not escape:
@@ -1324,7 +1384,12 @@ CONTENT:
                         json.loads(candidate)
                         return candidate
                     except json.JSONDecodeError:
-                        return ""
+                        fixed = re.sub(r',(\s*[}\]])', r'\1', candidate)
+                        try:
+                            json.loads(fixed)
+                            return fixed
+                        except json.JSONDecodeError:
+                            return ""
         return ""
 
     def _replace_python_reprs_in_text(self, text: str) -> str:

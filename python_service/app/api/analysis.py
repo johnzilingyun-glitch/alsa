@@ -35,6 +35,20 @@ def _extract_incident_id(error_message: Optional[str]) -> Optional[str]:
         return None
     return match.group(1)
 
+import math
+
+def sanitize_nan(obj):
+    if isinstance(obj, float):
+        if math.isnan(obj) or math.isinf(obj):
+            return None
+        return obj
+    elif isinstance(obj, dict):
+        return {k: sanitize_nan(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [sanitize_nan(x) for x in obj]
+    return obj
+
+
 def get_job_service():
     # Attempt to import from a safe location to avoid circular imports
     try:
@@ -109,6 +123,9 @@ async def get_job(job_id: str, service: AnalysisJobService = Depends(get_job_ser
     else:
         progress = {"stage": job.status, "percent": 0}
 
+    # Sanitize NaN/Infinity to prevent JSON serialization errors
+    result = sanitize_nan(result)
+
     return success_response({
         "job_id": job.job_id,
         "status": job.status,
@@ -127,7 +144,8 @@ async def get_analysis_run(analysis_id: str, service: AnalysisJobService = Depen
     if not run:
         return error_response("ANALYSIS_NOT_FOUND", "Analysis run not found")
     
-    return success_response(run)
+    sanitized_run = sanitize_nan(run)
+    return success_response(sanitized_run)
 
 
 @router.get("/runs/{analysis_id}/lineage")

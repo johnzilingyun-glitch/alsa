@@ -51,19 +51,43 @@ def test_expert_tools_serenity_alpha_role_tools():
     assert "news_search" in tools
 
 @pytest.mark.asyncio
-async def test_exec_financial_data_free_cash_flow():
+async def test_fetch_sector_stocks_free_cash_flow():
     """Verify _exec_financial_data extracts freeCashflow and operatingCashflow."""
     res = await tool_executor._exec_financial_data("002463", "free cash flow 2025营收 营业收入 自由现金流")
     assert "<tool_observation>" in res
     assert "002463" in res
-    # Should include financial overview or cash flow details
     assert "freeCashflow" in res or "自由现金流" in res or "revenue" in res or "营业总收入" in res
 
 @pytest.mark.asyncio
 async def test_exec_iwencai_fallback_with_stock_code():
     """Verify _exec_iwencai_query fallback injects structured data if stock code is in query."""
-    # Force fallback by invoking _exec_iwencai_query with invalid key/disabled
     res = await tool_executor._exec_iwencai_query("002463 2025 营业收入 自由现金流 业务占比", "hithink-finance-query", "Financial data")
     assert "<tool_observation>" in res
-    # Fallback should inject structured data for 002463
     assert "结构化数据 [002463]" in res or "002463" in res
+
+@pytest.mark.asyncio
+async def test_fetch_sector_stocks_hk_and_us():
+    """Verify _fetch_sector_stocks returns constituent stocks for HK and US sectors."""
+    service = SectorAnalysisService(job_repo=None)
+    stocks_hk = await service._fetch_sector_stocks("港股科技")
+    assert isinstance(stocks_hk, list)
+    assert len(stocks_hk) > 0
+    hk_codes = [s["code"] for s in stocks_hk]
+    assert any(c in hk_codes for c in ["00700", "03690", "09988"])
+
+    stocks_us = await service._fetch_sector_stocks("美股科技")
+    assert isinstance(stocks_us, list)
+    assert len(stocks_us) > 0
+    us_codes = [s["code"] for s in stocks_us]
+    assert any(c in us_codes for c in ["NVDA", "AAPL", "MSFT"])
+
+def test_format_ths_code():
+    """Verify format_ths_code auto-pads and prefixes raw stock codes."""
+    from app.services.data_providers.ths_provider import format_ths_code
+    assert format_ths_code("00700") == "UHKG00700"
+    assert format_ths_code("700", market_hint="hk") == "UHKG00700"
+    assert format_ths_code("AAPL") == "UNQQAAPL"
+    assert format_ths_code("600519") == "USHA600519"
+    assert format_ths_code("000001") == "USZA000001"
+    assert format_ths_code("UHKG00700") == "UHKG00700"
+

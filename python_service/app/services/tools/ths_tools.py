@@ -161,13 +161,15 @@ async def exec_ths_big_order(args: dict) -> str:
 @tool_registry.register(THS_QUOTE_SCHEMA)
 async def exec_ths_quote(args: dict) -> str:
     code = args.get("code", "")
-    market = args.get("market", "cn")
+    market = args.get("market")
     if not code:
         return "<tool_observation>\nths_quote: code 参数必填。\n</tool_observation>"
     try:
-        if market == "hk":
+        from ..data_providers.base import detect_market, MarketType
+        m_type = detect_market(code) if not market else None
+        if market == "hk" or (m_type == MarketType.HK_SHARE or code.upper().startswith("UHKG")):
             result = await ths_provider.get_market_data_hk(code)
-        elif market == "us":
+        elif market == "us" or (m_type == MarketType.US_SHARE or code.upper().startswith(("UNQQ", "UNYS"))):
             result = await ths_provider.get_market_data_us(code)
         else:
             result = await ths_provider.get_market_data_cn(code)

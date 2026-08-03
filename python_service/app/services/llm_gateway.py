@@ -706,7 +706,7 @@ class LLMGateway:
                     config["response_schema"] = response_schema
                 if "gemini-3" in model.lower():
                     # Gemini 3.x best practice: use thinking_level instead of temperature
-                    config["thinking_config"] = {"thinking_level": "medium"}
+                    config["thinking_config"] = {"thinking_level": "max"}
                 else:
                     config["temperature"] = temperature
                 if "gemini" in model.lower():
@@ -802,7 +802,8 @@ class LLMGateway:
                 "max_tokens": 16384,
                 "stream": True,
                 "stream_options": {"include_usage": True},
-                "extra_body": {"reasoning": {"effort": "high"}},
+                "reasoning_effort": "max",
+                "extra_body": {"thinking": {"type": "enabled"}},
             }
             if response_schema:
                 kwargs["response_format"] = {"type": "json_object"}

@@ -373,10 +373,62 @@ class DiscussionService:
     async def run_discussion(self, symbol: str, name: str, snapshot: Dict[str, Any], level: str = "standard", language: str = "zh-CN", model: str = None, on_progress: Optional[callable] = None, job_id: str = "temp_job_id", config: Optional[Dict[str, Any]] = None, market: str = "us", verification_mode: str = "quick") -> List[Dict[str, Any]]:
         """
         Runs the full expert discussion flow using LangGraph.
+
+        Early-aborts when the stock is unidentifiable (name == symbol, no price,
+        low data quality) to avoid wasteful multi-agent LLM calls.
         
         Args:
             verification_mode: 'extreme' (skip all checks), 'quick' (smart checks), or 'quality' (all checks)
         """
+        # ── Early abort: unidentifiable stock check ──
+        # The most reliable signal: company name is just the stock code itself
+        # (e.g. name="03986" for symbol="03986"), meaning the provider couldn't
+        # resolve it to an actual company. Combined with null price → abort.
+        resolved_name = snapshot.get("name", symbol) or symbol
+        stock_name_matches_symbol = (resolved_name.strip().lower() == symbol.strip().lower())
+        has_price = snapshot.get("price") is not None
+
+        # Also check stockInfo.name if present (nested location)
+        stock_info = snapshot.get("stockInfo", {}) or {}
+        si_name = (stock_info.get("name") or "").strip().lower()
+        si_name_matches_symbol = (si_name == symbol.strip().lower())
+
+        # If the name IS the symbol and there's no price, the stock is unidentifiable.
+        # data_quality.score can be misleadingly high (e.g. 0.85 from OHLC data alone)
+        # so we don't gate on it here.
+        name_is_code = (stock_name_matches_symbol or si_name_matches_symbol)
+
+        # Supplementary check: blocking errors + no price + very low data quality
+        dq = snapshot.get("data_quality", {}) or {}
+        dq_score = dq.get("score", 0) or 0
+        blocking_errors = dq.get("blocking_errors", []) or []
+
+        is_unidentifiable = name_is_code and not has_price
+
+        if not is_unidentifiable:
+            is_unidentifiable = (bool(blocking_errors) and not has_price and dq_score < 0.3)
+
+        if is_unidentifiable:
+            logger.warning(
+                "[DiscussionService] Early abort for %s.%s: unidentifiable stock "
+                "(name=%r, has_price=%s, dq_score=%s, blocking_errors=%s)",
+                symbol, market, resolved_name, has_price, dq_score, bool(blocking_errors)
+            )
+            if on_progress:
+                on_progress(0, 1, f"股票代码 {symbol}.{market} 无法识别，跳过讨论")
+            abort_msg = (
+                f"🚫 **股票代码 {symbol}.{market} 无法识别**\n\n"
+                f"系统在所有数据源中均无法匹配到对应的公司实体。\n"
+                f"可能原因：① 股票代码填写错误；② 该代码已退市或私有化；③ 市场选择有误。\n"
+                f"\n"
+                f"**建议操作**：请核实代码后重新提交。如为 A 股代码，请使用 6 位数字加 .SH/.SZ 后缀。"
+            )
+            return [
+                {"role": "System", "content": abort_msg, "model": None, "timestamp": datetime.utcnow().isoformat()}
+            ]
+
+        # ── End early abort check ──
+
         custom_experts = (config or {}).get("experts")
         topology = self.build_topology(level, custom_experts=custom_experts, verification_mode=verification_mode)
         self._cumulative_count = 0  # Track total chars across all experts

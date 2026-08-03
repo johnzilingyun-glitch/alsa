@@ -75,6 +75,14 @@ async def create_job(payload: AnalysisJobCreate, request: Request, service: Anal
         return error_response("QUEUE_FULL", "您当前已有分析任务正在进行中，请等待其完成后再提交新任务。")
 
     try:
+        # Clear any lingering stop signal before starting a new job
+        import os
+        if os.path.exists(".stop"):
+            try:
+                os.remove(".stop")
+            except OSError:
+                pass
+
         job_id = await service.start_job(
             symbol=payload.symbol, 
             market=payload.market, 

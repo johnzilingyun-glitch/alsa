@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, Zap } from 'lucide-react';
+import { Search, Zap, LoaderCircle } from 'lucide-react';
 
 interface Suggestion {
   symbol: string;
@@ -38,6 +38,8 @@ export function StockSearchInput({
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(-1);
   const [isComposing, setIsComposing] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [fetchError, setFetchError] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Sync external value
@@ -50,34 +52,51 @@ export function StockSearchInput({
     const controller = new AbortController();
 
     const fetchSuggestions = async () => {
-      if (!localValue || localValue.trim().length < 1 || isComposing) {
+      const trimmed = (localValue || '').trim();
+      if (trimmed.length < 1 || isComposing) {
         setSuggestions([]);
         setShowSuggestions(false);
+        setFetchError(null);
         return;
       }
 
+      setIsLoading(true);
+      setFetchError(null);
+
       try {
         const params = new URLSearchParams();
-        params.set('input', localValue);
+        params.set('input', trimmed);
         params.set('market', market);
 
         const res = await fetch(`/api/stock/suggest?${params.toString()}`, {
           signal: controller.signal,
         });
         if (res.ok) {
-          const data = await res.json();
-          setSuggestions(data);
-          setShowSuggestions(data.length > 0);
-          setSelectedIndex(-1);
+          const data: Suggestion[] = await res.json();
+          if (!Array.isArray(data)) {
+            console.warn('[StockSearchInput] suggest API returned non-array:', data);
+            setSuggestions([]);
+            setShowSuggestions(false);
+          } else {
+            setSuggestions(data);
+            setShowSuggestions(data.length > 0);
+            setSelectedIndex(-1);
+          }
+        } else {
+          // Server returned error status — don't clear existing suggestions
+          setFetchError('查询失败');
         }
       } catch (e: any) {
         if (e.name !== 'AbortError') {
-          console.error('Failed to fetch suggestions:', e);
+          console.error('[StockSearchInput] Failed to fetch suggestions:', e);
+          setFetchError('网络错误');
         }
+      } finally {
+        setIsLoading(false);
       }
     };
 
-    const timeout = setTimeout(fetchSuggestions, 150);
+    const timeout = setTimeout(fetchSuggestions, 300);
     return () => {
       clearTimeout(timeout);
       controller.abort();
@@ -96,10 +115,15 @@ export function StockSearchInput({
   }, []);
 
   const handleSelectSuggestion = (s: Suggestion) => {
-    const finalSym = s.symbol || s.fullSymbol || '';
-    setLocalValue(finalSym.toUpperCase());
+    const finalSym = (s.symbol || s.fullSymbol || '').toUpperCase();
+    if (!finalSym) {
+      console.warn('[StockSearchInput] Selected suggestion has no symbol:', s);
+      return;
+    }
+    setLocalValue(finalSym);
     setShowSuggestions(false);
-    onSelect(finalSym.toUpperCase(), s.market);
+    setFetchError(null);
+    onSelect(finalSym, s.market);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -119,7 +143,7 @@ export function StockSearchInput({
       setSelectedIndex((prev) => (prev - 1 + suggestions.length) % suggestions.length);
     } else if (e.key === 'Enter') {
       e.preventDefault();
-      if (selectedIndex >= 0) {
+      if (selectedIndex >= 0 && suggestions[selectedIndex]) {
         handleSelectSuggestion(suggestions[selectedIndex]);
       } else if (onSubmit && localValue.trim()) {
         setShowSuggestions(false);
@@ -159,9 +183,23 @@ export function StockSearchInput({
         className={`w-full h-12 pl-11 pr-4 rounded-xl border border-zinc-200 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-indigo-600/10 focus:border-indigo-600/40 transition-all ${inputClassName}`}
       />
 
+      {/* Loading indicator */}
+      {isLoading && localValue.trim().length >= 1 && (
+        <div className="absolute right-4 top-1/2 -translate-y-1/2 z-10">
+          <LoaderCircle size={16} className="text-indigo-400 animate-spin" />
+        </div>
+      )}
+
+      {/* Fetch error hint */}
+      {fetchError && localValue.trim().length >= 1 && !isLoading && (
+        <div className="absolute text-[10px] text-rose-400 right-4 top-1/2 -translate-y-1/2 z-10 pointer-events-none">
+          {fetchError}
+        </div>
+      )}
+
       {/* Suggestions Dropdown */}
       {showSuggestions && suggestions.length > 0 && (
-        <div className="absolute top-full left-0 right-0 mt-2 z-[60] overflow-hidden rounded-2xl border border-zinc-100 bg-white/95 backdrop-blur-xl shadow-2xl shadow-indigo-600/10 animate-in fade-in slide-in-from-top-2 duration-200">
+        <div className="absolute top-full left-0 right-0 mt-2 z-[60] overflow-hidden rounded-2xl border border-zinc-100 bg-white/95 backdrop-blur-xl shadow-2xl shadow-indigo-600/10">
           <div className="p-1.5 max-h-[320px] overflow-y-auto" id="stock-search-suggestions" role="listbox" aria-label="Stock suggestions">
             {suggestions.map((s, idx) => (
               <button

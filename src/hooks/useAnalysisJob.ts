@@ -9,6 +9,26 @@ function extractIncidentId(errorMessage?: string | null): string | null {
   return match?.[1] || null;
 }
 
+/**
+ * Resolve the provider + API key for a saved config, with cross-field fallback.
+ * Users may paste a key into ANY provider field (e.g. a DeepSeek key into the
+ * OpenRouter input) — never let a "wrong" field stall the need_api_key handshake.
+ * Order: provider-specific field first, then the other sk-* field, then the generic key.
+ */
+export function resolveProviderKey(savedConfig: any): { provider: string; apiKey: string } {
+  const model = String(savedConfig?.model || '').toLowerCase();
+  const isDeepSeek = model.startsWith('deepseek');
+  const isOpenRouter = !isDeepSeek && !model.startsWith('gemini');
+  const provider = isDeepSeek ? 'deepseek' : isOpenRouter ? 'openrouter' : 'gemini';
+  const candidates = isDeepSeek
+    ? [savedConfig?.deepseekApiKey, savedConfig?.openrouterApiKey, savedConfig?.apiKey]
+    : isOpenRouter
+      ? [savedConfig?.openrouterApiKey, savedConfig?.deepseekApiKey, savedConfig?.apiKey]
+      : [savedConfig?.apiKey, savedConfig?.deepseekApiKey, savedConfig?.openrouterApiKey];
+  const apiKey = candidates.find((k: any) => typeof k === 'string' && k.trim()) || '';
+  return { provider, apiKey };
+}
+
 function buildFailureMessage(jobId: string, rawError: string | null | undefined, explicitIncidentId?: string | null): string {
   const incidentId = explicitIncidentId || extractIncidentId(rawError);
   const lines = [
@@ -113,31 +133,9 @@ export function useAnalysisJob() {
         const data = responseData.data;
         setStatus(data.status);
         
-        // Proactively cache the API key on first job submission (so subsequent jobs don't wait)
-        if (!(window as any).__alsaKeyCached) {
-          const savedConfig = (() => {
-            try {
-              const raw = localStorage.getItem('llm_config');
-              return raw ? JSON.parse(raw) : {};
-              } catch {
-                console.warn('[useAnalysisJob] Failed to parse saved config for API key:');
-                return {};
-              }
-          })();
-          const model = savedConfig.model || '';
-          const isDeepSeek = model.toLowerCase().startsWith('deepseek');
-          const isOpenRouter = !isDeepSeek && !model.toLowerCase().startsWith('gemini');
-          const provider = isDeepSeek ? 'deepseek' : isOpenRouter ? 'openrouter' : 'gemini';
-          const apiKey = isDeepSeek ? (savedConfig.deepseekApiKey || '') : isOpenRouter ? (savedConfig.openrouterApiKey || '') : (savedConfig.apiKey || '');
-          if (apiKey) {
-            fetch('/api/analysis/apikey', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ provider, apiKey })
-            }).catch(() => {});
-            (window as any).__alsaKeyCached = true;
-          }
-        }
+        // NOTE: No proactive API-key pre-caching here — keys are delivered per-job
+        // via the need_api_key handshake below, so nothing lingers server-side
+        // between jobs (anti-leak requirement).
         
         if (data.progress) {
           const { stage, percent, round, total_rounds, message, count, error_type } = data.progress;
@@ -162,7 +160,9 @@ export function useAnalysisJob() {
             setInsufficientBalance(true);
           }
           
-          // need_api_key: server needs the user's API key — read from localStorage and send
+          // need_api_key: server needs the user's API key — read from localStorage and send.
+          // Always POST (even with an empty key) so the backend fails fast with a clear
+          // error instead of silently hanging for the full wait timeout when no key exists.
           if (stage === 'need_api_key') {
             const savedConfig = (() => {
               try {
@@ -173,19 +173,13 @@ export function useAnalysisJob() {
               return {};
             }
             })();
-            const model = savedConfig.model || '';
-            const isDeepSeek = model.toLowerCase().startsWith('deepseek');
-            const isOpenRouter = !isDeepSeek && !model.toLowerCase().startsWith('gemini');
-            const provider = isDeepSeek ? 'deepseek' : isOpenRouter ? 'openrouter' : 'gemini';
-            const apiKey = isDeepSeek ? (savedConfig.deepseekApiKey || '') : isOpenRouter ? (savedConfig.openrouterApiKey || '') : (savedConfig.apiKey || '');
-            if (apiKey) {
-              // Send key to server — stored in memory only, never persisted
-              fetch(`/api/analysis/jobs/${id}/apikey`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ provider, apiKey })
-              }).catch(e => console.error('Failed to submit API key:', e));
-            }
+            const { provider, apiKey } = resolveProviderKey(savedConfig);
+            // Send key to server — stored in memory only, never persisted
+            fetch(`/api/analysis/jobs/${id}/apikey`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ provider, apiKey })
+            }).catch(e => console.error('Failed to submit API key:', e));
           }
           
           // Map stage to a friendly message if no explicit message

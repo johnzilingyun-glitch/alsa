@@ -245,6 +245,10 @@ class ReportRequest(BaseModel):
     deepseekApiKey: Optional[str] = None
     geminiApiKey: Optional[str] = None
     openrouterApiKey: Optional[str] = None
+    # Optional: the exact report HTML currently displayed on the frontend.
+    # When provided, exports (e.g. PDF) are rendered from this HTML verbatim
+    # instead of regenerating, guaranteeing the export matches the deep report.
+    html: Optional[str] = None
 
 @router.post("/jobs/{job_id}/report")
 async def generate_report(job_id: str, body: ReportRequest = None, service: AnalysisJobService = Depends(get_job_service)):
@@ -319,17 +323,24 @@ async def export_pdf(job_id: str, body: ReportRequest = None, service: AnalysisJ
 
     try:
         # 1. Generate/Load HTML
-        if not os.path.exists(report_path):
-            deepseek_key = body.deepseekApiKey or service._api_keys.get("deepseek")
-            gemini_key = body.geminiApiKey or service._api_keys.get("gemini")
-            await report_service.generate_html_report_async(
-                result, report_path, model=job.requested_model,
-                deepseek_api_key=deepseek_key,
-                gemini_api_key=gemini_key
-            )
-        
-        with open(report_path, "r", encoding="utf-8") as f:
-            html_content = f.read()
+        if body.html:
+            # Export must match the deep report displayed on screen — use the
+            # exact HTML sent by the frontend instead of regenerating.
+            html_content = body.html
+            with open(report_path, "w", encoding="utf-8") as f:
+                f.write(html_content)
+        else:
+            if not os.path.exists(report_path):
+                deepseek_key = body.deepseekApiKey or service._api_keys.get("deepseek")
+                gemini_key = body.geminiApiKey or service._api_keys.get("gemini")
+                await report_service.generate_html_report_async(
+                    result, report_path, model=job.requested_model,
+                    deepseek_api_key=deepseek_key,
+                    gemini_api_key=gemini_key
+                )
+
+            with open(report_path, "r", encoding="utf-8") as f:
+                html_content = f.read()
 
         # 2. Generate/Load PDF
         if not os.path.exists(pdf_path):
@@ -432,12 +443,6 @@ async def get_analysis_settings():
             "id": "gemini-3.5-flash",
             "name": "Gemini 3.5 Flash",
             "description": "Google Gemini Flash model",
-            "status": "available"
-        },
-        {
-            "id": "tencent/hy3:free",
-            "name": "Tencent Hyperion 3 (OpenRouter)",
-            "description": "Default model via OpenRouter — uses the server's OPENROUTER_API_KEY, no local key required",
             "status": "available"
         }
     ]

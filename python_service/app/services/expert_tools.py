@@ -1828,10 +1828,45 @@ class ToolExecutor:
 
             else:
                 # --- US/HK data from yfinance ---
+                is_hk = symbol.endswith(".HK") or (symbol.isdigit() and len(symbol) <= 5)
                 yf_symbol = symbol
-                if symbol.endswith(".HK") or (symbol.isdigit() and len(symbol) <= 5):
+                if is_hk:
                     clean = symbol.replace(".HK", "").zfill(4)
                     yf_symbol = f"{clean}.HK"
+
+                # Fallback data — yfinance is rate-limited from datacenter IPs
+                # (YFRateLimitError, 2026-08 incident), so pre-fetch alternates:
+                #   hk_rows   — EastMoney HK F10 main indicators (annual/semi-annual)
+                #   tq_quotes — Tencent real-time quotes (price/PE/PB/market cap)
+                hk_rows: List[Dict] = []
+                tq_quotes: List[Dict] = []
+                try:
+                    if is_hk:
+                        from .data_providers.a_stock_direct import fetch_hk_financials
+                        hk_rows = await fetch_hk_financials(symbol, periods=MAX_PERIODS)
+                except Exception as e:
+                    logger.warning(f"[ToolExecutor] EastMoney HK financials failed for {symbol}: {e}")
+                try:
+                    from .data_providers.a_stock_direct import fetch_tencent_quote
+                    tq_quotes = await fetch_tencent_quote([symbol])
+                except Exception as e:
+                    logger.warning(f"[ToolExecutor] Tencent quote failed for {symbol}: {e}")
+
+                def _hk_section(title: str, keys: List[tuple]) -> List[str]:
+                    """Format EastMoney HK rows → lines. keys: [(field, label, is_pct), ...]"""
+                    if not hk_rows:
+                        return []
+                    out = [f"## {title} (EastMoney HK)"]
+                    for r in hk_rows[:3]:
+                        vals = []
+                        for f, label, is_pct in keys:
+                            v = r.get(f)
+                            if v is not None:
+                                vals.append(f"{label}:{_fmt_num(v)}{'%' if is_pct else ''}")
+                        if vals:
+                            out.append(f"- {r.get('report_date','')} {r.get('report_type','')}: " + " | ".join(vals))
+                    out.append("")
+                    return out
 
                 ticker = yf.Ticker(yf_symbol)
 
@@ -1851,57 +1886,122 @@ class ToolExecutor:
                             margin_str = f"{margin_val * 100:.2f}%" if isinstance(margin_val, (int, float)) else "N/A"
                             lines.append(f"- Net Profit Margin: {margin_str}")
                             lines.append("")
-                    except Exception as e:
-                        lines.append(f"⚠ valuation metrics unavailable")
+                        else:
+                            raise ValueError("empty info")
+                    except Exception:
+                        # yfinance unavailable (rate-limited) — use EastMoney HK
+                        # indicators (PE/PB/ROE/mktcap) or Tencent quote.
+                        if _budget_ok():
+                            hk_val = _hk_section("Valuation & Key Metrics", [
+                                ("PE_TTM", "PE(TTM)", False), ("PB_TTM", "PB", False),
+                                ("ROE_AVG", "ROE(加权)", True), ("TOTAL_MARKET_CAP", "总市值", False),
+                                ("DIVIDEND_RATE", "股息率", True), ("BASIC_EPS", "基本EPS", False),
+                            ])
+                            if hk_val:
+                                lines.extend(hk_val)
+                            elif tq_quotes:
+                                r = tq_quotes[0]
+                                lines.append("## Valuation & Key Metrics (腾讯行情)")
+                                lines.append(f"- 最新价: {r.get('price')} 涨跌幅: {r.get('change_pct')}%")
+                                lines.append(f"- PE: {r.get('pe')} 市净率: {r.get('pb')} 总市值: {r.get('market_cap')}")
+                                lines.append(f"- 成交额: {r.get('amount')} 时间: {r.get('time')}")
+                                lines.append("")
 
                 if _budget_ok() and any(kw in query_lower for kw in ["quarter", "earnings", "revenue", "profit", "eps"]):
-                    qf = await asyncio.to_thread(getattr, ticker, "quarterly_financials")
-                    if qf is not None and not qf.empty:
-                        lines.append("## Quarterly Financials")
-                        for item in ['Total Revenue', 'Net Income', 'Gross Profit', 'Operating Income', 'EBITDA']:
-                            if item in qf.index:
-                                row = qf.loc[item]
-                                vals = [f"{str(col)[:10]}:{_fmt_num(v)}" for col, v in list(row.items())[:MAX_PERIODS] if v is not None and v == v]
-                                if vals:
-                                    lines.append(f"- {item}: {' | '.join(vals)}")
-                        lines.append("")
+                    try:
+                        qf = await asyncio.to_thread(getattr, ticker, "quarterly_financials")
+                        if qf is not None and not qf.empty:
+                            lines.append("## Quarterly Financials")
+                            for item in ['Total Revenue', 'Net Income', 'Gross Profit', 'Operating Income', 'EBITDA']:
+                                if item in qf.index:
+                                    row = qf.loc[item]
+                                    vals = [f"{str(col)[:10]}:{_fmt_num(v)}" for col, v in list(row.items())[:MAX_PERIODS] if v is not None and v == v]
+                                    if vals:
+                                        lines.append(f"- {item}: {' | '.join(vals)}")
+                            lines.append("")
+                        else:
+                            raise ValueError("empty quarterly")
+                    except Exception:
+                        if _budget_ok():
+                            hk_fin = _hk_section("Financials", [
+                                ("OPERATE_INCOME", "营收", False), ("OPERATE_INCOME_YOY", "营收同比", True),
+                                ("HOLDER_PROFIT", "归母净利", False), ("HOLDER_PROFIT_YOY", "净利同比", True),
+                                ("GROSS_PROFIT", "毛利", False), ("GROSS_PROFIT_RATIO", "毛利率", True),
+                                ("NET_PROFIT_RATIO", "净利率", True),
+                            ])
+                            if hk_fin:
+                                lines.extend(hk_fin)
 
                 if _budget_ok() and any(kw in query_lower for kw in ["balance", "cash", "debt", "asset"]):
-                    bs = await asyncio.to_thread(getattr, ticker, "balance_sheet")
-                    if bs is not None and not bs.empty:
-                        lines.append("## Balance Sheet")
-                        for item in ['Total Assets', 'Total Liabilities Net Minority Interest', 'Cash And Cash Equivalents',
-                                     'Total Debt', 'Current Assets', 'Current Liabilities']:
-                            if item in bs.index:
-                                row = bs.loc[item]
-                                vals = [f"{str(col)[:10]}:{_fmt_num(v)}" for col, v in list(row.items())[:MAX_PERIODS] if v is not None and v == v]
-                                if vals:
-                                    lines.append(f"- {item}: {' | '.join(vals)}")
-                        lines.append("")
+                    try:
+                        bs = await asyncio.to_thread(getattr, ticker, "balance_sheet")
+                        if bs is not None and not bs.empty:
+                            lines.append("## Balance Sheet")
+                            for item in ['Total Assets', 'Total Liabilities Net Minority Interest', 'Cash And Cash Equivalents',
+                                         'Total Debt', 'Current Assets', 'Current Liabilities']:
+                                if item in bs.index:
+                                    row = bs.loc[item]
+                                    vals = [f"{str(col)[:10]}:{_fmt_num(v)}" for col, v in list(row.items())[:MAX_PERIODS] if v is not None and v == v]
+                                    if vals:
+                                        lines.append(f"- {item}: {' | '.join(vals)}")
+                            lines.append("")
+                        else:
+                            raise ValueError("empty bs")
+                    except Exception:
+                        if _budget_ok():
+                            hk_bal = _hk_section("Balance Sheet", [
+                                ("TOTAL_ASSETS", "总资产", False), ("TOTAL_LIABILITIES", "总负债", False),
+                                ("TOTAL_PARENT_EQUITY", "归母净资产", False), ("DEBT_ASSET_RATIO", "资产负债率", True),
+                                ("END_CASH", "期末现金", False),
+                            ])
+                            if hk_bal:
+                                lines.extend(hk_bal)
 
                 if _budget_ok() and any(kw in query_lower for kw in ["cash flow", "capex", "fcf"]):
-                    cf = await asyncio.to_thread(getattr, ticker, "cashflow")
-                    if cf is not None and not cf.empty:
-                        lines.append("## Cash Flow")
-                        for item in ['Operating Cash Flow', 'Capital Expenditure', 'Free Cash Flow']:
-                            if item in cf.index:
-                                row = cf.loc[item]
-                                vals = [f"{str(col)[:10]}:{_fmt_num(v)}" for col, v in list(row.items())[:MAX_PERIODS] if v is not None and v == v]
-                                if vals:
-                                    lines.append(f"- {item}: {' | '.join(vals)}")
-                        lines.append("")
+                    try:
+                        cf = await asyncio.to_thread(getattr, ticker, "cashflow")
+                        if cf is not None and not cf.empty:
+                            lines.append("## Cash Flow")
+                            for item in ['Operating Cash Flow', 'Capital Expenditure', 'Free Cash Flow']:
+                                if item in cf.index:
+                                    row = cf.loc[item]
+                                    vals = [f"{str(col)[:10]}:{_fmt_num(v)}" for col, v in list(row.items())[:MAX_PERIODS] if v is not None and v == v]
+                                    if vals:
+                                        lines.append(f"- {item}: {' | '.join(vals)}")
+                            lines.append("")
+                        else:
+                            raise ValueError("empty cf")
+                    except Exception:
+                        if _budget_ok():
+                            hk_cf = _hk_section("Cash Flow", [
+                                ("NETCASH_OPERATE", "经营现金流净额", False), ("END_CASH", "期末现金", False),
+                            ])
+                            if hk_cf:
+                                lines.extend(hk_cf)
 
                 if _budget_ok() and any(kw in query_lower for kw in ["income", "breakdown", "cost"]):
-                    fin = await asyncio.to_thread(getattr, ticker, "financials")
-                    if fin is not None and not fin.empty:
-                        lines.append("## Income Statement")
-                        for item in ['Total Revenue', 'Gross Profit', 'Operating Income', 'Net Income', 'EBITDA']:
-                            if item in fin.index:
-                                row = fin.loc[item]
-                                vals = [f"{str(col)[:10]}:{_fmt_num(v)}" for col, v in list(row.items())[:MAX_PERIODS] if v is not None and v == v]
-                                if vals:
-                                    lines.append(f"- {item}: {' | '.join(vals)}")
-                        lines.append("")
+                    try:
+                        fin = await asyncio.to_thread(getattr, ticker, "financials")
+                        if fin is not None and not fin.empty:
+                            lines.append("## Income Statement")
+                            for item in ['Total Revenue', 'Gross Profit', 'Operating Income', 'Net Income', 'EBITDA']:
+                                if item in fin.index:
+                                    row = fin.loc[item]
+                                    vals = [f"{str(col)[:10]}:{_fmt_num(v)}" for col, v in list(row.items())[:MAX_PERIODS] if v is not None and v == v]
+                                    if vals:
+                                        lines.append(f"- {item}: {' | '.join(vals)}")
+                            lines.append("")
+                        else:
+                            raise ValueError("empty financials")
+                    except Exception:
+                        if _budget_ok():
+                            hk_inc = _hk_section("Income Statement", [
+                                ("OPERATE_INCOME", "营收", False), ("GROSS_PROFIT", "毛利", False),
+                                ("OPERATE_PROFIT", "营业利润", False), ("PRETAX_PROFIT", "税前利润", False),
+                                ("HOLDER_PROFIT", "归母净利", False),
+                            ])
+                            if hk_inc:
+                                lines.extend(hk_inc)
 
                 if _budget_ok() and any(kw in query_lower for kw in ["dividend"]):
                     divs = await asyncio.to_thread(getattr, ticker, "dividends")

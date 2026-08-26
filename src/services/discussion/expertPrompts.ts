@@ -846,7 +846,7 @@ export function getExpertPrompt(
 
   // Commodities
   if (commoditiesData.length > 0) {
-    sections.push(`\n**[API数据] 大宗商品实时数据**: ${JSON.stringify(commoditiesData)}`);
+    sections.push(`\n**[API数据] 大宗商品实时数据**: ${JSON.stringify(commoditiesData).slice(0, 2000)}`);
   }
 
   // [PHASE 1 OPTIMIZATION] - STRICT_DATA_BOUNDS & ANCHORING

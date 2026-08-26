@@ -7,7 +7,7 @@ import { useDiscussionStore } from '../stores/useDiscussionStore';
 import { useScenarioStore } from '../stores/useScenarioStore';
 import { useJobQueueStore } from '../stores/useJobQueueStore';
 import { StockAnalysis, Market } from '../types';
-import { useAnalysisJob } from './useAnalysisJob';
+import { useAnalysisJob, resolveProviderKey } from './useAnalysisJob';
 import { saveAnalysisToHistory } from '../services/aiService';
 import { alertsClient } from '../services/api/alertsClient';
 
@@ -64,26 +64,8 @@ export function useStockAnalysis() {
 
   // Background job polling
   const startBackgroundJob = useCallback(async (bgSymbol: string, bgMarket: string) => {
-    // Check if API Key is configured
-    const model = llmConfig?.model || '';
-    const isDeepSeek = model.toLowerCase().startsWith('deepseek');
-    const isOpenRouter = !isDeepSeek && !model.toLowerCase().startsWith('gemini');
-    const apiKey = isDeepSeek ? (llmConfig?.deepseekApiKey || '') : isOpenRouter ? (llmConfig?.openrouterApiKey || '') : (llmConfig?.apiKey || '');
-
-    // All known providers fall back to the server's runtime key
-    // (DEEPSEEK_API_KEY / GEMINI_API_KEY / OPENROUTER_API_KEY in .env.runtime),
-    // so a missing local key is never fatal for them — let the request through
-    // and let the backend surface a clear error if it also lacks a key.
-    const relaxLocalKey = isOpenRouter || isDeepSeek || model.toLowerCase().startsWith('gemini');
-    if (!relaxLocalKey && (!apiKey || !apiKey.trim())) {
-      showToast(
-        isDeepSeek
-          ? '请先前往设置配置 DeepSeek API Key (Please configure DeepSeek API Key in settings)'
-          : '请先前往设置配置 Gemini API Key (Please configure Gemini API Key in settings)',
-        'error'
-      );
-      return;
-    }
+    // Key presence is not gated here: deepseek/gemini/openrouter all fall back to the
+    // server runtime key (.env.runtime) or the need_api_key handshake (see useAnalysisJob).
 
     const bgId = `bg_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
     // Record search immediately
@@ -132,6 +114,27 @@ export function useStockAnalysis() {
             progress: data.progress,
             analysisId: data.analysis_id,
           });
+
+          // need_api_key: server needs the user's API key — same handshake as the
+          // main analysis flow (useAnalysisJob). Without this, background jobs
+          // ALWAYS hang for the backend wait timeout and fail with
+          // "未收到 API Key" even when a valid key is configured.
+          if (data.progress?.stage === 'need_api_key') {
+            const savedConfig = (() => {
+              try {
+                const raw = localStorage.getItem('llm_config');
+                return raw ? JSON.parse(raw) : {};
+              } catch {
+                return {};
+              }
+            })();
+            const { provider, apiKey } = resolveProviderKey(savedConfig);
+            fetch(`/api/analysis/jobs/${bgJobId}/apikey`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ provider, apiKey }),
+            }).catch(e => console.error('Failed to submit API key for background job:', e));
+          }
 
           if (data.status === 'completed') {
             clearInterval(timer);
@@ -230,12 +233,10 @@ export function useStockAnalysis() {
     const m = explicitMarket || market;
     
     // Check if API Key is configured
-    const model = llmConfig?.model || '';
-    const isDeepSeek = model.toLowerCase().startsWith('deepseek');
-    const isOpenRouter = !isDeepSeek && !model.toLowerCase().startsWith('gemini');
-    const apiKey = isDeepSeek ? (llmConfig?.deepseekApiKey || '') : isOpenRouter ? (llmConfig?.openrouterApiKey || '') : (llmConfig?.apiKey || '');
+    const { apiKey, provider: keyProvider } = resolveProviderKey(llmConfig);
+    const isDeepSeek = keyProvider === 'deepseek';
 
-    const relaxLocalKey = isOpenRouter || isDeepSeek || model.toLowerCase().startsWith('gemini');
+    const relaxLocalKey = true; // deepseek/gemini/openrouter all fall back to server runtime key
     if (!relaxLocalKey && (!apiKey || !apiKey.trim())) {
       setLoading(false);
       setAnalysisError(

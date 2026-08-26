@@ -43,14 +43,16 @@ const roleThemes: Record<AgentRole, { color: string; bg: string; border: string;
   "Moderator": { color: "text-zinc-600", bg: "bg-zinc-50/50", border: "border-zinc-200/60", icon: Search }
 };
 
-export function ExpertReportCard({ 
+export const ExpertReportCard = React.memo(function ExpertReportCard({ 
   message, isExpert, expertiseArea, references, isVerified, auditDetail, sentiment 
 }: ExpertReportCardProps) {
   const { t } = useTranslation();
-  const { llmConfig } = useConfigStore();
+  // Narrow subscription: whole-store subscription re-renders every card on ANY config
+  // change (e.g. token usage updates after every LLM call), re-parsing all markdown.
+  const model = useConfigStore(s => s.config?.model);
   const theme = roleThemes[message.role] || roleThemes["Moderator"];
   const RoleIcon = theme.icon;
-  const modelUsed = (message as any).model || llmConfig.model;
+  const modelUsed = (message as any).model || model;
 
   const activeSentiment = sentiment || 
     (message.role === 'Bull Researcher' ? 'bullish' : 
@@ -60,7 +62,7 @@ export function ExpertReportCard({
   const rawSections = message.content.split(/--- (\d+\. [^:]+):/).filter(s => s !== undefined);
   
   const parsedSections: { title: string; content: string }[] = [];
-  
+
   // If the first element isn't a title (regex capture), treat it as an introduction
   let startIndex = 0;
   if (rawSections[0] && !message.content.startsWith(`--- ${rawSections[0]}:`)) {
@@ -305,4 +307,4 @@ export function ExpertReportCard({
       </div>
     </motion.div>
   );
-}
+});

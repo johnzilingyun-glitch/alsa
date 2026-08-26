@@ -211,7 +211,10 @@ export async function callCopilotChatApi(
           { role: 'user', content: prompt },
         ],
         temperature: 0.3,
-        max_tokens: 16384,
+        // LLM_MAX_OUTPUT_TOKENS env override; 0 = unlimited (65536).
+        ...(Number(process.env.LLM_MAX_OUTPUT_TOKENS ?? 0) > 0
+          ? { max_tokens: Number(process.env.LLM_MAX_OUTPUT_TOKENS) }
+          : { max_tokens: 65536 }),
         stream: false,
       }),
       signal: controller.signal,

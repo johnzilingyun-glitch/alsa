@@ -598,6 +598,29 @@ function buildIterativeTopology(
 }
 
 /**
+ * Local keyword-based fast routing (zero LLM latency). Falls back to LLM routing
+ * only when no rule matches — the LLM routing call used to add a full round-trip
+ * (often 30s+ on free-tier models) before the expert even started answering.
+ */
+const LOCAL_ROUTING_RULES: Array<{ keywords: string[]; role: AgentRole }> = [
+  { keywords: ['技术', 'k线', '均线', 'ma5', 'ma20', 'ma60', '指标', '量价', '成交量', '支撑', '阻力', '趋势', '涨停', '跌停', '形态', 'macd', 'rsi', 'kdj', '布林', '蜡烛', '突破', '回踩', '放量', '缩量', '换手'], role: 'Technical Analyst' },
+  { keywords: ['财报', '估值', '市盈率', 'pe', 'pb', '盈利', '基本面', 'roe', '利润', '营收', '业绩', '现金流', '负债', '毛利率', '净利率', '股息', '分红', '内在价值', 'dcf', '护城河'], role: 'Fundamental Analyst' },
+  { keywords: ['情绪', '舆情', '恐慌', '贪婪', '热度', '讨论', '关注度', '人气', '投资者情绪', '市场情绪', '舆论', '热搜'], role: 'Sentiment Analyst' },
+  { keywords: ['风险', '止损', '仓位', '黑天鹅', '合规', '回撤', '波动率', '风控', '爆仓', '限仓', '安全边际', '尾部风险', '事件风险', '暴跌', '崩盘'], role: 'Risk Manager' },
+  { keywords: ['逆向', '共识', '分歧', '博弈', '反着', '逆向思维', '羊群', '过度乐观', '过度悲观', '拥挤', '一致预期'], role: 'Contrarian Strategist' },
+  { keywords: ['产业链', '供应链', '原材料', '锂价', '出货', '订单', '产能', '核心变量', '行业数据', '上下游', '库存', '价格战', '景气度'], role: 'Deep Research Specialist' },
+  { keywords: ['策略', '配置', '宏观', '大盘', '资产配置', '组合', '仓位配比', '周期', '利率', '美联储', '加息', '降息', '经济', 'gdp', '指数', '板块轮动'], role: 'Chief Strategist' },
+];
+
+function routeByKeywords(question: string): AgentRole | null {
+  const q = question.toLowerCase();
+  for (const rule of LOCAL_ROUTING_RULES) {
+    if (rule.keywords.some((k) => q.includes(k.toLowerCase()))) return rule.role;
+  }
+  return null;
+}
+
+/**
  * AI-powered router to select the most appropriate expert for a user's question.
  */
 export async function routeUserQuestion(
@@ -606,6 +629,10 @@ export async function routeUserQuestion(
   history: AgentMessage[],
   config?: LLMConfig
 ): Promise<AgentRole> {
+  // [PERF] Fast path: keyword routing, no LLM call.
+  const localRole = routeByKeywords(question);
+  if (localRole) return localRole;
+
   const ai = createAI(config);
   
   const rolesInfo = `
@@ -639,7 +666,7 @@ export async function routeUserQuestion(
     config: {
       responseMimeType: "application/json"
     }
-  });
+  }, undefined, 1 /* [PERF] priority above background tasks */);
 
   const validRoles: AgentRole[] = [
     "Technical Analyst", "Fundamental Analyst", "Sentiment Analyst", 
@@ -686,7 +713,13 @@ export async function answerDiscussionQuestion(
   const previousAnalysis = await getPreviousStockAnalysis(analysis.stockInfo.symbol);
   const backtest = performBacktest(analysis, previousAnalysis);
   const language = useConfigStore.getState().language;
-  const prompt = getExpertPrompt(expertRole, analysis, history, commoditiesData, backtest, language);
+  // [PERF] Keep only the most recent rounds and truncate each message — the full
+  // multi-round history can inflate the prompt to tens of thousands of tokens.
+  const recentHistory = (history || []).slice(-8).map((m) => ({
+    ...m,
+    content: m.content.length > 400 ? m.content.slice(0, 400) + '...' : m.content,
+  }));
+  const prompt = getExpertPrompt(expertRole, analysis, recentHistory, commoditiesData, backtest, language);
   
   const additionalContext = `
 【用户提问】
@@ -696,14 +729,20 @@ export async function answerDiscussionQuestion(
 请结合你之前的分析和上述问题，给出你的专业解答。仅返回 JSON 格式，包含 content 字段。
 `;
 
+  // [PERF] No googleSearch tool here: the backend bridge drops tools anyway, and their
+  // presence makes llmService drop responseMimeType/responseSchema, which breaks JSON
+  // parsing for free-tier models (→ full regeneration retry). Cap output tokens and
+  // raise priority above background tasks in the global request scheduler.
   const raw = await generateAndParseJsonWithRetry<any>(ai, {
     model: config?.model || DEFAULT_LLM_MODEL,
     contents: prompt + additionalContext,
-    config: {
-      responseMimeType: "application/json",
-      tools: [{ googleSearch: {} }]
-    }
-  });
+  }, {
+    responseMimeType: "application/json",
+    maxOutputTokens: 4096,
+    transportRetries: 1,
+    baseDelayMs: 2000,
+    role: expertRole,
+  }, 1);
 
   return {
     id: `msg-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
@@ -736,10 +775,11 @@ export async function generateNewConclusion(
   const raw = await generateAndParseJsonWithRetry<any>(ai, {
     model: config?.model || DEFAULT_LLM_MODEL,
     contents: prompt + additionalContext,
-  }, { 
+  }, {
     responseMimeType: "application/json",
-    tools: [{ googleSearch: {} }]
-  });
+    maxOutputTokens: 4096,
+    role: 'Chief Strategist',
+  }, 1);
 
   const message: AgentMessage = {
     id: `msg-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,

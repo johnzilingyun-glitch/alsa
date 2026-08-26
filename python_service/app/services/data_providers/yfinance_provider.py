@@ -31,6 +31,9 @@ def _normalize_yf_symbol(symbol: str) -> str:
     # Pure numeric → likely HK stock
     if s.isdigit():
         if len(s) <= 5:
+            # Yahoo Finance uses exactly 4-digit codes for HK stocks (e.g., 0700.HK, 2888.HK).
+            # Strip all leading zeros, then zero-pad back to 4.
+            #  00700→0700  00001→0001  02888→2888  06951→6951
             clean_s = s.lstrip("0") or "0"
             return f"{clean_s.zfill(4)}.HK"
         elif len(s) == 6:

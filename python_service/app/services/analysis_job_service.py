@@ -150,8 +150,11 @@ class AnalysisJobService:
         self._progress: Dict[str, Dict[str, Any]] = {}
         # In-memory API key store — NEVER persisted to disk, shared across jobs
         self._api_key_events: Dict[str, asyncio.Event] = {}
-        self._api_keys: Dict[str, str] = {}  # {provider: key} — global cache
+        self._api_keys: Dict[str, str] = {}  # {provider: key} — global cache (admin/env keys only)
         self._key_timestamps: Dict[str, float] = {}  # {provider: last_used_timestamp}
+        # Per-job API keys delivered via the need_api_key handshake — job-scoped,
+        # never reused across jobs, cleaned up when the job finishes.
+        self._job_api_keys: Dict[str, str] = {}  # {job_id: key}
         self._KEY_TTL: int = 1800  # 30 minutes inactivity timeout before auto-clear
         # Allow multiple concurrent analysis jobs (default 5). The LLM gateway has its own rate limiter.
         import os
@@ -266,37 +269,44 @@ class AnalysisJobService:
         return job_id
 
     def submit_api_key(self, job_id: str, provider: str, api_key: str) -> bool:
-        """Receive an API key from the frontend. Cached in memory — never persisted.
-           Once cached, subsequent jobs reuse the key without asking the frontend again."""
+        """Receive an API key from the frontend for THIS job only.
+
+        Security: the key is scoped to the job it was submitted for (per-job Redis
+        key + in-memory job dict) and is deleted when the job finishes. It is NEVER
+        written to the global cache (memory or Redis), so it cannot be reused by
+        other jobs or linger server-side.
+
+        An empty key is treated as "no key available": it wakes a waiting job so it
+        fails fast instead of hanging until the wait timeout, but is never cached."""
         import time
-        # Store in global cache (shared across all jobs)
-        self._api_keys[provider] = api_key
-        self._key_timestamps[provider] = time.time()  # Track when key was provided
+        # Per-job in-memory store (only non-empty keys)
+        if api_key:
+            self._job_api_keys[job_id] = api_key
         # Wake the specific job if it's waiting
         if job_id in self._api_key_events:
             self._api_key_events[job_id].set()
         
-        # Share key via Redis for Celery worker processes
+        # Share key via Redis for Celery worker processes — per-job key only,
+        # bounded TTL, deleted when the job finishes (see _run_job finally).
         try:
             import redis
             r = redis.Redis(host='localhost', port=6379, db=0, decode_responses=True)
-            r.set(f"alsa:apikey:{provider}", api_key, ex=1800)
-            r.set(f"alsa:job:{job_id}:apikey:{provider}", api_key, ex=300)
+            if api_key:
+                r.set(f"alsa:job:{job_id}:apikey:{provider}", api_key, ex=1800)
+            else:
+                # Signal "no key" to a waiting Celery worker so it fails fast
+                r.set(f"alsa:job:{job_id}:apikey:{provider}", "", ex=1800)
         except Exception as e:
             logger.warning(f"[AnalysisJobService] Failed to share API key to Redis: {e}")
         return True
 
     def set_api_key(self, provider: str, api_key: str):
-        """Proactively register/update an API key in memory cache (user settings change)."""
+        """Register/update an API key in the in-process memory cache (env/config/admin).
+        Memory only — never written to Redis or disk; bounded by KEY_TTL and cleared
+        on inactivity. User keys from the frontend go through submit_api_key (per-job)."""
         import time
         self._api_keys[provider] = api_key
         self._key_timestamps[provider] = time.time()
-        try:
-            import redis
-            r = redis.Redis(host='localhost', port=6379, db=0, decode_responses=True)
-            r.set(f"alsa:apikey:{provider}", api_key, ex=1800)
-        except Exception as e:
-            logger.warning(f"[AnalysisJobService] Failed to share set API key to Redis: {e}")
 
     def _clear_stale_keys(self):
         """Clear API keys that have been idle longer than KEY_TTL to prevent leakage."""
@@ -306,12 +316,6 @@ class AnalysisJobService:
         for provider in stale:
             self._api_keys.pop(provider, None)
             self._key_timestamps.pop(provider, None)
-            try:
-                import redis
-                r = redis.Redis(host='localhost', port=6379, db=0)
-                r.delete(f"alsa:apikey:{provider}")
-            except Exception:
-                pass
 
     def get_key_status(self) -> Dict[str, Any]:
         """Return which providers have cached keys and when they expire."""
@@ -363,32 +367,25 @@ class AnalysisJobService:
         # Clear stale keys before checking cache
         self._clear_stale_keys()
 
-        # Check if the config object provided with the job has the key first
+        # Check if the config object provided with the job has the key first.
+        # Cross-field fallback: users may store a key under any provider field
+        # (e.g. a DeepSeek key pasted into the OpenRouter input) — try them all
+        # rather than stalling the job on a field-name mismatch.
         if config:
-            # Check both deepseekApiKey and generic apiKey
-            key_from_config = config.get(f"{provider}ApiKey") or config.get("apiKey")
+            key_from_config = (
+                config.get(f"{provider}ApiKey")
+                or config.get("openrouterApiKey")
+                or config.get("apiKey")
+            )
             if key_from_config:
-                # Proactively update the global cache with this fresh key
-                self.set_api_key(provider, key_from_config)
+                # Use it for this job only — do NOT cache it globally (anti-leak)
                 self.update_job_progress(job_id, "discussion", 50, message="使用任务最新 API Key")
                 return key_from_config
 
-        # Check cache second — reuse key across jobs
+        # Check in-process memory cache (env/config/admin keys only — user keys are
+        # per-job and never enter this cache). No Redis global lookup: user keys must
+        # not be reusable across jobs or linger server-side (anti-leak requirement).
         cached = self._api_keys.get(provider)
-        
-        # Try to pull from Redis if memory is empty (e.g. Celery worker startup)
-        if not cached:
-            try:
-                from ..db.redis_client import get_redis
-                r_client = await get_redis()
-                cached_val = await r_client.get(f"alsa:apikey:{provider}")
-                if cached_val:
-                    cached = cached_val if isinstance(cached_val, str) else cached_val.decode('utf-8')
-                    self._api_keys[provider] = cached
-                    import time
-                    self._key_timestamps[provider] = time.time()
-            except Exception as e:
-                logger.debug(f"[AnalysisJobService] Failed to check Redis cache: {e}")
 
         if cached:
             self._refresh_key_timestamp(provider)
@@ -419,18 +416,18 @@ class AnalysisJobService:
         try:
             while asyncio.get_event_loop().time() - start_time < timeout:
                 if event.is_set():
-                    key = self._api_keys.get(provider)
+                    key = self._job_api_keys.get(job_id)
                     break
                 if r_client:
                     try:
+                        # Per-job key only — never fall back to a global cached key while
+                        # waiting: user keys are job-scoped and must not be reused.
                         val = await r_client.get(f"alsa:job:{job_id}:apikey:{provider}")
-                        if not val:
-                            val = await r_client.get(f"alsa:apikey:{provider}")
-                        if val:
+                        if val is not None:
+                            # Empty marker = frontend explicitly reported "no key" — fail fast
                             key = val if isinstance(val, str) else val.decode('utf-8')
-                            self._api_keys[provider] = key
-                            import time
-                            self._key_timestamps[provider] = time.time()
+                            if key:
+                                self._job_api_keys[job_id] = key
                             break
                     except Exception as e:
                         logger.warning(f"Error polling Redis for key: {e}")
@@ -787,8 +784,16 @@ class AnalysisJobService:
             finally:
                 # Stop the watchdog heartbeat
                 heartbeat_task.cancel()
-                # Only clean up the event — the key stays cached globally for reuse
                 self._api_key_events.pop(job_id, None)
+                # Security: drop the per-job key immediately — it must not linger
+                # server-side after the job ends (no cross-job reuse, no long-term cache).
+                self._job_api_keys.pop(job_id, None)
+                try:
+                    import redis as _redis
+                    _r = _redis.Redis(host='localhost', port=6379, db=0, decode_responses=True)
+                    _r.delete(f"alsa:job:{job_id}:apikey:{provider}")
+                except Exception:
+                    pass
     
     async def _save_partial_results(self, job_id: str, symbol: str, market: str, snapshot: Dict[str, Any], indicators: Dict[str, Any], discussion_messages: List[Dict[str, Any]], error_msg: Optional[str] = None):
         """Save partial results when analysis is interrupted (user abort, 402, or error)."""

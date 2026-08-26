@@ -175,7 +175,23 @@ async def exec_ths_quote(args: dict) -> str:
             result = await ths_provider.get_market_data_cn(code)
         data = result.get("data", [])
         if not data:
-            return f"<tool_observation>\nths_quote: {code} 无行情数据。\n</tool_observation>"
+            # thsdk guest account returns no HK/US data — fall back to Tencent
+            # quotes (qt.gtimg.cn), which cover A-share/HK/US from any IP.
+            from ..data_providers.a_stock_direct import fetch_tencent_quote
+            tq = await fetch_tencent_quote([code])
+            if tq:
+                lines = [f"<tool_observation>\nths_quote: {code} (腾讯行情 fallback — thsdk 无此市场数据)"]
+                for row in tq[:3]:
+                    lines.append(f"  名称: {row.get('name','')} 代码: {row.get('code','')}")
+                    lines.append(f"  最新价: {row.get('price','N/A')} 涨跌幅: {row.get('change_pct','N/A')}%")
+                    lines.append(f"  涨跌额: {row.get('change_amt','N/A')} 昨收: {row.get('prev_close','N/A')}")
+                    lines.append(f"  今开: {row.get('open','N/A')} 最高: {row.get('high','N/A')} 最低: {row.get('low','N/A')}")
+                    lines.append(f"  成交量: {row.get('volume','N/A')} 成交额: {row.get('amount','N/A')}")
+                    lines.append(f"  市盈率: {row.get('pe','N/A')} 市净率: {row.get('pb','N/A')} 总市值: {row.get('market_cap','N/A')}")
+                    lines.append(f"  时间: {row.get('time','')}")
+                lines.append("</tool_observation>")
+                return "\n".join(lines)
+            return f"<tool_observation>\nths_quote: {code} 无行情数据 (thsdk 与腾讯 fallback 均无数据)。\n</tool_observation>"
         lines = [f"<tool_observation>\nths_quote: {code}"]
         for row in data[:3]:
             for k, v in row.items():

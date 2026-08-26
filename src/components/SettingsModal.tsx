@@ -347,7 +347,7 @@ export function SettingsModal() {
                   <div className="flex items-start gap-3 p-4 rounded-xl bg-white/50 border border-zinc-200/50">
                     <Info size={16} className="text-zinc-400 shrink-0 mt-0.5" />
                     <p className="text-xs text-zinc-600/70 leading-relaxed">
-                      OpenRouter 是一个统一的 AI 模型网关。配置 OpenRouter Key 后，系统可将非 Gemini/DeepSeek 模型（如 tencent/hy3:free 等）路由至 OpenRouter 处理，方便多模型对比与灵活切换。
+                      OpenRouter 是一个统一的 AI 模型网关。配置 OpenRouter Key 后，系统可将非 Gemini/DeepSeek 模型（如 anthropic/claude-3.5-sonnet 等）路由至 OpenRouter 处理，方便多模型对比与灵活切换。
                     </p>
                   </div>
                 </div>
@@ -402,7 +402,7 @@ export function SettingsModal() {
                     <AlertTriangle size={16} className="text-amber-400 shrink-0 mt-0.5" />
                     <p className="text-xs text-amber-700/80 leading-relaxed">
                       {(config.tokenGuardLevel || 'high') === 'none' 
-                        ? '⚠️ 当前为无限制模式，工具返回数据不会被截断。适合本地模型，但云端 API 可能产生高额费用。'
+                        ? '⚠️ 当前为无限制模式，工具返回数据不会被截断。适合本地模型，但云端 API 可能产生高额费用。注意：此设置仅控制喂给模型的数据量；模型自身输出的长度上限由服务端 LLM_MAX_OUTPUT_TOKENS 环境变量控制（默认 65536；设为 0 同样表示无限制，按 65536 上限执行）。'
                         : (config.tokenGuardLevel || 'high') === 'low'
                         ? '宽松模式：单轮工具输出上限约 18K tokens，适合大上下文模型 (128K+)。'
                         : (config.tokenGuardLevel || 'high') === 'medium'

@@ -14,7 +14,30 @@ Complements yfinance (US/HK) with:
 """
 
 import asyncio
+import signal as _signal
 from typing import Optional
+
+
+def _run_obb_thread(fn):
+    """Run an OpenBB call in a worker thread, neutralizing signal.signal.
+
+    OpenBB's one-time package build (package_builder.build) registers a SIGTERM
+    handler via signal.signal(), which raises ValueError in non-main threads
+    ("signal only works in main thread of the main interpreter"). Since this
+    service calls OpenBB exclusively through the executor thread pool, we
+    temporarily no-op signal.signal for the duration of the call. The patch is
+    restored in `finally`; OpenBB's own restore in its finally is a no-op under
+    the patch, which is harmless.
+    """
+    def _worker():
+        _orig = _signal.signal
+        _signal.signal = lambda *a, **k: None  # noqa: E731 - neutralized for worker thread
+        try:
+            return fn()
+        finally:
+            _signal.signal = _orig
+    loop = asyncio.get_event_loop()
+    return loop.run_in_executor(None, _worker)
 
 
 def _safe_val(v, precision: int = 2) -> str:
@@ -48,10 +71,7 @@ class OpenBBService:
     async def get_analyst_consensus(self, symbol: str) -> str:
         """Get analyst consensus (target price, recommendation) via yfinance."""
         try:
-            loop = asyncio.get_event_loop()
-            r = await loop.run_in_executor(
-                None,
-                lambda: self.obb.equity.estimates.consensus(symbol, provider="yfinance")
+            r = await _run_obb_thread(lambda: self.obb.equity.estimates.consensus(symbol, provider="yfinance")
             )
             df = r.to_df()
             if df.empty:
@@ -79,10 +99,7 @@ class OpenBBService:
     async def get_key_metrics(self, symbol: str) -> str:
         """Get key financial metrics/ratios via yfinance."""
         try:
-            loop = asyncio.get_event_loop()
-            r = await loop.run_in_executor(
-                None,
-                lambda: self.obb.equity.fundamental.metrics(symbol, provider="yfinance")
+            r = await _run_obb_thread(lambda: self.obb.equity.fundamental.metrics(symbol, provider="yfinance")
             )
             df = r.to_df()
             if df.empty:
@@ -131,13 +148,10 @@ class OpenBBService:
     async def get_sec_filings(self, symbol: str, filing_type: Optional[str] = None, limit: int = 5) -> str:
         """Get SEC filings (10-K, 10-Q, 8-K, etc.)."""
         try:
-            loop = asyncio.get_event_loop()
             kwargs = {"symbol": symbol, "provider": "sec", "limit": limit}
             if filing_type:
                 kwargs["type"] = filing_type
-            r = await loop.run_in_executor(
-                None,
-                lambda: self.obb.equity.fundamental.filings(**kwargs)
+            r = await _run_obb_thread(lambda: self.obb.equity.fundamental.filings(**kwargs)
             )
             df = r.to_df()
             if df.empty:
@@ -160,12 +174,7 @@ class OpenBBService:
     async def get_insider_trading(self, symbol: str, limit: int = 10) -> str:
         """Get insider trading data from SEC."""
         try:
-            loop = asyncio.get_event_loop()
-            r = await loop.run_in_executor(
-                None,
-                lambda: self.obb.equity.ownership.insider_trading(
-                    symbol, provider="sec", limit=limit
-                )
+            r = await _run_obb_thread(lambda: self.obb.equity.ownership.insider_trading( symbol, provider="sec", limit=limit)
             )
             df = r.to_df()
             if df.empty:
@@ -189,12 +198,7 @@ class OpenBBService:
     async def get_income_statement(self, symbol: str, period: str = "quarter", limit: int = 4) -> str:
         """Get income statement via yfinance (quarterly or annual)."""
         try:
-            loop = asyncio.get_event_loop()
-            r = await loop.run_in_executor(
-                None,
-                lambda: self.obb.equity.fundamental.income(
-                    symbol, provider="yfinance", period=period, limit=limit
-                )
+            r = await _run_obb_thread(lambda: self.obb.equity.fundamental.income( symbol, provider="yfinance", period=period, limit=limit)
             )
             df = r.to_df()
             if df.empty:
@@ -226,12 +230,7 @@ class OpenBBService:
     async def get_balance_sheet(self, symbol: str, period: str = "quarter", limit: int = 2) -> str:
         """Get balance sheet via yfinance."""
         try:
-            loop = asyncio.get_event_loop()
-            r = await loop.run_in_executor(
-                None,
-                lambda: self.obb.equity.fundamental.balance(
-                    symbol, provider="yfinance", period=period, limit=limit
-                )
+            r = await _run_obb_thread(lambda: self.obb.equity.fundamental.balance( symbol, provider="yfinance", period=period, limit=limit)
             )
             df = r.to_df()
             if df.empty:
@@ -264,12 +263,7 @@ class OpenBBService:
     async def get_cash_flow(self, symbol: str, period: str = "quarter", limit: int = 4) -> str:
         """Get cash flow statement via yfinance."""
         try:
-            loop = asyncio.get_event_loop()
-            r = await loop.run_in_executor(
-                None,
-                lambda: self.obb.equity.fundamental.cash(
-                    symbol, provider="yfinance", period=period, limit=limit
-                )
+            r = await _run_obb_thread(lambda: self.obb.equity.fundamental.cash( symbol, provider="yfinance", period=period, limit=limit)
             )
             df = r.to_df()
             if df.empty:

@@ -152,15 +152,15 @@ class ReportGeneratorService:
             "peer_comparison": ui_data.get("peer_comparison", []),
             "summary": ui_data.get("summary", "总结提炼中..."),
             "moat_summary": ui_data.get("moat_summary", ""),
-            "moat_points": ui_data.get("moat_points", []),
+            "moat_points": ui_data.get("moat_points") or [],
             "macro_summary": ui_data.get("macro_summary", ""),
-            "macro_points": ui_data.get("macro_points", []),
+            "macro_points": ui_data.get("macro_points") or [],
             "trading_plan": ui_data.get("trading_plan", "交易计划生成中..."),
-            "trading_steps": ui_data.get("trading_steps", []),
-            "risks_points": ui_data.get("risks_points", []),
-            "key_opps": ui_data.get("upside", []),
-            "key_risks": ui_data.get("downside", []),
-            "scenarios": ui_data.get("scenarios", self._default_scenarios()),
+            "trading_steps": ui_data.get("trading_steps") or [],
+            "risks_points": ui_data.get("risks_points") or [],
+            "key_opps": ui_data.get("upside") or [],
+            "key_risks": ui_data.get("downside") or [],
+            "scenarios": ui_data.get("scenarios") or self._default_scenarios(),
             "score": ui_data.get("score", 75),
             "recommendation": ui_data.get("recommendation", "WATCH"),
             "discussion": [
@@ -239,6 +239,12 @@ class ReportGeneratorService:
         })
         if valuation and valuation.get("wacc"):
             data["wacc_breakdown"] = valuation
+            # Backfill computable valuation metrics into the fundamentals table
+            # (β and WACC are derivable even when the provider returned neither).
+            if fundamentals.get("贝塔系数 (β)") == "N/A" and valuation.get("beta") is not None:
+                fundamentals["贝塔系数 (β)"] = f"{round(valuation['beta'], 2)}"
+            if fundamentals.get("WACC (估算)") == "N/A" and valuation.get("wacc") is not None:
+                fundamentals["WACC (估算)"] = str(valuation["wacc"])  # already formatted like '7.77%'
 
         html = self._render_html(data)
         
@@ -443,15 +449,36 @@ Now extract from the following discussion:
                     model=model, deepseek_api_key=deepseek_api_key, gemini_api_key=gemini_api_key, openrouter_api_key=openrouter_api_key
                 )
 
-                # Robust JSON extraction: try balanced-brace parser first, then regex fallback
-                cleaned = re.sub(r'```(?:json)?\s*\n?', '', res)
+                # Robust JSON extraction:
+                # 1) Strip DeepSeek thinking blocks (<think>...</think>) — the reasoning
+                #    prefix is NOT part of the structured output and usually contains
+                #    '{' fragments (the model plans the JSON in its thinking), which
+                #    previously hijacked the first-brace scan and broke parsing.
+                cleaned = re.sub(r'<think>.*?</think>', '', res, flags=re.DOTALL)
+                cleaned = re.sub(r'```(?:json)?\s*\n?', '', cleaned)
                 cleaned = re.sub(r'\n?```\s*$', '', cleaned)
                 cleaned = cleaned.strip()
 
-                start_idx = cleaned.find('{')
+                # 2) Try each '{' position and keep the MOST COMPLETE object (most
+                #    keys). Prose may still contain small JSON-like fragments such as
+                #    {"x": 1} before the real document; the full schema object wins.
                 json_str = ""
-                if start_idx != -1:
-                    json_str = self._extract_balanced_json(cleaned[start_idx:])
+                best_candidate = ""
+                best_key_count = -1
+                for brace_pos in (m.start() for m in re.finditer(r'\{', cleaned)):
+                    candidate = self._extract_balanced_json(cleaned[brace_pos:])
+                    if not candidate:
+                        continue
+                    try:
+                        key_count = len(json.loads(candidate))
+                    except (json.JSONDecodeError, TypeError):
+                        key_count = 0
+                    if key_count > best_key_count:
+                        best_key_count = key_count
+                        best_candidate = candidate
+                    if key_count >= 15:
+                        break  # schema-sized object found, stop scanning
+                json_str = best_candidate
                 if not json_str:
                     # Regex fallback: find first {...} block
                     match = re.search(r'\{.*\}', cleaned, re.DOTALL)
@@ -556,6 +583,11 @@ Now extract from the following discussion:
                 return content
         stripped = content.strip()
 
+        # Remove DeepSeek thinking blocks (<think>...</think>) — the model's hidden
+        # reasoning is prepended to the visible answer when thinking mode is enabled.
+        if "<think>" in stripped:
+            stripped = re.sub(r'<think>.*?</think>', '', stripped, flags=re.DOTALL).strip()
+
         # Iteratively strip thinking prefixes (model may chain multiple thinking sentences)
         max_passes = 10
         for _ in range(max_passes):
@@ -573,6 +605,152 @@ Now extract from the following discussion:
         if not stripped or (len(stripped) < 50 and len(stripped) < len(content.strip()) * 0.1):
             return content.strip()
         return stripped
+
+    @staticmethod
+    def _preprocess_chinese_bold(text: str) -> str:
+        """Normalize '**bold**' markers BEFORE markdown2 conversion.
+
+        markdown2's smart emphasis pairs '**' incorrectly around CJK text —
+        '**+104%**，其中**美国…**' becomes '<strong>，其中</strong>' with the
+        outer markers left dangling, producing nested garbage in the report.
+        Replace bold markers with unambiguous placeholder tokens first, then
+        restore them to <strong> after conversion.
+        """
+        if not text or '**' not in text:
+            return text
+        return re.sub(r'\*\*([^*\n]+?)\*\*', '◖STR◗\\1◖/STR◗', text)
+
+    @staticmethod
+    def _postprocess_markdown(html_out: str) -> str:
+        """Post-process markdown2 output for LLM-generated Chinese content.
+
+        - markdown2's smart emphasis uses \w word boundaries, which do NOT match
+          CJK characters — so '**中文加粗**' adjacent to Chinese stays unrendered
+          and leaks literal '**' into the report. Convert those leftovers, while
+          protecting already-generated HTML tags from being re-matched.
+        - Strip <structured_data>...</structured_data> JSON blocks (LLM artifacts),
+          matching both raw and safe_mode-escaped forms.
+        """
+        if not html_out:
+            return html_out
+        if '◖STR◗' in html_out:
+            html_out = html_out.replace('◖STR◗', '<strong>').replace('◖/STR◗', '</strong>')
+        if 'structured' in html_out and ('<structured' in html_out or '&lt;structured' in html_out):
+            html_out = re.sub(
+                r'&?lt;structured[\\_]?data&gt;.*?&?lt;/structured[\\_]?data&gt;',
+                '<em>[结构化数据已折叠]</em>',
+                html_out, flags=re.DOTALL | re.IGNORECASE,
+            )
+        if '**' in html_out:
+            # Protect existing HTML tags so '**' only matches literal text
+            tags = []
+            def _save(m):
+                tags.append(m.group(0))
+                return f'__MDTAG{len(tags) - 1}__'
+            protected = re.sub(r'<[^>]+>', _save, html_out)
+            protected = re.sub(r'\*\*([^*\n]+)\*\*', r'<strong>\1</strong>', protected)
+            for i, t in enumerate(tags):
+                protected = protected.replace(f'__MDTAG{i}__', t)
+            html_out = protected
+        return html_out
+
+    def _looks_like_markdown_dump(self, val: Any) -> bool:
+        """Detect raw markdown documents (headers/tables) leaked into a field.
+
+        Structured fields must be short prose; a value containing markdown
+        headings or table pipes spanning multiple lines is a document dump
+        (e.g. the model copied the whole expert report into a field)."""
+        if not val or not isinstance(val, str):
+            return False
+        stripped = val.strip()
+        # Markdown heading marker (e.g. '# 🔬 昭衍新药…' or '06127: # 🔬 …') is
+        # never a valid structured-field value
+        if re.search(r'#{1,6}\s', stripped):
+            return True
+        lines = [l.strip() for l in stripped.replace('\\n', '\n').split('\n') if l.strip()]
+        if len(lines) < 2:
+            # A single table row (e.g. '| 风险项 | 说明 |') is still a dump for
+            # display purposes — it renders as raw pipes in plain-text slots.
+            if lines and lines[0].startswith('|') and lines[0].endswith('|'):
+                return True
+            return False
+        header_lines = sum(1 for l in lines if re.match(r'^#{1,6}\s', l))
+        table_lines = sum(1 for l in lines if '|' in l)
+        separator_lines = sum(1 for l in lines if re.match(r'^-{3,}$', l))
+        return (header_lines >= 1 and len(lines) >= 3) or table_lines >= 2 or (separator_lines >= 1 and len(lines) >= 3)
+
+    def _render_prose(self, value: Any, max_len: int = 300) -> str:
+        """Render an LLM-derived display string as clean plain text.
+
+        Defense-in-depth at render time: if a value is a raw markdown document
+        (e.g. a whole expert report dumped into a field), reduce it to plain
+        prose; otherwise strip only emphasis/backtick markers that would display
+        verbatim in plain-text interpolation spots."""
+        if not value or not isinstance(value, str):
+            return str(value) if value is not None else ""
+        v = value.strip()
+        if self._looks_like_markdown_dump(v):
+            return self._sanitize_markdown_field(v, max_len=max_len)
+        if '|' in v:
+            # Table-shaped fragments (>=2 pipes or a leading pipe) are stripped
+            # entirely; a single stray pipe is converted to a safe separator.
+            if v.count('|') >= 2 or v.lstrip().startswith('|'):
+                return self._sanitize_markdown_field(v, max_len=max_len)
+            v = v.replace('|', '、')
+        if '**' in v or '`' in v or v[:1] in (">", "-", "*", "•"):
+            v = re.sub(r'\*\*([^*]+)\*\*', r'\1', v)
+            v = re.sub(r'`([^`]+)`', r'\1', v)
+            v = re.sub(r'^>\s?', '', v)
+            v = re.sub(r'^[-*•▪◆]\s+', '', v)
+            if '**' in v or v[:1] == '*':
+                v = v.replace('*', '').strip()
+        if len(v) > max_len:
+            v = v[:max_len] + "..."
+        return v
+
+    def _sanitize_markdown_field(self, text: str, max_len: int = 500) -> str:
+        """Reduce raw markdown (full expert reports) to plain prose for structured fields.
+
+        When expert outputs leak into structured fields (e.g. the fallback path), raw
+        '#', '|', '**' markers would be HTML-escaped and displayed verbatim in the
+        rendered report. This strips document formatting and keeps only substantive text.
+        """
+        if not text or not isinstance(text, str):
+            return text
+        lines = text.replace('\\n', '\n').split('\n')
+        out_lines = []
+        for line in lines:
+            stripped = line.strip()
+            if not stripped:
+                continue
+            # Drop markdown headers entirely (titles/section headers are noise here)
+            if re.match(r'^#{1,6}\s', stripped):
+                continue
+            # Remove heading markers that appear mid-line (e.g. '06127: # 🔬 标题')
+            stripped = re.sub(r'#{1,6}\s+', '', stripped)
+            # Drop separators, table rows, and code fences
+            if re.match(r'^-{3,}$|^\*{3,}$|^_{3,}$', stripped):
+                continue
+            if '|' in stripped:
+                continue
+            if stripped.startswith('```'):
+                continue
+            # Remove emphasis/list markers
+            stripped = re.sub(r'\*\*([^*]+)\*\*', r'\1', stripped)
+            stripped = re.sub(r'\*([^*]+)\*', r'\1', stripped)
+            stripped = re.sub(r'^\s*[-*•▪◆]\s+', '', stripped)
+            stripped = re.sub(r'^\s*\d+[.、)]\s+', '', stripped)
+            stripped = re.sub(r'^>\s?', '', stripped)
+            stripped = stripped.strip()
+            if stripped:
+                out_lines.append(stripped)
+        text_clean = ' '.join(out_lines)
+        text_clean = re.sub(r'\s{2,}', ' ', text_clean).strip()
+        if len(text_clean) > max_len:
+            cut = text_clean[:max_len]
+            last_break = max(cut.rfind('。'), cut.rfind('；'), cut.rfind('，'))
+            text_clean = (cut[:last_break + 1] if last_break > max_len * 0.5 else cut) + "..."
+        return text_clean
 
     # Provenance labels that indicate a financial figure was sourced from the model's
     # own parametric memory rather than API/tool data. These are forbidden by the
@@ -672,6 +850,13 @@ Now extract from the following discussion:
         """Validate critical UI fields; backfill from discussion if LLM returned empty or thinking text."""
         GARBAGE_VALUES = {"---", "—", "N/A", "n/a", "TBD", "tbd", "TODO", "todo", "None", "null", ""}
 
+        # Coerce list-shaped fields: an LLM may return null or a string where a
+        # list is expected — normalize here so the backfills below can repair them.
+        for _k in ("upside", "downside", "moat_points", "macro_points", "risks_points",
+                   "trading_steps", "scenarios", "peer_comparison", "catalyst_calendar"):
+            if not isinstance(ui_data.get(_k), list):
+                ui_data[_k] = []
+
         # Clean thinking prefixes from structured fields
         for field in ["investment_thesis", "tagline", "verdict", "action_stance", "the_call"]:
             if ui_data.get(field):
@@ -699,45 +884,65 @@ Now extract from the following discussion:
         elif rec_raw not in ("BUY", "HOLD", "SELL", "STRONG BUY", "STRONG SELL", "WATCH"):
             ui_data["recommendation"] = "HOLD"
 
-        # Ensure verdict exists — try to extract from discussion
+        # Fix consensus fields if they contain raw markdown documents
+        cons = ui_data.get("consensus_vs_non_consensus")
+        if isinstance(cons, dict):
+            for _ck in ("market_consensus", "our_alpha"):
+                _cv = cons.get(_ck)
+                if isinstance(_cv, str) and self._looks_like_markdown_dump(_cv):
+                    cons[_ck] = self._sanitize_markdown_field(_cv, max_len=300) or None
+
+        # Ensure verdict exists — try to extract from discussion.
+        # NOTE: when backfill fails the field is BLANKED so the previous (garbage)
+        # value can never leak into the rendered report.
         verdict = str(ui_data.get("verdict", "")).strip()
-        if not verdict or verdict in GARBAGE_VALUES or len(verdict) < 3 or _is_thinking_text(verdict):
+        if not verdict or verdict in GARBAGE_VALUES or len(verdict) < 3 or _is_thinking_text(verdict) or self._looks_like_markdown_dump(verdict):
+            ui_data["verdict"] = ""
             verdict = self._extract_verdict_from_discussion(discussion_msgs)
-            if verdict and verdict not in GARBAGE_VALUES:
+            if verdict and verdict not in GARBAGE_VALUES and not self._looks_like_markdown_dump(verdict):
                 ui_data["verdict"] = verdict
             elif ui_data.get("summary"):
-                s_first = str(ui_data["summary"]).split("。")[0].strip()
-                if len(s_first) >= 3:
+                # Summary may still be a raw markdown dump at this point — sanitize
+                # before deriving the first sentence from it.
+                s_first = self._sanitize_markdown_field(str(ui_data["summary"]), max_len=200).split("。")[0].strip()
+                if (len(s_first) >= 3 and '|' not in s_first and not s_first.startswith('#')
+                        and not self._looks_like_markdown_dump(s_first)):
                     ui_data["verdict"] = s_first[:60]
 
-        # Fix investment_thesis if empty, garbage, thinking text, or too long
+        # Fix investment_thesis if empty, garbage, thinking text, markdown dump, or too long
         thesis = str(ui_data.get("investment_thesis", "")).strip()
-        if not thesis or thesis in GARBAGE_VALUES or _is_thinking_text(thesis):
-            thesis = self._extract_first_substantive_sentence(discussion_msgs) or str(ui_data.get("verdict", ""))
+        if not thesis or thesis in GARBAGE_VALUES or _is_thinking_text(thesis) or self._looks_like_markdown_dump(thesis):
+            # Prefer a keyword-bearing analytical sentence; otherwise reduce the
+            # dumped markdown to plain prose so no raw '#'/'|' markup is rendered.
+            sanitized = self._sanitize_markdown_field(thesis, max_len=500)
+            extracted = self._extract_first_substantive_sentence(discussion_msgs)
+            if not extracted or extracted.startswith("请参考"):
+                extracted = sanitized
+            thesis = extracted or str(ui_data.get("verdict", ""))
         if len(thesis) > 500:
             thesis = thesis[:495] + "..."
         ui_data["investment_thesis"] = thesis
 
         # Ensure tagline exists
         tagline = str(ui_data.get("tagline", "")).strip()
-        if not tagline or tagline in GARBAGE_VALUES or len(tagline) < 3 or _is_thinking_text(tagline):
+        if not tagline or tagline in GARBAGE_VALUES or len(tagline) < 3 or _is_thinking_text(tagline) or self._looks_like_markdown_dump(tagline):
             symbol = snapshot.get("quote", {}).get("symbol", "股票")
             first_sent = ui_data.get("investment_thesis", "").split("。")[0].split("！")[0].split("?")[0].strip()
             first_sent = first_sent.split("\n")[0].strip() # Avoid capturing multiline markdown
-            if 5 < len(first_sent) < 40:
+            if 5 < len(first_sent) < 40 and '|' not in first_sent:
                 ui_data["tagline"] = f"{symbol}: {first_sent}"
             else:
                 ui_data["tagline"] = f"{symbol} 深度投资分析报告"
 
         # Ensure action_stance exists
         action_stance = str(ui_data.get("action_stance", "")).strip()
-        if not action_stance or action_stance in GARBAGE_VALUES or len(action_stance) < 3 or _is_thinking_text(action_stance):
+        if not action_stance or action_stance in GARBAGE_VALUES or len(action_stance) < 3 or _is_thinking_text(action_stance) or self._looks_like_markdown_dump(action_stance):
             rec = ui_data.get("recommendation", "WATCH")
             ui_data["action_stance"] = f"当前建议 {rec}，详见专家研讨记录中的交易计划"
 
         # Ensure the_call exists and is substantive
         the_call = str(ui_data.get("the_call", "")).strip()
-        if not the_call or the_call in GARBAGE_VALUES or len(the_call) < 3 or _is_thinking_text(the_call):
+        if not the_call or the_call in GARBAGE_VALUES or len(the_call) < 3 or _is_thinking_text(the_call) or self._looks_like_markdown_dump(the_call):
             ui_data["the_call"] = (
                 ui_data.get("action_stance")
                 or ui_data.get("verdict")
@@ -748,9 +953,9 @@ Now extract from the following discussion:
 
         # Backfill lists if they are empty
         if not ui_data.get("upside"):
-            ui_data["upside"] = self._extract_items_by_keywords_dual("upside", ["看涨", "利好", "上行", "催化剂", "Catalyst", "Upside", "机遇", "优势", "核心竞争力", "核心论点"], discussion_msgs)
+            ui_data["upside"] = self._extract_items_by_keywords_dual("upside", ["看涨", "看多", "多头", "利好", "上行", "催化剂", "Catalyst", "Upside", "Bull", "机遇", "优势", "核心竞争力", "核心论点"], discussion_msgs)
         if not ui_data.get("downside"):
-            ui_data["downside"] = self._extract_items_by_keywords_dual("downside", ["看跌", "利空", "下行", "风险", "Risk", "Downside", "压制", "威胁", "一致性偏差", "被忽视", "盲区", "Consensus Bias"], discussion_msgs)
+            ui_data["downside"] = self._extract_items_by_keywords_dual("downside", ["看跌", "看空", "空头", "利空", "下行", "风险", "Risk", "Downside", "Bear", "压制", "威胁", "一致性偏差", "被忽视", "盲区", "Consensus Bias"], discussion_msgs)
         if not ui_data.get("moat_points"):
             ui_data["moat_points"] = self._extract_items_by_keywords_dual("moat", ["护城河", "Moat", "壁垒", "竞争优势"], discussion_msgs)
         if not ui_data.get("macro_points"):
@@ -758,25 +963,59 @@ Now extract from the following discussion:
         if not ui_data.get("risks_points"):
             ui_data["risks_points"] = self._extract_items_by_keywords_dual("risks", ["证伪", "失效", "止损", "Invalidation", "风险预警"], discussion_msgs)
 
+        def _is_truncated_narrative(val) -> bool:
+            """Detect LLM output cut off mid-sentence (e.g. ends with '：' or no
+            sentence terminator) — a truncated field must be treated as missing."""
+            v = str(val or "").strip()
+            return bool(v) and len(v) >= 30 and not v.rstrip().endswith(("。", "！", "？", "…", ".", "!", "?", '"', "”", "'", "’"))
+
         # Backfill narrative summary fields — these MUST be substantive paragraphs, not placeholders
         narrative_backfill_map = {
             "moat_summary": (["护城河", "Moat", "壁垒", "竞争优势", "基本面", "Fundamental"], ["moat", "competitive", "fundamental"]),
             "macro_summary": (["宏观", "技术面", "资金面", "Technical", "Macro", "行业格局", "供给", "需求"], ["macro", "technical", "supply", "demand"]),
-            "trading_plan": (["交易计划", "操作步骤", "Trading Plan", "建仓", "仓位", "止损", "风控", "Execution"], ["trading", "execution", "position", "stop"]),
+            "trading_plan": (["交易计划", "操作步骤", "Trading Plan", "建仓", "仓位", "止损", "风控", "Execution", "入场", "目标价"], ["trading", "execution", "position", "stop"]),
         }
         for field, (keywords, _) in narrative_backfill_map.items():
             val = ui_data.get(field, "")
-            if not val or len(str(val).strip()) < 30:
-                extracted = self._extract_narrative_section(field, keywords, discussion_msgs)
+            if not val or len(str(val).strip()) < 30 or self._looks_like_markdown_dump(val) or _is_truncated_narrative(val):
+                # Exclude the moat text when re-extracting macro so the two
+                # narrative sections never render identical content.
+                exclude = [ui_data.get("moat_summary", "")] if field == "macro_summary" else None
+                extracted = self._extract_narrative_section(field, keywords, discussion_msgs, exclude_texts=exclude)
                 if extracted:
                     ui_data[field] = extracted
+                elif val and self._looks_like_markdown_dump(val):
+                    # Extraction found nothing useful — at least strip the raw
+                    # markdown so the field renders as plain prose, not markup.
+                    ui_data[field] = self._sanitize_markdown_field(val, max_len=500)
 
-        # Backfill summary if too short
+        # Guard: fundamental & macro narratives must never render identical content
+        m_s = str(ui_data.get("moat_summary", "") or "").strip()
+        x_s = str(ui_data.get("macro_summary", "") or "").strip()
+        if m_s and x_s and (m_s == x_s or (len(m_s) > 100 and m_s in x_s) or (len(x_s) > 100 and x_s in m_s)):
+            re_extracted = self._extract_narrative_section(
+                "macro_summary",
+                ["宏观", "技术面", "资金面", "Technical", "Macro", "行业格局", "供给", "需求"],
+                discussion_msgs, exclude_texts=[m_s],
+            )
+            if re_extracted and re_extracted.strip() != m_s:
+                ui_data["macro_summary"] = re_extracted
+
+        # Backfill structured trading steps from discussion tables when the LLM
+        # extraction returned nothing (common — the plan lives in markdown tables).
+        if not ui_data.get("trading_steps"):
+            steps = self._extract_trading_steps_from_discussion(discussion_msgs)
+            if steps:
+                ui_data["trading_steps"] = steps
+
+        # Backfill summary if too short or if it is a raw markdown dump
         summary_val = ui_data.get("summary", "")
-        if not summary_val or len(str(summary_val).strip()) < 30:
+        if not summary_val or len(str(summary_val).strip()) < 30 or self._looks_like_markdown_dump(summary_val):
             extracted_summary = self._extract_narrative_section("summary", ["核心", "投资", "估值", "thesis", "core", "conclusion", "总结", "结论"], discussion_msgs)
             if extracted_summary:
                 ui_data["summary"] = extracted_summary
+            elif summary_val and self._looks_like_markdown_dump(summary_val):
+                ui_data["summary"] = self._sanitize_markdown_field(summary_val, max_len=500)
 
         # Ensure data_completeness is populated
         dc = ui_data.get("data_completeness")
@@ -800,18 +1039,29 @@ Now extract from the following discussion:
             lines = content_normalized.split('\n')
             for line in lines:
                 line = line.strip().lstrip('- *#>')
+                if '|' in line:
+                    continue  # skip markdown table rows
+                # Skip report title lines ('…深度研究…' / '…审计报告…') — a title
+                # is not an analytical sentence and reads badly as a verdict.
+                if re.search(r'(深度研究|研究报告|分析报告|审计报告|评审报告|裁决报告|风险管理报告|技术分析)', line):
+                    continue
+                line = re.sub(r'\*\*', '', line)
                 if 20 < len(line) < 150 and any(kw in line for kw in ["核心", "投资", "估值", "盈利", "增长", "周期",
                                                                   "thesis", "core", "valuation", "profit"]):
                     return line
         return "请参考下方详细深度研报..."
 
-    def _extract_narrative_section(self, field: str, keywords: list, discussion_msgs: list) -> str:
+    def _extract_narrative_section(self, field: str, keywords: list, discussion_msgs: list, exclude_texts: list = None) -> str:
         """Extract a narrative paragraph from expert discussion for a given semantic field.
 
         Scans discussion messages for sections that discuss the given topic and
         returns the most substantive paragraph found (structured analysis, not bullet lists).
+        `exclude_texts`: paragraphs to ignore — used to prevent two narrative fields
+        (e.g. moat_summary / macro_summary) from being backfilled with identical text.
         """
-        candidates = []
+        exclude_texts = [str(t).strip() for t in (exclude_texts or []) if str(t).strip()]
+        section_candidates: List[str] = []
+        para_candidates: List[str] = []
         for m in discussion_msgs:
             content = m.get("content", "").strip()
             if len(content) < 100:
@@ -821,6 +1071,21 @@ Now extract from the following discussion:
 
             in_section = False
             section_buffer = []
+            section_kws: set = set()
+
+            def _flush_section():
+                nonlocal section_buffer, section_kws
+                full_text = ' '.join(section_buffer).strip()
+                if len(full_text) > 50:
+                    # Backfilled narratives render as plain prose: strip ALL bold
+                    # markers (unpaired '**' would leak through markdown2) and
+                    # leading blockquote markers.
+                    full_text = re.sub(r'\*\*', '', full_text)
+                    full_text = re.sub(r'^>\s?', '', full_text, flags=re.MULTILINE)
+                    section_candidates.append((section_kws, full_text))
+                section_buffer = []
+                section_kws = set()
+
             for line in lines:
                 stripped = line.strip()
 
@@ -830,25 +1095,36 @@ Now extract from the following discussion:
 
                 if is_header or is_bold:
                     clean_header = stripped.lstrip('#').strip().strip('*').strip()
-                    if any(kw.lower() in clean_header.lower() for kw in keywords):
+                    matched_header_kws = {kw for kw in keywords if kw.lower() in clean_header.lower()}
+                    if matched_header_kws:
+                        # Consecutive matching headers: flush the previous section
+                        # first (e.g. '6️⃣ 交易计划' → '7️⃣ 分步建仓计划' both match)
+                        if in_section and section_buffer:
+                            _flush_section()
                         in_section = True
                         section_buffer = []
+                        section_kws = matched_header_kws
                     elif in_section:
                         # Section ended — flush buffer if substantial
-                        full_text = ' '.join(section_buffer).strip()
-                        if len(full_text) > 50:
-                            candidates.append(full_text)
+                        _flush_section()
                         in_section = False
-                        section_buffer = []
                     continue
 
                 if in_section:
-                    # Skip table lines, dividers, empty lines, and bullet items
-                    if '|' in stripped or stripped.startswith('---') or stripped.startswith('==='):
+                    if stripped.startswith('---') or stripped.startswith('==='):
                         continue
                     if not stripped:
                         if section_buffer:
                             section_buffer.append('')
+                        continue
+                    # Key-value table rows (label | content) carry the substantive
+                    # analysis in LLM reports (e.g. 入场策略 | ①左侧：21.0~21.5元…).
+                    # Convert 2-column rows into prose so the narrative is not lost.
+                    if '|' in stripped:
+                        row = stripped.strip('|').strip()
+                        cells = [c.strip().strip('*').strip() for c in row.split('|')]
+                        if len(cells) == 2 and 0 < len(cells[0]) <= 24 and len(cells[1]) > 12:
+                            section_buffer.append(f"{cells[0]}：{cells[1]}")
                         continue
                     # Collect non-bullet prose lines
                     if not re.match(r'^\s*[-*•▪◆\d.)]+\s', stripped):
@@ -858,29 +1134,41 @@ Now extract from the following discussion:
 
             # Flush remaining buffer
             if in_section:
-                full_text = ' '.join(section_buffer).strip()
-                if len(full_text) > 50:
-                    candidates.append(full_text)
+                _flush_section()
 
-            # If no section-based extraction worked, try paragraph-based fallback
-            if not candidates:
-                # Look for any paragraph containing multiple keywords
-                paragraphs = re.split(r'\n\s*\n', content_normalized)
-                for para in paragraphs:
-                    para = para.strip()
-                    # Skip headers, bullets, tables, code blocks
-                    if para.startswith('#') or para.startswith('```') or '|' in para:
-                        continue
-                    matched_kws = sum(1 for kw in keywords if kw.lower() in para.lower())
-                    if matched_kws >= 2 and len(para) > 60:
-                        # Clean up markdown formatting
-                        para_clean = re.sub(r'\*\*', '', para)
-                        candidates.append(para_clean[:800])
+            # Paragraph-based fallback: look for any paragraph containing multiple keywords
+            paragraphs = re.split(r'\n\s*\n', content_normalized)
+            for para in paragraphs:
+                para = para.strip()
+                # Skip headers, bullets, tables, code blocks
+                if para.startswith('#') or para.startswith('```') or '|' in para:
+                    continue
+                matched_kws = sum(1 for kw in keywords if kw.lower() in para.lower())
+                if matched_kws >= 2 and len(para) > 60:
+                    # Clean up markdown formatting
+                    para_clean = re.sub(r'\*\*', '', para)
+                    para_candidates.append(para_clean[:800])
 
-        if candidates:
-            # Return the longest substantive candidate
-            candidates.sort(key=len, reverse=True)
-            return candidates[0][:800]
+        def _excluded(text: str) -> bool:
+            return any(ex in text or text in ex for ex in exclude_texts)
+
+        def _score(text: str, header_kws: set = None) -> tuple:
+            # Prefer candidates matching MORE distinct keywords (header + text);
+            # longer text breaks ties
+            text_kws = {kw for kw in keywords if kw.lower() in text.lower()}
+            return (len((header_kws or set()) | text_kws), len(text))
+
+        # Drop candidates already claimed by another field (e.g. the audit's
+        # '技术面与基本面背离调和' section must not fill BOTH moat and macro)
+        section_candidates = [c for c in section_candidates if not _excluded(c[1])]
+        para_candidates = [c for c in para_candidates if not _excluded(c)]
+
+        if section_candidates:
+            section_candidates.sort(key=lambda c: _score(c[1], c[0]), reverse=True)
+            return section_candidates[0][1][:800]
+        if para_candidates:
+            para_candidates.sort(key=_score, reverse=True)
+            return para_candidates[0][:800]
 
         return ""
 
@@ -893,10 +1181,27 @@ Now extract from the following discussion:
         ]
         all_text = "\n".join([m.get("content", "").replace('\\n', '\n') for m in discussion_msgs])
         for pattern in verdict_patterns:
-            match = re.search(pattern, all_text, re.IGNORECASE)
-            if match:
-                return match.group(1).strip()[:60]
+            for match in re.finditer(pattern, all_text, re.IGNORECASE):
+                cand = match.group(1).strip()
+                # Reject table rows, headings, and other markdown artifacts —
+                # the pattern can span a newline and capture a table header
+                # like '| 风险项 | 说明 |' right after a '…结论' section title.
+                if not cand or '|' in cand or cand.startswith('#') or self._looks_like_markdown_dump(cand):
+                    continue
+                # Strip bold-marker remnants ('**：xxx') and a leading colon
+                cand = cand.replace('*', '').strip()
+                cand = re.sub(r'^[：:]\s*', '', cand)
+                if len(cand) >= 6:
+                    return cand[:60]
         return ""
+
+    @staticmethod
+    def _clean_extracted_item(text: str) -> str:
+        """Strip markdown noise (bold, blockquote, list markers) from extracted list items."""
+        t = re.sub(r'\*\*([^*]+)\*\*', r'\1', str(text))
+        t = re.sub(r'^>\s?', '', t)
+        t = re.sub(r'^[-*•▪◆]\s+', '', t)
+        return t.strip()
 
     def _extract_strings_from_dict(self, d_val: dict, category: str) -> List[str]:
         strs = []
@@ -913,6 +1218,27 @@ Now extract from the following discussion:
                     if isinstance(item, str) and len(item) > 5:
                         strs.append(item)
         return strs
+
+    @staticmethod
+    def _item_passes_category(text: str, category: str) -> bool:
+        """Filter extracted items so the bull list only gets bull-ish lines and vice versa.
+
+        Prevents bearish/technical statements (e.g. '均线呈箱体收敛而非多头发散')
+        from leaking into the 看涨驱动 list when a header merely mentions 多头.
+        """
+        if category not in ("upside", "downside"):
+            return True
+        pos_kws = ("看涨", "看多", "多头", "利好", "上行", "催化", "Upside", "Bull", "机遇", "优势", "增长空间")
+        neg_kws = ("看跌", "看空", "空头", "利空", "下行", "风险", "Downside", "Bear", "压制", "威胁", "证伪", "侵蚀")
+        has_pos = any(k in text for k in pos_kws)
+        has_neg = any(k in text for k in neg_kws)
+        if category == "upside":
+            if not has_pos or has_neg:
+                return False
+            # Skip pure technical-chart noise (均线/MA/KDJ/MACD lines)
+            return not re.search(r'MA\d|KDJ|MACD|RSI|均线|DIF|DEA|OBV', text)
+        # downside: must contain a negative keyword and no positive one
+        return has_neg and not has_pos
 
     def _extract_items_by_keywords_dual(self, category: str, keywords: List[str], discussion_msgs: List[Dict[str, Any]], limit: int = 5) -> List[str]:
         # Category key mappings for JSON extraction
@@ -997,20 +1323,50 @@ Now extract from the following discussion:
                         
                     m_bullet = re.match(r'^\s*[-*•▪◆\d.)]+\s*(.+)$', line_stripped)
                     if m_bullet:
-                        clean = m_bullet.group(1).strip().strip('*').strip()
+                        clean = self._clean_extracted_item(m_bullet.group(1))
                         if len(clean) > 8 and not clean.startswith('#') and not clean.startswith('---'):
-                            if clean not in items:
+                            if self._item_passes_category(clean, category) and clean not in items:
                                 items.append(clean)
                                 if len(items) >= limit:
                                     break
                     elif line_stripped and not line_stripped.startswith('#') and len(line_stripped) > 15:
-                        if line_stripped not in items:
-                            items.append(line_stripped)
+                        clean = self._clean_extracted_item(line_stripped)
+                        if self._item_passes_category(clean, category) and clean not in items:
+                            items.append(clean)
                             if len(items) >= limit:
                                 break
             if len(items) >= limit:
                 break
+
+        # 3. Sentence-level fallback for thesis categories — the bull/bear content
+        #    often lives in table rows or prose, not under matching headers. Split
+        #    the raw text into fragments and keep keyword-bearing ones.
+        if not items and category in ("upside", "downside"):
+            for m in discussion_msgs:
+                content = m.get("content", "") or ""
+                content_normalized = content.replace('\\n', '\n')
+                for frag in re.split(r'[。；;\n|]+', content_normalized):
+                    frag = frag.strip()
+                    if not (12 <= len(frag) <= 90):
+                        continue
+                    frag_clean = self._clean_extracted_item(frag)
+                    if not frag_clean or frag_clean.startswith('#'):
+                        continue
+                    if self._item_passes_category(frag_clean, category) and frag_clean not in items:
+                        items.append(frag_clean)
+                    if len(items) >= limit:
+                        return items[:limit]
         return items[:limit]
+
+    _TRADING_STEP_HEADER_CELLS = {
+        "交易方向", "触发条件", "量化参数", "层级", "触发价位", "仓位", "仓位%", "累计仓位",
+        "触发逻辑", "逻辑", "情景", "触发", "目标区间", "概率", "场景", "入场价", "止损价",
+        "止损距", "依据", "工具验证", "路径", "入场/止损", "风险/股", "1%风险对应仓位",
+        "10%上限约束后", "实际单笔风险", "-8%减半仓", "-10%无条件平仓", "与结构位对照",
+        "风险名称", "类别", "期望损失", "触发信号", "对冲策略", "压力场景", "恢复时间",
+        "应对策略", "波动率", "指标", "数值", "建仓层级", "建仓", "价格", "触发价格",
+        "仓位百分比", "权重", "占比", "累计",
+    }
 
     def _extract_trading_steps_from_discussion(self, discussion_msgs: list) -> list:
         steps = []
@@ -1025,7 +1381,7 @@ Now extract from the following discussion:
                 line_stripped = line.strip()
                 is_header = line_stripped.startswith('#')
                 is_bold = line_stripped.startswith('**')
-                is_plan_header = (is_header or is_bold) and any(kw in line_stripped for kw in ["建仓", "交易计划", "操作步骤", "Trading Plan", "Execution", "交易策略"])
+                is_plan_header = (is_header or is_bold) and any(kw in line_stripped for kw in ["建仓", "交易计划", "操作步骤", "Trading Plan", "Execution", "交易策略", "突破交易"])
                 
                 if is_header or is_bold:
                     if is_plan_header:
@@ -1034,20 +1390,30 @@ Now extract from the following discussion:
                         in_section = False
                     continue
                 
-                if in_section:
-                    if line_stripped.startswith('|') and line_stripped.endswith('|'):
-                        parts = [p.strip() for p in line_stripped.split('|')[1:-1]]
-                        if not parts or any('---' in p for p in parts) or any(p in ["建仓层级", "建仓", "层级", "触发价位", "价格", "触发价格", "仓位", "仓位百分比", "权重", "占比", "累计仓位", "累计", "触发逻辑", "逻辑"] for p in parts):
-                            continue
-                        if len(parts) >= 3:
+                if in_section and line_stripped.startswith('|') and line_stripped.endswith('|'):
+                    parts = [p.strip() for p in line_stripped.split('|')[1:-1]]
+                    if not parts or any('---' in p for p in parts):
+                        continue
+                    # Skip header rows (normalize cells like '量化参数（[✅ 工具确认]）')
+                    norm_cells = [re.sub(r'[（(].*?[）)]', '', p).strip() for p in parts]
+                    if any(p in self._TRADING_STEP_HEADER_CELLS for p in norm_cells[:3]):
+                        continue
+                    # Strip markdown emphasis from cells
+                    parts = [self._clean_extracted_item(p) for p in parts]
+                    if len(parts) >= 3:
+                        if len(parts) == 3:
+                            # 3-column tables: 方向 | 触发条件 | 量化参数 (no separate weight/logic)
                             steps.append({
-                                "level": parts[0].strip().strip('*'),
-                                "price": parts[1].strip(),
-                                "weight": parts[2].strip() if len(parts) > 2 else "自定",
-                                "logic": parts[-1].strip() if len(parts) > 3 else (parts[2].strip() if len(parts) > 2 else "")
+                                "level": parts[0], "price": parts[1],
+                                "weight": "自定", "logic": parts[2],
                             })
-                            if len(steps) >= 4:
-                                break
+                        else:
+                            steps.append({
+                                "level": parts[0], "price": parts[1],
+                                "weight": parts[2], "logic": parts[-1],
+                            })
+                        if len(steps) >= 4:
+                            break
             if steps:
                 break
         return steps
@@ -1080,15 +1446,16 @@ Now extract from the following discussion:
                 if summary_text: break
 
         if not summary_text:
-            # Fallback to text-based extraction
+            # Fallback to text-based extraction — sanitize markdown so raw
+            # '# 🔬 …' report dumps never reach the structured fields.
             for m in discussion_msgs:
                 content = m.get("content", "").strip()
                 if len(content) > 100:
                     clean = re.sub(r'<[｜|]*DSML[｜|]*[^>]*>.*?</[｜|]*DSML[｜|]*[^>]*>', '', content, flags=re.DOTALL)
                     clean = re.sub(r'```json.*?```', '', clean, flags=re.DOTALL)
-                    clean = clean.strip()
+                    clean = self._sanitize_markdown_field(clean, max_len=500)
                     if clean:
-                        summary_text = clean[:500] + ("..." if len(clean) > 500 else "")
+                        summary_text = clean
                         break
         if not summary_text:
             summary_text = f"{symbol} 分析报告 — 基于多轮专家研讨生成"
@@ -1132,7 +1499,8 @@ Now extract from the following discussion:
         else:
             first_sent = summary_text.split("。")[0].split("！")[0].split("?")[0].strip()
             first_sent = first_sent.split('\n')[0].strip()
-            if 5 < len(first_sent) < 50:
+            # Skip lines that are still markdown-ish (titles, table fragments)
+            if (5 < len(first_sent) < 50 and not first_sent.startswith('#') and '|' not in first_sent):
                 tagline = f"{symbol}: {first_sent}"
             else:
                 tagline = f"{symbol} 深度投资分析报告"
@@ -1147,9 +1515,16 @@ Now extract from the following discussion:
             verdict = self._strip_thinking_prefix(verdict)
             verdict = verdict.split('\n')[0].strip()[:60]
         else:
-            v_cand = summary_text.split("。")[0]
+            # Prefer a keyword-bearing analytical sentence over the raw opening line
+            # (which may still be a report title or emoji header after sanitization).
+            v_cand = self._extract_first_substantive_sentence(discussion_msgs)
+            if not v_cand:
+                v_cand = summary_text.split("。")[0]
             v_cand = v_cand.split('\n')[0].strip()[:60]
-            verdict = v_cand if v_cand else "分析完成，详细结论请查看报告正文"
+            if v_cand and not v_cand.startswith('#') and '|' not in v_cand:
+                verdict = v_cand
+            else:
+                verdict = "分析完成，详细结论请查看报告正文"
 
         # Extract action_stance
         action_stance = ""
@@ -1166,8 +1541,8 @@ Now extract from the following discussion:
             action_stance = f"根据研讨分析结论，当前建议对该标的采取 {rec} 评级指导意见"
 
         # Extract lists using the new dual method
-        upside = self._extract_items_by_keywords_dual("upside", ["看涨", "利好", "上行", "催化剂", "Catalyst", "Upside", "机遇", "优势", "核心竞争力", "核心论点"], discussion_msgs)
-        downside = self._extract_items_by_keywords_dual("downside", ["看跌", "利空", "下行", "风险", "Risk", "Downside", "压制", "威胁", "一致性偏差", "被忽视", "盲区", "Consensus Bias"], discussion_msgs)
+        upside = self._extract_items_by_keywords_dual("upside", ["看涨", "看多", "多头", "利好", "上行", "催化剂", "Catalyst", "Upside", "Bull", "机遇", "优势", "核心竞争力", "核心论点"], discussion_msgs)
+        downside = self._extract_items_by_keywords_dual("downside", ["看跌", "看空", "空头", "利空", "下行", "风险", "Risk", "Downside", "Bear", "压制", "威胁", "一致性偏差", "被忽视", "盲区", "Consensus Bias"], discussion_msgs)
         moat_points = self._extract_items_by_keywords_dual("moat", ["护城河", "Moat", "壁垒", "竞争优势"], discussion_msgs)
         macro_points = self._extract_items_by_keywords_dual("macro", ["宏观", "技术面", "资金面", "Technical", "Macro"], discussion_msgs)
         risks_points = self._extract_items_by_keywords_dual("risks", ["证伪", "失效", "止损", "Invalidation", "风险预警"], discussion_msgs)
@@ -1188,7 +1563,7 @@ Now extract from the following discussion:
         # Extract narrative summaries from discussion instead of hardcoded placeholders
         moat_summary = self._extract_narrative_section("moat", ["护城河", "Moat", "壁垒", "竞争优势", "基本面", "Fundamental"], discussion_msgs)
         macro_summary = self._extract_narrative_section("macro", ["宏观", "技术面", "资金面", "Technical", "Macro", "行业格局", "供给", "需求"], discussion_msgs)
-        trading_plan_summary = self._extract_narrative_section("trading", ["交易计划", "操作步骤", "Trading Plan", "建仓", "仓位", "止损", "风控", "Execution"], discussion_msgs)
+        trading_plan_summary = self._extract_narrative_section("trading", ["交易计划", "操作步骤", "Trading Plan", "建仓", "仓位", "止损", "风控", "Execution", "入场", "目标价"], discussion_msgs)
 
         investment_thesis = (summary_text[:490] if len(summary_text) > 490 else summary_text) or verdict
         the_call = action_stance[:100] if action_stance else (verdict[:100] if verdict else f"关注{symbol}后续信号")
@@ -1239,18 +1614,28 @@ Now extract from the following discussion:
         # Strip DSML tokens
         stripped = re.sub(r'<[｜|]*DSML[｜|]*[^>]*>', '', stripped)
         stripped = re.sub(r'</[｜|]*DSML[｜|]*[^>]*>', '', stripped)
+        stripped = re.sub(r'<think>.*?</think>', '', stripped, flags=re.DOTALL)
+        # Strip structured-data JSON blocks (LLM artifacts) before conversion
+        stripped = re.sub(r'<structured[\\_]?data>.*?</structured[\\_]?data>', '', stripped, flags=re.DOTALL | re.IGNORECASE)
         stripped = re.sub(r'\\n{3,}', '\\n\\n', stripped).strip()
         if not stripped:
             return "<p><em>(Tool-calling round — no text content)</em></p>"
         # Also handle Python reprs and escape underscores before markdown conversion
         stripped = self._replace_python_reprs_in_text(stripped)
         try:
-            return markdown2.markdown(stripped, extras=["fenced-code-blocks", "tables", "header-ids"])
+            return self._postprocess_markdown(markdown2.markdown(self._preprocess_chinese_bold(stripped), extras=["fenced-code-blocks", "tables", "header-ids"], safe_mode="escape"))
         except Exception:
             return f"<pre>{stripped}</pre>"
 
     async def _normalize_log_style(self, content: str, model: str = None, deepseek_api_key: str = None, gemini_api_key: str = None, openrouter_api_key: str = None) -> str:
         stripped = content.strip()
+
+        # Strip DeepSeek thinking blocks (<think>...</think>) — hidden reasoning is
+        # never meant for the reader of the expert log.
+        if '<think>' in stripped:
+            stripped = re.sub(r'<think>.*?</think>', '', stripped, flags=re.DOTALL).strip()
+        # Strip structured-data JSON blocks (LLM artifacts)
+        stripped = re.sub(r'<structured[\\_]?data>.*?</structured[\\_]?data>', '', stripped, flags=re.DOTALL | re.IGNORECASE)
 
         # Strip DeepSeek DSML tokens (native tool call markup that may leak)
         if 'DSML' in stripped:
@@ -1313,7 +1698,7 @@ Now extract from the following discussion:
                 if local_md:
                     if rest:
                         local_md += f"\n\n{rest}"
-                    trailing_json_md = markdown2.markdown(local_md, extras=["tables", "fenced-code-blocks"])
+                    trailing_json_md = self._postprocess_markdown(markdown2.markdown(self._preprocess_chinese_bold(local_md), extras=["tables", "fenced-code-blocks"], safe_mode="escape"))
                     stripped = text_part
                     if not stripped:
                         return trailing_json_md
@@ -1322,7 +1707,7 @@ Now extract from the following discussion:
             # Try local JSON-to-markdown first (faster, more reliable)
             local_md = self._json_to_markdown(stripped)
             if local_md:
-                return markdown2.markdown(local_md, extras=["tables", "fenced-code-blocks"])
+                return self._postprocess_markdown(markdown2.markdown(self._preprocess_chinese_bold(local_md), extras=["tables", "fenced-code-blocks"], safe_mode="escape"))
             # Fallback to LLM conversion
             prompt = f"""Convert this analyst output to professional markdown using '1️⃣ Title', '2️⃣ Title' style.
 
@@ -1341,7 +1726,7 @@ CONTENT:
                     model = os.getenv("DEEPSEEK_MODEL", "deepseek-v4-pro") if provider == "deepseek" else os.getenv("GEMINI_MODEL", "gemini-3.1-pro-preview")
                 res = await llm_gateway.generate_content(prompt, model=model, temperature=0.2, deepseek_api_key=deepseek_api_key, gemini_api_key=gemini_api_key, openrouter_api_key=openrouter_api_key)
                 if res and len(res) > 100:
-                    return markdown2.markdown(res.strip(), extras=["tables", "fenced-code-blocks"])
+                    return self._postprocess_markdown(markdown2.markdown(self._preprocess_chinese_bold(res.strip()), extras=["tables", "fenced-code-blocks"], safe_mode="escape"))
             except Exception as e:
                 print(f"JSON-to-markdown conversion failed: {e}")
 
@@ -1352,7 +1737,7 @@ CONTENT:
         # Use fast local regex to remove chatter instead of blocking on LLM calls
         stripped = self._strip_thinking_prefix(stripped)
         
-        result = markdown2.markdown(stripped, extras=["tables", "fenced-code-blocks"])
+        result = self._postprocess_markdown(markdown2.markdown(self._preprocess_chinese_bold(stripped), extras=["tables", "fenced-code-blocks"], safe_mode="escape"))
         return result + trailing_json_md if trailing_json_md else result
 
     def _extract_balanced_json(self, text: str) -> str:
@@ -1912,8 +2297,7 @@ CONTENT:
             return "\n".join(lines)
         return sensitivity_str
 
-    @staticmethod
-    def _render_evidence_taxonomy(d: dict, info: dict, thesis: str, verdict: str, recommendation: str, the_call: str) -> str:
+    def _render_evidence_taxonomy(self, d: dict, info: dict, thesis: str, verdict: str, recommendation: str, the_call: str) -> str:
         import html
 
         def esc(value: Any) -> str:
@@ -1924,6 +2308,17 @@ CONTENT:
         missing = data_completeness.get("missing") or []
         missing_text = "、".join([str(item) for item in missing[:3]]) if missing else "未标记关键缺口"
         consensus = d.get("consensus_vs_non_consensus") if isinstance(d.get("consensus_vs_non_consensus"), dict) else {}
+        # Defense-in-depth: every prose slot must be plain text. Values here can
+        # originate from the fallback path or an LLM field that escaped the
+        # validation pass — strip any raw markdown ('#', '**', table pipes)
+        # before HTML-escaping so no document dump is ever displayed verbatim.
+        thesis = self._render_prose(thesis, max_len=500) or ""
+        verdict = self._render_prose(verdict, max_len=200) or ""
+        the_call = self._render_prose(the_call, max_len=200) or ""
+        summary = d.get("summary") if isinstance(d.get("summary"), str) else ""
+        summary = self._render_prose(summary, max_len=200) or ""
+        our_alpha = consensus.get("our_alpha")
+        our_alpha = self._render_prose(our_alpha, max_len=300) if isinstance(our_alpha, str) else ""
         cards = [
             (
                 "fact",
@@ -1933,12 +2328,12 @@ CONTENT:
             (
                 "inference",
                 "推理 Inference",
-                thesis or consensus.get("our_alpha") or "基于多专家讨论形成的因果链仍需结合原始日志复核。",
+                thesis or our_alpha or "基于多专家讨论形成的因果链仍需结合原始日志复核。",
             ),
             (
                 "opinion",
                 "观点 Opinion",
-                verdict or d.get("summary") or "暂无可发布观点。",
+                verdict or summary or "暂无可发布观点。",
             ),
             (
                 "recommendation",
@@ -2714,7 +3109,7 @@ CONTENT:
         chg_sign = "+" if chg > 0 else ""
         locale = self._get_locale(info.get("market", "A-Share"))
 
-        def md(t): return markdown2.markdown(t) if t else ""
+        def md(t): return self._postprocess_markdown(markdown2.markdown(self._preprocess_chinese_bold(t), safe_mode="escape")) if t else ""
         import html
         def esc(t): return html.escape(str(t)) if t else ""
         cur = info.get("currency", "CNY")
@@ -2729,11 +3124,28 @@ CONTENT:
         # Raw variable extractions with safe defaults
         GARBAGE_VALUES = {"---", "—", "N/A", "n/a", "TBD", "tbd", "TODO", "todo", "None", "null", ""}
 
-        tagline = d.get("tagline") or f"{info.get('name', '')} ({info.get('symbol', '')}) 投资分析报告"
+        # ── Render-time markdown-dump defense ──
+        # LLM fields may still contain raw markdown documents (the model copying a
+        # whole expert report into a field). Strip dumps to plain prose so no raw
+        # '# 🔬 …' / table markup is ever interpolated into the HTML.
+        d = dict(d)  # shallow copy: do not mutate the caller's dict
+        for _f in ("key_opps", "key_risks", "moat_points", "macro_points", "risks_points", "trading_steps"):
+            if not isinstance(d.get(_f), list):
+                d[_f] = []
+        for _f in ("key_opps", "key_risks", "moat_points", "macro_points", "risks_points"):
+            _items = d.get(_f)
+            if isinstance(_items, list):
+                d[_f] = [self._render_prose(str(i), max_len=200) if isinstance(i, str) else i for i in _items]
+        for _f in ("moat_summary", "macro_summary", "trading_plan", "summary", "investment_thesis"):
+            _v = d.get(_f)
+            if isinstance(_v, str) and self._looks_like_markdown_dump(_v):
+                d[_f] = self._sanitize_markdown_field(_v, max_len=800)
+
+        tagline = self._render_prose(d.get("tagline") or f"{info.get('name', '')} ({info.get('symbol', '')}) 投资分析报告", max_len=120)
         if str(tagline).strip() in GARBAGE_VALUES or len(str(tagline).strip()) < 5:
             tagline = f"{info.get('name', '')} ({info.get('symbol', '')}) 深度投资分析报告"
 
-        verdict = d.get("verdict", "")
+        verdict = self._render_prose(d.get("verdict", ""), max_len=120)
         if str(verdict).strip() in GARBAGE_VALUES or len(str(verdict).strip()) < 5:
             verdict = ""
 
@@ -2742,10 +3154,10 @@ CONTENT:
         rec_class = "buy" if rec_lower in ("buy", "strong buy") else ("sell" if rec_lower in ("sell", "strong sell") else "hold")
         verdict_html = ""
         if verdict:
-            verdict_html = f'<div class="verdict-banner"><span class="verdict-text">{verdict}</span><span class="verdict-rec {rec_class}">{rec}</span></div>'
+            verdict_html = f'<div class="verdict-banner"><span class="verdict-text">{esc(verdict)}</span><span class="verdict-rec {rec_class}">{esc(rec)}</span></div>'
         
-        action_stance = d.get("action_stance", "")
-        action_html = f'<div class="action-stance">{action_stance}</div>' if action_stance else ""
+        action_stance = self._render_prose(d.get("action_stance", ""), max_len=200)
+        action_html = f'<div class="action-stance">{esc(action_stance)}</div>' if action_stance else ""
 
         # 1-Pager Dashboard Elements
         thesis_raw = d.get("investment_thesis") or d.get("summary") or "分析整理中..."
@@ -2757,12 +3169,16 @@ CONTENT:
             thesis = truncated[:last_period + 1] if last_period > 100 else truncated + "..."
         else:
             thesis = thesis_raw
+        thesis = self._render_prose(thesis, max_len=500)
         factor = d.get("factor_profile") or {}
         factor_scores = d.get("factor_scores") or {}
         factor_radar_html = self._svg_radar(factor_scores) if factor_scores else ""
         consensus = d.get("consensus_vs_non_consensus") or {}
+        if isinstance(consensus, dict):
+            consensus = {k: self._render_prose(v, max_len=300) for k, v in consensus.items() if isinstance(v, str)}
         the_call_raw = d.get("the_call") or verdict or "暂无明确决断建议"
         the_call = the_call_raw if str(the_call_raw).strip() not in GARBAGE_VALUES and len(str(the_call_raw).strip()) >= 5 else "暂无明确决断建议"
+        the_call = self._render_prose(the_call, max_len=200)
         evidence_taxonomy_html = self._render_evidence_taxonomy(d, info, thesis, verdict, rec, the_call)
         
         # Catalyst Calendar
@@ -2770,7 +3186,7 @@ CONTENT:
         catalyst_html = ""
         if catalysts and isinstance(catalysts, list):
             cat_rows = "".join([
-                f'<tr><td><span class="calendar-date">{c.get("date", "N/A")}</span></td><td><strong>{c.get("event", "N/A")}</strong></td><td>{c.get("impact_logic", "")}</td></tr>'
+                f'<tr><td><span class="calendar-date">{esc(self._render_prose(c.get("date", "N/A"), 60))}</span></td><td><strong>{esc(self._render_prose(c.get("event", "N/A"), 120))}</strong></td><td>{esc(self._render_prose(c.get("impact_logic", ""), 200))}</td></tr>'
                 for c in catalysts if isinstance(c, dict)
             ])
             if cat_rows:
@@ -2817,7 +3233,7 @@ CONTENT:
         }.get(archetype, archetype or "通用分析型")
         
         kill_switch = d.get("kill_switch") or {}
-        ks_condition = esc(kill_switch.get("condition") or "分析师未配置具体防伪红线条件")
+        ks_condition = esc(self._render_prose(kill_switch.get("condition") or "分析师未配置具体防伪红线条件", 200))
         ks_status = kill_switch.get("status") or "SAFE"
         ks_class = "triggered" if ks_status.upper() in ("TRIGGERED", "WARN", "触发") else "safe"
         ks_status_zh = "已触发预警 (TRIGGERED)" if ks_class == "triggered" else "安全 (SAFE)"
@@ -2932,14 +3348,14 @@ CONTENT:
                 s_vs = p.get("vs_target") or p.get("rationale")
                 
                 peer_rows += f'''<tr>
-                    <td>{s_name if s_name else "N/A"}</td>
-                    <td>{s_sym if s_sym else "N/A"}</td>
+                    <td>{esc(self._render_prose(s_name if s_name else "N/A", 40))}</td>
+                    <td>{esc(self._render_prose(s_sym if s_sym else "N/A", 30))}</td>
                     <td>{_fv(_alt(p, "pe", "pe_ttm"))}</td>
                     <td>{_fv(_alt(p, "pb"))}</td>
                     <td>{_fv(_alt(p, "roe", "roe_fy2025_pct"), "%")}</td>
                     <td>{_fv(_alt(p, "margin", "net_margin_pct", "net_margin"), "%")}</td>
                     <td>{_fv(mc)}</td>
-                    <td>{s_vs if s_vs else "N/A"}</td>
+                    <td>{esc(self._render_prose(s_vs if s_vs else "N/A", 150))}</td>
                 </tr>'''
             peer_section_html = f'''
             <div class="comps-wrapper">
@@ -3039,6 +3455,7 @@ CONTENT:
             {
                 "title": locale["cat_growth"],
                 "metrics": [
+                    ("营业总收入", "绝对收入规模"),
                     ("营收同比增长 (YoY)", "收入扩张速度"),
                     ("营收同比-单季 (YoY-Q)", "近期经营动能"),
                     ("营收环比增长 (QoQ)", "近期经营动能"),
@@ -3055,12 +3472,15 @@ CONTENT:
                 "metrics": [
                     ("资产负债率", "财务杠杆水平"),
                     ("流动比率", "短期偿债能力"),
-                    ("速动比率", "极致变现偿债能力")
+                    ("速动比率", "极致变现偿债能力"),
+                    ("总有息负债", "刚性债务负担"),
+                    ("净现金", "现金减债后的缓冲垫")
                 ]
             },
             {
                 "title": locale["cat_cashflow"],
                 "metrics": [
+                    ("总现金(含短投)", "账面现金弹药"),
                     ("经营现金流", "主营吸金能力"),
                     ("自由现金流 (FCF)", "可分配现金"),
                     ("资本开支 (CAPEX)", "再投资力度"),
@@ -3086,7 +3506,10 @@ CONTENT:
                 "title": locale["cat_market"],
                 "metrics": [
                     ("股价百分位 (52周)", "当前价格在年度区间的位次"),
-                    ("PE百分位", "当前估值在历史区间的位次")
+                    ("PE百分位", "当前估值在历史区间的位次"),
+                    ("贝塔系数 (β)", "相对市场的波动弹性"),
+                    ("WACC (估算)", "加权平均资本成本"),
+                    ("涨跌幅", "当日涨跌幅")
                 ]
             }
         ]
@@ -3096,7 +3519,7 @@ CONTENT:
             items_html = "".join([
                 self._render_fund_item(k, desc, fund.get(k, "N/A"))
                 for k, desc in cat["metrics"]
-                if k in fund  # Skip metrics not populated
+                if k in fund and str(fund.get(k)) not in ("N/A", "", "None")  # Skip missing
             ])
             if items_html:
                 detailed_fund_html += f"""
@@ -3111,7 +3534,7 @@ CONTENT:
             scenarios = self._default_scenarios()
 
         sc_rows = "".join([
-            f'<tr><td><strong>{esc(s.get("case", "N/A"))}</strong></td><td>{str(s.get("probability", 0)).rstrip("%")}%</td><td><strong>{s.get("targetPrice", "N/A")}</strong></td><td>{esc(s.get("logic", ""))}</td></tr>'
+            f'<tr><td><strong>{esc(self._render_prose(s.get("case", "N/A"), 40))}</strong></td><td>{str(s.get("probability", 0)).rstrip("%")}%</td><td><strong>{esc(self._render_prose(s.get("targetPrice", "N/A"), 40))}</strong></td><td>{esc(self._render_prose(s.get("logic", ""), 200))}</td></tr>'
             for s in scenarios
         ])
 
@@ -3156,19 +3579,23 @@ CONTENT:
             if not isinstance(s, dict): continue
             trading_steps_html += f"""
             <div class="trade-card">
-                <div class="trade-level">{s.get('level', '仓位')}</div>
-                <div class="trade-price">{s.get('price', 'N/A')}</div>
-                <div class="trade-weight">占比: {s.get('weight', 'N/A')}</div>
-                <div class="trade-logic">{esc(s.get('logic', ''))}</div>
+                <div class="trade-level">{esc(self._render_prose(s.get('level', '仓位'), 40))}</div>
+                <div class="trade-price">{esc(self._render_prose(s.get('price', 'N/A'), 60))}</div>
+                <div class="trade-weight">占比: {esc(self._render_prose(s.get('weight', 'N/A'), 40))}</div>
+                <div class="trade-logic">{esc(self._render_prose(s.get('logic', ''), 200))}</div>
             </div>"""
+        if not trading_steps_html:
+            trading_steps_html = '<div class="no-data-msg">未提取到分级交易步骤卡片，请参阅上方交易计划总述与专家研讨日志。</div>'
 
         # Market wind control and disciplines
         wind_control = d.get("market_wind_control") or {}
         discipline = d.get("trading_discipline") or {}
 
-        moat_list = "".join([f'<li>{p}</li>' for p in d.get("moat_points", [])])
-        macro_list = "".join([f'<li>{p}</li>' for p in d.get("macro_points", [])])
-        risk_points_html = "".join([f'<li>{p}</li>' for p in d.get("risks_points", [])])
+        moat_list = "".join([f'<li>{esc(p)}</li>' for p in d.get("moat_points", [])]) or '<li style="color:#94a3b8;font-style:italic;">暂无护城河要点数据</li>'
+        macro_list = "".join([f'<li>{esc(p)}</li>' for p in d.get("macro_points", [])]) or '<li style="color:#94a3b8;font-style:italic;">暂无宏观与技术面要点数据</li>'
+        risk_points_html = "".join([f'<li>{esc(p)}</li>' for p in d.get("risks_points", [])]) or '<li style="color:#94a3b8;font-style:italic;">暂无失效风险清单数据</li>'
+        bull_list_html = "".join([f"<li>{esc(p)}</li>" for p in d.get("key_opps", [])]) or '<li style="color:#94a3b8;font-style:italic;">暂无明确看涨驱动，请参考上方核心逻辑</li>'
+        bear_list_html = "".join([f"<li>{esc(p)}</li>" for p in d.get("key_risks", [])]) or '<li style="color:#94a3b8;font-style:italic;">暂无明确下行风险</li>'
 
         log_html = "".join([
             f'<div class="log-msg"><div class="log-role" style="display:flex; align-items:center; gap:8px;"><span>{m["role"]}</span>'
@@ -3184,15 +3611,15 @@ CONTENT:
                     <div class="wind-card">
                         <div class="wind-card-title">📅 限售股解禁日历</div>
                         <div class="wind-card-body">
-                            <strong>解禁信息：</strong> {esc(wind_control.get("lockup_date") or "无近三个月大额解禁信息")}<br>
-                            <strong>解禁冲击：</strong> {esc(wind_control.get("lockup_impact") or "解禁冲击评估为低/无")}
+                            <strong>解禁信息：</strong> {esc(self._render_prose(wind_control.get("lockup_date") or "无近三个月大额解禁信息", 120))}<br>
+                            <strong>解禁冲击：</strong> {esc(self._render_prose(wind_control.get("lockup_impact") or "解禁冲击评估为低/无", 200))}
                         </div>
                     </div>
                     <div class="wind-card">
                         <div class="wind-card-title">📢 减持公告与拥挤度</div>
                         <div class="wind-card-body">
-                            <strong>减持情况：</strong> {esc(wind_control.get("reduction_plan") or "无未完成减持公告")}<br>
-                            <strong>机构拥挤：</strong> {esc(wind_control.get("crowding_level") or "机构仓位拥挤度适中")}
+                            <strong>减持情况：</strong> {esc(self._render_prose(wind_control.get("reduction_plan") or "无未完成减持公告", 200))}<br>
+                            <strong>机构拥挤：</strong> {esc(self._render_prose(wind_control.get("crowding_level") or "机构仓位拥挤度适中", 120))}
                         </div>
                     </div>"""
         elif market_str == "HK-Share" or market_str.lower() in ("hk", "hkshare", "hk-share"):
@@ -3200,15 +3627,15 @@ CONTENT:
                     <div class="wind-card">
                         <div class="wind-card-title">📅 基石/主要股东禁售解禁</div>
                         <div class="wind-card-body">
-                            <strong>禁售解禁：</strong> {esc(wind_control.get("lockup_date") or "无近三个月大额禁售解禁信息")}<br>
-                            <strong>减持/解禁冲击：</strong> {esc(wind_control.get("lockup_impact") or "解禁及减持冲击低/无")}
+                            <strong>禁售解禁：</strong> {esc(self._render_prose(wind_control.get("lockup_date") or "无近三个月大额禁售解禁信息", 120))}<br>
+                            <strong>减持/解禁冲击：</strong> {esc(self._render_prose(wind_control.get("lockup_impact") or "解禁及减持冲击低/无", 200))}
                         </div>
                     </div>
                     <div class="wind-card">
                         <div class="wind-card-title">📢 港股通持股与大股东质押</div>
                         <div class="wind-card-body">
-                            <strong>港股通持股：</strong> {esc(wind_control.get("crowding_level") or "南向资金持股变动稳健")}<br>
-                            <strong>股份质押/减持：</strong> {esc(wind_control.get("reduction_plan") or "大股东及质押风险为安全/无")}
+                            <strong>港股通持股：</strong> {esc(self._render_prose(wind_control.get("crowding_level") or "南向资金持股变动稳健", 120))}<br>
+                            <strong>股份质押/减持：</strong> {esc(self._render_prose(wind_control.get("reduction_plan") or "大股东及质押风险为安全/无", 200))}
                         </div>
                     </div>"""
         else: # US-Share
@@ -3216,15 +3643,15 @@ CONTENT:
                     <div class="wind-card">
                         <div class="wind-card-title">📅 内部人交易 Form 4</div>
                         <div class="wind-card-body">
-                            <strong>内部人交易：</strong> {esc(wind_control.get("lockup_date") or "无大额内部人买卖交易记录")}<br>
-                            <strong>10b5-1 计划：</strong> {esc(wind_control.get("lockup_impact") or "无正在执行的10b5-1大额减持计划")}
+                            <strong>内部人交易：</strong> {esc(self._render_prose(wind_control.get("lockup_date") or "无大额内部人买卖交易记录", 120))}<br>
+                            <strong>10b5-1 计划：</strong> {esc(self._render_prose(wind_control.get("lockup_impact") or "无正在执行的10b5-1大额减持计划", 200))}
                         </div>
                     </div>
                     <div class="wind-card">
                         <div class="wind-card-title">📢 空头头寸与机构持仓</div>
                         <div class="wind-card-body">
-                            <strong>空头占比：</strong> {esc(wind_control.get("reduction_plan") or "空头头寸占比 (Short Interest) 处于安全低位")}<br>
-                            <strong>机构持仓：</strong> {esc(wind_control.get("crowding_level") or "13F 机构持仓未见踩踏或大幅抛售")}
+                            <strong>空头占比：</strong> {esc(self._render_prose(wind_control.get("reduction_plan") or "空头头寸占比 (Short Interest) 处于安全低位", 200))}<br>
+                            <strong>机构持仓：</strong> {esc(self._render_prose(wind_control.get("crowding_level") or "13F 机构持仓未见踩踏或大幅抛售", 200))}
                         </div>
                     </div>"""
 
@@ -3801,9 +4228,9 @@ CONTENT:
         <div class="dashboard-grid">
             <div class="dashboard-card full-width">
                 <h3 class="card-title">💡 tagline 投资亮点</h3>
-                <div style="font-size: 18px; font-weight: 800; color: var(--accent); margin-bottom: 12px;">{tagline}</div>
+                <div style="font-size: 18px; font-weight: 800; color: var(--accent); margin-bottom: 12px;">{esc(tagline)}</div>
                 <div style="font-size: 14px; font-weight: 700; color: var(--primary-light); margin-bottom: 8px;">{locale["label_thesis_narrative"]}</div>
-                <div style="font-size: 14px; line-height: 1.7; color: var(--text);">{thesis}</div>
+                <div style="font-size: 14px; line-height: 1.7; color: var(--text);">{esc(thesis)}</div>
             </div>
             
             <div class="dashboard-card">
@@ -3824,11 +4251,11 @@ CONTENT:
                 <div class="consensus-split">
                     <div class="consensus-box market">
                         <div class="consensus-box-title">{locale["label_market_consensus"]}</div>
-                        <div>{consensus.get("market_consensus") or locale["label_no_consensus"]}</div>
+                        <div>{esc(consensus.get("market_consensus") or locale["label_no_consensus"])}</div>
                     </div>
                     <div class="consensus-box alpha">
                         <div class="consensus-box-title">{locale["label_our_alpha"]}</div>
-                        <div>{consensus.get("our_alpha") or locale["label_no_alpha"]}</div>
+                        <div>{esc(consensus.get("our_alpha") or locale["label_no_alpha"])}</div>
                     </div>
                 </div>
             </div>
@@ -3836,7 +4263,7 @@ CONTENT:
             <div class="dashboard-card full-width">
                 <h3 class="card-title">{locale["card_the_call"]}</h3>
                 <div style="font-size: 15px; font-weight: 700; color: #1e3a8a; background: var(--accent-glow); padding: 12px 20px; border-radius: 6px; border-left: 4px solid var(--accent);">
-                    {the_call}
+                    {esc(the_call)}
                 </div>
             </div>
             
@@ -3898,11 +4325,11 @@ CONTENT:
             <div class="thesis-grid">
                 <div class="thesis-card bull">
                     <div class="thesis-tag">{locale["bull_thesis"]}</div>
-                    <ul class="thesis-list">{"".join([f"<li>{p}</li>" for p in d["key_opps"]])}</ul>
+                    <ul class="thesis-list">{bull_list_html}</ul>
                 </div>
                 <div class="thesis-card bear">
                     <div class="thesis-tag">{locale["bear_thesis"]}</div>
-                    <ul class="thesis-list">{"".join([f"<li>{p}</li>" for p in d["key_risks"]])}</ul>
+                    <ul class="thesis-list">{bear_list_html}</ul>
                 </div>
             </div>
         </section>
@@ -3955,16 +4382,16 @@ CONTENT:
             <div class="dashboard-card">
                 <h3 class="card-title">{locale["card_lr_signal"]}</h3>
                 <div style="font-size:13px; line-height:1.7;">
-                    <strong>{locale["label_left_side"]}</strong> {esc(discipline.get("left_side_condition") or locale["label_no_left"])}<br><br>
-                    <strong>{locale["label_right_side"]}</strong> {esc(discipline.get("right_side_trigger") or locale["label_no_right"])}
+                    <strong>{locale["label_left_side"]}</strong> {esc(self._render_prose(discipline.get("left_side_condition") or locale["label_no_left"], 200))}<br><br>
+                    <strong>{locale["label_right_side"]}</strong> {esc(self._render_prose(discipline.get("right_side_trigger") or locale["label_no_right"], 200))}
                 </div>
             </div>
             
             <div class="dashboard-card">
                 <h3 class="card-title">{locale["card_drawdown"]}</h3>
                 <div style="font-size:13px; line-height:1.7;">
-                    <strong>{locale["label_max_drawdown"]}</strong> <span style="color:var(--bear); font-weight:700;">{esc(discipline.get("max_drawdown_limit") or locale["label_default_drawdown"])}</span><br><br>
-                    <strong>{locale["label_invalidation"]}</strong> {esc(discipline.get("thesis_invalidation_trigger") or locale["label_no_invalidation"])}
+                    <strong>{locale["label_max_drawdown"]}</strong> <span style="color:var(--bear); font-weight:700;">{esc(self._render_prose(discipline.get("max_drawdown_limit") or locale["label_default_drawdown"], 60))}</span><br><br>
+                    <strong>{locale["label_invalidation"]}</strong> {esc(self._render_prose(discipline.get("thesis_invalidation_trigger") or locale["label_no_invalidation"], 200))}
                 </div>
             </div>
         </div>
@@ -4064,13 +4491,13 @@ CONTENT:
         m["每股收益 (EPS)"] = ratio(get_val("eps"))
 
         # 3. Growth
-        m["营收同比增长 (YoY)"] = pct(get_val("revenueYoY_annual") or get_val("revenueYoY") or get_val("revenueGrowth"))
-        m["营收同比-单季 (YoY-Q)"] = pct(get_val("revenueGrowth") or get_val("revenueYoY"))
+        m["营收同比增长 (YoY)"] = pct(get_val("revenueYoY_annual") or get_val("revenueYoY") or get_val("revenueGrowth") or get_val("revenueGrowthYoY"))
+        m["营收同比-单季 (YoY-Q)"] = pct(get_val("revenueGrowth") or get_val("revenueYoY") or get_val("revenueGrowthYoY"))
         
         rev_qoq = pct(get_val("revenueQoQ"))
         m["营收环比增长 (QoQ)"] = rev_qoq if rev_qoq != "N/A" else (ui_data.get("revenue_qoq") or "N/A")
         
-        np_yoy = pct(get_val("netProfitYoY") or get_val("earningsGrowth") or get_val("netProfitGrowth"))
+        np_yoy = pct(get_val("netProfitYoY") or get_val("earningsGrowth") or get_val("netProfitGrowth") or get_val("netProfitGrowthYoY"))
         m["净利润同比增长 (YoY)"] = np_yoy if np_yoy != "N/A" else (ui_data.get("net_profit_yoy") or "N/A")
         
         np_qoq = pct(get_val("netProfitQoQ"))
@@ -4330,12 +4757,14 @@ CONTENT:
 
     def _render_fund_item(self, metric_name: str, desc: str, value_str: str) -> str:
         """Render a single fund metric item with color signal dot."""
+        import html as _html
         signal = self._get_metric_signal(metric_name, value_str)
         signal_html = f'<span class="signal-dot signal-{signal}"></span>'
+        # value_str may contain LLM-derived fallback text (ui_data) — escape it
         return (
             f'<div class="fund-item">'
-            f'<div class="fund-item-label">{signal_html}{metric_name}<span>{desc}</span></div>'
-            f'<div class="fund-item-value">{value_str}</div>'
+            f'<div class="fund-item-label">{signal_html}{_html.escape(str(metric_name))}<span>{_html.escape(str(desc))}</span></div>'
+            f'<div class="fund-item-value">{_html.escape(str(value_str))}</div>'
             f'</div>'
         )
 

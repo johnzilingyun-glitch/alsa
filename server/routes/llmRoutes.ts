@@ -14,7 +14,15 @@ router.post('/llm/generate', async (req, res) => {
       return res.status(400).json({ success: false, error: 'prompt is required' });
     }
 
-    const response = await gatewayGenerate(prompt, model, (event, data) => console.log(`[Gateway] ${event}`, data), config);
+    // Gateway cannot forward responseSchema/tools to chat-completions providers, so when the
+    // SDK layer requested structured JSON output, enforce it via system instruction. Without
+    // this, free-tier models often return freeform text and the client re-generates (2x latency).
+    const wantsJson = params?.config?.responseMimeType === 'application/json' || !!params?.config?.responseSchema;
+    const effectivePrompt = wantsJson
+      ? `${prompt}\n\n[SYSTEM] Respond with ONLY a valid JSON object. No markdown, no code fences, no prose outside the JSON.`
+      : prompt;
+
+    const response = await gatewayGenerate(effectivePrompt, model, (event, data) => console.log(`[Gateway] ${event}`, data), config);
     const generatedText = response.text;
     
     // Ensure we always have a fallback numeric structure, estimating tokens if missing or zero
@@ -56,7 +64,6 @@ router.post('/llm/models', async (_req, res) => {
   ];
 
   const CURATED_OPENROUTER_IDS = new Set([
-    'tencent/hy3:free',
     'anthropic/claude-3.5-sonnet',
     'openai/gpt-4o',
     'google/gemini-2.0-flash-001',
@@ -80,16 +87,6 @@ router.post('/llm/models', async (_req, res) => {
       const rawModels = body?.data ?? [];
 
       const matched = rawModels.filter((m) => CURATED_OPENROUTER_IDS.has(m.id));
-      const matchedIds = new Set(matched.map((m) => m.id));
-
-      if (!matchedIds.has('tencent/hy3:free')) {
-        openrouterModels.push({
-          id: 'tencent/hy3:free',
-          name: 'Tencent: Hy3',
-          description: 'Tencent Hyperion 3 via OpenRouter',
-          status: 'available',
-        });
-      }
 
       const curated = matched.map((m) => ({
         id: m.id,
@@ -98,19 +95,12 @@ router.post('/llm/models', async (_req, res) => {
         status: 'available' as const,
       }));
 
-      curated.sort((a, b) => {
-        if (a.id === 'tencent/hy3:free') return -1;
-        if (b.id === 'tencent/hy3:free') return 1;
-        return 0;
-      });
-
-      openrouterModels = [...openrouterModels, ...curated.filter((m) => m.id !== 'tencent/hy3:free')];
+      openrouterModels = curated;
     } else {
       throw new Error(`OpenRouter models API returned ${resp.status}`);
     }
   } catch {
     openrouterModels = [
-      { id: 'tencent/hy3:free', name: 'Tencent: Hy3', description: 'Tencent Hyperion 3 model via OpenRouter', status: 'available' },
       { id: 'anthropic/claude-3.5-sonnet', name: 'Anthropic: Claude 3.5 Sonnet', description: 'Claude 3.5 Sonnet via OpenRouter', status: 'available' },
       { id: 'openai/gpt-4o', name: 'OpenAI: GPT-4o', description: 'GPT-4o via OpenRouter', status: 'available' },
       { id: 'google/gemini-2.0-flash-001', name: 'Google: Gemini 2.0 Flash', description: 'Gemini 2.0 Flash via OpenRouter', status: 'available' },

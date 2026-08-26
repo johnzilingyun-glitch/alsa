@@ -1,869 +1,4746 @@
 {
   "start_date": "2020-01-01",
-  "end_date": "2020-06-30",
-  "model": "portfolio_cross_sectional_pandas",
+  "end_date": "2021-12-31",
+  "model": "custom_rule",
   "market": "CN",
-  "final_account": 928470.9867770196,
+  "final_account": 1000000.0,
   "snapshots": [
+    {
+      "date": "2020-01-01",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 60.283138275146484,
+      "high_price": 61.19313430786133,
+      "low_price": 59.422183990478516
+    },
     {
       "date": "2020-01-02",
       "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
       "cash": 1000000.0,
-      "close_price": 0.0
+      "close_price": 60.60464096069336,
+      "high_price": 61.302127838134766,
+      "low_price": 58.850040435791016
     },
     {
       "date": "2020-01-03",
-      "total_equity": 999702.1705326844,
-      "cash": 6937.279480438301,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 59.64015579223633,
+      "high_price": 60.59374237060547,
+      "low_price": 59.33500671386719
     },
     {
       "date": "2020-01-06",
-      "total_equity": 989275.0739750672,
-      "cash": 6937.279480438301,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 59.939849853515625,
+      "high_price": 60.931583404541016,
+      "low_price": 59.656497955322266
     },
     {
       "date": "2020-01-07",
-      "total_equity": 994217.5719914247,
-      "cash": 6937.279480438301,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 57.56951141357422,
+      "high_price": 59.830875396728516,
+      "low_price": 57.269813537597656
     },
     {
       "date": "2020-01-08",
-      "total_equity": 983823.8998112489,
-      "cash": 6937.279480438301,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 58.30513000488281,
+      "high_price": 58.457706451416016,
+      "low_price": 56.9428596496582
     },
     {
       "date": "2020-01-09",
-      "total_equity": 990795.3994450379,
-      "cash": 6937.279480438301,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 59.667396545410156,
+      "high_price": 59.93984603881836,
+      "low_price": 58.68111038208008
     },
     {
       "date": "2020-01-10",
-      "total_equity": 991781.0657200624,
-      "cash": 6937.279480438301,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 56.90471649169922,
+      "high_price": 59.93440246582031,
+      "low_price": 56.67585372924805
     },
     {
       "date": "2020-01-13",
-      "total_equity": 997744.1219029237,
-      "cash": 6937.279480438301,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 55.95112228393555,
+      "high_price": 57.32429122924805,
+      "low_price": 55.04113006591797
     },
     {
       "date": "2020-01-14",
-      "total_equity": 997889.2276463319,
-      "cash": 6937.279480438301,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 58.03268051147461,
+      "high_price": 58.299686431884766,
+      "low_price": 56.13639831542969
     },
     {
       "date": "2020-01-15",
-      "total_equity": 986972.5402531434,
-      "cash": 6937.279480438301,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 59.43853759765625,
+      "high_price": 60.14691162109375,
+      "low_price": 58.468597412109375
     },
     {
       "date": "2020-01-16",
-      "total_equity": 983561.6714176942,
-      "cash": 6937.279480438301,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 59.50392532348633,
+      "high_price": 59.75458526611328,
+      "low_price": 58.34872055053711
     },
     {
       "date": "2020-01-17",
-      "total_equity": 984910.462158661,
-      "cash": 6937.279480438301,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 61.400203704833984,
+      "high_price": 61.400203704833984,
+      "low_price": 59.50392532348633
     },
     {
       "date": "2020-01-20",
-      "total_equity": 991597.6375279237,
-      "cash": 6937.279480438301,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 62.283966064453125,
+      "high_price": 63.1332893371582,
+      "low_price": 62.0008544921875
     },
     {
       "date": "2020-01-21",
-      "total_equity": 974034.8327336122,
-      "cash": 6937.279480438301,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 62.56706237792969,
+      "high_price": 62.75835418701172,
+      "low_price": 61.212730407714844
     },
     {
       "date": "2020-01-22",
-      "total_equity": 969827.0225224305,
-      "cash": 6937.279480438301,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 60.830162048339844,
+      "high_price": 63.11033248901367,
+      "low_price": 60.27159118652344
     },
     {
       "date": "2020-01-23",
-      "total_equity": 945274.845474701,
-      "cash": 6937.279480438301,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 61.136226654052734,
+      "high_price": 61.74070358276367,
+      "low_price": 60.64652633666992
+    },
+    {
+      "date": "2020-01-24",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 62.21510314941406,
+      "high_price": 62.74306869506836,
+      "low_price": 61.059715270996094
+    },
+    {
+      "date": "2020-01-27",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 62.199798583984375,
+      "high_price": 63.6842041015625,
+      "low_price": 61.65653610229492
+    },
+    {
+      "date": "2020-01-28",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 63.64594268798828,
+      "high_price": 64.07443237304688,
+      "low_price": 61.36577224731445
+    },
+    {
+      "date": "2020-01-29",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 63.16389846801758,
+      "high_price": 64.4493637084961,
+      "low_price": 63.12564468383789
+    },
+    {
+      "date": "2020-01-30",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 64.42640686035156,
+      "high_price": 64.75543212890625,
+      "low_price": 63.20215606689453
+    },
+    {
+      "date": "2020-01-31",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 65.07678985595703,
+      "high_price": 66.47703552246094,
+      "low_price": 64.42639923095703
     },
     {
       "date": "2020-02-03",
-      "total_equity": 896333.0836949159,
-      "cash": 6937.279480438301,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 64.80899047851562,
+      "high_price": 65.77308654785156,
+      "low_price": 63.69950866699219
     },
     {
       "date": "2020-02-04",
-      "total_equity": 917659.8346409608,
-      "cash": 6937.279480438301,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 68.23690795898438,
+      "high_price": 68.9561538696289,
+      "low_price": 65.36756134033203
     },
     {
       "date": "2020-02-05",
-      "total_equity": 917535.1268467713,
-      "cash": 6937.279480438301,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 68.69599151611328,
+      "high_price": 69.24690246582031,
+      "low_price": 67.49468994140625
     },
     {
       "date": "2020-02-06",
-      "total_equity": 926975.4825291444,
-      "cash": 6937.279480438301,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 71.22102355957031,
+      "high_price": 71.22867584228516,
+      "low_price": 68.09917449951172
     },
     {
       "date": "2020-02-07",
-      "total_equity": 923733.3274540711,
-      "cash": 6937.279480438301,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 73.36348724365234,
+      "high_price": 73.83023071289062,
+      "low_price": 69.88200378417969
     },
     {
       "date": "2020-02-10",
-      "total_equity": 915193.7232670594,
-      "cash": 6937.279480438301,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 74.19749450683594,
+      "high_price": 74.57242584228516,
+      "low_price": 72.14686584472656
     },
     {
       "date": "2020-02-11",
-      "total_equity": 928597.5299534608,
-      "cash": 6937.279480438301,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 73.91439819335938,
+      "high_price": 75.13865661621094,
+      "low_price": 72.84317779541016
     },
     {
       "date": "2020-02-12",
-      "total_equity": 929412.045639496,
-      "cash": 6937.279480438301,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 72.51416015625,
+      "high_price": 74.90911102294922,
+      "low_price": 70.08860778808594
     },
     {
       "date": "2020-02-13",
-      "total_equity": 920860.1085362245,
-      "cash": 6937.279480438301,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 71.1598129272461,
+      "high_price": 73.07271575927734,
+      "low_price": 70.56298828125
     },
     {
       "date": "2020-02-14",
-      "total_equity": 924652.6767430116,
-      "cash": 6937.279480438301,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 73.35581970214844,
+      "high_price": 73.5165023803711,
+      "low_price": 70.47882080078125
     },
     {
       "date": "2020-02-17",
-      "total_equity": 935504.3533024598,
-      "cash": 6937.279480438301,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 71.92497253417969,
+      "high_price": 72.69012451171875,
+      "low_price": 71.22102355957031
     },
     {
       "date": "2020-02-18",
-      "total_equity": 925428.9745030213,
-      "cash": 6937.279480438301,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 73.24104309082031,
+      "high_price": 74.72545623779297,
+      "low_price": 70.8307876586914
     },
     {
       "date": "2020-02-19",
-      "total_equity": 925622.6390538026,
-      "cash": 6937.279480438301,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 74.15923309326172,
+      "high_price": 75.7813720703125,
+      "low_price": 72.92733001708984
     },
     {
       "date": "2020-02-20",
-      "total_equity": 938086.3986668397,
-      "cash": 6937.279480438301,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 77.51829528808594,
+      "high_price": 77.6636734008789,
+      "low_price": 73.4552993774414
     },
     {
       "date": "2020-02-21",
-      "total_equity": 930704.3372807313,
-      "cash": 6937.279480438301,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 77.51829528808594,
+      "high_price": 79.95915222167969,
+      "low_price": 76.36289978027344
     },
     {
       "date": "2020-02-24",
-      "total_equity": 923136.7820439149,
-      "cash": 6937.279480438301,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 80.34172058105469,
+      "high_price": 81.08392333984375,
+      "low_price": 77.90851593017578
     },
     {
       "date": "2020-02-25",
-      "total_equity": 914714.4355473329,
-      "cash": 6937.279480438301,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 79.17868041992188,
+      "high_price": 79.8749771118164,
+      "low_price": 76.77608489990234
     },
     {
       "date": "2020-02-26",
-      "total_equity": 912518.7869725038,
-      "cash": 6937.279480438301,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 81.71900939941406,
+      "high_price": 82.98152160644531,
+      "low_price": 79.5765609741211
     },
     {
       "date": "2020-02-27",
-      "total_equity": 918592.5239262391,
-      "cash": 6937.279480438301,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 76.959716796875,
+      "high_price": 84.16751861572266,
+      "low_price": 76.66896057128906
     },
     {
       "date": "2020-02-28",
-      "total_equity": 896900.4157719422,
-      "cash": 6937.279480438301,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 78.26815032958984,
+      "high_price": 80.15809631347656,
+      "low_price": 76.51593780517578
     },
     {
       "date": "2020-03-02",
-      "total_equity": 912796.6224369813,
-      "cash": 6937.279480438301,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 77.04389190673828,
+      "high_price": 80.33407592773438,
+      "low_price": 74.66424560546875
     },
     {
       "date": "2020-03-03",
-      "total_equity": 916469.0051731874,
-      "cash": 6937.279480438301,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 83.79259490966797,
+      "high_price": 84.2287368774414,
+      "low_price": 78.13806915283203
     },
     {
       "date": "2020-03-04",
-      "total_equity": 919468.1125340272,
-      "cash": 6937.279480438301,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 83.80023956298828,
+      "high_price": 84.96328735351562,
+      "low_price": 81.87969970703125
     },
     {
       "date": "2020-03-05",
-      "total_equity": 942575.0922856141,
-      "cash": 6937.279480438301,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 87.9780044555664,
+      "high_price": 89.66900634765625,
+      "low_price": 83.40235900878906
     },
     {
       "date": "2020-03-06",
-      "total_equity": 928166.625565033,
-      "cash": 6937.279480438301,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 81.9103012084961,
+      "high_price": 87.32762145996094,
+      "low_price": 81.15278625488281
     },
     {
       "date": "2020-03-09",
-      "total_equity": 905462.6128849793,
-      "cash": 6937.279480438301,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 81.70369720458984,
+      "high_price": 84.052734375,
+      "low_price": 80.30345916748047
     },
     {
       "date": "2020-03-10",
-      "total_equity": 919727.0003971864,
-      "cash": 6937.279480438301,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 83.32585144042969,
+      "high_price": 83.61660766601562,
+      "low_price": 80.26521301269531
     },
     {
       "date": "2020-03-11",
-      "total_equity": 910650.9246525575,
-      "cash": 6937.279480438301,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 83.86145782470703,
+      "high_price": 84.64956665039062,
+      "low_price": 80.43354034423828
     },
     {
       "date": "2020-03-12",
-      "total_equity": 898846.9485935975,
-      "cash": 6937.279480438301,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 84.18282318115234,
+      "high_price": 87.35057830810547,
+      "low_price": 83.48652648925781
     },
     {
       "date": "2020-03-13",
-      "total_equity": 879111.7294010926,
-      "cash": 6937.279480438301,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 86.46300506591797,
+      "high_price": 87.22816467285156,
+      "low_price": 83.86146545410156
     },
     {
       "date": "2020-03-16",
-      "total_equity": 855497.5116429139,
-      "cash": 6937.279480438301,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 86.409423828125,
+      "high_price": 87.55715942382812,
+      "low_price": 84.97858428955078
     },
     {
       "date": "2020-03-17",
-      "total_equity": 852468.8686070252,
-      "cash": 6937.279480438301,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 87.4271011352539,
+      "high_price": 89.90621185302734,
+      "low_price": 86.54716491699219
     },
     {
       "date": "2020-03-18",
-      "total_equity": 841625.2826390077,
-      "cash": 6937.279480438301,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 89.52362823486328,
+      "high_price": 90.63311004638672,
+      "low_price": 86.16458129882812
     },
     {
       "date": "2020-03-19",
-      "total_equity": 817377.6973423768,
-      "cash": 6937.279480438301,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 87.53422546386719,
+      "high_price": 90.57955932617188,
+      "low_price": 86.70020294189453
     },
     {
       "date": "2020-03-20",
-      "total_equity": 834636.9296726991,
-      "cash": 6937.279480438301,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 85.62132263183594,
+      "high_price": 88.19991302490234,
+      "low_price": 83.32584381103516
     },
     {
       "date": "2020-03-23",
-      "total_equity": 813453.6166844178,
-      "cash": 6937.279480438301,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 86.61602783203125,
+      "high_price": 87.60308074951172,
+      "low_price": 83.9379653930664
     },
     {
       "date": "2020-03-24",
-      "total_equity": 838570.0122532655,
-      "cash": 6937.279480438301,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 86.65428924560547,
+      "high_price": 90.16636657714844,
+      "low_price": 86.47065734863281
     },
     {
       "date": "2020-03-25",
-      "total_equity": 855274.4579014588,
-      "cash": 6937.279480438301,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 83.51713562011719,
+      "high_price": 87.02921295166016,
+      "low_price": 81.10688018798828
     },
     {
       "date": "2020-03-26",
-      "total_equity": 852176.4358219911,
-      "cash": 6937.279480438301,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 81.97151947021484,
+      "high_price": 84.43533325195312,
+      "low_price": 81.0303726196289
     },
     {
       "date": "2020-03-27",
-      "total_equity": 854523.6713108827,
-      "cash": 6937.279480438301,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 82.54537200927734,
+      "high_price": 85.29994201660156,
+      "low_price": 78.81139373779297
     },
     {
       "date": "2020-03-30",
-      "total_equity": 850446.9913182069,
-      "cash": 6937.279480438301,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 81.80317687988281,
+      "high_price": 82.53772735595703,
+      "low_price": 80.2499008178711
     },
     {
       "date": "2020-03-31",
-      "total_equity": 849775.2685246278,
-      "cash": 6937.279480438301,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 83.46358489990234,
+      "high_price": 84.42768096923828,
+      "low_price": 81.26757049560547
     },
     {
       "date": "2020-04-01",
-      "total_equity": 847295.1896366883,
-      "cash": 6937.279480438301,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 81.32112884521484,
+      "high_price": 83.92267608642578,
+      "low_price": 81.21400451660156
     },
     {
       "date": "2020-04-02",
-      "total_equity": 853910.3778538514,
-      "cash": 6937.279480438301,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 80.73194885253906,
+      "high_price": 82.00211334228516,
+      "low_price": 79.5612564086914
     },
     {
       "date": "2020-04-03",
-      "total_equity": 847022.0061955262,
-      "cash": 6937.279480438301,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 80.72430419921875,
+      "high_price": 82.10159301757812,
+      "low_price": 80.04331970214844
+    },
+    {
+      "date": "2020-04-06",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 80.71665954589844,
+      "high_price": 81.64250183105469,
+      "low_price": 79.1939926147461
     },
     {
       "date": "2020-04-07",
-      "total_equity": 854326.4308628846,
-      "cash": 6937.279480438301,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 81.48181915283203,
+      "high_price": 81.61954498291016,
+      "low_price": 79.95915222167969
     },
     {
       "date": "2020-04-08",
-      "total_equity": 848005.1067051698,
-      "cash": 6937.279480438301,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 81.7955322265625,
+      "high_price": 84.0757064819336,
+      "low_price": 80.42589569091797
     },
     {
       "date": "2020-04-09",
-      "total_equity": 847246.8143162538,
-      "cash": 6937.279480438301,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 82.86674499511719,
+      "high_price": 82.93560791015625,
+      "low_price": 80.24224853515625
     },
     {
       "date": "2020-04-10",
-      "total_equity": 851345.4521471978,
-      "cash": 4149.487143230508,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 84.93267822265625,
+      "high_price": 85.23108673095703,
+      "low_price": 80.83907318115234
     },
     {
       "date": "2020-04-13",
-      "total_equity": 850855.5989558221,
-      "cash": 4149.487143230508,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 84.0986557006836,
+      "high_price": 86.37117767333984,
+      "low_price": 83.78494262695312
     },
     {
       "date": "2020-04-14",
-      "total_equity": 860845.4290682793,
-      "cash": 4149.487143230508,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 82.39234924316406,
+      "high_price": 84.35881042480469,
+      "low_price": 82.26227569580078
     },
     {
       "date": "2020-04-15",
-      "total_equity": 856787.7846056939,
-      "cash": 4149.487143230508,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 84.08335876464844,
+      "high_price": 84.44298553466797,
+      "low_price": 81.50476837158203
     },
     {
       "date": "2020-04-16",
-      "total_equity": 852014.738207531,
-      "cash": 4149.487143230508,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 82.73667907714844,
+      "high_price": 85.75906372070312,
+      "low_price": 82.10160064697266
     },
     {
       "date": "2020-04-17",
-      "total_equity": 863484.5725352288,
-      "cash": 4149.487143230508,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 80.51005554199219,
+      "high_price": 81.673095703125,
+      "low_price": 78.84966278076172
     },
     {
       "date": "2020-04-20",
-      "total_equity": 866398.3773524285,
-      "cash": 4149.487143230508,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 76.86790466308594,
+      "high_price": 80.49475860595703,
+      "low_price": 76.86790466308594
     },
     {
       "date": "2020-04-21",
-      "total_equity": 860487.9210764886,
-      "cash": 4149.487143230508,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 77.18927001953125,
+      "high_price": 78.0232925415039,
+      "low_price": 75.89614868164062
     },
     {
       "date": "2020-04-22",
-      "total_equity": 865280.6876475335,
-      "cash": 4149.487143230508,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 75.12332916259766,
+      "high_price": 76.20985412597656,
+      "low_price": 74.34286499023438
     },
     {
       "date": "2020-04-23",
-      "total_equity": 867702.1725947381,
-      "cash": 4149.487143230508,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 74.90143585205078,
+      "high_price": 76.49297332763672,
+      "low_price": 74.2127914428711
     },
     {
       "date": "2020-04-24",
-      "total_equity": 864505.6595141412,
-      "cash": 4149.487143230508,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 75.1386489868164,
+      "high_price": 75.53652954101562,
+      "low_price": 74.3352279663086
     },
     {
       "date": "2020-04-27",
-      "total_equity": 872092.816572857,
-      "cash": 4149.487143230508,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 74.67955780029297,
+      "high_price": 75.6589584350586,
+      "low_price": 73.83787536621094
     },
     {
       "date": "2020-04-28",
-      "total_equity": 879053.9145762444,
-      "cash": 4149.487143230508,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 75.52122497558594,
+      "high_price": 75.67425537109375,
+      "low_price": 74.580078125
     },
     {
       "date": "2020-04-29",
-      "total_equity": 889737.1918017388,
-      "cash": 4149.487143230508,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 74.44999694824219,
+      "high_price": 76.32463836669922,
+      "low_price": 73.91438293457031
     },
     {
       "date": "2020-04-30",
-      "total_equity": 897000.4002863885,
-      "cash": 4149.487143230508,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 72.90438079833984,
+      "high_price": 74.58773040771484,
+      "low_price": 71.85610961914062
+    },
+    {
+      "date": "2020-05-01",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 73.8990707397461,
+      "high_price": 74.05210876464844,
+      "low_price": 72.39170837402344
+    },
+    {
+      "date": "2020-05-04",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 72.8508071899414,
+      "high_price": 74.96263885498047,
+      "low_price": 72.65186309814453
+    },
+    {
+      "date": "2020-05-05",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 72.71308135986328,
+      "high_price": 74.22809600830078,
+      "low_price": 72.60595703125
     },
     {
       "date": "2020-05-06",
-      "total_equity": 889950.5221659661,
-      "cash": 4149.487143230508,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 74.98560333251953,
+      "high_price": 75.75076293945312,
+      "low_price": 73.11861419677734
     },
     {
       "date": "2020-05-07",
-      "total_equity": 884475.5825335503,
-      "cash": 4149.487143230508,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 74.0980224609375,
+      "high_price": 74.97030639648438,
+      "low_price": 73.45529174804688
     },
     {
       "date": "2020-05-08",
-      "total_equity": 898473.8696391106,
-      "cash": 4149.487143230508,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 74.96265411376953,
+      "high_price": 76.12570190429688,
+      "low_price": 74.38113403320312
     },
     {
       "date": "2020-05-11",
-      "total_equity": 904781.2287623406,
-      "cash": 4149.487143230508,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 73.91439819335938,
+      "high_price": 75.61305236816406,
+      "low_price": 73.3787841796875
     },
     {
       "date": "2020-05-12",
-      "total_equity": 906606.6539103509,
-      "cash": 4149.487143230508,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 76.97502899169922,
+      "high_price": 77.90851593017578,
+      "low_price": 73.9603042602539
     },
     {
       "date": "2020-05-13",
-      "total_equity": 904142.1196276665,
-      "cash": 4149.487143230508,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 77.66366577148438,
+      "high_price": 79.5765609741211,
+      "low_price": 77.1280517578125
     },
     {
       "date": "2020-05-14",
-      "total_equity": 897610.9696681023,
-      "cash": 4149.487143230508,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 79.33936309814453,
+      "high_price": 80.07392120361328,
+      "low_price": 78.0462417602539
     },
     {
       "date": "2020-05-15",
-      "total_equity": 893605.2617365838,
-      "cash": 4149.487143230508,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 82.48416900634766,
+      "high_price": 83.02743530273438,
+      "low_price": 79.47708892822266
     },
     {
       "date": "2020-05-18",
-      "total_equity": 894009.8406130791,
-      "cash": 4149.487143230508,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 83.4023666381836,
+      "high_price": 84.16751861572266,
+      "low_price": 82.25463104248047
     },
     {
       "date": "2020-05-19",
-      "total_equity": 903374.3491465569,
-      "cash": 4149.487143230508,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 83.04273223876953,
+      "high_price": 84.35881042480469,
+      "low_price": 82.70606231689453
     },
     {
       "date": "2020-05-20",
-      "total_equity": 906313.2807070733,
-      "cash": 4149.487143230508,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 83.63955688476562,
+      "high_price": 84.68016815185547,
+      "low_price": 82.86674499511719
     },
     {
       "date": "2020-05-21",
-      "total_equity": 902798.9939982415,
-      "cash": 4149.487143230508,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 82.95091247558594,
+      "high_price": 85.5447998046875,
+      "low_price": 81.87203216552734
     },
     {
       "date": "2020-05-22",
-      "total_equity": 882497.5066477776,
-      "cash": 4149.487143230508,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 80.76255798339844,
+      "high_price": 83.99152374267578,
+      "low_price": 80.28050994873047
     },
     {
       "date": "2020-05-25",
-      "total_equity": 882681.2713915826,
-      "cash": 4149.487143230508,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 82.50711059570312,
+      "high_price": 82.63719177246094,
+      "low_price": 80.18868255615234
     },
     {
       "date": "2020-05-26",
-      "total_equity": 889720.2249819756,
-      "cash": 4149.487143230508,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 82.87439727783203,
+      "high_price": 83.9379653930664,
+      "low_price": 82.25462341308594
     },
     {
       "date": "2020-05-27",
-      "total_equity": 891720.6463152886,
-      "cash": 4149.487143230508,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 82.91266632080078,
+      "high_price": 83.4023666381836,
+      "low_price": 81.68075561523438
     },
     {
       "date": "2020-05-28",
-      "total_equity": 903315.2177149773,
-      "cash": 4149.487143230508,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 79.71429443359375,
+      "high_price": 82.9203109741211,
+      "low_price": 78.81140899658203
     },
     {
       "date": "2020-05-29",
-      "total_equity": 900003.8477236748,
-      "cash": 4149.487143230508,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 80.09687042236328,
+      "high_price": 80.70134735107422,
+      "low_price": 76.51593017578125
     },
     {
       "date": "2020-06-01",
-      "total_equity": 918705.5299098016,
-      "cash": 4149.487143230508,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 83.05803680419922,
+      "high_price": 83.40235900878906,
+      "low_price": 79.15572357177734
     },
     {
       "date": "2020-06-02",
-      "total_equity": 927810.0159937859,
-      "cash": 4149.487143230508,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 83.86145782470703,
+      "high_price": 85.45298767089844,
+      "low_price": 82.94326782226562
     },
     {
       "date": "2020-06-03",
-      "total_equity": 931210.4508692742,
-      "cash": 4149.487143230508,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 86.2717056274414,
+      "high_price": 86.92208862304688,
+      "low_price": 83.11924743652344
     },
     {
       "date": "2020-06-04",
-      "total_equity": 928809.3163783074,
-      "cash": 4149.487143230508,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 86.24876403808594,
+      "high_price": 89.70728302001953,
+      "low_price": 85.18519592285156
     },
     {
       "date": "2020-06-05",
-      "total_equity": 930419.6582133294,
-      "cash": 4149.487143230508,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 87.30467987060547,
+      "high_price": 88.06983184814453,
+      "low_price": 85.9273910522461
     },
     {
       "date": "2020-06-08",
-      "total_equity": 942560.4271227837,
-      "cash": 4149.487143230508,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 86.99860382080078,
+      "high_price": 87.99331665039062,
+      "low_price": 86.45533752441406
     },
     {
       "date": "2020-06-09",
-      "total_equity": 945144.4588953973,
-      "cash": 4149.487143230508,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 88.03157806396484,
+      "high_price": 88.58248901367188,
+      "low_price": 85.2616958618164
     },
     {
       "date": "2020-06-10",
-      "total_equity": 940050.7549578667,
-      "cash": 4149.487143230508,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 89.44711303710938,
+      "high_price": 89.90621185302734,
+      "low_price": 86.3099594116211
     },
     {
       "date": "2020-06-11",
-      "total_equity": 927178.9965922356,
-      "cash": 4149.487143230508,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 89.07219696044922,
+      "high_price": 90.1357650756836,
+      "low_price": 87.22816467285156
     },
     {
       "date": "2020-06-12",
-      "total_equity": 923997.9534441949,
-      "cash": 4149.487143230508,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 91.39827728271484,
+      "high_price": 93.04337310791016,
+      "low_price": 88.75847625732422
     },
     {
       "date": "2020-06-15",
-      "total_equity": 907483.3147341729,
-      "cash": 4149.487143230508,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 92.05630493164062,
+      "high_price": 93.03570556640625,
+      "low_price": 87.58012390136719
     },
     {
       "date": "2020-06-16",
-      "total_equity": 922149.5042140008,
-      "cash": 4149.487143230508,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 87.89385223388672,
+      "high_price": 93.1964111328125,
+      "low_price": 87.59544372558594
     },
     {
       "date": "2020-06-17",
-      "total_equity": 918980.2200610162,
-      "cash": 4149.487143230508,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 89.6766586303711,
+      "high_price": 90.86266326904297,
+      "low_price": 88.1463394165039
     },
     {
       "date": "2020-06-18",
-      "total_equity": 918427.1428400994,
-      "cash": 4149.487143230508,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 90.05924987792969,
+      "high_price": 91.0003890991211,
+      "low_price": 89.52363586425781
     },
     {
       "date": "2020-06-19",
-      "total_equity": 924907.0968920708,
-      "cash": 4149.487143230508,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 92.46949768066406,
+      "high_price": 92.8138198852539,
+      "low_price": 89.69197082519531
     },
     {
       "date": "2020-06-22",
-      "total_equity": 918844.9124629021,
-      "cash": 4149.487143230508,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 89.14871978759766,
+      "high_price": 92.4312515258789,
+      "low_price": 88.43711853027344
     },
     {
       "date": "2020-06-23",
-      "total_equity": 920460.7717806817,
-      "cash": 4149.487143230508,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 81.00740814208984,
+      "high_price": 89.40885925292969,
+      "low_price": 80.2345962524414
     },
     {
       "date": "2020-06-24",
-      "total_equity": 932684.9794680596,
-      "cash": 4149.487143230508,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 81.84143829345703,
+      "high_price": 82.7137222290039,
+      "low_price": 79.66838073730469
+    },
+    {
+      "date": "2020-06-25",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 83.47887420654297,
+      "high_price": 84.49653625488281,
+      "low_price": 82.4000015258789
+    },
+    {
+      "date": "2020-06-26",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 82.25462341308594,
+      "high_price": 84.13690948486328,
+      "low_price": 81.47415161132812
     },
     {
       "date": "2020-06-29",
-      "total_equity": 928470.9867770196,
-      "cash": 4149.487143230508,
-      "close_price": 0.0
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 80.37232971191406,
+      "high_price": 82.33113861083984,
+      "low_price": 79.61482238769531
+    },
+    {
+      "date": "2020-06-30",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 78.19927978515625,
+      "high_price": 80.35702514648438,
+      "low_price": 77.81670379638672
+    },
+    {
+      "date": "2020-07-01",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 78.81140899658203,
+      "high_price": 79.71429443359375,
+      "low_price": 77.98503875732422
+    },
+    {
+      "date": "2020-07-02",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 78.68132019042969,
+      "high_price": 79.41587829589844,
+      "low_price": 77.34229278564453
+    },
+    {
+      "date": "2020-07-03",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 79.06390380859375,
+      "high_price": 79.56890869140625,
+      "low_price": 76.61539459228516
+    },
+    {
+      "date": "2020-07-06",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 83.00447845458984,
+      "high_price": 83.02743530273438,
+      "low_price": 78.65837097167969
+    },
+    {
+      "date": "2020-07-07",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 82.67546081542969,
+      "high_price": 83.70842742919922,
+      "low_price": 81.4588623046875
+    },
+    {
+      "date": "2020-07-08",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 84.2210922241211,
+      "high_price": 84.94033813476562,
+      "low_price": 81.78023529052734
+    },
+    {
+      "date": "2020-07-09",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 84.90972900390625,
+      "high_price": 85.1622314453125,
+      "low_price": 83.4788818359375
+    },
+    {
+      "date": "2020-07-10",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 84.95564270019531,
+      "high_price": 85.18518829345703,
+      "low_price": 82.67546081542969
+    },
+    {
+      "date": "2020-07-13",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 84.85615539550781,
+      "high_price": 85.52184295654297,
+      "low_price": 84.25167846679688
+    },
+    {
+      "date": "2020-07-14",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 83.26463317871094,
+      "high_price": 85.37646484375,
+      "low_price": 82.98152160644531
+    },
+    {
+      "date": "2020-07-15",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 83.90736389160156,
+      "high_price": 84.01448822021484,
+      "low_price": 82.08628845214844
+    },
+    {
+      "date": "2020-07-16",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 83.4023666381836,
+      "high_price": 85.60601806640625,
+      "low_price": 82.82849884033203
+    },
+    {
+      "date": "2020-07-17",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 86.61602783203125,
+      "high_price": 87.2281494140625,
+      "low_price": 83.08098602294922
+    },
+    {
+      "date": "2020-07-20",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 88.68196105957031,
+      "high_price": 89.80674743652344,
+      "low_price": 86.14163208007812
+    },
+    {
+      "date": "2020-07-21",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 90.37297058105469,
+      "high_price": 91.04631042480469,
+      "low_price": 88.7661361694336
+    },
+    {
+      "date": "2020-07-22",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 94.11458587646484,
+      "high_price": 95.6219482421875,
+      "low_price": 92.58426666259766
+    },
+    {
+      "date": "2020-07-23",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 93.19640350341797,
+      "high_price": 94.8108901977539,
+      "low_price": 92.87503814697266
+    },
+    {
+      "date": "2020-07-24",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 94.44361114501953,
+      "high_price": 95.1858139038086,
+      "low_price": 92.70670318603516
+    },
+    {
+      "date": "2020-07-27",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 95.41535186767578,
+      "high_price": 98.42243194580078,
+      "low_price": 94.1987533569336
+    },
+    {
+      "date": "2020-07-28",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 95.98922729492188,
+      "high_price": 97.0221939086914,
+      "low_price": 93.96156311035156
+    },
+    {
+      "date": "2020-07-29",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 96.56310272216797,
+      "high_price": 97.40478515625,
+      "low_price": 94.65020751953125
+    },
+    {
+      "date": "2020-07-30",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 100.61845397949219,
+      "high_price": 101.78913879394531,
+      "low_price": 95.8897705078125
+    },
+    {
+      "date": "2020-07-31",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 98.59077453613281,
+      "high_price": 100.61844635009766,
+      "low_price": 98.01690673828125
+    },
+    {
+      "date": "2020-08-03",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 98.89683532714844,
+      "high_price": 99.85327911376953,
+      "low_price": 96.66256713867188
+    },
+    {
+      "date": "2020-08-04",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 100.39655303955078,
+      "high_price": 101.66671752929688,
+      "low_price": 98.48365020751953
+    },
+    {
+      "date": "2020-08-05",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 103.0822525024414,
+      "high_price": 104.48249816894531,
+      "low_price": 100.88624572753906
+    },
+    {
+      "date": "2020-08-06",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 104.91099548339844,
+      "high_price": 106.42601013183594,
+      "low_price": 103.0516586303711
+    },
+    {
+      "date": "2020-08-07",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 108.64495086669922,
+      "high_price": 110.02989196777344,
+      "low_price": 104.29119873046875
+    },
+    {
+      "date": "2020-08-10",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 109.9839859008789,
+      "high_price": 111.31536102294922,
+      "low_price": 105.66848754882812
+    },
+    {
+      "date": "2020-08-11",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 111.67499542236328,
+      "high_price": 111.69795227050781,
+      "low_price": 108.15525817871094
+    },
+    {
+      "date": "2020-08-12",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 111.87393188476562,
+      "high_price": 115.54669952392578,
+      "low_price": 109.41777038574219
+    },
+    {
+      "date": "2020-08-13",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 112.86100006103516,
+      "high_price": 115.99816131591797,
+      "low_price": 109.71620178222656
+    },
+    {
+      "date": "2020-08-14",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 114.7432861328125,
+      "high_price": 115.47018432617188,
+      "low_price": 108.9433822631836
+    },
+    {
+      "date": "2020-08-17",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 109.17292785644531,
+      "high_price": 116.29656219482422,
+      "low_price": 107.1146469116211
+    },
+    {
+      "date": "2020-08-18",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 108.61434936523438,
+      "high_price": 111.67498779296875,
+      "low_price": 105.29356384277344
+    },
+    {
+      "date": "2020-08-19",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 106.70912170410156,
+      "high_price": 108.82861328125,
+      "low_price": 104.67379760742188
+    },
+    {
+      "date": "2020-08-20",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 109.87686157226562,
+      "high_price": 111.71324157714844,
+      "low_price": 105.20939636230469
+    },
+    {
+      "date": "2020-08-21",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 109.70852661132812,
+      "high_price": 113.74856567382812,
+      "low_price": 109.50193786621094
+    },
+    {
+      "date": "2020-08-24",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 117.9646224975586,
+      "high_price": 120.04585266113281,
+      "low_price": 111.06288146972656
+    },
+    {
+      "date": "2020-08-25",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 122.42546844482422,
+      "high_price": 123.2594985961914,
+      "low_price": 119.36483764648438
+    },
+    {
+      "date": "2020-08-26",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 134.6680450439453,
+      "high_price": 134.6680450439453,
+      "low_price": 125.86870574951172
+    },
+    {
+      "date": "2020-08-27",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 140.86582946777344,
+      "high_price": 140.88113403320312,
+      "low_price": 133.13771057128906
+    },
+    {
+      "date": "2020-08-28",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 132.03587341308594,
+      "high_price": 138.6239013671875,
+      "low_price": 130.23008728027344
+    },
+    {
+      "date": "2020-08-31",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 129.5032196044922,
+      "high_price": 132.035888671875,
+      "low_price": 126.83280944824219
+    },
+    {
+      "date": "2020-09-01",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 126.25127410888672,
+      "high_price": 132.6250457763672,
+      "low_price": 126.25127410888672
+    },
+    {
+      "date": "2020-09-02",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 127.27659606933594,
+      "high_price": 131.22482299804688,
+      "low_price": 125.48612976074219
+    },
+    {
+      "date": "2020-09-03",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 131.07180786132812,
+      "high_price": 132.07415771484375,
+      "low_price": 127.13123321533203
+    },
+    {
+      "date": "2020-09-04",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 133.13771057128906,
+      "high_price": 133.2448272705078,
+      "low_price": 125.39429473876953
+    },
+    {
+      "date": "2020-09-07",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 136.795166015625,
+      "high_price": 140.39906311035156,
+      "low_price": 131.7757110595703
+    },
+    {
+      "date": "2020-09-08",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 132.47203063964844,
+      "high_price": 137.5679931640625,
+      "low_price": 130.21481323242188
+    },
+    {
+      "date": "2020-09-09",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 134.8363800048828,
+      "high_price": 138.8764190673828,
+      "low_price": 131.8063507080078
+    },
+    {
+      "date": "2020-09-10",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 135.43319702148438,
+      "high_price": 136.19834899902344,
+      "low_price": 131.9976348876953
+    },
+    {
+      "date": "2020-09-11",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 139.28192138671875,
+      "high_price": 140.78927612304688,
+      "low_price": 135.44082641601562
+    },
+    {
+      "date": "2020-09-14",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 141.55445861816406,
+      "high_price": 143.75045776367188,
+      "low_price": 136.87933349609375
+    },
+    {
+      "date": "2020-09-15",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 131.53086853027344,
+      "high_price": 144.0641632080078,
+      "low_price": 129.37310791015625
+    },
+    {
+      "date": "2020-09-16",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 132.3572540283203,
+      "high_price": 133.3519744873047,
+      "low_price": 127.66683959960938
+    },
+    {
+      "date": "2020-09-17",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 120.35955810546875,
+      "high_price": 132.29605102539062,
+      "low_price": 120.26774597167969
+    },
+    {
+      "date": "2020-09-18",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 118.59969329833984,
+      "high_price": 123.09882354736328,
+      "low_price": 118.37014770507812
+    },
+    {
+      "date": "2020-09-21",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 113.48841857910156,
+      "high_price": 120.76507568359375,
+      "low_price": 111.11642456054688
+    },
+    {
+      "date": "2020-09-22",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 112.63143920898438,
+      "high_price": 115.33245086669922,
+      "low_price": 111.45309448242188
+    },
+    {
+      "date": "2020-09-23",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 109.93807983398438,
+      "high_price": 111.88158416748047,
+      "low_price": 105.78327178955078
+    },
+    {
+      "date": "2020-09-24",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 113.74858093261719,
+      "high_price": 115.23299407958984,
+      "low_price": 109.34891510009766
+    },
+    {
+      "date": "2020-09-25",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 108.6526107788086,
+      "high_price": 115.52373504638672,
+      "low_price": 106.51016235351562
+    },
+    {
+      "date": "2020-09-28",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 111.49136352539062,
+      "high_price": 112.01931762695312,
+      "low_price": 108.27769470214844
+    },
+    {
+      "date": "2020-09-29",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 105.95925903320312,
+      "high_price": 108.99694061279297,
+      "low_price": 103.9392318725586
+    },
+    {
+      "date": "2020-09-30",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 103.74028778076172,
+      "high_price": 105.22470092773438,
+      "low_price": 99.16464233398438
+    },
+    {
+      "date": "2020-10-01",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 95.72907257080078,
+      "high_price": 105.53841400146484,
+      "low_price": 95.72907257080078
+    },
+    {
+      "date": "2020-10-02",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 96.57074737548828,
+      "high_price": 100.9551010131836,
+      "low_price": 93.37237548828125
+    },
+    {
+      "date": "2020-10-05",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 102.52369689941406,
+      "high_price": 105.0563735961914,
+      "low_price": 99.47071075439453
+    },
+    {
+      "date": "2020-10-06",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 106.73971557617188,
+      "high_price": 109.41777038574219,
+      "low_price": 102.02633666992188
+    },
+    {
+      "date": "2020-10-07",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 106.99987030029297,
+      "high_price": 108.71382904052734,
+      "low_price": 103.21997833251953
+    },
+    {
+      "date": "2020-10-08",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 98.86624145507812,
+      "high_price": 105.84449005126953,
+      "low_price": 96.4712905883789
+    },
+    {
+      "date": "2020-10-09",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 99.8532943725586,
+      "high_price": 100.76383209228516,
+      "low_price": 96.79265594482422
+    },
+    {
+      "date": "2020-10-12",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 99.70025634765625,
+      "high_price": 101.67436218261719,
+      "low_price": 95.64490509033203
+    },
+    {
+      "date": "2020-10-13",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 102.51603698730469,
+      "high_price": 102.7608871459961,
+      "low_price": 99.70790100097656
+    },
+    {
+      "date": "2020-10-14",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 96.64727020263672,
+      "high_price": 101.34535217285156,
+      "low_price": 95.56839752197266
+    },
+    {
+      "date": "2020-10-15",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 95.10930633544922,
+      "high_price": 98.09342956542969,
+      "low_price": 91.57426452636719
+    },
+    {
+      "date": "2020-10-16",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 94.3517837524414,
+      "high_price": 96.63961029052734,
+      "low_price": 92.96685028076172
+    },
+    {
+      "date": "2020-10-19",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 94.35942840576172,
+      "high_price": 97.17521667480469,
+      "low_price": 93.34941864013672
+    },
+    {
+      "date": "2020-10-20",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 99.36357879638672,
+      "high_price": 99.40948486328125,
+      "low_price": 93.18109130859375
+    },
+    {
+      "date": "2020-10-21",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 104.18408966064453,
+      "high_price": 104.73500061035156,
+      "low_price": 99.76146697998047
+    },
+    {
+      "date": "2020-10-22",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 104.56665802001953,
+      "high_price": 107.41304779052734,
+      "low_price": 102.17171478271484
+    },
+    {
+      "date": "2020-10-23",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 109.70088195800781,
+      "high_price": 110.4583969116211,
+      "low_price": 103.6790771484375
+    },
+    {
+      "date": "2020-10-26",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 107.27532958984375,
+      "high_price": 110.09876251220703,
+      "low_price": 105.20939636230469
+    },
+    {
+      "date": "2020-10-27",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 110.58082580566406,
+      "high_price": 110.68795013427734,
+      "low_price": 106.81624603271484
+    },
+    {
+      "date": "2020-10-28",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 112.3865966796875,
+      "high_price": 113.24357604980469,
+      "low_price": 109.41012573242188
+    },
+    {
+      "date": "2020-10-29",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 108.14761352539062,
+      "high_price": 112.47076416015625,
+      "low_price": 106.35714721679688
+    },
+    {
+      "date": "2020-10-30",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 108.38481140136719,
+      "high_price": 109.31066131591797,
+      "low_price": 106.88510131835938
+    },
+    {
+      "date": "2020-11-02",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 111.86627960205078,
+      "high_price": 111.88922882080078,
+      "low_price": 107.26766967773438
+    },
+    {
+      "date": "2020-11-03",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 106.80857849121094,
+      "high_price": 111.56021881103516,
+      "low_price": 105.89804077148438
+    },
+    {
+      "date": "2020-11-04",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 101.55194091796875,
+      "high_price": 107.5813980102539,
+      "low_price": 100.8479995727539
+    },
+    {
+      "date": "2020-11-05",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 102.91393280029297,
+      "high_price": 104.45954895019531,
+      "low_price": 101.57490539550781
+    },
+    {
+      "date": "2020-11-06",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 103.67908477783203,
+      "high_price": 105.58433532714844,
+      "low_price": 100.61845397949219
+    },
+    {
+      "date": "2020-11-09",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 102.91393280029297,
+      "high_price": 105.10228729248047,
+      "low_price": 100.62610626220703
+    },
+    {
+      "date": "2020-11-10",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 103.02870178222656,
+      "high_price": 104.43659210205078,
+      "low_price": 101.00867462158203
+    },
+    {
+      "date": "2020-11-11",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 104.0616683959961,
+      "high_price": 104.75031280517578,
+      "low_price": 101.44481658935547
+    },
+    {
+      "date": "2020-11-12",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 107.12229919433594,
+      "high_price": 108.8515625,
+      "low_price": 102.65377044677734
+    },
+    {
+      "date": "2020-11-13",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 108.23177337646484,
+      "high_price": 108.27002716064453,
+      "low_price": 104.52840423583984
+    },
+    {
+      "date": "2020-11-16",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 107.57373809814453,
+      "high_price": 109.41777038574219,
+      "low_price": 107.20645904541016
+    },
+    {
+      "date": "2020-11-17",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 114.86570739746094,
+      "high_price": 115.14881896972656,
+      "low_price": 106.81623840332031
+    },
+    {
+      "date": "2020-11-18",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 112.61614990234375,
+      "high_price": 117.91105651855469,
+      "low_price": 112.1034927368164
+    },
+    {
+      "date": "2020-11-19",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 116.38836669921875,
+      "high_price": 117.0693588256836,
+      "low_price": 112.21825408935547
+    },
+    {
+      "date": "2020-11-20",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 119.61734771728516,
+      "high_price": 119.62501525878906,
+      "low_price": 114.75859069824219
+    },
+    {
+      "date": "2020-11-23",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 122.42546844482422,
+      "high_price": 122.42546844482422,
+      "low_price": 117.83451080322266
+    },
+    {
+      "date": "2020-11-24",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 121.46903991699219,
+      "high_price": 125.39430236816406,
+      "low_price": 119.97698211669922
+    },
+    {
+      "date": "2020-11-25",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 114.07760620117188,
+      "high_price": 117.83453369140625,
+      "low_price": 110.39718627929688
+    },
+    {
+      "date": "2020-11-26",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 109.48663330078125,
+      "high_price": 116.27359008789062,
+      "low_price": 108.55313873291016
+    },
+    {
+      "date": "2020-11-27",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 112.01931762695312,
+      "high_price": 114.03933715820312,
+      "low_price": 107.3594970703125
+    },
+    {
+      "date": "2020-11-30",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 114.75858306884766,
+      "high_price": 115.23298645019531,
+      "low_price": 109.18057250976562
+    },
+    {
+      "date": "2020-12-01",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 117.20710754394531,
+      "high_price": 118.21711730957031,
+      "low_price": 113.24358367919922
+    },
+    {
+      "date": "2020-12-02",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 117.83451080322266,
+      "high_price": 118.010498046875,
+      "low_price": 114.39130401611328
+    },
+    {
+      "date": "2020-12-03",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 117.22239685058594,
+      "high_price": 119.3648452758789,
+      "low_price": 114.75093078613281
+    },
+    {
+      "date": "2020-12-04",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 123.5196533203125,
+      "high_price": 123.8869400024414,
+      "low_price": 117.45194244384766
+    },
+    {
+      "date": "2020-12-07",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 123.25184631347656,
+      "high_price": 123.9328384399414,
+      "low_price": 120.89515686035156
+    },
+    {
+      "date": "2020-12-08",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 121.35425567626953,
+      "high_price": 123.57321166992188,
+      "low_price": 120.89515686035156
+    },
+    {
+      "date": "2020-12-09",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 122.11942291259766,
+      "high_price": 122.57852172851562,
+      "low_price": 120.35955047607422
+    },
+    {
+      "date": "2020-12-10",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 125.03469848632812,
+      "high_price": 126.49614715576172,
+      "low_price": 121.66033935546875
+    },
+    {
+      "date": "2020-12-11",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 125.5626449584961,
+      "high_price": 126.25128936767578,
+      "low_price": 120.89517974853516
+    },
+    {
+      "date": "2020-12-14",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 129.31190490722656,
+      "high_price": 130.34486389160156,
+      "low_price": 126.25127410888672
+    },
+    {
+      "date": "2020-12-15",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 128.26365661621094,
+      "high_price": 129.365478515625,
+      "low_price": 127.51380157470703
+    },
+    {
+      "date": "2020-12-16",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 129.46493530273438,
+      "high_price": 131.2248077392578,
+      "low_price": 127.29187774658203
+    },
+    {
+      "date": "2020-12-17",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 125.65447235107422,
+      "high_price": 131.4467315673828,
+      "low_price": 124.18536376953125
+    },
+    {
+      "date": "2020-12-18",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 127.93463134765625,
+      "high_price": 128.3095703125,
+      "low_price": 125.47847747802734
+    },
+    {
+      "date": "2020-12-21",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 134.5150146484375,
+      "high_price": 135.93055725097656,
+      "low_price": 128.27896118164062
+    },
+    {
+      "date": "2020-12-22",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 134.61448669433594,
+      "high_price": 138.48619079589844,
+      "low_price": 133.14537048339844
+    },
+    {
+      "date": "2020-12-23",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 133.40553283691406,
+      "high_price": 135.58624267578125,
+      "low_price": 132.37257385253906
+    },
+    {
+      "date": "2020-12-24",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 136.4202423095703,
+      "high_price": 137.32313537597656,
+      "low_price": 131.91346740722656
+    },
+    {
+      "date": "2020-12-25",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 134.5456085205078,
+      "high_price": 136.40493774414062,
+      "low_price": 130.61268615722656
+    },
+    {
+      "date": "2020-12-28",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 133.41311645507812,
+      "high_price": 138.01356506347656,
+      "low_price": 130.20199584960938
+    },
+    {
+      "date": "2020-12-29",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 134.21360778808594,
+      "high_price": 134.39764404296875,
+      "low_price": 128.81268310546875
+    },
+    {
+      "date": "2020-12-30",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 137.82955932617188,
+      "high_price": 138.24359130859375,
+      "low_price": 132.58505249023438
+    },
+    {
+      "date": "2020-12-31",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 134.3516387939453,
+      "high_price": 138.41844177246094,
+      "low_price": 133.87318420410156
+    },
+    {
+      "date": "2021-01-01",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 132.4562530517578,
+      "high_price": 136.5874481201172,
+      "low_price": 131.1129150390625
+    },
+    {
+      "date": "2021-01-04",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 125.13229370117188,
+      "high_price": 133.26588439941406,
+      "low_price": 124.12018585205078
+    },
+    {
+      "date": "2021-01-05",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 125.13229370117188,
+      "high_price": 126.95407104492188,
+      "low_price": 124.0005874633789
+    },
+    {
+      "date": "2021-01-06",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 128.8126678466797,
+      "high_price": 130.99327087402344,
+      "low_price": 125.60154724121094
+    },
+    {
+      "date": "2021-01-07",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 134.33322143554688,
+      "high_price": 134.97727966308594,
+      "low_price": 128.7206573486328
+    },
+    {
+      "date": "2021-01-08",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 139.72494506835938,
+      "high_price": 141.0682830810547,
+      "low_price": 131.2049102783203
+    },
+    {
+      "date": "2021-01-11",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 141.0038604736328,
+      "high_price": 144.45419311523438,
+      "low_price": 139.02566528320312
+    },
+    {
+      "date": "2021-01-12",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 139.48574829101562,
+      "high_price": 143.0740966796875,
+      "low_price": 136.54144287109375
+    },
+    {
+      "date": "2021-01-13",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 144.08619689941406,
+      "high_price": 144.2702178955078,
+      "low_price": 138.65765380859375
+    },
+    {
+      "date": "2021-01-14",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 144.92344665527344,
+      "high_price": 147.94134521484375,
+      "low_price": 143.53411865234375
+    },
+    {
+      "date": "2021-01-15",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 145.34669494628906,
+      "high_price": 147.48129272460938,
+      "low_price": 143.53411865234375
+    },
+    {
+      "date": "2021-01-18",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 144.0769805908203,
+      "high_price": 147.1224822998047,
+      "low_price": 142.61404418945312
+    },
+    {
+      "date": "2021-01-19",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 154.5751953125,
+      "high_price": 155.32046508789062,
+      "low_price": 145.27308654785156
+    },
+    {
+      "date": "2021-01-20",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 142.66001892089844,
+      "high_price": 152.6429901123047,
+      "low_price": 141.70310974121094
+    },
+    {
+      "date": "2021-01-21",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 141.5835418701172,
+      "high_price": 145.75155639648438,
+      "low_price": 138.38162231445312
+    },
+    {
+      "date": "2021-01-22",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 134.36080932617188,
+      "high_price": 141.6939239501953,
+      "low_price": 128.62864685058594
+    },
+    {
+      "date": "2021-01-25",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 144.0953826904297,
+      "high_price": 146.38641357421875,
+      "low_price": 132.4930419921875
+    },
+    {
+      "date": "2021-01-26",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 139.853759765625,
+      "high_price": 147.70213317871094,
+      "low_price": 139.4029083251953
+    },
+    {
+      "date": "2021-01-27",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 138.7312469482422,
+      "high_price": 141.69393920898438,
+      "low_price": 134.22280883789062
+    },
+    {
+      "date": "2021-01-28",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 147.85855102539062,
+      "high_price": 149.10987854003906,
+      "low_price": 134.4620361328125
+    },
+    {
+      "date": "2021-01-29",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 145.19029235839844,
+      "high_price": 149.69873046875,
+      "low_price": 143.322509765625
+    },
+    {
+      "date": "2021-02-01",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 148.32781982421875,
+      "high_price": 154.06918334960938,
+      "low_price": 143.7273712158203
+    },
+    {
+      "date": "2021-02-02",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 151.81494140625,
+      "high_price": 151.86094665527344,
+      "low_price": 147.2236785888672
+    },
+    {
+      "date": "2021-02-03",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 151.90695190429688,
+      "high_price": 158.7064208984375,
+      "low_price": 149.98394775390625
+    },
+    {
+      "date": "2021-02-04",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 154.43719482421875,
+      "high_price": 155.66090393066406,
+      "low_price": 150.71083068847656
+    },
+    {
+      "date": "2021-02-05",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 152.22897338867188,
+      "high_price": 156.10255432128906,
+      "low_price": 149.1466827392578
+    },
+    {
+      "date": "2021-02-08",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 153.4711151123047,
+      "high_price": 154.3636016845703,
+      "low_price": 151.07887268066406
+    },
+    {
+      "date": "2021-02-09",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 148.99948120117188,
+      "high_price": 154.47401428222656,
+      "low_price": 147.67454528808594
+    },
+    {
+      "date": "2021-02-10",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 141.6939239501953,
+      "high_price": 149.28466796875,
+      "low_price": 140.98544311523438
+    },
+    {
+      "date": "2021-02-11",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 136.85426330566406,
+      "high_price": 141.96075439453125,
+      "low_price": 131.6925506591797
+    },
+    {
+      "date": "2021-02-12",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 133.04510498046875,
+      "high_price": 139.85377502441406,
+      "low_price": 131.69256591796875
+    },
+    {
+      "date": "2021-02-15",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 140.58982849121094,
+      "high_price": 140.7738494873047,
+      "low_price": 131.59133911132812
+    },
+    {
+      "date": "2021-02-16",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 143.51571655273438,
+      "high_price": 145.30068969726562,
+      "low_price": 140.78305053710938
+    },
+    {
+      "date": "2021-02-17",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 138.01356506347656,
+      "high_price": 142.47601318359375,
+      "low_price": 136.73463439941406
+    },
+    {
+      "date": "2021-02-18",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 140.58982849121094,
+      "high_price": 141.1234893798828,
+      "low_price": 131.38893127441406
+    },
+    {
+      "date": "2021-02-19",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 146.1840057373047,
+      "high_price": 147.44451904296875,
+      "low_price": 137.093505859375
+    },
+    {
+      "date": "2021-02-22",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 146.1840057373047,
+      "high_price": 149.2386932373047,
+      "low_price": 143.294921875
+    },
+    {
+      "date": "2021-02-23",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 148.08856201171875,
+      "high_price": 150.78443908691406,
+      "low_price": 143.54331970214844
+    },
+    {
+      "date": "2021-02-24",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 135.4373016357422,
+      "high_price": 147.19606018066406,
+      "low_price": 133.86395263671875
+    },
+    {
+      "date": "2021-02-25",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 131.37051391601562,
+      "high_price": 134.7932586669922,
+      "low_price": 128.90467834472656
+    },
+    {
+      "date": "2021-02-26",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 134.02040100097656,
+      "high_price": 134.21360778808594,
+      "low_price": 128.81268310546875
+    },
+    {
+      "date": "2021-03-01",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 132.03298950195312,
+      "high_price": 134.3240203857422,
+      "low_price": 131.27850341796875
+    },
+    {
+      "date": "2021-03-02",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 128.07659912109375,
+      "high_price": 132.03298950195312,
+      "low_price": 123.93619537353516
+    },
+    {
+      "date": "2021-03-03",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 127.65335845947266,
+      "high_price": 130.65284729003906,
+      "low_price": 125.80397033691406
+    },
+    {
+      "date": "2021-03-04",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 125.57394409179688,
+      "high_price": 127.64414978027344,
+      "low_price": 124.69066619873047
+    },
+    {
+      "date": "2021-03-05",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 119.56575775146484,
+      "high_price": 127.68096160888672,
+      "low_price": 116.53866577148438
+    },
+    {
+      "date": "2021-03-08",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 118.342041015625,
+      "high_price": 122.0868148803711,
+      "low_price": 117.1551284790039
+    },
+    {
+      "date": "2021-03-09",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 120.30184173583984,
+      "high_price": 121.06552124023438,
+      "low_price": 117.4495620727539
+    },
+    {
+      "date": "2021-03-10",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 113.17113494873047,
+      "high_price": 117.86360168457031,
+      "low_price": 111.42295837402344
+    },
+    {
+      "date": "2021-03-11",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 114.08203125,
+      "high_price": 116.0050277709961,
+      "low_price": 111.79100799560547
+    },
+    {
+      "date": "2021-03-12",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 120.41223907470703,
+      "high_price": 122.0040054321289,
+      "low_price": 115.47135925292969
+    },
+    {
+      "date": "2021-03-15",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 121.80158996582031,
+      "high_price": 123.19091796875,
+      "low_price": 119.05970764160156
+    },
+    {
+      "date": "2021-03-16",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 115.76579284667969,
+      "high_price": 121.43354797363281,
+      "low_price": 115.01132202148438
+    },
+    {
+      "date": "2021-03-17",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 119.55656433105469,
+      "high_price": 122.46405029296875,
+      "low_price": 114.64328002929688
+    },
+    {
+      "date": "2021-03-18",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 120.02580261230469,
+      "high_price": 123.79817962646484,
+      "low_price": 119.05050659179688
+    },
+    {
+      "date": "2021-03-19",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 122.18801879882812,
+      "high_price": 125.02189636230469,
+      "low_price": 120.18221282958984
+    },
+    {
+      "date": "2021-03-22",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 122.16963195800781,
+      "high_price": 124.21223449707031,
+      "low_price": 115.7750015258789
+    },
+    {
+      "date": "2021-03-23",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 118.25003814697266,
+      "high_price": 124.83787536621094,
+      "low_price": 116.8698959350586
+    },
+    {
+      "date": "2021-03-24",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 123.01609802246094,
+      "high_price": 124.30422973632812,
+      "low_price": 116.66748046875
+    },
+    {
+      "date": "2021-03-25",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 129.4015350341797,
+      "high_price": 131.99620056152344,
+      "low_price": 123.2921371459961
+    },
+    {
+      "date": "2021-03-26",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 129.91676330566406,
+      "high_price": 130.34921264648438,
+      "low_price": 127.00007629394531
+    },
+    {
+      "date": "2021-03-29",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 128.72988891601562,
+      "high_price": 131.29693603515625,
+      "low_price": 126.69647979736328
+    },
+    {
+      "date": "2021-03-30",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 129.5303497314453,
+      "high_price": 131.45333862304688,
+      "low_price": 127.89259338378906
+    },
+    {
+      "date": "2021-03-31",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 129.5487518310547,
+      "high_price": 130.00880432128906,
+      "low_price": 126.512451171875
+    },
+    {
+      "date": "2021-04-01",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 125.42674255371094,
+      "high_price": 131.37051391601562,
+      "low_price": 124.30422973632812
+    },
+    {
+      "date": "2021-04-02",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 130.6160430908203,
+      "high_price": 132.3826141357422,
+      "low_price": 125.43592834472656
+    },
+    {
+      "date": "2021-04-05",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 130.40443420410156,
+      "high_price": 136.357421875,
+      "low_price": 129.27272033691406
+    },
+    {
+      "date": "2021-04-06",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 132.6402587890625,
+      "high_price": 134.22280883789062,
+      "low_price": 127.43254089355469
+    },
+    {
+      "date": "2021-04-07",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 140.22178649902344,
+      "high_price": 141.03146362304688,
+      "low_price": 129.5487518310547
+    },
+    {
+      "date": "2021-04-08",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 141.1326904296875,
+      "high_price": 146.18399047851562,
+      "low_price": 138.01358032226562
+    },
+    {
+      "date": "2021-04-09",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 138.2895965576172,
+      "high_price": 142.64161682128906,
+      "low_price": 137.09347534179688
+    },
+    {
+      "date": "2021-04-12",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 138.82325744628906,
+      "high_price": 140.94866943359375,
+      "low_price": 136.8174591064453
+    },
+    {
+      "date": "2021-04-13",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 139.48574829101562,
+      "high_price": 142.31961059570312,
+      "low_price": 137.18551635742188
+    },
+    {
+      "date": "2021-04-14",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 138.91526794433594,
+      "high_price": 141.23390197753906,
+      "low_price": 136.26541137695312
+    },
+    {
+      "date": "2021-04-15",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 138.10560607910156,
+      "high_price": 139.92738342285156,
+      "low_price": 136.33901977539062
+    },
+    {
+      "date": "2021-04-16",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 140.58982849121094,
+      "high_price": 142.1539764404297,
+      "low_price": 136.86346435546875
+    },
+    {
+      "date": "2021-04-19",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 137.6639404296875,
+      "high_price": 144.27020263671875,
+      "low_price": 137.07508850097656
+    },
+    {
+      "date": "2021-04-20",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 130.52403259277344,
+      "high_price": 138.82325744628906,
+      "low_price": 130.3400115966797
+    },
+    {
+      "date": "2021-04-21",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 131.6005401611328,
+      "high_price": 134.24119567871094,
+      "low_price": 129.5579376220703
+    },
+    {
+      "date": "2021-04-22",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 137.09349060058594,
+      "high_price": 137.75595092773438,
+      "low_price": 130.8368682861328
+    },
+    {
+      "date": "2021-04-23",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 132.37342834472656,
+      "high_price": 137.88478088378906,
+      "low_price": 130.54244995117188
+    },
+    {
+      "date": "2021-04-26",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 133.7167510986328,
+      "high_price": 134.9588623046875,
+      "low_price": 130.20199584960938
+    },
+    {
+      "date": "2021-04-27",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 132.21701049804688,
+      "high_price": 134.65525817871094,
+      "low_price": 130.48724365234375
+    },
+    {
+      "date": "2021-04-28",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 133.41311645507812,
+      "high_price": 136.06298828125,
+      "low_price": 131.977783203125
+    },
+    {
+      "date": "2021-04-29",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 129.26353454589844,
+      "high_price": 135.03248596191406,
+      "low_price": 128.2606201171875
+    },
+    {
+      "date": "2021-04-30",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 129.91676330566406,
+      "high_price": 131.19569396972656,
+      "low_price": 128.3526153564453
+    },
+    {
+      "date": "2021-05-03",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 128.61024475097656,
+      "high_price": 131.06687927246094,
+      "low_price": 125.17831420898438
+    },
+    {
+      "date": "2021-05-04",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 128.16860961914062,
+      "high_price": 129.6407470703125,
+      "low_price": 127.57975006103516
+    },
+    {
+      "date": "2021-05-05",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 127.70856475830078,
+      "high_price": 130.24801635742188,
+      "low_price": 126.70567321777344
+    },
+    {
+      "date": "2021-05-06",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 124.73667907714844,
+      "high_price": 128.61944580078125,
+      "low_price": 123.8257827758789
+    },
+    {
+      "date": "2021-05-07",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 123.52216339111328,
+      "high_price": 125.92359924316406,
+      "low_price": 122.11442565917969
+    },
+    {
+      "date": "2021-05-10",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 126.98168182373047,
+      "high_price": 127.29452514648438,
+      "low_price": 122.01319885253906
+    },
+    {
+      "date": "2021-05-11",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 119.77738189697266,
+      "high_price": 130.26641845703125,
+      "low_price": 119.54735565185547
+    },
+    {
+      "date": "2021-05-12",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 121.24034118652344,
+      "high_price": 123.71538543701172,
+      "low_price": 119.77738952636719
+    },
+    {
+      "date": "2021-05-13",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 121.84758758544922,
+      "high_price": 123.98220825195312,
+      "low_price": 120.02581024169922
+    },
+    {
+      "date": "2021-05-14",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 116.38224029541016,
+      "high_price": 123.13571166992188,
+      "low_price": 115.01130676269531
+    },
+    {
+      "date": "2021-05-17",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 116.2994384765625,
+      "high_price": 118.3144302368164,
+      "low_price": 115.5909652709961
+    },
+    {
+      "date": "2021-05-18",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 113.0791244506836,
+      "high_price": 119.00450134277344,
+      "low_price": 111.7909927368164
+    },
+    {
+      "date": "2021-05-19",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 116.83309936523438,
+      "high_price": 117.36674499511719,
+      "low_price": 112.62828826904297
+    },
+    {
+      "date": "2021-05-20",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 118.15802001953125,
+      "high_price": 118.4708480834961,
+      "low_price": 114.51446533203125
+    },
+    {
+      "date": "2021-05-21",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 119.71297454833984,
+      "high_price": 122.37203216552734,
+      "low_price": 117.58757019042969
+    },
+    {
+      "date": "2021-05-24",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 118.59966278076172,
+      "high_price": 120.52265930175781,
+      "low_price": 117.79918670654297
+    },
+    {
+      "date": "2021-05-25",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 120.86309814453125,
+      "high_price": 121.55316925048828,
+      "low_price": 118.27764892578125
+    },
+    {
+      "date": "2021-05-26",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 125.57394409179688,
+      "high_price": 126.51244354248047,
+      "low_price": 121.00109100341797
+    },
+    {
+      "date": "2021-05-27",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 125.63836669921875,
+      "high_price": 131.26011657714844,
+      "low_price": 125.159912109375
+    },
+    {
+      "date": "2021-05-28",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 120.53185272216797,
+      "high_price": 124.8194808959961,
+      "low_price": 119.9429931640625
+    },
+    {
+      "date": "2021-05-31",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 119.8877944946289,
+      "high_price": 121.08391571044922,
+      "low_price": 118.32364654541016
+    },
+    {
+      "date": "2021-06-01",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 118.50765991210938,
+      "high_price": 120.52265930175781,
+      "low_price": 117.67958068847656
+    },
+    {
+      "date": "2021-06-02",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 119.58415985107422,
+      "high_price": 120.21902465820312,
+      "low_price": 117.86359405517578
+    },
+    {
+      "date": "2021-06-03",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 122.35362243652344,
+      "high_price": 122.64805603027344,
+      "low_price": 118.23162078857422
+    },
+    {
+      "date": "2021-06-04",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 124.03740692138672,
+      "high_price": 124.93909454345703,
+      "low_price": 121.33233642578125
+    },
+    {
+      "date": "2021-06-07",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 128.49984741210938,
+      "high_price": 130.1652069091797,
+      "low_price": 126.05240631103516
+    },
+    {
+      "date": "2021-06-08",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 131.57293701171875,
+      "high_price": 134.3332061767578,
+      "low_price": 130.1927947998047
+    },
+    {
+      "date": "2021-06-09",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 132.49302673339844,
+      "high_price": 132.9714813232422,
+      "low_price": 129.73275756835938
+    },
+    {
+      "date": "2021-06-10",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 134.62765502929688,
+      "high_price": 136.9094696044922,
+      "low_price": 131.83056640625
+    },
+    {
+      "date": "2021-06-11",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 130.28480529785156,
+      "high_price": 134.2135772705078,
+      "low_price": 129.0518798828125
+    },
+    {
+      "date": "2021-06-14",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 130.46884155273438,
+      "high_price": 133.0266876220703,
+      "low_price": 129.35552978515625
+    },
+    {
+      "date": "2021-06-15",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 125.79478454589844,
+      "high_price": 129.8247833251953,
+      "low_price": 125.12312316894531
+    },
+    {
+      "date": "2021-06-16",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 125.7579574584961,
+      "high_price": 127.52454376220703,
+      "low_price": 124.96669006347656
+    },
+    {
+      "date": "2021-06-17",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 128.35263061523438,
+      "high_price": 128.90469360351562,
+      "low_price": 125.75796508789062
+    },
+    {
+      "date": "2021-06-18",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 130.11000061035156,
+      "high_price": 132.125,
+      "low_price": 126.37443542480469
+    },
+    {
+      "date": "2021-06-21",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 128.7206573486328,
+      "high_price": 129.9995880126953,
+      "low_price": 127.47854614257812
+    },
+    {
+      "date": "2021-06-22",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 124.46984100341797,
+      "high_price": 128.978271484375,
+      "low_price": 124.21221923828125
+    },
+    {
+      "date": "2021-06-23",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 126.7884750366211,
+      "high_price": 126.92648315429688,
+      "low_price": 124.47904205322266
+    },
+    {
+      "date": "2021-06-24",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 114.109619140625,
+      "high_price": 126.1444091796875,
+      "low_price": 114.109619140625
+    },
+    {
+      "date": "2021-06-25",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 114.9745101928711,
+      "high_price": 116.35464477539062,
+      "low_price": 109.51837158203125
+    },
+    {
+      "date": "2021-06-28",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 114.8272933959961,
+      "high_price": 120.18221282958984,
+      "low_price": 114.62487030029297
+    },
+    {
+      "date": "2021-06-29",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 105.23995208740234,
+      "high_price": 109.40796661376953,
+      "low_price": 104.7799072265625
+    },
+    {
+      "date": "2021-06-30",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 108.5706787109375,
+      "high_price": 109.38035583496094,
+      "low_price": 105.71839904785156
+    },
+    {
+      "date": "2021-07-01",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 106.49127960205078,
+      "high_price": 109.10433959960938,
+      "low_price": 105.81041717529297
+    },
+    {
+      "date": "2021-07-02",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 105.77359771728516,
+      "high_price": 108.57067108154297,
+      "low_price": 105.20314025878906
+    },
+    {
+      "date": "2021-07-05",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 103.0777359008789,
+      "high_price": 106.0404281616211,
+      "low_price": 102.0196304321289
+    },
+    {
+      "date": "2021-07-06",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 105.06514739990234,
+      "high_price": 105.1663589477539,
+      "low_price": 101.94603729248047
+    },
+    {
+      "date": "2021-07-07",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 109.58277893066406,
+      "high_price": 110.39246368408203,
+      "low_price": 103.60218811035156
+    },
+    {
+      "date": "2021-07-08",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 109.66558837890625,
+      "high_price": 113.0055160522461,
+      "low_price": 108.56147766113281
+    },
+    {
+      "date": "2021-07-09",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 110.4200668334961,
+      "high_price": 111.79100036621094,
+      "low_price": 107.54017639160156
+    },
+    {
+      "date": "2021-07-12",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 109.10433197021484,
+      "high_price": 111.46896362304688,
+      "low_price": 108.27625274658203
+    },
+    {
+      "date": "2021-07-13",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 100.10585021972656,
+      "high_price": 105.99442291259766,
+      "low_price": 98.21966552734375
+    },
+    {
+      "date": "2021-07-14",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 100.98914337158203,
+      "high_price": 101.83562469482422,
+      "low_price": 98.5324935913086
+    },
+    {
+      "date": "2021-07-15",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 99.47098541259766,
+      "high_price": 102.4612808227539,
+      "low_price": 98.91893005371094
+    },
+    {
+      "date": "2021-07-16",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 100.17945861816406,
+      "high_price": 100.89713287353516,
+      "low_price": 98.58770751953125
+    },
+    {
+      "date": "2021-07-19",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 103.05934143066406,
+      "high_price": 104.08983612060547,
+      "low_price": 96.60950469970703
+    },
+    {
+      "date": "2021-07-20",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 107.18135070800781,
+      "high_price": 107.89901733398438,
+      "low_price": 102.58089447021484
+    },
+    {
+      "date": "2021-07-21",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 107.55857849121094,
+      "high_price": 108.86510467529297,
+      "low_price": 105.84720611572266
+    },
+    {
+      "date": "2021-07-22",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 106.57408905029297,
+      "high_price": 109.80360412597656,
+      "low_price": 106.5464859008789
+    },
+    {
+      "date": "2021-07-23",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 104.87191772460938,
+      "high_price": 107.83460235595703,
+      "low_price": 104.79830932617188
+    },
+    {
+      "date": "2021-07-26",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 105.03753662109375,
+      "high_price": 106.5464859008789,
+      "low_price": 102.73731231689453
+    },
+    {
+      "date": "2021-07-27",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 108.38666534423828,
+      "high_price": 110.02442169189453,
+      "low_price": 104.0622329711914
+    },
+    {
+      "date": "2021-07-28",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 103.05014038085938,
+      "high_price": 110.8341064453125,
+      "low_price": 101.45838165283203
+    },
+    {
+      "date": "2021-07-29",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 102.13005065917969,
+      "high_price": 104.4302749633789,
+      "low_price": 101.57799530029297
+    },
+    {
+      "date": "2021-07-30",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 99.08455657958984,
+      "high_price": 101.52278900146484,
+      "low_price": 97.59400939941406
+    },
+    {
+      "date": "2021-08-02",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 102.9581298828125,
+      "high_price": 103.34456634521484,
+      "low_price": 97.58480072021484
+    },
+    {
+      "date": "2021-08-03",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 100.93392181396484,
+      "high_price": 103.81381225585938,
+      "low_price": 100.93392181396484
+    },
+    {
+      "date": "2021-08-04",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 95.89183044433594,
+      "high_price": 102.86611938476562,
+      "low_price": 94.01484680175781
+    },
+    {
+      "date": "2021-08-05",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 94.97174835205078,
+      "high_price": 97.08795166015625,
+      "low_price": 94.30928039550781
+    },
+    {
+      "date": "2021-08-06",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 96.42549133300781,
+      "high_price": 98.52330017089844,
+      "low_price": 93.481201171875
+    },
+    {
+      "date": "2021-08-09",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 96.14945983886719,
+      "high_price": 100.55669403076172,
+      "low_price": 95.7262191772461
+    },
+    {
+      "date": "2021-08-10",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 86.54371643066406,
+      "high_price": 87.40860748291016,
+      "low_price": 86.5345230102539
+    },
+    {
+      "date": "2021-08-11",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 85.31999969482422,
+      "high_price": 86.37809753417969,
+      "low_price": 82.34810638427734
+    },
+    {
+      "date": "2021-08-12",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 78.99897003173828,
+      "high_price": 84.35389709472656,
+      "low_price": 78.20769500732422
+    },
+    {
+      "date": "2021-08-13",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 76.43191528320312,
+      "high_price": 79.35780334472656,
+      "low_price": 75.28179931640625
+    },
+    {
+      "date": "2021-08-16",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 78.48372650146484,
+      "high_price": 79.73505401611328,
+      "low_price": 75.81546020507812
+    },
+    {
+      "date": "2021-08-17",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 86.33209228515625,
+      "high_price": 86.33209228515625,
+      "low_price": 78.26289367675781
+    },
+    {
+      "date": "2021-08-18",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 89.92045593261719,
+      "high_price": 92.0090560913086,
+      "low_price": 88.32869720458984
+    },
+    {
+      "date": "2021-08-19",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 90.53691864013672,
+      "high_price": 91.20858001708984,
+      "low_price": 88.1630859375
+    },
+    {
+      "date": "2021-08-20",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 90.39888763427734,
+      "high_price": 90.90493774414062,
+      "low_price": 87.86863708496094
+    },
+    {
+      "date": "2021-08-23",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 90.35289001464844,
+      "high_price": 93.95044708251953,
+      "low_price": 88.85314178466797
+    },
+    {
+      "date": "2021-08-24",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 89.06475830078125,
+      "high_price": 90.39888763427734,
+      "low_price": 87.5281982421875
+    },
+    {
+      "date": "2021-08-25",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 91.69623565673828,
+      "high_price": 92.57952117919922,
+      "low_price": 88.78874969482422
+    },
+    {
+      "date": "2021-08-26",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 90.81292724609375,
+      "high_price": 94.76931762695312,
+      "low_price": 89.248779296875
+    },
+    {
+      "date": "2021-08-27",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 95.13735961914062,
+      "high_price": 97.71360778808594,
+      "low_price": 92.6255111694336
+    },
+    {
+      "date": "2021-08-30",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 95.62500762939453,
+      "high_price": 96.93153381347656,
+      "low_price": 94.25407409667969
+    },
+    {
+      "date": "2021-08-31",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 97.29957580566406,
+      "high_price": 98.38528442382812,
+      "low_price": 94.67732238769531
+    },
+    {
+      "date": "2021-09-01",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 95.4317855834961,
+      "high_price": 96.9591293334961,
+      "low_price": 94.30927276611328
+    },
+    {
+      "date": "2021-09-02",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 94.57610321044922,
+      "high_price": 96.61870574951172,
+      "low_price": 92.97515106201172
+    },
+    {
+      "date": "2021-09-03",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 93.76642608642578,
+      "high_price": 94.89813232421875,
+      "low_price": 91.46620178222656
+    },
+    {
+      "date": "2021-09-06",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 91.18096923828125,
+      "high_price": 92.82793426513672,
+      "low_price": 89.62602233886719
+    },
+    {
+      "date": "2021-09-07",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 90.33448791503906,
+      "high_price": 94.76012420654297,
+      "low_price": 89.78243255615234
+    },
+    {
+      "date": "2021-09-08",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 86.30450439453125,
+      "high_price": 91.04296875,
+      "low_price": 81.52002716064453
+    },
+    {
+      "date": "2021-09-09",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 94.42890167236328,
+      "high_price": 94.93495178222656,
+      "low_price": 91.45701599121094
+    },
+    {
+      "date": "2021-09-10",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 90.8221435546875,
+      "high_price": 92.92915344238281,
+      "low_price": 87.78585052490234
+    },
+    {
+      "date": "2021-09-13",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 88.9083480834961,
+      "high_price": 92.46910095214844,
+      "low_price": 88.1446762084961
+    },
+    {
+      "date": "2021-09-14",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 85.72482299804688,
+      "high_price": 90.31607818603516,
+      "low_price": 83.73743438720703
+    },
+    {
+      "date": "2021-09-15",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 93.4535903930664,
+      "high_price": 94.21726989746094,
+      "low_price": 86.58971405029297
+    },
+    {
+      "date": "2021-09-16",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 98.36687469482422,
+      "high_price": 100.473876953125,
+      "low_price": 95.68940734863281
+    },
+    {
+      "date": "2021-09-17",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 95.33979034423828,
+      "high_price": 97.87923431396484,
+      "low_price": 95.05455780029297
+    },
+    {
+      "date": "2021-09-20",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 97.2535629272461,
+      "high_price": 98.63369750976562,
+      "low_price": 94.88893127441406
+    },
+    {
+      "date": "2021-09-21",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 94.69570922851562,
+      "high_price": 97.2443618774414,
+      "low_price": 93.9320297241211
+    },
+    {
+      "date": "2021-09-22",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 101.55958557128906,
+      "high_price": 102.25885772705078,
+      "low_price": 95.12815856933594
+    },
+    {
+      "date": "2021-09-23",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 107.65058898925781,
+      "high_price": 110.38326263427734,
+      "low_price": 97.64920043945312
+    },
+    {
+      "date": "2021-09-24",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 101.08114624023438,
+      "high_price": 108.57068634033203,
+      "low_price": 100.61190032958984
+    },
+    {
+      "date": "2021-09-27",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 102.4704818725586,
+      "high_price": 103.90582275390625,
+      "low_price": 100.15184783935547
+    },
+    {
+      "date": "2021-09-28",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 102.83850860595703,
+      "high_price": 104.41187286376953,
+      "low_price": 101.20995330810547
+    },
+    {
+      "date": "2021-09-29",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 104.38426208496094,
+      "high_price": 105.1939468383789,
+      "low_price": 101.75279998779297
+    },
+    {
+      "date": "2021-09-30",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 103.39977264404297,
+      "high_price": 104.70630645751953,
+      "low_price": 101.02594757080078
+    },
+    {
+      "date": "2021-10-01",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 100.35427856445312,
+      "high_price": 102.08404541015625,
+      "low_price": 98.80852508544922
+    },
+    {
+      "date": "2021-10-04",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 99.45258331298828,
+      "high_price": 103.71260833740234,
+      "low_price": 98.23806762695312
+    },
+    {
+      "date": "2021-10-05",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 98.27486419677734,
+      "high_price": 100.5658950805664,
+      "low_price": 97.35477447509766
+    },
+    {
+      "date": "2021-10-06",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 96.60951232910156,
+      "high_price": 99.85742950439453,
+      "low_price": 95.50540924072266
+    },
+    {
+      "date": "2021-10-07",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 95.48699188232422,
+      "high_price": 98.01724243164062,
+      "low_price": 94.76932525634766
+    },
+    {
+      "date": "2021-10-08",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 97.9068374633789,
+      "high_price": 98.39448547363281,
+      "low_price": 94.45649719238281
+    },
+    {
+      "date": "2021-10-11",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 93.64681243896484,
+      "high_price": 96.79351806640625,
+      "low_price": 91.83423614501953
+    },
+    {
+      "date": "2021-10-12",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 97.8332290649414,
+      "high_price": 98.63370513916016,
+      "low_price": 93.66522216796875
+    },
+    {
+      "date": "2021-10-13",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 100.3910903930664,
+      "high_price": 102.46129608154297,
+      "low_price": 95.6894302368164
+    },
+    {
+      "date": "2021-10-14",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 98.54169464111328,
+      "high_price": 100.46469116210938,
+      "low_price": 98.08164978027344
+    },
+    {
+      "date": "2021-10-15",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 94.55769348144531,
+      "high_price": 99.36056518554688,
+      "low_price": 93.85842895507812
+    },
+    {
+      "date": "2021-10-18",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 92.80953216552734,
+      "high_price": 96.3334732055664,
+      "low_price": 91.50299835205078
+    },
+    {
+      "date": "2021-10-19",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 88.89915466308594,
+      "high_price": 93.38919067382812,
+      "low_price": 88.19068145751953
+    },
+    {
+      "date": "2021-10-20",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 93.481201171875,
+      "high_price": 94.07006072998047,
+      "low_price": 88.03426361083984
+    },
+    {
+      "date": "2021-10-21",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 90.04927062988281,
+      "high_price": 94.30928802490234,
+      "low_price": 89.98486328125
+    },
+    {
+      "date": "2021-10-22",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 94.26327514648438,
+      "high_price": 96.94074249267578,
+      "low_price": 90.62892150878906
+    },
+    {
+      "date": "2021-10-25",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 95.73543548583984,
+      "high_price": 96.49910736083984,
+      "low_price": 92.00906372070312
+    },
+    {
+      "date": "2021-10-26",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 95.02694702148438,
+      "high_price": 96.13105773925781,
+      "low_price": 93.37078857421875
+    },
+    {
+      "date": "2021-10-27",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 94.98094940185547,
+      "high_price": 96.04824829101562,
+      "low_price": 92.13786315917969
+    },
+    {
+      "date": "2021-10-28",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 90.21488189697266,
+      "high_price": 95.41339111328125,
+      "low_price": 89.15677642822266
+    },
+    {
+      "date": "2021-10-29",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 86.85653686523438,
+      "high_price": 89.59840393066406,
+      "low_price": 86.53450775146484
+    },
+    {
+      "date": "2021-11-01",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 86.1480712890625,
+      "high_price": 87.86864471435547,
+      "low_price": 85.77083587646484
+    },
+    {
+      "date": "2021-11-02",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 89.69042205810547,
+      "high_price": 90.76692962646484,
+      "low_price": 83.89385223388672
+    },
+    {
+      "date": "2021-11-03",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 92.60710906982422,
+      "high_price": 94.67731475830078,
+      "low_price": 88.42990112304688
+    },
+    {
+      "date": "2021-11-04",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 93.18675994873047,
+      "high_price": 93.75721740722656,
+      "low_price": 91.09815979003906
+    },
+    {
+      "date": "2021-11-05",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 92.82794189453125,
+      "high_price": 95.13737487792969,
+      "low_price": 92.22068786621094
+    },
+    {
+      "date": "2021-11-08",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 90.91413879394531,
+      "high_price": 93.84922790527344,
+      "low_price": 90.3620834350586
+    },
+    {
+      "date": "2021-11-09",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 91.42939758300781,
+      "high_price": 91.5674057006836,
+      "low_price": 89.248779296875
+    },
+    {
+      "date": "2021-11-10",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 88.62311553955078,
+      "high_price": 91.88944244384766,
+      "low_price": 85.78003692626953
+    },
+    {
+      "date": "2021-11-11",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 88.24588775634766,
+      "high_price": 88.69673156738281,
+      "low_price": 86.71853637695312
+    },
+    {
+      "date": "2021-11-12",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 90.6473159790039,
+      "high_price": 91.99984741210938,
+      "low_price": 88.58631896972656
+    },
+    {
+      "date": "2021-11-15",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 89.71803283691406,
+      "high_price": 91.42019653320312,
+      "low_price": 89.34078979492188
+    },
+    {
+      "date": "2021-11-16",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 84.87834930419922,
+      "high_price": 89.72722625732422,
+      "low_price": 84.28028869628906
+    },
+    {
+      "date": "2021-11-17",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 84.03187561035156,
+      "high_price": 85.55921936035156,
+      "low_price": 83.3602066040039
+    },
+    {
+      "date": "2021-11-18",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 81.05998229980469,
+      "high_price": 85.05317687988281,
+      "low_price": 80.16749572753906
+    },
+    {
+      "date": "2021-11-19",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 85.08997344970703,
+      "high_price": 88.32868957519531,
+      "low_price": 82.80814361572266
+    },
+    {
+      "date": "2021-11-22",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 85.3843994140625,
+      "high_price": 86.30448913574219,
+      "low_price": 83.03816223144531
+    },
+    {
+      "date": "2021-11-23",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 87.69381713867188,
+      "high_price": 88.75192260742188,
+      "low_price": 83.57181549072266
+    },
+    {
+      "date": "2021-11-24",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 85.98245239257812,
+      "high_price": 88.36549377441406,
+      "low_price": 85.52240753173828
+    },
+    {
+      "date": "2021-11-25",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 83.39701080322266,
+      "high_price": 85.43041229248047,
+      "low_price": 82.69773864746094
+    },
+    {
+      "date": "2021-11-26",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 91.07056427001953,
+      "high_price": 91.18096923828125,
+      "low_price": 83.92145538330078
+    },
+    {
+      "date": "2021-11-29",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 92.41389465332031,
+      "high_price": 93.7572250366211,
+      "low_price": 89.51560974121094
+    },
+    {
+      "date": "2021-11-30",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 96.60951232910156,
+      "high_price": 99.09375762939453,
+      "low_price": 93.2143783569336
+    },
+    {
+      "date": "2021-12-01",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 94.88725280761719,
+      "high_price": 97.72592163085938,
+      "low_price": 94.41567993164062
+    },
+    {
+      "date": "2021-12-02",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 95.0814437866211,
+      "high_price": 95.39582061767578,
+      "low_price": 93.13968658447266
+    },
+    {
+      "date": "2021-12-03",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 85.99215698242188,
+      "high_price": 89.40410614013672,
+      "low_price": 85.57606506347656
+    },
+    {
+      "date": "2021-12-06",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 87.37911987304688,
+      "high_price": 87.9246597290039,
+      "low_price": 84.15210723876953
+    },
+    {
+      "date": "2021-12-07",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 88.42398071289062,
+      "high_price": 89.95890045166016,
+      "low_price": 86.7226333618164
+    },
+    {
+      "date": "2021-12-08",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 88.47021484375,
+      "high_price": 90.76334381103516,
+      "low_price": 87.85070037841797
+    },
+    {
+      "date": "2021-12-09",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 88.76609802246094,
+      "high_price": 89.69074249267578,
+      "low_price": 85.99215698242188
+    },
+    {
+      "date": "2021-12-10",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 90.5229263305664,
+      "high_price": 92.00235748291016,
+      "low_price": 88.76609802246094
+    },
+    {
+      "date": "2021-12-13",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 90.31951141357422,
+      "high_price": 91.87291717529297,
+      "low_price": 89.20069122314453
+    },
+    {
+      "date": "2021-12-14",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 86.68563079833984,
+      "high_price": 90.59689331054688,
+      "low_price": 86.16783142089844
+    },
+    {
+      "date": "2021-12-15",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 87.34213256835938,
+      "high_price": 87.6565170288086,
+      "low_price": 85.48358917236328
+    },
+    {
+      "date": "2021-12-16",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 94.9334945678711,
+      "high_price": 95.0814437866211,
+      "low_price": 87.89693450927734
+    },
+    {
+      "date": "2021-12-17",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 95.66395568847656,
+      "high_price": 98.85398864746094,
+      "low_price": 94.90574645996094
+    },
+    {
+      "date": "2021-12-20",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 94.45266723632812,
+      "high_price": 95.79340362548828,
+      "low_price": 92.6773452758789
+    },
+    {
+      "date": "2021-12-21",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 93.78693389892578,
+      "high_price": 96.94922637939453,
+      "low_price": 92.6311264038086
+    },
+    {
+      "date": "2021-12-22",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 96.15401458740234,
+      "high_price": 97.8183822631836,
+      "low_price": 93.01946258544922
+    },
+    {
+      "date": "2021-12-23",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 95.05370330810547,
+      "high_price": 97.3468246459961,
+      "low_price": 93.9256362915039
+    },
+    {
+      "date": "2021-12-24",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 100.88822174072266,
+      "high_price": 101.6371841430664,
+      "low_price": 95.37732696533203
+    },
+    {
+      "date": "2021-12-27",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 104.92893981933594,
+      "high_price": 108.41485595703125,
+      "low_price": 98.0218276977539
+    },
+    {
+      "date": "2021-12-28",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 104.5220718383789,
+      "high_price": 109.47817993164062,
+      "low_price": 103.35701751708984
+    },
+    {
+      "date": "2021-12-29",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 101.43375396728516,
+      "high_price": 103.97653198242188,
+      "low_price": 98.93721008300781
+    },
+    {
+      "date": "2021-12-30",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 101.89608001708984,
+      "high_price": 104.82721710205078,
+      "low_price": 101.23033905029297
+    },
+    {
+      "date": "2021-12-31",
+      "total_equity": 1000000.0,
+      "benchmark_equity": 1000000.0,
+      "cash": 1000000.0,
+      "close_price": 99.86186218261719,
+      "high_price": 101.7111587524414,
+      "low_price": 98.4933853149414
     }
   ],
-  "trades": [
-    {
-      "date": "2020-01-03",
-      "symbol": "601398",
-      "action": "BUY",
-      "price": 4.158010959625244,
-      "shares": 48000,
-      "fee": 59.87535781860351,
-      "realized_pnl": 0.0
-    },
-    {
-      "date": "2020-01-03",
-      "symbol": "601318",
-      "action": "BUY",
-      "price": 63.89068603515625,
-      "shares": 3100,
-      "fee": 59.41833801269531,
-      "realized_pnl": 0.0
-    },
-    {
-      "date": "2020-01-03",
-      "symbol": "600036",
-      "action": "BUY",
-      "price": 29.024324417114258,
-      "shares": 6800,
-      "fee": 59.20962181091308,
-      "realized_pnl": 0.0
-    },
-    {
-      "date": "2020-01-03",
-      "symbol": "000333",
-      "action": "BUY",
-      "price": 44.22909164428711,
-      "shares": 4500,
-      "fee": 59.70927371978759,
-      "realized_pnl": 0.0
-    },
-    {
-      "date": "2020-01-03",
-      "symbol": "600900",
-      "action": "BUY",
-      "price": 15.054766654968262,
-      "shares": 13200,
-      "fee": 59.61687595367431,
-      "realized_pnl": 0.0
-    },
-    {
-      "date": "2020-04-10",
-      "symbol": "601398",
-      "action": "SELL",
-      "price": 3.5471513271331787,
-      "shares": 48000,
-      "fee": 51.07897911071777,
-      "realized_pnl": 0.0
-    },
-    {
-      "date": "2020-04-10",
-      "symbol": "600036",
-      "action": "SELL",
-      "price": 23.646718978881836,
-      "shares": 6800,
-      "fee": 48.23930671691894,
-      "realized_pnl": 0.0
-    },
-    {
-      "date": "2020-04-10",
-      "symbol": "601318",
-      "action": "SELL",
-      "price": 52.61717987060547,
-      "shares": 3100,
-      "fee": 48.93397727966308,
-      "realized_pnl": 0.0
-    },
-    {
-      "date": "2020-04-10",
-      "symbol": "000333",
-      "action": "SELL",
-      "price": 37.39658737182617,
-      "shares": 4500,
-      "fee": 50.48539295196533,
-      "realized_pnl": 0.0
-    },
-    {
-      "date": "2020-04-10",
-      "symbol": "600900",
-      "action": "SELL",
-      "price": 13.82249641418457,
-      "shares": 13200,
-      "fee": 54.737085800170895,
-      "realized_pnl": 0.0
-    },
-    {
-      "date": "2020-04-10",
-      "symbol": "601398",
-      "action": "BUY",
-      "price": 3.5471513271331787,
-      "shares": 48000,
-      "fee": 51.07897911071777,
-      "realized_pnl": 0.0
-    },
-    {
-      "date": "2020-04-10",
-      "symbol": "601318",
-      "action": "BUY",
-      "price": 52.61717987060547,
-      "shares": 3200,
-      "fee": 50.512492675781246,
-      "realized_pnl": 0.0
-    },
-    {
-      "date": "2020-04-10",
-      "symbol": "600036",
-      "action": "BUY",
-      "price": 23.646718978881836,
-      "shares": 7200,
-      "fee": 51.07691299438476,
-      "realized_pnl": 0.0
-    },
-    {
-      "date": "2020-04-10",
-      "symbol": "600900",
-      "action": "BUY",
-      "price": 13.82249641418457,
-      "shares": 12300,
-      "fee": 51.00501176834106,
-      "realized_pnl": 0.0
-    },
-    {
-      "date": "2020-04-10",
-      "symbol": "000333",
-      "action": "BUY",
-      "price": 37.39658737182617,
-      "shares": 4500,
-      "fee": 50.48539295196533,
-      "realized_pnl": 0.0
-    }
-  ],
+  "trades": [],
   "metrics": {
     "annualized_return": {
-      "risk": -0.13908964952729352
+      "risk": 0.0
     },
     "max_drawdown": {
-      "risk": -0.18654638331558218
+      "risk": 0.0
     },
-    "sharpe_ratio": -0.8460177749841215,
+    "sharpe_ratio": 0.0,
     "win_rate": 0.0,
+    "total_trades": 0,
+    "total_pnl": 0.0,
+    "total_return": 0.0,
     "mean": {
-      "risk": -0.0005671857113210456
+      "risk": 0.0
     },
     "std": {
-      "risk": 0.012504046983101359
+      "risk": 0.0
     },
-    "alpha": -0.1813049446436083,
-    "beta": 0.7405098372104919,
-    "treynor_ratio": -0.13908964952729352,
-    "information_ratio": -0.8460177749841215,
-    "calmar_ratio": -0.7456035708395071,
-    "sortino_ratio": -0.776603021642607,
-    "value_at_risk": -0.02113451274304692,
+    "alpha": -0.03,
+    "beta": 0.0,
+    "treynor_ratio": 0.0,
+    "information_ratio": 0.0,
+    "calmar_ratio": 0.0,
+    "sortino_ratio": -4.648142601703813e+16,
     "profit_factor": 0.0,
     "profit_loss_ratio": 0.0,
-    "max_consecutive_loss": 5,
-    "avg_holding_days": 98.0
+    "max_consecutive_loss": 0,
+    "avg_holding_days": 0.0
   }
 }

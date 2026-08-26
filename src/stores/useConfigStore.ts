@@ -57,11 +57,17 @@ export const useConfigStore = create<ConfigState>((set) => {
           localStorage.setItem('llm_config', saved); // Migrate to new key
         }
       }
-      const parsed = saved ? JSON.parse(saved) : { model: 'tencent/hy3:free' };
+      const parsed = saved ? JSON.parse(saved) : { model: 'deepseek-v4-pro' };
+      // Migrate away from the removed free-tier model (tencent/hy3:free) for
+      // users who previously saved it to localStorage.
+      if (parsed?.model === 'tencent/hy3:free') {
+        parsed.model = 'deepseek-v4-pro';
+        try { localStorage.setItem('llm_config', JSON.stringify(parsed)); } catch { /* ignore */ }
+      }
       return parsed;
     } catch (e) {
       console.error('Failed to parse config from localStorage:', e);
-      return { model: 'tencent/hy3:free' };
+      return { model: 'deepseek-v4-pro' };
     }
   })();
 

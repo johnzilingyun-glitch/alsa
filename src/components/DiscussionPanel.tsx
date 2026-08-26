@@ -78,6 +78,62 @@ interface DiscussionPanelProps {
   onPointerDownDrag?: (e: React.PointerEvent) => void;
 }
 
+/**
+ * Isolated memoized input: typing only re-renders this small subtree instead of
+ * the whole panel (which re-renders every ExpertReportCard + markdown parsing).
+ */
+const DiscussionInput = React.memo(function DiscussionInput({
+  onSendMessage,
+  isReviewing,
+}: {
+  onSendMessage?: (message: string) => void;
+  isReviewing: boolean;
+}) {
+  const { t } = useTranslation();
+  const [inputValue, setInputValue] = React.useState('');
+
+  const handleSend = () => {
+    if (inputValue.trim() && onSendMessage) {
+      onSendMessage(inputValue.trim());
+      setInputValue('');
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSend();
+    }
+  };
+
+  return (
+    <div className="flex-1 relative">
+      <textarea
+        value={inputValue}
+        onChange={(e) => setInputValue(e.target.value)}
+        onKeyDown={handleKeyDown}
+        placeholder={t('header.searchPlaceholder')}
+        className="w-full input-premium px-6 py-4 pr-16 text-base h-[60px] resize-none rounded-2xl"
+        rows={1}
+        disabled={isReviewing}
+      />
+      <div className="absolute right-4 top-1/2 -translate-y-1/2 flex items-center gap-2">
+        {isReviewing ? (
+          <Loader2 size={24} className="animate-spin text-indigo-600" />
+        ) : (
+          <button
+            onClick={handleSend}
+            disabled={!inputValue.trim()}
+            className="p-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white disabled:bg-zinc-100 disabled:text-zinc-400 transition-all shadow-sm active:scale-[0.98]"
+          >
+            <Send size={20} />
+          </button>
+        )}
+      </div>
+    </div>
+  );
+});
+
 export const DiscussionPanel: React.FC<DiscussionPanelProps> = ({
   onSendMessage,
   onGenerateNewConclusion,
@@ -102,7 +158,10 @@ export const DiscussionPanel: React.FC<DiscussionPanelProps> = ({
   const isDiscussing = useUIStore(selectIsDiscussing);
   const isReviewing = useUIStore(selectIsReviewing);
 
-  const { feishuWebhookUrl, setFeishuWebhookUrl } = useConfigStore();
+  // Narrow selectors: whole-store subscription re-renders this heavy panel on any
+  // config change (e.g. token usage updates after every LLM call).
+  const feishuWebhookUrl = useConfigStore(s => s.feishuWebhookUrl);
+  const setFeishuWebhookUrl = useConfigStore(s => s.setFeishuWebhookUrl);
   const [showFeishuConfig, setShowFeishuConfig] = useState(false);
   const [tempWebhook, setTempWebhook] = useState(feishuWebhookUrl);
   const [isSendingToFeishu, setIsSendingToFeishu] = useState(false);
@@ -110,7 +169,6 @@ export const DiscussionPanel: React.FC<DiscussionPanelProps> = ({
   const [isInputCollapsed, setIsInputCollapsed] = useState(false);
 
   const scrollRef = useRef<HTMLDivElement>(null);
-  const [inputValue, setInputValue] = React.useState('');
   const stockSymbol = analysis?.stockInfo?.symbol;
   const dataVerification = analysis?.dataVerification;
 
@@ -123,20 +181,6 @@ export const DiscussionPanel: React.FC<DiscussionPanelProps> = ({
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [messages, isDiscussing]);
-
-  const handleSend = () => {
-    if (inputValue.trim() && onSendMessage) {
-      onSendMessage(inputValue.trim());
-      setInputValue('');
-    }
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleSend();
-    }
-  };
 
   const handleDownload = () => {
     if (messages.length === 0) return;
@@ -513,30 +557,7 @@ export const DiscussionPanel: React.FC<DiscussionPanelProps> = ({
                 </button>
               )}
             </div>
-            <div className="flex-1 relative">
-              <textarea
-                value={inputValue}
-                onChange={(e) => setInputValue(e.target.value)}
-                onKeyDown={handleKeyDown}
-                placeholder={t('header.searchPlaceholder')}
-                className="w-full input-premium px-6 py-4 pr-16 text-base h-[60px] resize-none rounded-2xl"
-                rows={1}
-                disabled={isReviewing}
-              />
-              <div className="absolute right-4 top-1/2 -translate-y-1/2 flex items-center gap-2">
-                {isReviewing ? (
-                  <Loader2 size={24} className="animate-spin text-indigo-600" />
-                ) : (
-                  <button
-                    onClick={handleSend}
-                    disabled={!inputValue.trim()}
-                    className="p-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white disabled:bg-zinc-100 disabled:text-zinc-400 transition-all shadow-sm active:scale-[0.98]"
-                  >
-                    <Send size={20} />
-                  </button>
-                )}
-              </div>
-            </div>
+            <DiscussionInput onSendMessage={onSendMessage} isReviewing={isReviewing} />
           </div>
           <p className="mt-3 text-[10px] text-zinc-400 px-2 flex items-center gap-1.5 font-bold uppercase tracking-wider max-w-4xl mx-auto">
             <Zap size={14} className="text-indigo-600" />

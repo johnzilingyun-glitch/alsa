@@ -16,6 +16,7 @@ import asyncio
 import logging
 import urllib.request
 import json
+import re
 from typing import Dict, Any, Optional, List
 from datetime import datetime
 
@@ -1058,10 +1059,26 @@ class AStockDirectProvider(DataProvider):
         """
         Real-time quote from Tencent Finance API.
         Returns PE/PB/market cap/turnover along with price data.
+
+        NOTE: Tencent API field layout differs between A-shares (sh/sz) and
+        HK shares (hk). For HK stocks, vals[46] is the stock pinyin abbreviation
+        (e.g. 'TENCENT'), NOT PB. PB is not directly available in the HK quote
+        format, so we set it to None.
         """
         code = _clean_symbol(symbol)
         prefix = _get_prefix(code)
         qt_symbol = f"{prefix}{code}"
+        is_hk = (prefix == "hk")
+
+        def _safe_float(v: str) -> Optional[float]:
+            """Safely parse a string to float, returning None on failure."""
+            if not v or not v.strip():
+                return None
+            # Skip non-numeric values (e.g. pinyin abbreviations like 'CCTC')
+            try:
+                return float(v)
+            except (ValueError, TypeError):
+                return None
 
         loop = asyncio.get_event_loop()
         try:
@@ -1079,20 +1096,22 @@ class AStockDirectProvider(DataProvider):
 
             quote = QuoteData(
                 symbol=code,
-                name=vals[1],
-                price=float(vals[3]) if vals[3] else 0,
-                open=float(vals[5]) if vals[5] else 0,
-                high=float(vals[33]) if vals[33] else 0,
-                low=float(vals[34]) if vals[34] else 0,
-                last_close=float(vals[4]) if vals[4] else 0,
-                change=float(vals[31]) if vals[31] else 0,
-                change_pct=float(vals[32]) if vals[32] else 0,
-                volume=float(vals[36]) if vals[36] else 0,
-                amount=float(vals[37]) * 10000 if vals[37] else 0,  # 万→元
-                market_cap=float(vals[44]) * 1e8 if vals[44] else None,  # 亿→元
-                pe_ttm=float(vals[39]) if vals[39] else None,
-                pb=float(vals[46]) if vals[46] else None,
-                turnover_pct=float(vals[38]) if vals[38] else None,
+                name=vals[1] if len(vals) > 1 else code,
+                price=_safe_float(vals[3]) or 0,
+                open=_safe_float(vals[5]) or 0,
+                high=_safe_float(vals[33]) or 0,
+                low=_safe_float(vals[34]) or 0,
+                last_close=_safe_float(vals[4]) or 0,
+                change=_safe_float(vals[31]) or 0,
+                change_pct=_safe_float(vals[32]) or 0,
+                volume=_safe_float(vals[36]) or 0,
+                amount=(_safe_float(vals[37]) or 0) * 10000,  # 万→元
+                market_cap=(_safe_float(vals[44]) or 0) * 1e8 if _safe_float(vals[44]) else None,  # 亿→元
+                pe_ttm=_safe_float(vals[39]),
+                # PB index differs: A-share PB at vals[46]; HK puts pinyin there instead.
+                # For HK stocks, PB is not directly available in the quote format.
+                pb=_safe_float(vals[46]) if not is_hk else None,
+                turnover_pct=_safe_float(vals[38]),
                 source=self.name,
             )
             logger.info(f"[{self.name}] Quote for {code}: {quote.price} PE={quote.pe_ttm}")
@@ -1297,11 +1316,192 @@ class AStockDirectProvider(DataProvider):
           - Tencent: PE/PB/market cap
           - EastMoney: financial indicators, dividends, stock info
           - Sina: financial statements
+
+        HK/US fast path: yfinance (the usual HK/US source) is rate-limited from
+        datacenter IPs (2026-08 incident), so HK (5-digit) and US (alpha)
+        symbols are served keylessly from Tencent quotes + EastMoney HK F10.
         """
         code = _clean_symbol(symbol)
         loop = asyncio.get_event_loop()
 
         result: Dict[str, Any] = {"source": self.name, "symbol": code}
+
+        # ── HK/US fast path (Tencent + EastMoney HK; yfinance-free) ──────
+        if code and (not code.isdigit() or len(code) == 5):
+            try:
+                tq = await fetch_tencent_quote([symbol])
+                if tq:
+                    q = tq[0]
+                    result.update({
+                        "price": q.get("price"),
+                        "name": q.get("name"),
+                        "marketCap": q.get("market_cap"),
+                        "pe": q.get("pe"),
+                        "pb": q.get("pb"),
+                        "turnoverPct": q.get("change_pct"),
+                    })
+                    if len(code) == 5:  # HK — add financials from EastMoney
+                        hk = await fetch_hk_financials(symbol, periods=16)
+                        if hk:
+                            r = hk[0]
+                            result.update({
+                                "revenue": r.get("OPERATE_INCOME"),
+                                "netProfit": r.get("HOLDER_PROFIT"),
+                                "netProfitGrowthYoY": r.get("HOLDER_PROFIT_YOY"),
+                                "revenueGrowthYoY": r.get("OPERATE_INCOME_YOY"),
+                                "roe": r.get("ROE_AVG"),
+                                "grossMargin": r.get("GROSS_PROFIT_RATIO"),
+                                "eps": r.get("BASIC_EPS"),
+                                "industry": "HK-Share",
+                            })
+                            # ── Comprehensive HK F10 → report-compiler mapping ──
+                            # EastMoney HK F10 (RPT_HKF10_FN_MAININDICATOR) exposes
+                            # ~25 indicators; previously only 7 were mapped, so the
+                            # deep-fundamentals table showed N/A for most rows on HK
+                            # shares. Map everything the report compiler consumes.
+                            # (Tencent's HK quote has no PB — field 46 is the pinyin
+                            # abbreviation — so PB must come from PB_TTM here.)
+                            if r.get("PB_TTM") is not None:
+                                result["pb"] = r.get("PB_TTM")
+                                result["priceToBook"] = r.get("PB_TTM")
+                            if r.get("PE_TTM") is not None and result.get("pe") is None:
+                                result["pe"] = r.get("PE_TTM")
+                            # Margins: store as decimal fraction (matches yfinance/THS convention)
+                            if r.get("NET_PROFIT_RATIO") is not None:
+                                result["profitMargin"] = r.get("NET_PROFIT_RATIO") / 100.0
+                            if r.get("ROA") is not None:
+                                result["roa"] = r.get("ROA")
+                            if r.get("DEBT_ASSET_RATIO") is not None:
+                                result["debtRatio"] = r.get("DEBT_ASSET_RATIO")
+                            if r.get("TOTAL_ASSETS") is not None:
+                                result["totalAssets"] = r.get("TOTAL_ASSETS")
+                            if r.get("TOTAL_LIABILITIES") is not None:
+                                result["totalLiabilities"] = r.get("TOTAL_LIABILITIES")
+                            if r.get("NETCASH_OPERATE") is not None:
+                                result["operatingCashflow"] = r.get("NETCASH_OPERATE")
+                            if r.get("END_CASH") is not None:
+                                result["totalCash"] = r.get("END_CASH")
+                            if r.get("DIVIDEND_RATE") is not None:
+                                result["dividendYield"] = r.get("DIVIDEND_RATE")
+                            if r.get("DPS_HKD") is not None:
+                                result["dividendPerShare"] = r.get("DPS_HKD")
+                            if r.get("BPS") is not None:
+                                result["bvps"] = r.get("BPS")
+                            # Growth aliases the report compiler understands
+                            if r.get("OPERATE_INCOME_YOY") is not None:
+                                result["revenueYoY"] = r.get("OPERATE_INCOME_YOY")
+                                result["revenueGrowth"] = r.get("OPERATE_INCOME_YOY")
+                            if r.get("HOLDER_PROFIT_YOY") is not None:
+                                result["netProfitYoY"] = r.get("HOLDER_PROFIT_YOY")
+                                result["netProfitGrowth"] = r.get("HOLDER_PROFIT_YOY")
+                            # Market cap: F10 total market cap is raw (yuan) —
+                            # overrides Tencent's 亿-unit value for consistency
+                            # with the A-share path (raw yuan everywhere).
+                            if r.get("TOTAL_MARKET_CAP") is not None:
+                                result["marketCap"] = r.get("TOTAL_MARKET_CAP")
+                            # Enterprise value ≈ market cap + total liabilities − cash
+                            if (r.get("TOTAL_MARKET_CAP") is not None
+                                    and r.get("TOTAL_LIABILITIES") is not None
+                                    and r.get("END_CASH") is not None):
+                                result["enterpriseValue"] = (
+                                    r.get("TOTAL_MARKET_CAP") + r.get("TOTAL_LIABILITIES") - r.get("END_CASH")
+                                )
+                            # QoQ (环比) / 3-year CAGR from the F10 period series —
+                            # only compare reports of the SAME frequency (e.g. two
+                            # 一季报); mixing 一季报 vs 年报 would be misleading.
+                            def _report_freq(typ):
+                                m = re.search(r'(一季报|中报|三季报|年报)', str(typ or ""))
+                                return m.group(1) if m else None
+                            def _pct_change(cur, prev):
+                                if cur is None or prev in (None, 0):
+                                    return None
+                                return round((cur - prev) / abs(prev) * 100.0, 2)
+                            freq0 = _report_freq(r.get("report_type"))
+                            if freq0:
+                                # Same-frequency previous period → QoQ
+                                prev_same = next((x for x in hk[1:] if _report_freq(x.get("report_type")) == freq0), None)
+                                if prev_same is not None:
+                                    if r.get("OPERATE_INCOME") is not None and prev_same.get("OPERATE_INCOME") is not None:
+                                        result["revenueQoQ"] = _pct_change(r.get("OPERATE_INCOME"), prev_same.get("OPERATE_INCOME"))
+                                    if r.get("HOLDER_PROFIT") is not None and prev_same.get("HOLDER_PROFIT") is not None:
+                                        result["netProfitQoQ"] = _pct_change(r.get("HOLDER_PROFIT"), prev_same.get("HOLDER_PROFIT"))
+                                # Same-frequency report ~3 years earlier → CAGR
+                                base_date = r.get("report_date") or ""
+                                for old in hk:
+                                    od = old.get("report_date") or ""
+                                    if od >= base_date or _report_freq(old.get("report_type")) != freq0:
+                                        continue
+                                    try:
+                                        d0 = datetime.strptime(base_date, "%Y-%m-%d")
+                                        d1 = datetime.strptime(od, "%Y-%m-%d")
+                                        years = (d0 - d1).days / 365.25
+                                    except (ValueError, TypeError):
+                                        continue
+                                    if 2.5 <= years <= 3.5:
+                                        def _cagr(cur, prev):
+                                            if cur is None or prev in (None, 0) or prev < 0 or cur < 0:
+                                                return None
+                                            return round((abs(cur / prev) ** (1.0 / years) - 1.0) * 100.0, 2)
+                                        if r.get("OPERATE_INCOME") is not None and old.get("OPERATE_INCOME") is not None:
+                                            result["revenueCagr3y"] = _cagr(r.get("OPERATE_INCOME"), old.get("OPERATE_INCOME"))
+                                        if r.get("HOLDER_PROFIT") is not None and old.get("HOLDER_PROFIT") is not None:
+                                            result["incomeCagr3y"] = _cagr(r.get("HOLDER_PROFIT"), old.get("HOLDER_PROFIT"))
+                                        break
+
+                            # ── Derived metrics (computable from F10 + quote) ──
+                            # These were previously N/A; derive them so both the
+                            # expert prompts and the deep-fundamentals table get values.
+                            mcap = result.get("marketCap")
+                            price = result.get("price")
+                            rev = r.get("OPERATE_INCOME")
+                            npv = r.get("HOLDER_PROFIT")
+                            ta = r.get("TOTAL_ASSETS")
+                            # Price-to-Sales: use TTM revenue assembled from the period
+                            # series (latest quarter + last FY − same quarter last year)
+                            ttm_rev = None
+                            if rev is not None and freq0 and freq0 != "年报":
+                                fy = next((x for x in hk if _report_freq(x.get("report_type")) == "年报"), None)
+                                yoy = next((x for x in hk if _report_freq(x.get("report_type")) == freq0 and (x.get("report_date") or "") < (r.get("report_date") or "")), None)
+                                if fy and yoy and fy.get("OPERATE_INCOME") is not None and yoy.get("OPERATE_INCOME") is not None:
+                                    ttm_rev = rev + fy["OPERATE_INCOME"] - yoy["OPERATE_INCOME"]
+                            ps_base = ttm_rev if ttm_rev else rev
+                            if mcap and ps_base:
+                                result["priceToSales"] = round(mcap / ps_base, 2)
+                            # Payout ratio: DPS × shares / net profit (decimal, yfinance convention)
+                            if mcap and price and npv and r.get("DPS_HKD") is not None and npv > 0:
+                                shares = mcap / price if price else None
+                                if shares:
+                                    result["payoutRatio"] = round(r["DPS_HKD"] * shares / npv, 3)
+                            # Asset turnover: revenue / total assets
+                            if rev and ta:
+                                result["assetTurnover"] = round(rev / ta, 4)
+                            # ROIC ≈ NOPAT / invested capital = pre-tax×(1−25%) / (assets − cash)
+                            if r.get("PRETAX_PROFIT") is not None and ta and r.get("END_CASH") is not None:
+                                ic = ta - r["END_CASH"]
+                                if ic > 0:
+                                    result["roic"] = round(r["PRETAX_PROFIT"] * 0.75 / ic * 100.0, 2)
+                            # 52-week high/low (for 股价百分位) + beta (vs HSI)
+                            # from the 1y Tencent K-line — one fetch, two metrics.
+                            try:
+                                kdf = await self._fetch_tencent_kline(code, period="1y", interval="1d")
+                                if kdf is not None and len(kdf) > 20:
+                                    result["fiftyTwoWeekHigh"] = float(kdf["high"].max())
+                                    result["fiftyTwoWeekLow"] = float(kdf["low"].min())
+                                if kdf is not None and len(kdf) > 60 and result.get("beta") is None:
+                                    bench = await self._fetch_tencent_kline("HSI", period="1y", interval="1d", prefix_override="hk")
+                                    if bench is not None and len(bench) > 60:
+                                        try:
+                                            beta = _compute_beta(kdf, bench)
+                                            if beta is not None:
+                                                result["beta"] = round(float(beta), 3)
+                                        except Exception:
+                                            pass
+                            except Exception as e2:
+                                logger.debug(f"[a-stock-direct] 52w/beta failed for {code}: {e2}")
+                    return result
+            except Exception as e:
+                logger.warning(f"[a-stock-direct] HK/US summary failed for {symbol}: {e}")
+            return {**result, "error": "no tencent quote"}
 
         # 1. Real-time valuation from Tencent
         quote = await self.get_quote(code)
@@ -2082,3 +2282,191 @@ async def fetch_intraday_volume(symbol: str) -> Optional[dict]:
         )
         return None
     return first.get("minute_analysis")
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# HK financials + Tencent quote — fallbacks for yfinance rate-limit / thsdk
+# guest-account gaps (2026-08 data-source incident). See
+# docs/DATA_SOURCE_AND_TOOLS_OPTIMIZATION_2026-07-08.md for the failure matrix.
+# ────────────────────────────────────────────────────────────────────────────
+
+# EastMoney HK F10 main-indicator report (annual/semi-annual HK financials).
+HK_MAIN_INDICATOR_REPORT = "RPT_HKF10_FN_MAININDICATOR"
+
+# Field map: EastMoney HK indicator → human label. Values are in the report
+# currency (HKD for HK-listed issuers, unless IS_CNY_CODE=1).
+HK_INDICATOR_FIELDS = [
+    ("OPERATE_INCOME", "营收"),
+    ("OPERATE_INCOME_YOY", "营收同比%"),
+    ("HOLDER_PROFIT", "归母净利润"),
+    ("HOLDER_PROFIT_YOY", "归母净利同比%"),
+    ("PRETAX_PROFIT", "税前利润"),
+    ("GROSS_PROFIT", "毛利润"),
+    ("GROSS_PROFIT_RATIO", "毛利率%"),
+    ("NET_PROFIT_RATIO", "净利率%"),
+    ("BASIC_EPS", "基本每股收益"),
+    ("DILUTED_EPS", "稀释每股收益"),
+    ("EPS_TTM", "EPS(TTM)"),
+    ("BPS", "每股净资产"),
+    ("ROE_AVG", "ROE(加权)%"),
+    ("ROA", "ROA%"),
+    ("DEBT_ASSET_RATIO", "资产负债率%"),
+    ("TOTAL_ASSETS", "总资产"),
+    ("TOTAL_LIABILITIES", "总负债"),
+    ("TOTAL_PARENT_EQUITY", "归母净资产"),
+    ("NETCASH_OPERATE", "经营现金流净额"),
+    ("END_CASH", "期末现金"),
+    ("DPS_HKD", "每股派息(HKD)"),
+    ("DIVIDEND_RATE", "股息率%"),
+    ("PE_TTM", "PE(TTM)"),
+    ("PB_TTM", "PB"),
+    ("TOTAL_MARKET_CAP", "总市值"),
+]
+
+
+def _normalize_hk_symbol(symbol: str) -> str:
+    """Normalize HK symbol → 5-digit zero-padded EastMoney code (e.g. 01888).
+
+    Accepts: '1888', '1888.HK', 'HK1888', '01888', 'hk01888'.
+    Returns '' if the symbol does not look like an HK code.
+    """
+    s = symbol.strip().upper()
+    if s.startswith("HK"):
+        s = s[2:]
+    s = s.replace(".HK", "")
+    s = s.replace("UHKG", "")
+    if s.isdigit() and len(s) <= 5:
+        return s.zfill(5)
+    return ""
+
+
+async def fetch_hk_financials(symbol: str, periods: int = 4) -> List[Dict[str, Any]]:
+    """Fetch HK-share core financial indicators from EastMoney datacenter.
+
+    Source: RPT_HKF10_FN_MAININDICATOR — annual/semi-annual reports (REPORT_DATE
+    descending). Works from datacenter IPs where yfinance is rate-limited.
+
+    Returns rows like:
+      {"report_date": "2025-12-31", "report_type": "2025年年报",
+       "OPERATE_INCOME": 18425859611.8, "HOLDER_PROFIT": 2205820400.28, ...}
+    """
+    code = _normalize_hk_symbol(symbol)
+    if not code:
+        return []
+    try:
+        rows = await asyncio.to_thread(
+            _eastmoney_datacenter,
+            HK_MAIN_INDICATOR_REPORT,
+            "ALL",
+            f'(SECUCODE="{code}.HK")',
+            page_size=periods,
+            sort_columns="REPORT_DATE",
+            sort_types="-1",
+        )
+    except Exception as e:
+        logger.warning(f"[a-stock-direct] HK financials failed for {symbol}: {e}")
+        return []
+
+    out = []
+    for r in rows:
+        item = {"report_date": str(r.get("REPORT_DATE", ""))[:10],
+                "report_type": r.get("REPORT_TYPE", "")}
+        for fkey, label in HK_INDICATOR_FIELDS:
+            if r.get(fkey) is not None:
+                item[fkey] = r[fkey]
+        if item.get("OPERATE_INCOME") is not None or item.get("HOLDER_PROFIT") is not None:
+            out.append(item)
+    return out
+
+
+async def fetch_tencent_quote(symbols) -> List[Dict[str, Any]]:
+    """Fetch real-time quotes from Tencent Finance (qt.gtimg.cn).
+
+    Supports A-share (sh600519/sz000858/bj), HK (hk01888) and US (usAAPL)
+    symbols. Used as fallback when thsdk guest account has no HK/US data or
+    yfinance is rate-limited.
+
+    Accepts a single symbol or list; each may be '600519', '01888.HK', 'AAPL',
+    'USHA600519', 'UHKG01888', 'UNQNAAPL' … Returns rows with keys:
+      code, name, price, prev_close, open, high, low, volume, amount,
+      change_pct, change_amt, turnover, pe, pb, market_cap, time
+    """
+    if isinstance(symbols, str):
+        symbols = [symbols]
+
+    qt_symbols = []
+    for s in symbols:
+        s = s.strip()
+        up = s.upper()
+        if up.startswith("USHA"):
+            qt_symbols.append("sh" + up[4:])
+        elif up.startswith("USZA"):
+            qt_symbols.append("sz" + up[4:])
+        elif up.startswith("UNQQ"):
+            qt_symbols.append("us" + up[4:])
+        elif up.startswith("UNYS"):
+            qt_symbols.append("us" + up[4:])
+        elif up.startswith("UHKG"):
+            qt_symbols.append("hk" + up[4:])
+        elif up.endswith(".HK") or up.startswith("HK") or (up.isdigit() and len(up) <= 5):
+            qt_symbols.append("hk" + up.replace(".HK", "").replace("HK", "").zfill(5))
+        elif up.isdigit() and len(up) == 6:
+            prefix = "sh" if up.startswith(("6", "9")) else ("bj" if up.startswith("8") else "sz")
+            qt_symbols.append(prefix + up)
+        elif up.isalpha() and len(up) <= 5:
+            # US ticker: Tencent uses bare 'usTICKER' (no exchange suffix —
+            # 'usAAPL.OQ' returns v_pv_none_match).
+            qt_symbols.append("us" + up)
+
+    if not qt_symbols:
+        return []
+
+    url = "https://qt.gtimg.cn/q=" + ",".join(qt_symbols)
+    try:
+        loop = asyncio.get_event_loop()
+        def _fetch():
+            req = urllib.request.Request(url, headers={
+                "User-Agent": UA,
+                "Referer": "https://gu.qq.com/",
+            })
+            return urllib.request.urlopen(req, timeout=10).read().decode("gbk", errors="replace")
+        text = await asyncio.wait_for(loop.run_in_executor(None, _fetch), timeout=12)
+    except Exception as e:
+        logger.warning(f"[a-stock-direct] Tencent quote failed: {e}")
+        return []
+
+    out = []
+    for line in text.strip().split(";"):
+        line = line.strip()
+        if "=" not in line:
+            continue
+        raw = line.split("=", 1)[1].strip().strip('"')
+        if not raw:
+            continue
+        p = raw.split("~")
+        if len(p) < 40:
+            continue
+        def _f(idx, scale=1.0):
+            try:
+                v = float(p[idx])
+                return v / scale if scale != 1.0 else v
+            except (ValueError, IndexError):
+                return None
+        out.append({
+            "code": p[2],
+            "name": p[1],
+            "price": _f(3),
+            "prev_close": _f(4),
+            "open": _f(5),
+            "volume": _f(6),
+            "amount": _f(37),
+            "high": _f(33),
+            "low": _f(34),
+            "change_pct": _f(32),
+            "change_amt": _f(31),
+            "time": p[30] if len(p) > 30 else "",
+            "market_cap": _f(45),
+            "pe": _f(39),
+            "pb": _f(46),
+        })
+    return out

@@ -1172,7 +1172,21 @@ router.get('/stock/realtime', async (req, res) => {
 // --- Helpers ---
 
 async function resolveSymbolEx(input: string, preferredMarket: string, isDebug: boolean): Promise<{ symbol: string; market: string }> {
-  const upperInput = input.toUpperCase();
+  // Strip known market suffixes before processing (e.g., "06951.HK-Share" → "06951")
+  let cleanInput = input;
+  let inferredMarket = preferredMarket;
+  const marketSuffixMatch = input.match(/^(.+)\.(A-Share|HK-Share|US-Share)$/i);
+  if (marketSuffixMatch) {
+    cleanInput = marketSuffixMatch[1];
+    inferredMarket = marketSuffixMatch[2]; // Normalize case: "hk-share" → "HK-Share"
+    // Normalize market case to canonical form
+    const marketLower = inferredMarket.toLowerCase();
+    if (marketLower === 'a-share') inferredMarket = 'A-Share';
+    else if (marketLower === 'hk-share') inferredMarket = 'HK-Share';
+    else if (marketLower === 'us-share') inferredMarket = 'US-Share';
+  }
+  
+  const upperInput = cleanInput.toUpperCase();
   
   const CROSS_MAPPING: Record<string, { symbol: string, market: string }> = {
     'BABA': { symbol: '9988', market: 'HK-Share' },
@@ -1186,7 +1200,7 @@ async function resolveSymbolEx(input: string, preferredMarket: string, isDebug: 
   if (CROSS_MAPPING[upperInput]) return CROSS_MAPPING[upperInput];
 
   try {
-    const encodedInput = encodeURIComponent(input);
+    const encodedInput = encodeURIComponent(cleanInput);
     const emResponse = await fetch(`https://suggest.eastmoney.com/suggest/default.aspx?name=cb&input=${encodedInput}`, { signal: AbortSignal.timeout(3000) });
     const emText = await emResponse.text();
     // Support both string style: var cb="..." and array style: var cb=[...]
@@ -1208,7 +1222,7 @@ async function resolveSymbolEx(input: string, preferredMarket: string, isDebug: 
             else if (emMarketName === 'HK') marketId = 'HK-Share';
             else if (emMarketName === 'US') marketId = 'US-Share';
             if (marketId) {
-              if (marketId === preferredMarket) return { symbol: code, market: marketId };
+              if (marketId === inferredMarket) return { symbol: code, market: marketId };
               if (!bestMatch) bestMatch = { symbol: code, market: marketId };
             }
           }
@@ -1219,7 +1233,7 @@ async function resolveSymbolEx(input: string, preferredMarket: string, isDebug: 
   } catch {}
 
   let resolvedSym = upperInput;
-  let resolvedMarket = preferredMarket;
+  let resolvedMarket = inferredMarket;
   if (/^\d{6}$/.test(upperInput)) resolvedMarket = 'A-Share';
   else if (/^\d{1,5}$/.test(upperInput)) resolvedMarket = 'HK-Share';
   else if (/^[A-Z]{1,5}$/.test(upperInput)) resolvedMarket = 'US-Share';

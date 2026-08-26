@@ -398,12 +398,17 @@ class DiscussionService:
         # so we don't gate on it here.
         name_is_code = (stock_name_matches_symbol or si_name_matches_symbol)
 
-        # Supplementary check: blocking errors + no price + very low data quality
+        # However: if we DO have OHLC history data, the stock is identifiable —
+        # the quote just failed temporarily (network, rate limit, provider gap).
+        # Don't abort the entire analysis when OHLC data is available.
+        has_ohlc_data = False
         dq = snapshot.get("data_quality", {}) or {}
         dq_score = dq.get("score", 0) or 0
         blocking_errors = dq.get("blocking_errors", []) or []
+        field_coverage = dq.get("field_coverage", {}) or {}
+        has_ohlc_data = field_coverage.get("ohlc", 0) == 1
 
-        is_unidentifiable = name_is_code and not has_price
+        is_unidentifiable = name_is_code and not has_price and not has_ohlc_data
 
         if not is_unidentifiable:
             is_unidentifiable = (bool(blocking_errors) and not has_price and dq_score < 0.3)
@@ -1232,7 +1237,7 @@ class DiscussionService:
             except Exception as e:
                 logger.debug(f"[AgentMemory] Store failed: {e}")
 
-        # 4️⃣/7️⃣ 确定性硬填: 弱模型(tencent/hy3:free)会丢弃注入的 audit_data /
+        # 4️⃣/7️⃣ 确定性硬填: 弱模型会丢弃注入的 audit_data /
         # IndustryBenchmark, 导致最终报告 4️⃣/7️⃣ 写 N/A。直接在 Fundamental
         # Analyst 输出后追加 EastMoney 直连的核实表格, 保证报告出现真实数值
         # (不经模型文本, 不受模型能力影响)。
@@ -1571,7 +1576,7 @@ def _fmt_val(v, suffix: str = "") -> str:
 def _format_audit_table(audit_data: Dict[str, Any]) -> str:
     """固化 4️⃣ 盈利质量审计(EastMoney 直连)为核实表格, 追加到 Fundamental Analyst 输出。
 
-    弱模型(tencent/hy3:free)会丢弃注入的 audit_data, 直接在专家文本后追加确定值
+    弱模型会丢弃注入的 audit_data, 直接在专家文本后追加确定值
     表格, 保证最终报告 4️⃣ 显示真实数值(不经模型文本, 不受模型能力影响)。
     """
     rows: list = []

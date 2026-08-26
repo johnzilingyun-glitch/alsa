@@ -4,6 +4,9 @@ import logging
 logger = logging.getLogger(__name__)
 import re
 import aiohttp
+import json
+import hashlib
+import urllib.request
 from typing import List, Dict, Any
 import asyncio
 
@@ -33,6 +36,33 @@ class SearchService:
         self._searxng_base_url = os.getenv("SEARXNG_BASE_URL", "http://localhost:8080")
         self._searxng_timeout = 15
         self._searxng_enabled = os.getenv("SEARXNG_ENABLED", "true").lower() in ("true", "1", "yes")
+
+        # New search API keys (from FAOS)
+        # NOTE 2026-08: the FAOS-issued keys below have ALL expired (Tavily
+        # HTTP 432, Serper HTTP 400, Jina timeout). They are kept as env
+        # overridable slots but default to empty; do not re-enable without
+        # valid keys. See docs/DATA_SOURCE_AND_TOOLS_OPTIMIZATION_2026-07-08.md.
+        self.tavily_api_key = os.getenv("TAVILY_API_KEY", "")
+        self.serper_api_key = os.getenv("SERPER_API_KEY", "")
+        self.jina_api_key = os.getenv("JINA_API_KEY", "")
+        
+        # Dynamic enable/disable flags for new APIs (disabled by default)
+        self.tavily_enabled = os.getenv("TAVILY_ENABLED", "false").lower() in ("true", "1", "yes")
+        self.serper_enabled = os.getenv("SERPER_ENABLED", "false").lower() in ("true", "1", "yes")
+        self.jina_enabled = os.getenv("JINA_ENABLED", "false").lower() in ("true", "1", "yes")
+        
+        # Caching
+        self._memory_cache: Dict[str, str] = {}
+        self.redis_client = None
+
+    async def _init_redis(self):
+        if self.redis_client is None:
+            try:
+                from app.db.redis_client import get_redis
+                self.redis_client = await get_redis()
+            except Exception as e:
+                logger.warning(f"Could not init redis for search: {e}. Falling back to in-memory cache.")
+                self.redis_client = False # False means tried and failed
 
     def _is_blocked_source(self, url: str) -> bool:
         return any(d in url for d in self.BLOCKED_SOURCE_DOMAINS)
@@ -155,6 +185,122 @@ class SearchService:
                 "source": "SearXNG"
             })
         return formatted
+
+    # ────────── FAOS Web APIs ──────────
+    def _enrich_query(self, query: str, is_news: bool = False) -> str:
+        """Enrich query with high-quality media sources based on FAOS logic."""
+        if any('\u4e00' <= c <= '\u9fff' for c in query) or query.endswith(('.SS', '.SZ', '.HK')):
+            return f"{query} 华尔街见闻 财联社 金十数据 最新消息 研报"
+        else:
+            if is_news:
+                return f"{query} Bloomberg Reuters CNBC Financial Times Wall Street Journal latest news"
+            return query
+
+    async def _search_tavily(self, query: str, max_results: int) -> List[Dict[str, Any]]:
+        url = "https://api.tavily.com/search"
+        async with aiohttp.ClientSession() as session:
+            payload = {
+                "api_key": self.tavily_api_key,
+                "query": query,
+                "topic": "news",
+                "search_depth": "advanced",
+                "include_answer": False,
+                "max_results": max_results
+            }
+            async with session.post(url, json=payload, timeout=12.0) as resp:
+                resp.raise_for_status()
+                data = await resp.json()
+                
+                results = []
+                for item in data.get("results", []):
+                    results.append({
+                        "title": item.get("title", ""),
+                        "url": item.get("url", ""),
+                        "content": item.get("content", ""),
+                        "source": "Tavily"
+                    })
+                return results
+
+    async def _search_serper(self, query: str, max_results: int) -> List[Dict[str, Any]]:
+        url = "https://google.serper.dev/news"
+        async with aiohttp.ClientSession() as session:
+            payload = {
+                "q": query,
+                "gl": "cn",
+                "hl": "zh-cn",
+                "num": max_results
+            }
+            headers = {
+                'X-API-KEY': self.serper_api_key,
+                'Content-Type': 'application/json'
+            }
+            async with session.post(url, headers=headers, json=payload, timeout=12.0) as resp:
+                resp.raise_for_status()
+                data = await resp.json()
+                
+                results = []
+                items = data.get("news", []) or data.get("organic", [])
+                for item in items[:max_results]:
+                    results.append({
+                        "title": item.get("title", ""),
+                        "url": item.get("link", ""),
+                        "content": item.get("snippet", ""),
+                        "source": "Serper (Google News)"
+                    })
+                return results
+
+    async def _search_jina(self, query: str, max_results: int) -> List[Dict[str, Any]]:
+        url = f"https://s.jina.ai/{query}"
+        async with aiohttp.ClientSession() as session:
+            headers = {
+                'Authorization': f'Bearer {self.jina_api_key}',
+                'Accept': 'application/json'
+            }
+            async with session.get(url, headers=headers, timeout=12.0) as resp:
+                resp.raise_for_status()
+                data = await resp.json()
+                
+                results = []
+                for item in data.get("data", [])[:max_results]:
+                    snippet = item.get("description", "")
+                    if not snippet:
+                        content = item.get("content", "")
+                        snippet = content[:300] if content else ""
+                    results.append({
+                        "title": item.get("title", ""),
+                        "url": item.get("url", ""),
+                        "content": snippet,
+                        "source": "Jina Search"
+                    })
+                return results
+
+    async def _web_api_search(self, query: str, max_results: int) -> List[Dict[str, Any]]:
+        """Wraps Tavily -> Serper -> Jina with fallback logic."""
+        results = None
+        errors = []
+        
+        if self.tavily_enabled and self.tavily_api_key:
+            try:
+                results = await self._search_tavily(query, max_results)
+            except Exception as e:
+                errors.append(f"Tavily: {e}")
+                
+        if not results and self.serper_enabled and self.serper_api_key:
+            try:
+                results = await self._search_serper(query, max_results)
+            except Exception as e:
+                errors.append(f"Serper: {e}")
+                
+        if not results and self.jina_enabled and getattr(self, 'jina_api_key', None):
+            try:
+                results = await self._search_jina(query, max_results)
+            except Exception as e:
+                errors.append(f"Jina: {e}")
+
+        if not results and errors:
+            logger.warning(f"All FAOS search APIs failed. Errors: {errors}")
+            
+        return results or []
 
     # ────────── Public API ──────────
     async def quick_search(self, query: str) -> str:
@@ -436,6 +582,93 @@ class SearchService:
 
         return results
 
+    # ────────── Sina futures fallback (commodity prices: copper/gold/oil …) ──────────
+    # Added 2026-08 after the yfinance/FAOS outage: Sina hq.sinajs.cn provides
+    # free, keyless futures quotes (domestic nf_* + international hf_*) reachable
+    # from datacenter IPs. Used for commodity queries (铜价/LME copper etc.).
+    _FUTURES_MAP = [
+        # (keywords, sina symbols)
+        (["copper", "lme", "cu", "铜"], ["nf_CU0", "hf_CAD"]),
+        (["gold", "黄金", "金价"], ["nf_AU0", "hf_GC"]),
+        (["silver", "白银", "银价"], ["nf_AG0", "hf_SI"]),
+        (["aluminum", "aluminium", "铝"], ["nf_AL0", "hf_AHD"]),
+        (["zinc", "锌"], ["nf_ZN0", "hf_ZSD"]),
+        (["nickel", "镍"], ["nf_NI0", "hf_NID"]),
+        (["crude", "oil", "原油", "wti", "brent"], ["nf_SC0", "hf_CL"]),
+        (["rebar", "steel", "螺纹钢", "钢材"], ["nf_RB0"]),
+        (["iron ore", "铁矿石"], ["nf_I0"]),
+        (["soybean", "豆"], ["nf_A0"]),
+    ]
+
+    async def _futures_search(self, query: str, max_results: int = 5) -> List[Dict[str, Any]]:
+        """Search commodity futures quotes via Sina (hq.sinajs.cn).
+
+        Returns structured quotes for domestic (nf_*) and international (hf_*)
+        contracts matching commodity keywords in the query. Keyless, no API key.
+        """
+        ql = query.lower()
+        symbols = []
+        matched = []
+        for kws, syms in self._FUTURES_MAP:
+            if any(k in ql for k in kws):
+                symbols.extend(syms)
+                matched.extend(kws)
+        if not symbols:
+            return []
+        symbols = list(dict.fromkeys(symbols))
+        url = "https://hq.sinajs.cn/list=" + ",".join(symbols)
+        try:
+            loop = asyncio.get_event_loop()
+            def _fetch():
+                req = urllib.request.Request(url, headers={
+                    "User-Agent": _UA,
+                    "Referer": "https://finance.sina.com.cn",
+                })
+                return urllib.request.urlopen(req, timeout=10).read().decode("gbk", errors="replace")
+            text = await asyncio.wait_for(loop.run_in_executor(None, _fetch), timeout=12)
+        except Exception as e:
+            logger.warning(f"Sina futures fetch error: {e}")
+            return []
+
+        results = []
+        for line in text.strip().split("\n"):
+            line = line.strip()
+            if "=" not in line or '"' not in line:
+                continue
+            sym = line.split("=")[0].replace("var hq_str_", "").strip()
+            raw = line.split('"')[1]
+            p = raw.split(",")
+            if len(p) < 15 or not p[0]:
+                continue
+            is_hf = sym.startswith("hf_")
+            if is_hf:
+                # hf_: [0]最新 [2]今开 [4]最高 [5]最低 [6]时间 [13]日期 [14]名称 [15]涨跌
+                name = p[14] or sym
+                price, t_open, high, low = p[0], p[2], p[4], p[5]
+                prev = p[3] or p[0]
+                date = p[13] if len(p) > 13 else ""
+                chg = p[15] if len(p) > 15 else ""
+            else:
+                # nf_: [0]名称 [3]今开 [4]最低 [6]最高 [7]最新 [17]日期
+                name = p[0]
+                price, t_open, high, low = p[7], p[3], p[6], p[4]
+                prev = p[2] or p[7]
+                date = p[17] if len(p) > 17 else ""
+                chg = ""
+            try:
+                price_f = float(price)
+                prev_f = float(prev)
+                chg_pct = round((price_f - prev_f) / prev_f * 100, 2) if prev_f else 0.0
+            except (ValueError, TypeError):
+                chg_pct = 0.0
+            results.append({
+                "title": f"{name} ({sym}) 期货行情",
+                "url": f"https://finance.sina.com.cn/futures/quotes/{sym}.shtml",
+                "content": f"最新价:{price} 涨跌幅:{chg_pct}% 今开:{t_open} 最高:{high} 最低:{low} 日期:{date}",
+                "source": "SinaFutures",
+            })
+        return results[:max_results]
+
     # ────────── MAIN SEARCH ──────────
     async def search(self, query: str, max_results: int = 10) -> List[Dict[str, Any]]:
         """Search with fallback chain: Iwencai → SearXNG → EastMoney → Sina → yfinance.
@@ -448,34 +681,78 @@ class SearchService:
         if not query:
             return []
 
+        enriched_query = self._enrich_query(query, is_news=False)
+
+        # 0. Check Cache
+        await self._init_redis()
+        cache_key = f"alsa:search:{hashlib.md5(enriched_query.encode()).hexdigest()}:{max_results}"
+        
+        if self.redis_client:
+            try:
+                cached = await self.redis_client.get(cache_key)
+                if cached:
+                    return self._sanitize_results(json.loads(cached))
+            except Exception:
+                pass
+        else:
+            if cache_key in self._memory_cache:
+                return self._sanitize_results(json.loads(self._memory_cache[cache_key]))
+
         # 1. Iwencai (primary source for Chinese financial data)
         if _IS_CHINA_SERVER or self._is_chinese_stock_query(query):
             results = await self._iwencai_search(query, max_results)
             if results:
+                self._save_to_cache(cache_key, results)
                 return self._sanitize_results(results)
+
+        # 2. FAOS Web APIs (Tavily, Serper, Jina)
+        results = await self._web_api_search(enriched_query, max_results)
+        if results:
+            self._save_to_cache(cache_key, results)
+            return self._sanitize_results(results)
+
+        # 2.5 Sina futures (commodity prices — keyless, datacenter-friendly)
+        results = await self._futures_search(query, max_results)
+        if results:
+            self._save_to_cache(cache_key, results)
+            return self._sanitize_results(results)
 
         # 3. SearXNG fallback (if enabled and reachable)
         if is_skill_enabled("searxng_backend"):
-            results = await self._searxng_search(query, max_results)
+            results = await self._searxng_search(enriched_query, max_results)
             if results:
+                self._save_to_cache(cache_key, results)
                 return self._sanitize_results(results)
 
         # 4. EastMoney stock data fallback (for Chinese stock code queries)
         results = await self._eastmoney_search(query, max_results)
         if results:
+            self._save_to_cache(cache_key, results)
             return self._sanitize_results(results)
 
         # 5. Sina finance fallback (stock name → code resolution)
         results = await self._sina_search(query, max_results)
         if results:
+            self._save_to_cache(cache_key, results)
             return self._sanitize_results(results)
 
         # 6. Yahoo Finance fallback (global tickers)
         results = await self._yfinance_search(query, max_results)
         if results:
+            self._save_to_cache(cache_key, results)
             return self._sanitize_results(results)
 
         return []
+
+    def _save_to_cache(self, cache_key: str, results: List[Dict[str, Any]]):
+        if self.redis_client:
+            try:
+                # Fire and forget
+                asyncio.create_task(self.redis_client.setex(cache_key, 7200, json.dumps(results)))
+            except Exception:
+                pass
+        else:
+            self._memory_cache[cache_key] = json.dumps(results)
 
     async def search_news(self, query: str, max_results: int = 10, global_only: bool = False) -> List[Dict[str, Any]]:
         """Search news with fallback chain: Iwencai → SearXNG → EastMoney → Sina → yfinance."""
@@ -484,32 +761,66 @@ class SearchService:
         if not query:
             return []
 
+        enriched_query = self._enrich_query(query, is_news=True)
+        
+        # 0. Check Cache
+        await self._init_redis()
+        cache_key = f"alsa:search_news:{hashlib.md5(enriched_query.encode()).hexdigest()}:{max_results}:{global_only}"
+        
+        if self.redis_client:
+            try:
+                cached = await self.redis_client.get(cache_key)
+                if cached:
+                    return self._sanitize_results(json.loads(cached))
+            except Exception:
+                pass
+        else:
+            if cache_key in self._memory_cache:
+                return self._sanitize_results(json.loads(self._memory_cache[cache_key]))
+
         if not global_only:
-            # 2. Iwencai (primary source for Chinese financial news)
+            # 1. Iwencai (primary source for Chinese financial news)
             if _IS_CHINA_SERVER or self._is_chinese_stock_query(query):
                 results = await self._iwencai_search(query, max_results)
                 if results:
+                    self._save_to_cache(cache_key, results)
                     return self._sanitize_results(results)
+
+        # 2. FAOS Web APIs
+        results = await self._web_api_search(enriched_query, max_results)
+        if results:
+            self._save_to_cache(cache_key, results)
+            return self._sanitize_results(results)
+
+        # 2.5 Sina futures (commodity prices — keyless, datacenter-friendly)
+        results = await self._futures_search(query, max_results)
+        if results:
+            self._save_to_cache(cache_key, results)
+            return self._sanitize_results(results)
 
         # 3. SearXNG fallback (or global primary if global_only=True)
         if is_skill_enabled("searxng_backend"):
-            results = await self._searxng_search(f"{query} latest news 2025", max_results, categories="news")
+            results = await self._searxng_search(f"{enriched_query} 2025", max_results, categories="news")
             if results:
+                self._save_to_cache(cache_key, results)
                 return self._sanitize_results(results)
 
         # 4. EastMoney stock data fallback
         results = await self._eastmoney_search(query, max_results)
         if results:
+            self._save_to_cache(cache_key, results)
             return self._sanitize_results(results)
 
         # 5. Sina finance fallback
         results = await self._sina_search(query, max_results)
         if results:
+            self._save_to_cache(cache_key, results)
             return self._sanitize_results(results)
 
         # 6. Yahoo Finance fallback (global tickers)
         results = await self._yfinance_search(query, max_results)
         if results:
+            self._save_to_cache(cache_key, results)
             return self._sanitize_results(results)
 
         return []

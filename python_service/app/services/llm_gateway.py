@@ -22,6 +22,60 @@ load_dotenv(os.path.join(root_dir, ".env"), override=True)
 load_dotenv(os.path.join(root_dir, ".env.runtime"), override=True)
 
 
+def get_max_output_tokens() -> Optional[int]:
+    """Output-token ceiling for OpenAI-compatible API calls.
+
+    The UI "Token 成本控制" (TokenGuard) setting does NOT control this — that
+    knob only truncates tool-return data fed into the prompt. This is the
+    model's OWN response length cap (the one that produces finish_reason=
+    "length" when hit).
+
+    - LLM_MAX_OUTPUT_TOKENS unset   -> default 65536
+    - LLM_MAX_OUTPUT_TOKENS=N       -> cap = N
+    - LLM_MAX_OUTPUT_TOKENS=0       -> unlimited: cap = 65536
+
+    NOTE: 0 does NOT omit max_tokens. Omitting would hand the decision to the
+    provider default, which is often SMALLER than 65536 (e.g. the official
+    DeepSeek API defaults to 4096 when max_tokens is absent), silently making
+    truncation worse. 65536 is the largest cap the DeepSeek reasoner API
+    officially accepts and matches the project's existing "max headroom" value
+    used by the Node/Gemini path. If the relay rejects 65536 with a 400 error,
+    lower the value (e.g. 32768).
+    """
+    raw = os.getenv("LLM_MAX_OUTPUT_TOKENS", "65536").strip()
+    try:
+        cap = int(raw)
+    except ValueError:
+        logger.warning(f"LLM_MAX_OUTPUT_TOKENS={raw!r} is not a number — using 65536")
+        return 65536
+    if cap < 0:
+        return 65536
+    if cap == 0:
+        return 65536  # unlimited: explicit large cap, never rely on provider default
+    return cap
+
+
+def _apply_max_tokens(kwargs: dict) -> None:
+    """Apply the LLM_MAX_OUTPUT_TOKENS ceiling to an API kwargs dict."""
+    kwargs["max_tokens"] = get_max_output_tokens()
+
+
+def _flash_web_search_enabled(model: str) -> bool:
+    """Whether to route this model through the DeepSeek Responses API with the
+    built-in server-side web_search tool enabled.
+
+    deepseek-v4-flash supports a built-in web search tool (联网搜索) on the
+    Responses API only — tools=[{"type": "web_search"}], executed server-side
+    with auto-continuation (up to 10 rounds). Enabled by default for flash
+    models; set DEEPSEEK_FLASH_WEB_SEARCH=0 to fall back to plain chat
+    completions.
+    """
+    m = (model or "").lower()
+    if "deepseek" not in m or "flash" not in m:
+        return False
+    return os.getenv("DEEPSEEK_FLASH_WEB_SEARCH", "1").strip().lower() not in ("0", "false", "off", "no")
+
+
 class RateLimiter:
     """Token-bucket style rate limiter for API requests.
     
@@ -105,7 +159,7 @@ class LLMGateway:
         self.deepseek_base_url = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
         self.openrouter_base_url = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
         self.default_api_key = os.getenv("DEFAULT_LLM_API_KEY")
-        self.default_base_url = os.getenv("DEFAULT_LLM_BASE_URL", "http://xbrain-dify-service-test.xiaopeng.link/llm_api")
+        self.default_base_url = os.getenv("DEFAULT_LLM_BASE_URL", "").rstrip("/") or None
         self.default_model = os.getenv("DEFAULT_LLM_MODEL", "deepseek-v4-pro")
         self._gemini_client = None
         self._deepseek_client = None
@@ -211,7 +265,7 @@ class LLMGateway:
                 loop = asyncio.get_event_loop()
                 def _test():
                     client.chat.completions.create(
-                        model="tencent/hy3",
+                        model="google/gemini-2.0-flash-001",
                         messages=[{"role": "user", "content": "Say 'OK'"}],
                         max_tokens=2
                     )
@@ -315,15 +369,16 @@ class LLMGateway:
 
     def default_client(self):
         if self._default_client is None:
-            if self.default_api_key:
-                import httpx
-                self._default_client = OpenAI(
-                    api_key=self.default_api_key,
-                    base_url=self.default_base_url,
-                    timeout=httpx.Timeout(120.0, connect=15.0),
-                )
-            else:
+            if not self.default_api_key:
                 raise ValueError("DEFAULT_LLM_API_KEY is missing.")
+            if not self.default_base_url:
+                raise ValueError("DEFAULT_LLM_BASE_URL is not configured — no default relay available.")
+            import httpx
+            self._default_client = OpenAI(
+                api_key=self.default_api_key,
+                base_url=self.default_base_url,
+                timeout=httpx.Timeout(120.0, connect=15.0),
+            )
         return self._default_client
 
     def _llm_stream_timeout_seconds(self) -> float:
@@ -504,6 +559,11 @@ class LLMGateway:
                     ("default", self._generate_default),
                     ("gemini", self._generate_gemini)
                 ]
+                # deepseek-v4-flash 内置联网搜索仅在 DeepSeek 官方 Responses API
+                # 上可用 — 优先走 deepseek provider，避免被 openrouter 中转拦截
+                # 导致内置搜索失效。
+                if _flash_web_search_enabled(model) and self.get_deepseek_api_key(deepseek_api_key):
+                    providers.sort(key=lambda p: 0 if p[0] == "deepseek" else 1)
             
             result_text = None
             for provider_name, generate_func in providers:
@@ -522,7 +582,7 @@ class LLMGateway:
                         if not self.get_openrouter_api_key(openrouter_api_key):
                             continue
                     elif provider_name == "default":
-                        if not self.default_api_key:
+                        if not self.default_api_key or not self.default_base_url:
                             continue
                         
                     result_text = await generate_func(prompt, model, **kwargs)
@@ -580,7 +640,7 @@ class LLMGateway:
         return result_text  # fallback
 
     async def _generate_default(self, prompt: str, model: str, temperature: float, on_chunk: Optional[callable] = None, response_schema: Optional[Any] = None) -> str:
-        """Generate via default provider (中转站, OpenAI-compatible). Rate-limited."""
+        """Generate via default relay provider (OpenAI-compatible). Rate-limited."""
         client = self.default_client()
         max_retries = 10
         retry_delay = 15
@@ -593,7 +653,7 @@ class LLMGateway:
                     {"role": "user", "content": prompt}
                 ],
                 "temperature": temperature,
-                "max_tokens": 16384,
+                "max_tokens": 65536,
                 "stream": True,
                 "stream_options": {"include_usage": True}
             }
@@ -601,26 +661,38 @@ class LLMGateway:
                 kwargs["response_format"] = {"type": "json_object"}
             if "deepseek" in model.lower():
                 kwargs["extra_body"] = {"reasoning": {"effort": "high"}}
+            _apply_max_tokens(kwargs)
             response = client.chat.completions.create(**kwargs)
             content_parts = []
+            reasoning_parts = []
             char_count = 0
             usage_dict = {"promptTokens": 0, "candidatesTokens": 0, "totalTokens": 0}
             in_reasoning = False
+            # JSON mode: reasoning content must not pollute the parsable output
+            keep_reasoning = not response_schema
+            finish_reason = None
             for chunk in response:
+                if chunk.choices and len(chunk.choices) > 0:
+                    if chunk.choices[0].finish_reason:
+                        finish_reason = chunk.choices[0].finish_reason
                 if chunk.choices and len(chunk.choices) > 0 and chunk.choices[0].delta:
                     delta = chunk.choices[0].delta
                     text = ""
                     
                     if hasattr(delta, 'reasoning_content') and delta.reasoning_content:
-                        if not in_reasoning:
-                            text += "<think>\n"
+                        if keep_reasoning:
+                            if not in_reasoning:
+                                text += "<think>\n"
+                                in_reasoning = True
+                            text += delta.reasoning_content
+                        else:
+                            reasoning_parts.append(delta.reasoning_content)
                             in_reasoning = True
-                        text += delta.reasoning_content
                         
                     if delta.content:
-                        if in_reasoning:
+                        if in_reasoning and keep_reasoning:
                             text += "\n</think>\n\n"
-                            in_reasoning = False
+                        in_reasoning = False
                         text += delta.content
                         
                     if text:
@@ -635,6 +707,37 @@ class LLMGateway:
                         "totalTokens": getattr(chunk.usage, 'total_tokens', 0)
                     }
             text_res = "".join(content_parts)
+            # Safety net: never lose an answer that arrived only in reasoning_content
+            if not text_res.strip() and reasoning_parts:
+                text_res = "".join(reasoning_parts)
+            
+            # Continuation: hidden thinking tokens consume the output budget and
+            # can truncate long visible answers (finish_reason == "length").
+            # Finish the answer with thinking disabled.
+            if finish_reason == "length" and text_res.strip():
+                logger.warning(
+                    f"Default provider response truncated by token limit ({len(text_res)} chars) — continuing without thinking"
+                )
+                try:
+                    cont_kwargs = dict(kwargs)
+                    cont_kwargs.pop("extra_body", None)
+                    cont_kwargs.pop("reasoning_effort", None)
+                    cont_kwargs["messages"] = [
+                        {"role": "system", "content": "You are a professional financial analyst expert."},
+                        {"role": "user", "content": prompt},
+                        {"role": "assistant", "content": text_res},
+                        {"role": "user", "content": "你的上一条回复因输出长度限制被截断。请紧接上文继续完成剩余内容，不要重复已写内容。"},
+                    ]
+                    cont_response = client.chat.completions.create(**cont_kwargs)
+                    cont_parts = []
+                    for chunk in cont_response:
+                        if chunk.choices and chunk.choices[0].delta and chunk.choices[0].delta.content:
+                            cont_parts.append(chunk.choices[0].delta.content)
+                    cont_text = "".join(cont_parts)
+                    if cont_text.strip():
+                        text_res += "\n\n" + cont_text
+                except Exception as e:
+                    logger.warning(f"Truncation continuation failed: {e}")
             
             usage_ctx = current_token_usage.get()
             if usage_ctx is not None:
@@ -781,7 +884,178 @@ class LLMGateway:
                 
         raise Exception(f"Failed to generate content with {model} after {max_retries} attempts due to rate limits. No model downgrade allowed.")
 
+    async def _generate_deepseek_responses(self, prompt: str, model: str, temperature: float, on_chunk: Optional[callable] = None, api_key: Optional[str] = None, response_schema: Optional[Any] = None) -> str:
+        """DeepSeek Responses API path for deepseek-v4-flash.
+
+        Uses client.responses.create(...) instead of chat.completions so the
+        built-in server-side web_search tool (联网搜索) is available: the model
+        searches on its own when needed (server auto-continues up to 10 rounds)
+        and streams response.web_search_call.* status events, surfaced via
+        on_chunk for frontend progress display.
+        """
+        client = self.deepseek_client(api_key=api_key)
+        max_retries = 10
+        retry_delay = 15
+        max_delay = 60
+
+        def _stream_generate():
+            """Blocking Responses API streaming call — runs in thread."""
+            kwargs = {
+                "model": model,
+                "instructions": "You are a professional financial analyst expert.",
+                "input": prompt,
+                "temperature": temperature,
+                "max_output_tokens": get_max_output_tokens(),
+                "stream": True,
+                "tools": [{"type": "web_search"}],
+                "reasoning": {"effort": "max"},
+            }
+            if response_schema:
+                kwargs["text"] = {"format": {"type": "json_object"}}
+            stream = client.responses.create(**kwargs)
+            content_parts = []
+            reasoning_parts = []
+            char_count = 0
+            usage_dict = {"promptTokens": 0, "candidatesTokens": 0, "totalTokens": 0}
+            in_reasoning = False
+            # JSON mode: reasoning content must not pollute the parsable output
+            keep_reasoning = not response_schema
+            finish_reason = None
+            web_search_rounds = 0
+            for event in stream:
+                etype = getattr(event, "type", "") or ""
+                if etype == "response.reasoning_text.delta":
+                    delta_text = getattr(event, "delta", "") or ""
+                    if not delta_text:
+                        continue
+                    if keep_reasoning:
+                        if not in_reasoning:
+                            content_parts.append("<think>\n")
+                            in_reasoning = True
+                        content_parts.append(delta_text)
+                    else:
+                        reasoning_parts.append(delta_text)
+                        in_reasoning = True
+                    char_count += len(delta_text)
+                    if on_chunk:
+                        on_chunk(char_count)
+                elif etype == "response.output_text.delta":
+                    delta_text = getattr(event, "delta", "") or ""
+                    if not delta_text:
+                        continue
+                    text = ""
+                    if in_reasoning and keep_reasoning:
+                        text += "\n</think>\n\n"
+                    in_reasoning = False
+                    text += delta_text
+                    content_parts.append(text)
+                    char_count += len(text)
+                    if on_chunk:
+                        on_chunk(char_count)
+                elif etype.startswith("response.web_search_call."):
+                    state = etype.rsplit(".", 1)[-1]
+                    if state == "in_progress":
+                        web_search_rounds += 1
+                        logger.info(f"[DeepSeek Responses] built-in web_search round {web_search_rounds}")
+                    if on_chunk:
+                        label = {
+                            "in_progress": "发起内置联网搜索",
+                            "searching": "内置联网搜索检索中",
+                            "completed": "内置联网搜索完成",
+                        }.get(state, state)
+                        on_chunk(0, message=f"DeepSeek {label}...")
+                elif etype in ("response.completed", "response.incomplete", "response.failed"):
+                    resp = getattr(event, "response", None)
+                    usage = getattr(resp, "usage", None)
+                    if usage:
+                        usage_dict = {
+                            "promptTokens": getattr(usage, "input_tokens", 0) or 0,
+                            "candidatesTokens": getattr(usage, "output_tokens", 0) or 0,
+                            "totalTokens": getattr(usage, "total_tokens", 0) or 0,
+                        }
+                    if etype == "response.incomplete":
+                        finish_reason = "length"
+                    elif etype == "response.failed":
+                        err = getattr(resp, "error", None)
+                        raise Exception(f"DeepSeek Responses API failed: {err}")
+            text_res = "".join(content_parts)
+            # Safety net: never lose an answer that arrived only as reasoning text
+            if not text_res.strip() and reasoning_parts:
+                text_res = "".join(reasoning_parts)
+
+            # Continuation: hidden thinking tokens consume the output budget and
+            # can truncate long visible answers (response.incomplete). Finish the
+            # answer with a follow-up Responses call.
+            if finish_reason == "length" and text_res.strip():
+                logger.warning(
+                    f"DeepSeek Responses truncated by token limit ({len(text_res)} chars) — continuing"
+                )
+                try:
+                    cont_kwargs = dict(kwargs)
+                    cont_kwargs["input"] = [
+                        {"role": "user", "content": prompt},
+                        {"role": "assistant", "content": text_res},
+                        {"role": "user", "content": "你的上一条回复因输出长度限制被截断。请紧接上文继续完成剩余内容，不要重复已写内容。"},
+                    ]
+                    cont_stream = client.responses.create(**cont_kwargs)
+                    cont_parts = []
+                    for event in cont_stream:
+                        if getattr(event, "type", "") == "response.output_text.delta":
+                            cont_parts.append(getattr(event, "delta", "") or "")
+                    cont_text = "".join(cont_parts)
+                    if cont_text.strip():
+                        text_res += "\n\n" + cont_text
+                except Exception as e:
+                    logger.warning(f"Responses truncation continuation failed: {e}")
+
+            usage_ctx = current_token_usage.get()
+            if usage_ctx is not None:
+                usage_ctx["promptTokens"] += usage_dict["promptTokens"]
+                usage_ctx["candidatesTokens"] += usage_dict["candidatesTokens"]
+                usage_ctx["totalTokens"] += usage_dict["totalTokens"]
+
+            return text_res
+
+        for attempt in range(max_retries):
+            try:
+                result = await self._run_blocking_llm_call("deepseek", _stream_generate)
+                if not result:
+                    raise ValueError("DeepSeek Responses returned empty streaming response")
+                return result
+            except Exception as e:
+                error_msg = str(e)
+                logger.error(f"DeepSeek Responses Error ({model}) on attempt {attempt + 1}/{max_retries}: {error_msg}")
+
+                # Retry on transient errors: 429 Quota, 503/524 Server, empty response, connection errors
+                if "429" in error_msg or "quota" in error_msg.lower() or "503" in error_msg or "524" in error_msg or "500" in error_msg or "502" in error_msg or "empty response" in error_msg.lower() or "connection" in error_msg.lower() or "timeout" in error_msg.lower():
+                    if attempt < max_retries - 1:
+                        logger.info(f"Rate limit hit. Waiting {retry_delay}s before retry {attempt + 2}/{max_retries} (no model downgrade)...")
+                        if on_chunk:
+                            on_chunk(0, f"API 触发限流/网络错误，等待 {retry_delay} 秒重试... (第 {attempt + 1} 次)")
+                        # Interruptible sleep
+                        for _ in range(int(retry_delay)):
+                            await asyncio.sleep(1)
+                            if os.path.exists(".stop"):
+                                logger.info("User stop signal detected during wait. Aborting...")
+                                raise Exception("Analysis stopped by user.")
+                        retry_delay = min(retry_delay * 2, max_delay)
+                        continue
+
+                # Strict mode: Do not fallback or downgrade
+                logger.error(f"Strict model mode enforced. Failed to generate with {model}. Raising error without fallback.")
+                raise e
+
+        raise Exception(f"Failed to generate content with {model} after {max_retries} attempts due to rate limits.")
+
     async def _generate_deepseek(self, prompt: str, model: str, temperature: float, on_chunk: Optional[callable] = None, api_key: Optional[str] = None, response_schema: Optional[Any] = None) -> str:
+        # deepseek-v4-flash: route through the Responses API so the built-in
+        # server-side web_search tool is enabled by default — the model uses
+        # its own search when needed. DEEPSEEK_FLASH_WEB_SEARCH=0 opts out.
+        if _flash_web_search_enabled(model):
+            return await self._generate_deepseek_responses(
+                prompt, model, temperature,
+                on_chunk=on_chunk, api_key=api_key, response_schema=response_schema,
+            )
         client = self.deepseek_client(api_key=api_key)
         max_retries = 10
         retry_delay = 15
@@ -799,7 +1073,7 @@ class LLMGateway:
                     {"role": "user", "content": prompt}
                 ],
                 "temperature": temperature,
-                "max_tokens": 16384,
+                "max_tokens": 65536,
                 "stream": True,
                 "stream_options": {"include_usage": True},
                 "reasoning_effort": "max",
@@ -807,26 +1081,41 @@ class LLMGateway:
             }
             if response_schema:
                 kwargs["response_format"] = {"type": "json_object"}
+            _apply_max_tokens(kwargs)
             response = self.deepseek_client(api_key=api_key).chat.completions.create(**kwargs)
             content_parts = []
+            reasoning_parts = []
             char_count = 0
             usage_dict = {"promptTokens": 0, "candidatesTokens": 0, "totalTokens": 0}
             in_reasoning = False
+            # In JSON mode (response_schema), reasoning content is NEVER part of the
+            # parsable output — injecting <think> blocks here breaks every downstream
+            # JSON extractor (they scan for the first '{', which lands inside the
+            # reasoning text). Only surface reasoning in free-text mode.
+            keep_reasoning = not response_schema
+            finish_reason = None
             for chunk in response:
+                if chunk.choices and len(chunk.choices) > 0:
+                    if chunk.choices[0].finish_reason:
+                        finish_reason = chunk.choices[0].finish_reason
                 if chunk.choices and len(chunk.choices) > 0 and chunk.choices[0].delta:
                     delta = chunk.choices[0].delta
                     text = ""
                     
                     if hasattr(delta, 'reasoning_content') and delta.reasoning_content:
-                        if not in_reasoning:
-                            text += "<think>\n"
+                        if keep_reasoning:
+                            if not in_reasoning:
+                                text += "<think>\n"
+                                in_reasoning = True
+                            text += delta.reasoning_content
+                        else:
+                            reasoning_parts.append(delta.reasoning_content)
                             in_reasoning = True
-                        text += delta.reasoning_content
                         
                     if delta.content:
-                        if in_reasoning:
+                        if in_reasoning and keep_reasoning:
                             text += "\n</think>\n\n"
-                            in_reasoning = False
+                        in_reasoning = False
                         text += delta.content
                         
                     if text:
@@ -841,6 +1130,39 @@ class LLMGateway:
                         "totalTokens": getattr(chunk.usage, 'total_tokens', 0)
                     }
             text_res = "".join(content_parts)
+            # Safety net: some reasoning-mode deployments return the answer ONLY in
+            # reasoning_content while content stays empty (e.g. json_object mode).
+            # Never lose the answer — the callers' JSON extractors can still parse it.
+            if not text_res.strip() and reasoning_parts:
+                text_res = "".join(reasoning_parts)
+            
+            # Continuation: hidden thinking tokens consume the output budget and
+            # can truncate long visible answers (finish_reason == "length").
+            # Finish the answer with thinking disabled.
+            if finish_reason == "length" and text_res.strip():
+                logger.warning(
+                    f"DeepSeek response truncated by token limit ({len(text_res)} chars) — continuing without thinking"
+                )
+                try:
+                    cont_kwargs = dict(kwargs)
+                    cont_kwargs.pop("extra_body", None)
+                    cont_kwargs.pop("reasoning_effort", None)
+                    cont_kwargs["messages"] = [
+                        {"role": "system", "content": "You are a professional financial analyst expert."},
+                        {"role": "user", "content": prompt},
+                        {"role": "assistant", "content": text_res},
+                        {"role": "user", "content": "你的上一条回复因输出长度限制被截断。请紧接上文继续完成剩余内容，不要重复已写内容。"},
+                    ]
+                    cont_response = client.chat.completions.create(**cont_kwargs)
+                    cont_parts = []
+                    for chunk in cont_response:
+                        if chunk.choices and chunk.choices[0].delta and chunk.choices[0].delta.content:
+                            cont_parts.append(chunk.choices[0].delta.content)
+                    cont_text = "".join(cont_parts)
+                    if cont_text.strip():
+                        text_res += "\n\n" + cont_text
+                except Exception as e:
+                    logger.warning(f"Truncation continuation failed: {e}")
             
             usage_ctx = current_token_usage.get()
             if usage_ctx is not None:
@@ -898,12 +1220,13 @@ class LLMGateway:
                     {"role": "user", "content": prompt}
                 ],
                 "temperature": temperature,
-                "max_tokens": 16384,
+                "max_tokens": 65536,
                 "stream": True,
                 "stream_options": {"include_usage": True},
             }
             if response_schema:
                 kwargs["response_format"] = {"type": "json_object"}
+            _apply_max_tokens(kwargs)
             response = self.openrouter_client(api_key=api_key).chat.completions.create(**kwargs)
             content_parts = []
             reasoning_parts = []
@@ -918,7 +1241,7 @@ class LLMGateway:
                         if on_chunk:
                             on_chunk(char_count)
                     elif getattr(delta, "reasoning", None):
-                        # Reasoning models (e.g. tencent/hy3:free) may put the answer in
+                        # Reasoning models may put the answer in
                         # `reasoning` when `content` is absent — buffer it as a fallback
                         # so a reasoning-only response isn't lost as an empty result.
                         reasoning_parts.append(delta.reasoning)

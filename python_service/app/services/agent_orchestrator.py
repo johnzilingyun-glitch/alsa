@@ -6,7 +6,7 @@ import time
 from typing import Optional, Any
 from datetime import datetime
 
-from .llm_gateway import llm_gateway, current_token_usage
+from .llm_gateway import llm_gateway, current_token_usage, get_max_output_tokens
 from .expert_tools import (
     parse_tool_calls,
     has_tool_calls,
@@ -482,23 +482,30 @@ class AgentOrchestrator:
                         "model": final_model,
                         "messages": messages,
                         "temperature": temperature,
-                        "max_tokens": 16384,
+                        "max_tokens": 65536,
                         "stream": True,
                         "stream_options": {"include_usage": True},
                     }
                     if use_tools:
                         kwargs["tools"] = tools
                     else:
-                        # Only enable reasoning on final synthesis round (no tools)
-                        kwargs["extra_body"] = {"reasoning": {"effort": "high"}}
+                        # Final synthesis round (no tools): enable reasoning mode
+                        # at max effort — same as the llm_gateway DeepSeek path.
+                        # The output budget is 65536 by default, so hidden thinking
+                        # tokens no longer crowd out the visible report; any
+                        # residual cutoff is repaired by the continuation pass below.
+                        kwargs["reasoning_effort"] = "max"
+                        kwargs["extra_body"] = {"thinking": {"type": "enabled"}}
                         if response_schema:
                             kwargs["response_format"] = {"type": "json_object"}
+                    kwargs["max_tokens"] = get_max_output_tokens()
 
                     response = client.chat.completions.create(**kwargs)
 
                     content_parts = []
                     reasoning_parts = []  # capture reasoning_content for thinking mode
                     tool_calls_acc = []  # accumulated tool calls from streaming deltas
+                    finish_reason = None
                     char_count = 0
 
                     for chunk in response:
@@ -520,7 +527,10 @@ class AgentOrchestrator:
 
                         if not chunk.choices:
                             continue
-                        delta = chunk.choices[0].delta
+                        choice = chunk.choices[0]
+                        if choice.finish_reason:
+                            finish_reason = choice.finish_reason
+                        delta = choice.delta
 
                         # Accumulate reasoning_content (thinking mode)
                         reasoning_text = getattr(delta, "reasoning_content", None)
@@ -563,7 +573,12 @@ class AgentOrchestrator:
                     reasoning_content = (
                         "".join(reasoning_parts) if reasoning_parts else None
                     )
-                    return "".join(content_parts), tool_calls_acc, reasoning_content
+                    return (
+                        "".join(content_parts),
+                        tool_calls_acc,
+                        reasoning_content,
+                        finish_reason,
+                    )
                 finally:
                     _loop.close()
 
@@ -571,8 +586,9 @@ class AgentOrchestrator:
             # 150s = httpx read timeout (60s) × ~2 retries + margin. Keeps a stuck
             # round from blocking for the old 360s while allowing SDK auto-retry.
             _round_timeout = int(os.getenv("LLM_ROUND_TIMEOUT", "150"))
+            finish_reason = None
             try:
-                content, tool_calls_data, reasoning_content = (
+                content, tool_calls_data, reasoning_content, finish_reason = (
                     await asyncio.wait_for(
                         asyncio.to_thread(_stream_with_tools),
                         timeout=_round_timeout,
@@ -600,7 +616,7 @@ class AgentOrchestrator:
                     if msg.get("role") == "tool" and len(msg.get("content", "")) > 1000:
                         messages[i]["content"] = msg["content"][:1000] + "\n[truncated]"
                 try:
-                    content, tool_calls_data, reasoning_content = (
+                    content, tool_calls_data, reasoning_content, finish_reason = (
                         await asyncio.wait_for(
                             asyncio.to_thread(_stream_with_tools),
                             timeout=_round_timeout,
@@ -634,7 +650,7 @@ class AgentOrchestrator:
                     if msg.get("role") == "tool" and len(msg.get("content", "")) > 1000:
                         messages[i]["content"] = msg["content"][:1000] + "\n[truncated]"
                 try:
-                    content, tool_calls_data, reasoning_content = (
+                    content, tool_calls_data, reasoning_content, finish_reason = (
                         await asyncio.wait_for(
                             asyncio.to_thread(_stream_with_tools),
                             timeout=_round_timeout,
@@ -645,6 +661,47 @@ class AgentOrchestrator:
                 except Exception as e2:
                     logger.info(f"  [ToolLoop] Retry also failed: {e2}")
                 break
+
+            # ── Truncation repair ────────────────────────────────────────────
+            # DeepSeek thinking tokens consume the output budget; when the final
+            # synthesis round hits the ceiling the visible report is cut off
+            # (finish_reason == "length"). Continue the report with a follow-up
+            # call that has reasoning disabled, then stitch the pieces together.
+            if (
+                not use_tools
+                and not tool_calls_data
+                and finish_reason == "length"
+                and content
+                and len(content.strip()) >= 100
+                and response_schema is None
+            ):
+                logger.warning(
+                    f"  [ToolLoop] Final response truncated by token limit "
+                    f"({len(content)} chars) — continuing without reasoning"
+                )
+                cont = await self._continue_truncated_response(
+                    client_factory=lambda: llm_gateway.deepseek_client(
+                        api_key=deepseek_api_key
+                    ),
+                    model=final_model,
+                    messages=messages,
+                    partial=content,
+                    temperature=temperature,
+                )
+                if cont and cont.strip():
+                    content = content.rstrip() + "\n\n" + cont.strip()
+                    if on_chunk:
+                        on_chunk(
+                            len(content),
+                            message=f"{role or 'Agent'} (已续写截断内容)",
+                        )
+                    logger.info(
+                        f"  [ToolLoop] Continuation merged: {len(content)} chars total"
+                    )
+                else:
+                    logger.warning(
+                        "  [ToolLoop] Continuation returned nothing; keeping truncated content"
+                    )
 
             # No tool calls — final response
             if not tool_calls_data:
@@ -926,11 +983,12 @@ class AgentOrchestrator:
                         "model": final_model,
                         "messages": recovery_messages,
                         "temperature": temperature,
-                        "max_tokens": 16384,
+                        "max_tokens": 65536,
                         "stream": True,
                     }
                     if response_schema:
                         kwargs["response_format"] = {"type": "json_object"}
+                    kwargs["max_tokens"] = get_max_output_tokens()
                     resp = client.chat.completions.create(**kwargs)
                     parts = []
                     for chunk in resp:
@@ -997,10 +1055,11 @@ class AgentOrchestrator:
                             "model": final_model,
                             "messages": messages,
                             "temperature": temperature,
-                            "max_tokens": 16384,
+                            "max_tokens": 65536,
                             "stream": True,
                             "tools": tools,
                         }
+                        kwargs["max_tokens"] = get_max_output_tokens()
                         response = client.chat.completions.create(**kwargs)
                         content_parts = []
                         tool_calls_acc = []
@@ -1073,7 +1132,7 @@ class AgentOrchestrator:
                             "content": "Now write your COMPLETE expert analysis using the computation results above. 400+ words.",
                         }
                     )
-                    retry_content, _, _ = await asyncio.to_thread(
+                    retry_content, _, _, _ = await asyncio.to_thread(
                         _stream_with_tools
                     )
 
@@ -1135,6 +1194,84 @@ class AgentOrchestrator:
             result = re.sub(r"</[｜|]*DSML[｜|]*[^>]*>", "", result)
             result = re.sub(r"\n{3,}", "\n\n", result).strip()
         return result
+
+    async def _continue_truncated_response(
+        self,
+        client_factory,
+        model: str,
+        messages: list,
+        partial: str,
+        temperature: float = 0.3,
+    ) -> str:
+        """Repair a truncated final response (finish_reason == "length").
+
+        Issues a follow-up completion with reasoning disabled (so hidden
+        thinking tokens cannot eat the output budget again), asking the model
+        to continue exactly where the visible answer was cut off.
+        """
+        # Rebuild history without reasoning_content: this continuation request
+        # runs with thinking disabled, and some relays reject reasoning_content
+        # echoes when thinking is off.
+        cont_messages = []
+        for m in messages:
+            m_copy = dict(m)
+            m_copy.pop("reasoning_content", None)
+            cont_messages.append(m_copy)
+        cont_messages += [
+            {"role": "assistant", "content": partial},
+            {
+                "role": "user",
+                "content": (
+                    "你的上一条回复因输出长度限制被截断，尚未写完。"
+                    "请紧接上文，从被截断的位置直接继续完成剩余内容。"
+                    "不要重复已写过的内容，不要输出任何开场白或解释，直接续写。"
+                ),
+            },
+        ]
+        kwargs = {
+            "model": model,
+            "messages": cont_messages,
+            "temperature": temperature,
+            "max_tokens": 65536,
+            "stream": True,
+        }
+        kwargs["max_tokens"] = get_max_output_tokens()
+
+        def _run():
+            import asyncio as _asyncio
+
+            _loop = _asyncio.new_event_loop()
+            _asyncio.set_event_loop(_loop)
+            try:
+                client = client_factory()
+                resp = client.chat.completions.create(**kwargs)
+                parts = []
+                finish_reason = None
+                for chunk in resp:
+                    if not chunk.choices:
+                        continue
+                    choice = chunk.choices[0]
+                    if choice.finish_reason:
+                        finish_reason = choice.finish_reason
+                    if choice.delta and choice.delta.content:
+                        parts.append(choice.delta.content)
+                return "".join(parts), finish_reason
+            finally:
+                _loop.close()
+
+        try:
+            cont, cont_reason = await asyncio.wait_for(
+                asyncio.to_thread(_run),
+                timeout=int(os.getenv("LLM_ROUND_TIMEOUT", "150")),
+            )
+            if cont_reason == "length":
+                logger.warning(
+                    "  [ToolLoop] Continuation also truncated; keeping partial content"
+                )
+            return cont
+        except Exception as e:
+            logger.warning(f"  [ToolLoop] Continuation call failed: {e}")
+            return ""
 
 
 # Singleton

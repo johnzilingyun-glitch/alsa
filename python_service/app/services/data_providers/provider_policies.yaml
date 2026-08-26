@@ -8,8 +8,11 @@ provider_order:
   HK-Share:
     - yfinance
     - a-stock-direct
+  # US: a-stock-direct added as keyless fallback (Tencent quotes) — yfinance
+  # is rate-limited from datacenter IPs (2026-08 incident).
   US-Share:
     - yfinance
+    - a-stock-direct
   Unknown:
     - yfinance
     - a-stock-direct
@@ -29,7 +32,10 @@ quality_thresholds:
     default: 0.35
     A-Share: 0.4
     HK-Share: 0.35
-    US-Share: 0.35
+    # US: lowered to 0.2 — Tencent fallback (keyless) supplies PE/market cap
+    # only (no PB/ROE/revenue), scoring 2/8=0.25. Accept degraded data rather
+    # than failing entirely when yfinance is rate-limited.
+    US-Share: 0.2
 
 cache_ttl_seconds:
   quote:

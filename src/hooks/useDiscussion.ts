@@ -59,7 +59,8 @@ export function useDiscussion(fetchAdminData: () => Promise<void>) {
       };
       setAnalysis(finalAnalysis);
 
-      await saveAnalysisToHistory('stock', finalAnalysis);
+      // [PERF] Don't block the UI on history persistence — user sees the answer immediately.
+      void saveAnalysisToHistory('stock', finalAnalysis);
       void fetchAdminData();
     } catch (err) {
       console.error('Expert failed:', err);

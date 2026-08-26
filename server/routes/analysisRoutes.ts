@@ -67,19 +67,23 @@ router.post('/reports/save', async (req, res) => {
 
 router.post('/analysis/jobs', async (req, res) => {
   const { symbol, market, analysis_level, model, promptVersion, config } = req.body;
-  // SECURITY: Strip API keys from config — NEVER persisted to database
-  const safeConfig = config ? { ...config } : {};
+  const fullConfig = config || {};
+
+  // SECURITY: Strip API keys from config for DB persistence only
+  const safeConfig = { ...fullConfig };
   delete safeConfig.apiKey;
   delete safeConfig.gemini_api_key;
   delete safeConfig.geminiApiKey;
   delete safeConfig.deepseekApiKey;
   delete safeConfig.deepseek_api_key;
+  delete safeConfig.openrouterApiKey;
+  delete safeConfig.openrouter_api_key;
   delete safeConfig.openaiApiKey;
   
   const analysisId = `ana_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
   console.log(`[AnalysisRoute] Received job request for ${symbol} (${market}) with model ${model}`);
   try {
-    // 1. Create a record in SQLite (config sans API keys)
+    // 1. Create a record in SQLite (config sans API keys — never persisted to DB)
     await repo.save({
       analysisId,
       kind: 'stock',
@@ -87,7 +91,7 @@ router.post('/analysis/jobs', async (req, res) => {
       market,
       status: 'queued',
       promptVersion: promptVersion || 'v1',
-      model: model || config?.model || 'tencent/hy3:free',
+      model: model || fullConfig.model || 'deepseek-v4-pro',
       config: safeConfig,
       outputPayload: {}
     });
@@ -95,11 +99,13 @@ router.post('/analysis/jobs', async (req, res) => {
     // Extract client IP or provided user ID to track jobs per-user instead of globally
     const userId = (req.headers['x-user-id'] || req.headers['x-forwarded-for'] || req.ip || 'default_user') as string;
 
-    // 2. Trigger FastAPI job (without API keys — client sends key only when requested)
+    // 2. Trigger FastAPI job — send full config WITH API keys so the Python
+    //    backend can use them immediately without waiting for need_api_key handshake.
+    //    Keys are memory-only in the Python process (never persisted).
     const fastApiRes = await fetch(`${PYTHON_SERVICE_URL}/api/analysis/jobs`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-User-Id': userId, ...getPythonAuthHeaders() },
-      body: JSON.stringify({ symbol, market, analysis_level: analysis_level || 'standard', requested_model: config?.model || model || null, config: safeConfig })
+      body: JSON.stringify({ symbol, market, analysis_level: analysis_level || 'standard', requested_model: fullConfig.model || model || null, config: fullConfig })
     });
 
     const fastApiBody = await fastApiRes.text();

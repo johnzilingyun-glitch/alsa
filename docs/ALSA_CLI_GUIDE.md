@@ -28,7 +28,7 @@ Settings are persisted in `~/.alsa_config.json`. Only non-secret values should g
 | Command | Description |
 | :--- | :--- |
 | `python python_service/cli.py config show` | View current settings |
-| `python python_service/cli.py config set model "tencent/hy3:free"` | Set the default LLM used when `--model` is omitted |
+| `python python_service/cli.py config set model "deepseek-v4-pro"` | Set the default LLM used when `--model` is omitted |
 | `python python_service/cli.py config set gemini_model "..."` | Alternative key name for the default model |
 | `python python_service/cli.py config get model` | Read a single setting |
 | `python python_service/cli.py config unset model` | Remove a setting (asks for confirmation) |

@@ -50,6 +50,38 @@ type LogFn = (event: string, data?: Record<string, unknown>) => void;
 
 const HTTP_TIMEOUT_MS = 120_000;   // REST API calls
 
+/**
+ * Output-token ceiling for LLM API calls.
+ *
+ * NOTE: the UI "Token 成本控制" (TokenGuard) setting is a DIFFERENT knob — it
+ * truncates tool-return data fed into the prompt, not the model's response.
+ * This cap governs the model's own output length (the API returns
+ * finish_reason="length" when it is hit).
+ *
+ * - LLM_MAX_OUTPUT_TOKENS unset → per-provider defaults below
+ * - LLM_MAX_OUTPUT_TOKENS=N      → cap every call at N
+ * - LLM_MAX_OUTPUT_TOKENS=0      → unlimited: cap at 65536
+ *
+ * NOTE: 0 does NOT omit max_tokens. Omitting would hand the decision to the
+ * provider default, which is often SMALLER (the official DeepSeek API defaults
+ * to 4096 when max_tokens is absent) and Anthropic rejects requests without
+ * max_tokens entirely. 65536 matches the project's existing "max headroom"
+ * used by the Gemini path.
+ */
+const ENV_MAX_OUTPUT_TOKENS = (() => {
+  const raw = process.env.LLM_MAX_OUTPUT_TOKENS;
+  if (raw === undefined || raw.trim() === '') return null;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 ? n : null;
+})();
+
+/** Resolve a call's max_tokens, honoring the env override when set. */
+function resolveMaxTokens(providerDefault: number): number {
+  if (ENV_MAX_OUTPUT_TOKENS === null) return providerDefault;
+  if (ENV_MAX_OUTPUT_TOKENS === 0) return 65536; // unlimited: explicit large cap
+  return ENV_MAX_OUTPUT_TOKENS;
+}
+
 
 /** Gemini models tried in order (fast → capable) */
 const GEMINI_MODELS = [
@@ -88,7 +120,7 @@ async function tryGemini(prompt: string, log: LogFn, requestedModel?: string, co
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             contents: [{ parts: [{ text: prompt }] }],
-            generationConfig: { maxOutputTokens: 65536, temperature: 0.3 },
+            generationConfig: { maxOutputTokens: resolveMaxTokens(65536), temperature: 0.3 },
           }),
           signal: controller.signal,
         },
@@ -169,7 +201,7 @@ async function tryOpenAI(prompt: string, log: LogFn, requestedModel?: string): P
           { role: 'user', content: prompt },
         ],
         temperature: 0.3,
-        max_tokens: 16384,
+        max_tokens: resolveMaxTokens(8192),
       }),
       signal: controller.signal,
     });
@@ -234,7 +266,7 @@ async function tryAnthropic(prompt: string, log: LogFn, requestedModel?: string)
       },
       body: JSON.stringify({
         model,
-        max_tokens: 16384,
+        max_tokens: resolveMaxTokens(8192),
         messages: [
           {
             role: 'user',
@@ -294,7 +326,7 @@ async function tryDeepSeek(prompt: string, log: LogFn, requestedModel?: string, 
           { role: 'user', content: prompt },
         ],
         temperature: isPro ? 0.3 : 1.0,
-        max_tokens: isPro ? 16384 : 8192,
+        max_tokens: resolveMaxTokens(isPro ? 16384 : 8192),
       }, {
         headers: {
           'Content-Type': 'application/json',
@@ -340,7 +372,7 @@ async function tryOpenRouter(prompt: string, log: LogFn, requestedModel?: string
     return null;
   }
 
-  const model = requestedModel || 'tencent/hy3:free';
+  const model = requestedModel || 'deepseek-v4-pro';
 
   try {
     log('gateway_openrouter_attempt', { model });
@@ -360,7 +392,7 @@ async function tryOpenRouter(prompt: string, log: LogFn, requestedModel?: string
           { role: 'user', content: prompt },
         ],
         temperature: 0.3,
-        max_tokens: 16384,
+        max_tokens: resolveMaxTokens(8192),
       }),
       signal: controller.signal,
     });
@@ -406,7 +438,11 @@ async function tryDefault(prompt: string, log: LogFn, requestedModel?: string): 
     return null;
   }
 
-  const baseUrl = (process.env.DEFAULT_LLM_BASE_URL || 'http://xbrain-dify-service-test.xiaopeng.link/llm_api').replace(/\/$/, '');
+  const baseUrl = (process.env.DEFAULT_LLM_BASE_URL || '').replace(/\/$/, '');
+  if (!baseUrl) {
+    log('gateway_default_unavailable', { reason: 'no_base_url' });
+    return null;
+  }
   const model = requestedModel || process.env.DEFAULT_LLM_MODEL || 'deepseek-v4-pro';
 
   try {
@@ -427,7 +463,7 @@ async function tryDefault(prompt: string, log: LogFn, requestedModel?: string): 
           { role: 'user', content: prompt },
         ],
         temperature: 0.3,
-        max_tokens: 16384,
+        max_tokens: resolveMaxTokens(8192),
       }),
       signal: controller.signal,
     });
@@ -471,7 +507,7 @@ export function getPreferredProvider(requestedModel: string, config?: { geminiAp
   
   if (config?.openrouterApiKey || process.env.OPENROUTER_API_KEY) return 'openrouter';
   
-  // Route all models through xbrain by default (supports qwen, kimi, glm, etc.)
+  // Route all models through default relay if configured (supports qwen, kimi, glm, etc.)
   if (process.env.DEFAULT_LLM_API_KEY) return 'default';
   
   // Fallbacks if no default API key is configured

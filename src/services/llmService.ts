@@ -4,7 +4,7 @@ import { useUIStore } from "../stores/useUIStore";
 import { requestScheduler } from "./requestScheduler";
 import { tryFallbackProviders, getAvailableFallbackProviders } from "./llmProvider";
 
-export const DEFAULT_LLM_MODEL = "tencent/hy3:free";
+export const DEFAULT_LLM_MODEL = "deepseek-v4-pro";
 
 // Fallback chain: primary + backup model for resilience.
 export const MODEL_FALLBACK_CHAIN: string[] = [

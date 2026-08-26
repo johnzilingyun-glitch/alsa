@@ -165,63 +165,67 @@ export function useReporting(fetchAdminData: () => Promise<void>) {
     if (!analysis) return;
 
     setIsGeneratingReport(true);
-    const lastJobId = useAnalysisStore.getState().lastJobId;
+    const { lastJobId, cachedReportHtml, cachedReportJobId } = useAnalysisStore.getState();
     const filename = `EquityResearch_${analysis.stockInfo?.symbol}_${new Date().toISOString().split('T')[0]}.html`;
 
     try {
-      // Try Python backend report (richer, with LLM post-processing)
+      // 1) The deep report (深度研报) is already displayed — export that exact
+      //    HTML (same style & content, byte-identical) instead of regenerating.
+      if (lastJobId && cachedReportJobId === lastJobId && cachedReportHtml) {
+        ReportGeneratorService.downloadReport(cachedReportHtml, filename);
+        saveReportToDisk(filename, cachedReportHtml);
+        void fetch('/api/logs/add', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            field: 'export_html_report',
+            oldValue: 'markdown',
+            newValue: 'deep_report_direct',
+            description: `直接导出与页面深度研报一致的 HTML: ${analysis.stockInfo?.name}`
+          })
+        });
+        return;
+      }
+
+      // 2) Not rendered yet — fetch from the same backend endpoint the 深度研报
+      //    view uses. The backend serves its cached report file, so the export
+      //    is identical to what would be displayed on screen.
       if (lastJobId) {
-        try {
-          const config = useConfigStore.getState().config;
-          const res = await fetch(`/api/analysis/jobs/${lastJobId}/report`, {
+        const config = useConfigStore.getState().config;
+        const res = await fetch(`/api/analysis/jobs/${lastJobId}/report`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            deepseekApiKey: config.deepseekApiKey || undefined,
+          }),
+        });
+        if (res.ok) {
+          const htmlReport = await res.text();
+          useAnalysisStore.getState().setCachedReport(lastJobId, htmlReport);
+          ReportGeneratorService.downloadReport(htmlReport, filename);
+          saveReportToDisk(filename, htmlReport);
+          void fetch('/api/logs/add', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              deepseekApiKey: config.deepseekApiKey || undefined,
-            }),
+              field: 'export_html_report',
+              oldValue: 'markdown',
+              newValue: 'deep_report_backend',
+              description: `导出与深度研报同源的 HTML (后端渲染): ${analysis.stockInfo?.name}`
+            })
           });
-          if (res.ok) {
-            const htmlReport = await res.text();
-            ReportGeneratorService.downloadReport(htmlReport, filename);
-            // Save local backup
-            saveReportToDisk(filename, htmlReport);
-            void fetch('/api/logs/add', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                field: 'export_html_report',
-                oldValue: 'markdown',
-                newValue: 'pro_html_backend',
-                description: `成功导出专业 HTML 研报 (后端渲染): ${analysis.stockInfo?.name}`
-              })
-            });
-            return;
-          }
-        } catch (e) {
-          console.warn('Backend report generation failed, falling back to frontend:', e);
+          return;
         }
       }
 
-      // Fallback to frontend template
-      const language = useConfigStore.getState().language === 'en' ? 'en' : 'zh-CN';
-      const htmlReport = ReportGeneratorService.generateProfessionalHtmlReport(analysis, language);
-      ReportGeneratorService.downloadReport(htmlReport, filename);
-      // Save local backup
-      saveReportToDisk(filename, htmlReport);
-
-      void fetch('/api/logs/add', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          field: 'export_html_report',
-          oldValue: 'markdown',
-          newValue: 'pro_html',
-          description: `成功导出专业 HTML 研报: ${analysis.stockInfo?.name}`
-        })
-      });
+      // 3) No deep report available — never silently export a different
+      //    frontend template (that was the source of the style/content mismatch).
+      setReportStatus('error');
+      useUIStore.getState().showToast('深度研报尚未生成或生成失败，无法导出', 'error');
     } catch (e) {
       console.error('Export HTML failed:', e);
       setReportStatus('error');
+      useUIStore.getState().showToast('导出失败，请稍后重试', 'error');
     } finally {
       setIsGeneratingReport(false);
     }
@@ -241,7 +245,7 @@ export function useReporting(fetchAdminData: () => Promise<void>) {
 
   const handleExportPdf = useCallback(async () => {
     if (!analysis) return;
-    const lastJobId = useAnalysisStore.getState().lastJobId;
+    const { lastJobId, cachedReportHtml, cachedReportJobId } = useAnalysisStore.getState();
     if (!lastJobId) return;
 
     setIsGeneratingReport(true);
@@ -250,7 +254,12 @@ export function useReporting(fetchAdminData: () => Promise<void>) {
       const res = await fetch(`/api/analysis/jobs/${lastJobId}/export/pdf`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ deepseekApiKey: config.deepseekApiKey || undefined }),
+        body: JSON.stringify({
+          deepseekApiKey: config.deepseekApiKey || undefined,
+          // Pass the exact deep-report HTML currently on screen so the PDF is
+          // converted from the same content (never a regenerated variant).
+          html: cachedReportJobId === lastJobId ? cachedReportHtml : undefined,
+        }),
       });
       if (!res.ok) throw new Error(`PDF export failed: ${res.status}`);
       const blob = await res.blob();

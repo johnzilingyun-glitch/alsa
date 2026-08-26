@@ -226,14 +226,14 @@ async def run_analysis_flow(query, market, level, output_path, model, guard="non
     resolved_market = selected_match["market"]
     click.echo(f"Selected: {selected_match['name']} ({symbol} | {resolved_market})")
     
-    # Use model from CLI option or config; fall back to DEFAULT_LLM_MODEL (OpenRouter
-    # e.g. tencent/hy3:free). Passing it explicitly avoids discussion_service's
+    # Use model from CLI option or config; fall back to DEFAULT_LLM_MODEL (e.g.
+    # deepseek-v4-pro). Passing it explicitly avoids discussion_service's
     # deepseek-v4-pro fallback, which would hit the native DeepSeek tool loop with no key.
     cfg = load_config()
-    final_model = model or cfg.get("model") or cfg.get("gemini_model") or os.getenv("DEFAULT_LLM_MODEL", "tencent/hy3:free")
+    final_model = model or cfg.get("model") or cfg.get("gemini_model") or os.getenv("DEFAULT_LLM_MODEL", "deepseek-v4-pro")
     if is_deprecated_model(final_model):
         # Deprecated model, fall back to default
-        final_model = os.getenv("DEFAULT_LLM_MODEL", "tencent/hy3:free")
+        final_model = os.getenv("DEFAULT_LLM_MODEL", "deepseek-v4-pro")
     
     # 3. Start Job
     click.echo("\nFetching data and running expert discussion...")

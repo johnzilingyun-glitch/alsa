@@ -53,6 +53,9 @@ async def test_self_reflection_triggered():
     }
     
     # We mock _call_expert to return our low-confidence message
+    # NOTE: snapshot must carry a resolvable company name — otherwise the
+    # unidentifiable-stock early abort (commit f0a5573) fires before
+    # _call_expert and the self-reflection logic under test never runs.
     with patch.object(ds, "_call_expert", AsyncMock(return_value=mock_msg)), \
          patch("app.services.self_reflection_agent.self_reflection_agent.reflect", AsyncMock(return_value=mock_reflection_result)):
         
@@ -63,7 +66,7 @@ async def test_self_reflection_triggered():
              results = await ds.run_discussion(
                  symbol="AAPL",
                  name="Apple",
-                 snapshot={"market": "US"},
+                 snapshot={"market": "US", "name": "Apple Inc."},
                  level="standard"
              )
              

@@ -251,3 +251,82 @@ class TestValuationReport:
         low, high = report.confidence_interval
         assert low < high
         assert low > 0
+
+
+class TestDCFRejectionAndSanityFlags:
+    """B 部分：护栏触发时拒绝而非 clamp，拒绝原因进 ValuationReport.sanity_flags。"""
+
+    def test_spread_below_minimum_rejected(self):
+        engine = ValuationEngine()
+        result = engine.dcf_valuation(
+            fcf_base=1000,
+            growth_rates=[0.10],
+            terminal_growth=0.05,
+            wacc=0.06,  # WACC−g = 1% < 2% 最小利差
+            shares_outstanding=100,
+            net_debt=0,
+        )
+        assert result.fair_value == 0
+        assert result.weight == 0
+        assert "spread" in result.assumptions["error"]
+        assert "rejected" in result.assumptions["error"]
+
+    def test_wacc_outside_band_rejected(self):
+        engine = ValuationEngine()
+        result = engine.dcf_valuation(
+            fcf_base=1000,
+            growth_rates=[0.10],
+            terminal_growth=0.01,
+            wacc=0.04,  # 利差 3% 合格，但 WACC < 5% 下限
+            shares_outstanding=100,
+            net_debt=0,
+        )
+        assert result.fair_value == 0
+        assert "outside" in result.assumptions["error"]
+
+    def test_g_above_rf_flagged_in_report(self):
+        engine = ValuationEngine()
+        report = engine.compute_target_price(
+            symbol="X",
+            current_price=100,
+            fcf_base=1000,
+            growth_rates=[0.10, 0.08],
+            terminal_growth=0.03,
+            wacc=0.09,
+            shares_outstanding=100,
+            rf=0.02,  # g=3% > Rf=2% → 拒绝 DCF
+        )
+        assert report.methods == []
+        assert len(report.sanity_flags) == 1
+        assert "exceeds risk-free rate" in report.sanity_flags[0]
+        assert report.to_dict()["sanity_flags"] == report.sanity_flags
+
+    def test_dcf_rejection_reason_flagged_in_report(self):
+        engine = ValuationEngine()
+        report = engine.compute_target_price(
+            symbol="X",
+            current_price=100,
+            fcf_base=1000,
+            growth_rates=[0.10, 0.08],
+            terminal_growth=0.06,
+            wacc=0.07,  # 利差 1% < 2%
+            shares_outstanding=100,
+        )
+        assert report.methods == []
+        assert len(report.sanity_flags) == 1
+        assert report.sanity_flags[0].startswith("DCF rejected:")
+
+    def test_healthy_dcf_has_no_flags(self):
+        engine = ValuationEngine()
+        report = engine.compute_target_price(
+            symbol="X",
+            current_price=100,
+            fcf_base=1000,
+            growth_rates=[0.10, 0.08],
+            terminal_growth=0.03,
+            wacc=0.09,
+            shares_outstanding=100,
+            rf=0.03,
+        )
+        assert len(report.methods) == 1
+        assert report.sanity_flags == []

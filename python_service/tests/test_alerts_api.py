@@ -25,6 +25,40 @@ def test_create_alert():
     assert data["status"] == "active"
 
 
+def test_create_alert_with_action():
+    """The action field (buy/sell/hold/watch) must persist so the signal monitor
+    can use explicit direction instead of guessing from target<entry."""
+    client = TestClient(app)
+    resp = client.post("/api/alerts/", json={
+        "symbol": "600378",
+        "name": "昊华科技",
+        "market": "A-Share",
+        "entry_price": 26.0,
+        "target_price": 21.0,
+        "stop_loss": 28.5,
+        "action": "sell",
+    }, headers=HEADERS)
+    assert resp.status_code == 201
+    data = resp.json()
+    assert data["action"] == "sell"
+    assert data["target_price"] < data["entry_price"]  # genuinely short-side plan
+
+
+def test_create_alert_rejects_invalid_action():
+    client = TestClient(app)
+    resp = client.post("/api/alerts/", json={
+        "symbol": "BAD1",
+        "name": "Bad",
+        "market": "A-Share",
+        "entry_price": 10.0,
+        "target_price": 12.0,
+        "stop_loss": 9.0,
+        "action": "moon",
+    }, headers=HEADERS)
+    assert resp.status_code == 400
+    assert "action" in resp.json()["detail"]
+
+
 def test_list_alerts():
     client = TestClient(app)
     client.post("/api/alerts/", json={

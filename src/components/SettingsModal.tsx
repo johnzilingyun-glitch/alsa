@@ -21,6 +21,10 @@ const DEEPSEEK_MODELS = [
   { id: 'deepseek-v4-pro',   name: 'DeepSeek-V4 Pro (Flagship)',    description: '旗舰级 1.6T MoE 推理模型，具备顶级逻辑深度与 STEM 能力，适合复杂研报。' },
 ];
 
+const OPENROUTER_MODELS = [
+  { id: 'minimax/minimax-m3:free', name: 'MiniMax M3 (Free · OpenRouter)', description: '经 OpenRouter 路由的 MiniMax M3 免费模型，支持推理链（reasoning tokens）输出，当前项目默认模型。' },
+];
+
 export function SettingsModal() {
   const { t } = useTranslation();
   const { config, setConfig, tokenUsage, availableModels, setAvailableModels, feishuWebhookUrl, setFeishuWebhookUrl, debugMode, setDebugMode } = useConfigStore();
@@ -31,7 +35,8 @@ export function SettingsModal() {
   const serviceMode = config.serviceMode || 'byok';
 
 
-  const displayModels = [...(availableModels.length > 0 ? availableModels : AVAILABLE_MODELS), ...DEEPSEEK_MODELS];
+  const displayModels = [...(availableModels.length > 0 ? availableModels : AVAILABLE_MODELS), ...DEEPSEEK_MODELS, ...OPENROUTER_MODELS]
+    .filter((m, i, arr) => arr.findIndex((x) => x.id === m.id) === i);
 
   const handleFetchModels = async () => {
     setIsFetchingModels(true);

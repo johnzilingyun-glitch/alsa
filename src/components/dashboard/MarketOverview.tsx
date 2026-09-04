@@ -390,9 +390,14 @@ export const MarketOverview = memo(function MarketOverview({ onFetchMarketOvervi
   const marketLastUpdated = isHistoryMode ? undefined : marketLastUpdatedTimes[overviewMarket];
 
   // Derived data — prefer dashboard, fallback to local state
-  const sectorFlow = dashboard?.sectorFlow || _sectorFlowLocal;
+  // 空 sectorFlow（topInflows 为空的占位对象）是 truthy，不应挡住本地独立拉取的数据
+  const dashboardSectorFlow = dashboard?.sectorFlow;
+  const hasDashboardFlow = !!(dashboardSectorFlow?.topInflows?.length || dashboardSectorFlow?.topOutflows?.length);
+  const sectorFlow = hasDashboardFlow ? dashboardSectorFlow : (_sectorFlowLocal || dashboardSectorFlow);
   const northboundFlow = (dashboard?.northbound || _northboundLocal)?.[0] ?? null;
   const hotSectorsData = dashboard?.hotSectors;
+  // 过滤 yfinance 限流失败的 error 项，避免渲染出无价格的空卡片
+  const commoditiesData = (dashboard?.commodities || []).filter((c: any) => !c.error);
   const newsData = dashboard?.news || hotNews;
 
   const getSentimentText = (summary?: string) => {
@@ -996,7 +1001,7 @@ export const MarketOverview = memo(function MarketOverview({ onFetchMarketOvervi
                   {t('market.commodity_trends')}
                 </h3>
                 <div className="space-y-3">
-                  {(dashboard?.commodities?.length || marketOverview?.commodityAnalysis?.length) ? (dashboard?.commodities || marketOverview?.commodityAnalysis || []).map((item: any, i: number) => {
+                  {(commoditiesData.length || marketOverview?.commodityAnalysis?.length) ? (commoditiesData.length ? commoditiesData : marketOverview?.commodityAnalysis || []).map((item: any, i: number) => {
                     const chg = item.changePercent ?? item.change ?? 0;
                     const trend = item.trend || (chg > 0 ? '上涨' : chg < 0 ? '下跌' : '持平');
                     const expectation = item.expectation || `${item.price ?? ''} ${item.unit || ''} (${chg > 0 ? '+' : ''}${chg}%)`;

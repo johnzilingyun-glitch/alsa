@@ -4,7 +4,7 @@ import { useUIStore } from "../stores/useUIStore";
 import { requestScheduler } from "./requestScheduler";
 import { tryFallbackProviders, getAvailableFallbackProviders } from "./llmProvider";
 
-export const DEFAULT_LLM_MODEL = "deepseek-v4-pro";
+export const DEFAULT_LLM_MODEL = "minimax/minimax-m3:free";
 
 // Fallback chain: primary + backup model for resilience.
 export const MODEL_FALLBACK_CHAIN: string[] = [
@@ -78,7 +78,8 @@ function createBackendBridgeClient(config?: { model?: string; serviceMode?: Serv
   const resolvedModel = (() => {
     const userModel = config?.model || storeConfig?.model || '';
     if (!userModel) {
-      // No model set at all — auto-detect by key
+      // No model set at all — prefer project default when its provider key exists
+      if (openrouterApiKey) return DEFAULT_LLM_MODEL;
       return deepseekApiKey ? 'deepseek-v4-pro' : DEFAULT_LLM_MODEL;
     }
     const isGemini = userModel.startsWith('gemini');

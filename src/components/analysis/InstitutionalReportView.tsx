@@ -5,6 +5,7 @@ import { useConfigStore } from '../../stores/useConfigStore';
 import { useUIStore } from '../../stores/useUIStore';
 import { useMarketStore } from '../../stores/useMarketStore';
 import { alertsClient } from '../../services/api/alertsClient';
+import { buildSignalAlertFromAnalysis } from '../../utils/signalAction';
 import { useTranslation } from 'react-i18next';
 import { cn } from './utils';
 import type { Market } from '../../types';
@@ -40,42 +41,31 @@ export function InstitutionalReportView() {
     if (!analysis || !analysis.stockInfo) return;
     setIsAdding(true);
     try {
-      const plan = analysis.tradingPlan || {} as any;
-      const parseNum = (s: string) => {
-        const match = String(s || '').match(/[\d.]+/);
-        return match ? parseFloat(match[0]) : 0;
-      };
-      
-      const currentPrice = analysis.stockInfo.price || 100;
-      const entry = parseNum(plan.entryPrice) || currentPrice;
-      const target = parseNum(plan.targetPrice) || entry * 1.15;
-      const stop = parseNum(plan.stopLoss) || entry * 0.92;
-      
-      if (entry > 0 && target > 0 && stop > 0) {
-        const result = await alertsClient.create({
-          symbol: analysis.stockInfo.symbol,
-          name: analysis.stockInfo.name,
-          market: analysis.stockInfo.market as Market,
-          entry_price: entry,
-          target_price: target,
-          stop_loss: stop,
-          currency: analysis.stockInfo.currency || 'CNY',
-        });
-        setAdded(true);
-        setCreatedAlertId(result.alert_id);
-        setShowMonitorConfirm(true);
-        // Optimistically push the created alert into the store so Signal Center shows it
-        // instantly, even if the user opens it before a fresh GET completes.
-        const cur = useMarketStore.getState().searchAlerts || [];
-        setAlerts([result, ...cur.filter((a: any) => a.alert_id !== result.alert_id)]);
-        // Reconcile with backend (authoritative list)
-        alertsClient.list().then(r => setAlerts(r.items || [])).catch(() => {});
-        showToast('已添加至信号中心，请确认是否启动实时监控', 'success');
-      } else {
-        showToast('交易计划中未能提取有效的数值，无法添加', 'error');
+      // Never fabricate prices: the old fallbacks (`|| currentPrice`,
+      // `|| entry * 1.15`, `|| entry * 0.92`) silently turned a Sell plan into
+      // a long signal with invented levels (see 昊华科技 regression).
+      // buildSignalAlertFromAnalysis refuses to build an alert when the plan
+      // lacks usable target/stop (and entry for directional buy/sell signals);
+      // hold/watch signals may anchor tracking on the live price.
+      const built = buildSignalAlertFromAnalysis(analysis);
+      if (!built.ok) {
+        showToast(built.reason, 'error');
+        return;
       }
-    } catch (e: any) {
-      showToast('添加失败: ' + e.message, 'error');
+
+      const result = await alertsClient.create(built.draft);
+      setAdded(true);
+      setCreatedAlertId(result.alert_id);
+      setShowMonitorConfirm(true);
+      // Optimistically push the created alert into the store so Signal Center shows it
+      // instantly, even if the user opens it before a fresh GET completes.
+      const cur = useMarketStore.getState().searchAlerts || [];
+      setAlerts([result, ...cur.filter((a) => a.alert_id !== result.alert_id)]);
+      // Reconcile with backend (authoritative list)
+      alertsClient.list().then(r => setAlerts(r.items || [])).catch(() => {});
+      showToast('已添加至信号中心，请确认是否启动实时监控', 'success');
+    } catch (e) {
+      showToast('添加失败: ' + (e instanceof Error ? e.message : String(e)), 'error');
     } finally {
       setIsAdding(false);
     }
@@ -96,8 +86,8 @@ export function InstitutionalReportView() {
       setMonitoringEnabled(true);
       setShowMonitorConfirm(false);
       showToast('✅ 信号监控已启动！价格触发时将通过飞书实时通知', 'success');
-    } catch (e: any) {
-      showToast('启动监控失败: ' + e.message, 'error');
+    } catch (e) {
+      showToast('启动监控失败: ' + (e instanceof Error ? e.message : String(e)), 'error');
     } finally {
       setIsEnablingMonitor(false);
     }

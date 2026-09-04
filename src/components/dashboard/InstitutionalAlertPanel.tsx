@@ -8,6 +8,7 @@ import { useTranslation } from 'react-i18next';
 import { useMarketStore } from '../../stores/useMarketStore';
 import { useAnalysisStore } from '../../stores/useAnalysisStore';
 import { alertsClient, SearchAlert } from '../../services/api/alertsClient';
+import { alertIsShort } from '../../utils/signalAction';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
@@ -81,7 +82,9 @@ export const InstitutionalAlertPanel = memo(function InstitutionalAlertPanel() {
     const currentPrice = alertPrices[alert.symbol];
     if (!currentPrice) return 'neutral';
 
-    const isShort = alert.target_price < alert.entry_price;
+    // Explicit action wins; legacy rows fall back to target < entry geometry —
+    // same rule as SignalCenter and the backend signal monitor.
+    const isShort = alertIsShort(alert);
     if (isShort ? currentPrice <= alert.target_price : currentPrice >= alert.target_price) return 'target_hit';
     if (isShort ? currentPrice >= alert.stop_loss : currentPrice <= alert.stop_loss) return 'stop_loss_hit';
     

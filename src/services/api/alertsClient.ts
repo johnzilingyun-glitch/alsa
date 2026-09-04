@@ -1,4 +1,5 @@
 import { Market } from '../../types';
+import type { SignalAction } from '../../utils/signalAction';
 
 export interface SearchAlert {
   id?: number;
@@ -10,6 +11,8 @@ export interface SearchAlert {
   target_price: number;
   stop_loss: number;
   currency?: string;
+  /** Signal direction — drives long/short monitoring semantics. */
+  action?: SignalAction;
   status?: string;
   acknowledged?: boolean;
   created_at?: string;

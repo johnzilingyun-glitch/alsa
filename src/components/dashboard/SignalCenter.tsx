@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { useMarketStore } from '../../stores/useMarketStore';
 import { useAnalysisStore } from '../../stores/useAnalysisStore';
 import { alertsClient, type PostmortemPayload, type SearchAlert as AlertType } from '../../services/api/alertsClient';
+import { alertIsShort, type SignalAction } from '../../utils/signalAction';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
@@ -16,6 +17,16 @@ interface SignalCenterProps {
   isOpen: boolean;
   onClose: () => void;
 }
+
+// Action badge metadata — buy uses emerald (project convention: gains/targets
+// are emerald, losses/risks are rose, cf. SidebarSummary target/stop styling);
+// sell is the inverse; hold/watch are neutral zinc.
+const ACTION_META: Record<SignalAction, { label: string; className: string }> = {
+  buy: { label: '买入', className: 'bg-emerald-100 text-emerald-700 border border-emerald-200' },
+  sell: { label: '卖出', className: 'bg-rose-100 text-rose-700 border border-rose-200' },
+  hold: { label: '持有', className: 'bg-zinc-100 text-zinc-600 border border-zinc-200' },
+  watch: { label: '观望', className: 'bg-zinc-100 text-zinc-600 border border-zinc-200' },
+};
 
 export function SignalCenter({ isOpen, onClose }: SignalCenterProps) {
   const { t } = useTranslation();
@@ -195,23 +206,40 @@ export function SignalCenter({ isOpen, onClose }: SignalCenterProps) {
     }
   };
 
-  const getStatus = (alert: any) => {
+  const getStatus = (alert: AlertType) => {
     if (alert.monitoring_enabled === false) return 'inactive';
     const price = alertPrices[alert.symbol];
     if (!price) return 'neutral';
-    if (price >= alert.target_price) return 'gold';
-    if (price <= alert.stop_loss) return 'red';
-    const entryDiff = Math.abs(price - alert.entry_price) / alert.entry_price;
-    if (entryDiff <= 0.02) return 'indigo';
+    // hold/watch are non-directional tracking signals: never surface the
+    // bullish "目标达成/止损" verdicts, only a neutral near-anchor hint.
+    if (alert.action === 'hold' || alert.action === 'watch') {
+      if (alert.entry_price > 0 && Math.abs(price - alert.entry_price) / alert.entry_price <= 0.02) return 'indigo';
+      return 'neutral';
+    }
+    // sell → short semantics (price <= target hits profit, >= stop hits loss);
+    // buy/legacy → long semantics, legacy rows infer direction from geometry
+    // (target < entry ⇒ short) exactly like the backend monitor service.
+    const isShort = alertIsShort(alert);
+    if (isShort ? price <= alert.target_price : price >= alert.target_price) return 'gold';
+    if (isShort ? price >= alert.stop_loss : price <= alert.stop_loss) return 'red';
+    if (alert.entry_price > 0 && Math.abs(price - alert.entry_price) / alert.entry_price <= 0.02) return 'indigo';
     return 'neutral';
   };
 
-  const getVerdictHint = (status: string) => {
+  const getVerdictHint = (alert: AlertType, status: string) => {
+    if (alert.action === 'hold' || alert.action === 'watch') {
+      switch (status) {
+        case 'inactive': return '已停止监控 (触发或确认)';
+        case 'indigo': return '接近关注价位 🔍';
+        default: return alert.action === 'hold' ? '持有观察中 · 价格运行中' : '观望跟踪中 · 价格运行中';
+      }
+    }
+    const isShort = alertIsShort(alert);
     switch (status) {
       case 'inactive': return '已停止监控 (触发或确认)';
-      case 'gold': return '目标达成！🚀 建议考虑止盈';
-      case 'red': return '跌破止损！⚠️ 建议按计划离场';
-      case 'indigo': return '进入买入区 ✨ 关注择机介入';
+      case 'gold': return isShort ? '空头目标达成！🚀 建议考虑止盈' : '目标达成！🚀 建议考虑止盈';
+      case 'red': return isShort ? '涨破止损位！⚠️ 建议按计划回补离场' : '跌破止损！⚠️ 建议按计划离场';
+      case 'indigo': return isShort ? '进入做空入场区 ✨ 关注择机介入' : '进入买入区 ✨ 关注择机介入';
       default: return '持仓待机 · 价格运行中';
     }
   };
@@ -284,10 +312,18 @@ export function SignalCenter({ isOpen, onClose }: SignalCenterProps) {
                      if (!alert) return null;
                      const price = alertPrices[alert.symbol];
                     const status = getStatus(alert);
+                    // searchAlerts is any[] in the store — narrow the action
+                    // explicitly before indexing ACTION_META.
+                    const alertAction: SignalAction | undefined = alert.action;
+                    const actionMeta = alertAction ? ACTION_META[alertAction] : undefined;
+                    const isShort = alertIsShort(alert);
                     
-                    // Find corresponding history item to show full trading plan text if available
+                    // Find corresponding history item to show full trading plan text if available.
+                    // NOTE: the backend writes `tradingPlan.strategy` (see
+                    // analysis_job_service._extract_structured_fields); the
+                    // previously referenced actionPlan/summary fields never existed.
                     const histItem = historyItems.find(h => h.stockInfo?.symbol === alert.symbol);
-                    const tradingPlanText = histItem?.tradingPlan?.actionPlan || histItem?.tradingPlan?.summary || "查看完整研判报告以获取详细计划";
+                    const tradingPlanText = histItem?.tradingPlan?.strategy || "查看完整研判报告以获取详细计划";
 
                     return (
                       <motion.div
@@ -306,7 +342,14 @@ export function SignalCenter({ isOpen, onClose }: SignalCenterProps) {
                           {/* Stock & Price Info */}
                           <div className="lg:w-1/4 space-y-3">
                             <div>
-                              <h4 className="font-bold text-zinc-950 group-hover:text-indigo-600 transition-colors">{alert.name}</h4>
+                              <h4 className="font-bold text-zinc-950 group-hover:text-indigo-600 transition-colors flex items-center gap-2">
+                                {alert.name}
+                                {actionMeta && (
+                                  <span className={cn("px-1.5 py-0.5 rounded-md text-[10px] font-bold tracking-wide", actionMeta.className)}>
+                                    {actionMeta.label}
+                                  </span>
+                                )}
+                              </h4>
                               <p className="text-[10px] font-mono text-zinc-400 uppercase tracking-widest">{alert.symbol} · {alert.market}</p>
                             </div>
                             <div className="pt-2 border-t border-zinc-100/50">
@@ -330,11 +373,11 @@ export function SignalCenter({ isOpen, onClose }: SignalCenterProps) {
                               <span className={cn("text-xs font-bold", status === 'indigo' ? "text-indigo-600" : "text-zinc-600")}>{alert.entry_price}</span>
                             </div>
                             <div className="flex items-center justify-between">
-                              <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Target</span>
+                              <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Target {isShort ? '↓' : '↑'}</span>
                               <span className={cn("text-xs font-bold", status === 'gold' ? "text-yellow-600" : "text-zinc-600")}>{alert.target_price}</span>
                             </div>
                             <div className="flex items-center justify-between">
-                              <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Stop Loss</span>
+                              <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Stop Loss {isShort ? '↑' : '↓'}</span>
                               <span className={cn("text-xs font-bold", status === 'red' ? "text-rose-600" : "text-zinc-600")}>{alert.stop_loss}</span>
                             </div>
                             <div className={cn(
@@ -344,7 +387,7 @@ export function SignalCenter({ isOpen, onClose }: SignalCenterProps) {
                               status === 'indigo' ? "bg-indigo-600 text-white" :
                               "bg-zinc-100 text-zinc-500"
                             )}>
-                              {getVerdictHint(status)}
+                              {getVerdictHint(alert, status)}
                             </div>
                           </div>
 

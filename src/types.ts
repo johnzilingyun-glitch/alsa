@@ -173,7 +173,13 @@ export interface ValuationAnalysis {
 }
 
 export interface TradingPlan {
+  /** Signal direction, normalized to buy/sell/hold/watch by the backend
+   *  `_extract_structured_fields` (signal_taxonomy). */
+  action?: 'buy' | 'sell' | 'hold' | 'watch';
   entryPrice: string;
+  /** Explicit entry range fields extracted by the backend (numeric strings). */
+  entryLow?: string;
+  entryHigh?: string;
   targetPrice: string;
   stopLoss: string;
   strategy: string;

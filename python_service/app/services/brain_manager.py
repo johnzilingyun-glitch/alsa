@@ -1,5 +1,6 @@
 import os
 import json
+import time
 import logging
 from dotenv import load_dotenv
 from typing import Optional, List, Dict, Any
@@ -234,6 +235,36 @@ ROLE_TO_GENOME_MAP = {
 }
 POPULATION_SIZE = 3
 
+# --- EvolveR feedback loop tuning -------------------------------------------------
+# Minimum interval between two LLM evolutions for the same role. Feedback
+# arriving inside the window is accumulated in an in-memory pending queue and
+# merged into the next evolution attempt (bursts of reviewer markers from
+# concurrent analysis jobs no longer spam the LLM).
+EVOLUTION_MIN_INTERVAL_SECONDS = int(os.getenv("EVOLVER_MIN_EVOLUTION_INTERVAL_SECONDS", "1800"))
+# Upper bound of pending feedback entries merged per evolution attempt.
+_MAX_PENDING_FEEDBACK = 20
+# Keywords (case-insensitive, matched against the feedback context) that route
+# a feedback event to the "professional reviewer" genome. Checked BEFORE the
+# legacy keyword chain so reviewer audits containing words like "report" or
+# "risk" don't get hijacked by other expert branches.
+PROFESSIONAL_REVIEWER_KEYWORDS = (
+    "professional reviewer",
+    "reviewer",
+    "review",
+    "audit",
+    "评审",
+    "审核",
+    "复审",
+    "rf_stale",
+    "wacc_blackbox",
+    "peg_mismatch",
+    "cio_dashboard_missing",
+    "kill_switch_missing",
+    "metric_misuse",
+    "source_data_err",
+    "model_ok",
+)
+
 
 class SimpleVectorMemory:
     """Lightweight vector memory using Qdrant + fastembed (no mem0 dependency)."""
@@ -328,6 +359,10 @@ class BrainManager:
             logger.info("BrainManager: GEMINI_API_KEY not found, will use DeepSeek for evolution.")
 
         self.state = self._load_genome_state()
+        # Per-role evolution throttle state (in-memory; process-local by design,
+        # see apply_global_fitness notes for the multi-process caveat)
+        self._last_evolution_at: Dict[str, float] = {}
+        self._pending_feedback: Dict[str, List[str]] = {}
 
 
     @property
@@ -405,21 +440,76 @@ class BrainManager:
     def process_feedback(self, feedback_data: dict):
         """
         Updates global evolution and per-user memory based on feedback.
+
+        Honors an explicit ``role`` key in feedback_data (case-insensitive,
+        resolved through ROLE_TO_GENOME_MAP). Callers: the frontend evolution
+        modal submits {role, feedback}; the reviewer feedback hook submits
+        role="professional reviewer". Explicit routing takes precedence over
+        context keyword guessing — previously the role field was silently
+        ignored and every empty-context feedback fell into the global genome.
+
+        Evolution is throttled per role (EVOLUTION_MIN_INTERVAL_SECONDS):
+        feedback arriving inside the window is accumulated in an in-memory
+        pending queue and merged into the next evolution attempt. When the
+        mutation LLM is unavailable (e.g. 402 quota exhaustion) the feedback
+        stays pending for the next window — never a half-written genome.
         """
         user_id = feedback_data.get("user_id", "anonymous")
         feedback_text = feedback_data.get("feedback", "")
-        analysis_context = feedback_data.get("context", "") # What was being analyzed
-        
-        # 1. Update long-term memory (facts)
+        analysis_context = feedback_data.get("context", "") or ""  # What was being analyzed
+        explicit_role = (feedback_data.get("role") or "").strip() or None
+
+        # 1. Update long-term memory (facts) — always recorded, never throttled
         if self.memory and feedback_text:
             try:
                 self.memory.add(f"User feedback on {analysis_context}: {feedback_text}", user_id=user_id)
             except Exception as e:
                 logger.warning(f"BrainManager: Failed to add memory: {e}")
 
-        # 2. Update Global Evolution (EvolveR logic)
-        if feedback_text:
-            self._evolve_instructions(feedback_text, analysis_context)
+        # 2. Update Global Evolution (EvolveR logic) — throttled per role
+        if not feedback_text:
+            return
+        role_key = self._resolve_role_key(explicit_role, analysis_context)
+        pending = self._pending_feedback.setdefault(role_key, [])
+        pending.append(feedback_text)
+        # Keep the queue bounded (only its tail is merged on evolution anyway)
+        if len(pending) > _MAX_PENDING_FEEDBACK:
+            del pending[: len(pending) - _MAX_PENDING_FEEDBACK]
+
+        now = time.time()
+        elapsed = now - self._last_evolution_at.get(role_key, 0.0)
+        if elapsed < EVOLUTION_MIN_INTERVAL_SECONDS:
+            logger.info(
+                "BrainManager: feedback for role '%s' queued (%d pending); next "
+                "evolution in %ds (throttle: %ds).",
+                role_key, len(pending),
+                int(EVOLUTION_MIN_INTERVAL_SECONDS - elapsed), EVOLUTION_MIN_INTERVAL_SECONDS,
+            )
+            return
+
+        merged_feedback = "\n---\n".join(pending)
+        self._last_evolution_at[role_key] = now
+        try:
+            evolved = self._evolve_instructions(merged_feedback, analysis_context, role=role_key)
+        except Exception as e:
+            # Last-resort guard: process_feedback must never raise into the
+            # caller (API route / reviewer feedback hook) — degrade to warning
+            # and keep the feedback pending for the next window.
+            logger.warning(
+                "BrainManager: evolution attempt failed for role '%s' (non-fatal): %s",
+                role_key, e,
+            )
+            evolved = False
+        if evolved:
+            self._pending_feedback[role_key] = []
+        else:
+            # LLM unavailable (e.g. 402 quota) — keep the feedback pending so the
+            # next window retries with the full accumulated evidence.
+            logger.warning(
+                "BrainManager: feedback for role '%s' kept pending (%d items) "
+                "after failed evolution attempt.",
+                role_key, len(self._pending_feedback.get(role_key, [])),
+            )
 
     def _get_instructions_for_role(self, role: str) -> str:
         genome_key = ROLE_TO_GENOME_MAP.get(role, role)
@@ -517,27 +607,90 @@ class BrainManager:
         self._save_genome_state(self.state)
         logger.info(f"BrainManager: Instructions updated manually for role '{role}'.")
 
+    def update_role_fitness(self, role: str, fitness: float) -> bool:
+        """Write a fitness score (0-1) to the role's alpha gene and persist.
 
-    def _evolve_instructions(self, feedback: str, context: str):
-        # Determine role from context (simple heuristic)
-        role = "global"
-        ctx_lower = context.lower()
+        Pure numeric update — never triggers LLM evolution. Returns True when
+        a genome was found and updated.
+        """
+        role_key = ROLE_TO_GENOME_MAP.get(role.strip().lower(), role.strip().lower())
+        genome = self.state.genomes.get(role_key)
+        if not genome or genome.alpha is None:
+            return False
+        genome.alpha.fitness = float(max(0.0, min(1.0, fitness)))
+        self._save_genome_state(self.state)
+        return True
+
+    def apply_global_fitness(self, fitness: float) -> Dict[str, bool]:
+        """Write a shared fitness score to every genome's alpha gene.
+
+        PredictionRecord rows carry no role/expert attribution — each
+        prediction is the verdict of the whole multi-agent pipeline — so the
+        global rolling accuracy is applied to every expert genome as a shared
+        fitness signal (documented limitation; per-role attribution would
+        require a predictionrecord schema change). Pure numeric update: no
+        LLM calls, no evolution trigger.
+        """
+        fitness = float(max(0.0, min(1.0, fitness)))
+        results: Dict[str, bool] = {}
+        for role_key, genome in self.state.genomes.items():
+            if genome.alpha is None:
+                results[role_key] = False
+                continue
+            genome.alpha.fitness = fitness
+            results[role_key] = True
+        self._save_genome_state(self.state)
+        return results
+
+
+    def _resolve_role_key(self, role: Optional[str], context: str) -> str:
+        """Map a feedback event to its genome key.
+
+        Priority: explicit role name (case-insensitive, resolved through
+        ROLE_TO_GENOME_MAP) > professional-reviewer keywords in the context >
+        legacy keyword heuristics. The reviewer branch is checked first so
+        audit contexts containing words like "report" or "risk" are not
+        hijacked by the fundamental/risk branches.
+        """
+        if role:
+            normalized = role.strip().lower()
+            return ROLE_TO_GENOME_MAP.get(normalized, normalized)
+
+        ctx_lower = (context or "").lower()
+        if any(keyword in ctx_lower for keyword in PROFESSIONAL_REVIEWER_KEYWORDS):
+            return "professional reviewer"
         if "tech" in ctx_lower or "chart" in ctx_lower:
-            role = "technical analyst"
-        elif "financial" in ctx_lower or "report" in ctx_lower or "fundamental" in ctx_lower:
-            role = "fundamental analyst"
-        elif "macro" in ctx_lower or "fed" in ctx_lower:
-            role = "macro hedge titan"
-        elif "risk" in ctx_lower:
-            role = "risk manager"
-        elif "sentiment" in ctx_lower or "情绪" in ctx_lower:
-            role = "sentiment analyst"
-        elif "bull" in ctx_lower or "看多" in ctx_lower:
-            role = "bull researcher"
-        elif "bear" in ctx_lower or "看空" in ctx_lower:
-            role = "bear researcher"
-        elif "strategy" in ctx_lower or "策略" in ctx_lower:
-            role = "chief strategist"
+            return "technical analyst"
+        if "financial" in ctx_lower or "report" in ctx_lower or "fundamental" in ctx_lower:
+            return "fundamental analyst"
+        if "macro" in ctx_lower or "fed" in ctx_lower:
+            return "macro hedge titan"
+        if "risk" in ctx_lower:
+            return "risk manager"
+        if "sentiment" in ctx_lower or "情绪" in ctx_lower:
+            return "sentiment analyst"
+        if "bull" in ctx_lower or "看多" in ctx_lower:
+            return "bull researcher"
+        if "bear" in ctx_lower or "看空" in ctx_lower:
+            return "bear researcher"
+        if "strategy" in ctx_lower or "策略" in ctx_lower:
+            return "chief strategist"
+        return "global"
+
+    def _evolve_instructions(self, feedback: str, context: str, role: Optional[str] = None) -> bool:
+        """Evolve the genome for the resolved role: mutate then select.
+
+        Role resolution priority: explicit ``role`` argument > reviewer
+        keywords in context > legacy keyword guessing (see _resolve_role_key).
+        If the target genome does not exist yet (e.g. "professional reviewer"
+        missing from a legacy evolved_genome.json), it is initialized from
+        DEFAULT_GENOMES instead of silently falling back to "global".
+
+        Returns True when a new gene was produced and persisted; False when
+        the mutation LLM was unavailable — in that case nothing is appended
+        or saved, so the genome on disk is never polluted by a failed run.
+        """
+        role = self._resolve_role_key(role, context)
 
         if role not in self.state.genomes:
             self.state.genomes[role] = Genome(role=role)
@@ -548,7 +701,7 @@ class BrainManager:
             self.state.genomes[role].alpha_id = base_gene.id
 
         genome = self.state.genomes[role]
-        
+
         # 1. Mutate (Generation of a new candidate)
         new_gene = self._mutate(genome, feedback)
         if new_gene:
@@ -557,14 +710,21 @@ class BrainManager:
             # Trim population (FIFO)
             if len(genome.population) > POPULATION_SIZE:
                 genome.population = genome.population[-POPULATION_SIZE:]
-            
+
             # 2. Select (Re-evaluate winner)
             new_alpha_id = self._select(genome, feedback)
             if new_alpha_id:
                 genome.alpha_id = new_alpha_id
                 logger.info(f"BrainManager: Role '{role}' evolved. Alpha is now: {genome.alpha_id}")
-            
+
             self._save_genome_state(self.state)
+            return True
+
+        logger.warning(
+            "BrainManager: evolution deferred for role '%s' — mutation LLM "
+            "unavailable (e.g. quota exhaustion). Genome left untouched.", role,
+        )
+        return False
 
     def _call_llm(self, prompt: str) -> Optional[str]:
         """Call LLM with DeepSeek (primary) or Gemini (fallback)."""
@@ -618,7 +778,9 @@ Return ONLY the improved instructions, no explanations."""
                 new_gene.feedback_logs.append(feedback)
                 return new_gene
         except Exception as e:
-            logger.error(f"BrainManager: Mutation failed: {e}")
+            # Degrade to warning: LLM unavailability (402 quota, network) is an
+            # expected operational state, not an application error.
+            logger.warning(f"BrainManager: Mutation failed: {e}")
         return None
 
     def _select(self, genome: Genome, feedback: str) -> Optional[str]:
@@ -655,7 +817,7 @@ Return ONLY the ID of the best candidate (e.g., "abc123"). No explanation."""
                         return g.id
                 logger.warning(f"BrainManager: Model returned invalid ID: {winning_id}")
         except Exception as e:
-            logger.error(f"BrainManager: Selection failed: {e}")
+            logger.warning(f"BrainManager: Selection failed: {e}")
         return genome.alpha_id
 
 

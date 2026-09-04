@@ -22,6 +22,28 @@ load_dotenv(os.path.join(root_dir, ".env"), override=True)
 load_dotenv(os.path.join(root_dir, ".env.runtime"), override=True)
 
 
+def _is_retryable_llm_error(error_msg: str) -> bool:
+    """Whether an LLM call failure is transient and worth retrying.
+
+    Single source of truth for the retry filter across all providers —
+    keep new transient patterns here instead of duplicating substring
+    checks at each call site (they have already drifted once: "timed out"
+    was missing while "timeout" was present).
+    """
+    m = error_msg.lower()
+    # 402 insufficient credits is a permanent billing failure — never retry.
+    # (OpenRouter embeds previous_errors metadata whose numeric fields can
+    # contain substrings like "503", falsely matching the transient filter.)
+    if "402" in m[:100] or "requires more credits" in m or "payment required" in m:
+        return False
+    return (
+        "429" in error_msg or "quota" in m or "503" in error_msg or "524" in error_msg
+        or "500" in error_msg or "502" in error_msg or "empty response" in m
+        or "empty streaming response" in m or "connection" in m
+        or "timeout" in m or "timed out" in m
+    )
+
+
 def get_max_output_tokens() -> Optional[int]:
     """Output-token ceiling for OpenAI-compatible API calls.
 
@@ -160,7 +182,7 @@ class LLMGateway:
         self.openrouter_base_url = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
         self.default_api_key = os.getenv("DEFAULT_LLM_API_KEY")
         self.default_base_url = os.getenv("DEFAULT_LLM_BASE_URL", "").rstrip("/") or None
-        self.default_model = os.getenv("DEFAULT_LLM_MODEL", "deepseek-v4-pro")
+        self.default_model = os.getenv("DEFAULT_LLM_MODEL", "minimax/minimax-m3:free")
         self._gemini_client = None
         self._deepseek_client = None
         self._openrouter_client = None
@@ -760,7 +782,7 @@ class LLMGateway:
             except Exception as e:
                 error_msg = str(e)
                 logger.error(f"Default LLM Error ({model}) on attempt {attempt + 1}/{max_retries}: {error_msg}")
-                if any(code in error_msg for code in ["429", "503", "524", "500", "502"]) or "timeout" in error_msg.lower() or "connection" in error_msg.lower():
+                if _is_retryable_llm_error(error_msg):
                     if attempt < max_retries - 1:
                         # Adaptive backoff: increase rate limiter interval on repeated failures
                         if attempt >= 2:
@@ -1027,7 +1049,7 @@ class LLMGateway:
                 logger.error(f"DeepSeek Responses Error ({model}) on attempt {attempt + 1}/{max_retries}: {error_msg}")
 
                 # Retry on transient errors: 429 Quota, 503/524 Server, empty response, connection errors
-                if "429" in error_msg or "quota" in error_msg.lower() or "503" in error_msg or "524" in error_msg or "500" in error_msg or "502" in error_msg or "empty response" in error_msg.lower() or "connection" in error_msg.lower() or "timeout" in error_msg.lower():
+                if _is_retryable_llm_error(error_msg):
                     if attempt < max_retries - 1:
                         logger.info(f"Rate limit hit. Waiting {retry_delay}s before retry {attempt + 2}/{max_retries} (no model downgrade)...")
                         if on_chunk:
@@ -1183,7 +1205,7 @@ class LLMGateway:
                 logger.error(f"DeepSeek Error ({final_model}) on attempt {attempt + 1}/{max_retries}: {error_msg}")
                 
                 # Retry on transient errors: 429 Quota, 503/524 Server, empty response, connection errors
-                if "429" in error_msg or "quota" in error_msg.lower() or "503" in error_msg or "524" in error_msg or "500" in error_msg or "502" in error_msg or "empty response" in error_msg.lower() or "connection" in error_msg.lower() or "timeout" in error_msg.lower():
+                if _is_retryable_llm_error(error_msg):
                     if attempt < max_retries - 1:
                         logger.info(f"Rate limit hit. Waiting {retry_delay}s before retry {attempt + 2}/{max_retries} (no model downgrade)...")
                         if on_chunk:
@@ -1273,7 +1295,7 @@ class LLMGateway:
                 error_msg = str(e)
                 logger.error(f"OpenRouter Error ({final_model}) on attempt {attempt + 1}/{max_retries}: {error_msg}")
 
-                if "429" in error_msg or "quota" in error_msg.lower() or "503" in error_msg or "524" in error_msg or "500" in error_msg or "502" in error_msg or "empty response" in error_msg.lower() or "connection" in error_msg.lower() or "timeout" in error_msg.lower():
+                if _is_retryable_llm_error(error_msg):
                     if attempt < max_retries - 1:
                         logger.info(f"Rate limit hit. Waiting {retry_delay}s before retry {attempt + 2}/{max_retries} (no model downgrade)...")
                         if on_chunk:

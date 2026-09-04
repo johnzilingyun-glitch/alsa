@@ -29,7 +29,7 @@ from typing import Optional
 # ── Model tier 定义 ─────────────────────────────────────────────────────────
 # tier → 具体模型名 (可经环境变量覆盖). 与 llm_gateway.default_model 对齐.
 _DEFAULT_FLASH_MODEL = os.getenv("FLASH_MODEL", "gemini-2.5-flash")
-_DEFAULT_PRO_MODEL = os.getenv("PRO_MODEL", os.getenv("DEFAULT_LLM_MODEL", "deepseek-v4-pro"))
+_DEFAULT_PRO_MODEL = os.getenv("PRO_MODEL", os.getenv("DEFAULT_LLM_MODEL", "minimax/minimax-m3:free"))
 
 # role → tier (开发指南: Planner=Flash, Agent/Reflection/Decision=Pro)
 ROLE_TIER_MAP: dict[str, str] = {

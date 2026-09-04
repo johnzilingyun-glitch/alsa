@@ -17,6 +17,9 @@ import time
 from typing import Dict, List, Any, Optional
 from datetime import datetime
 from .search_service import search_service
+from ..logging import get_logger
+
+logger = get_logger(__name__)
 
 
 # ────────────── CATEGORY DEFINITIONS ──────────────
@@ -240,6 +243,7 @@ class SearchToolkit:
         symbol: str,
         name: str,
         snapshot: Optional[Dict[str, Any]] = None,
+        time_budget: Optional[float] = None,
     ) -> Dict[str, List[Dict[str, Any]]]:
         """
         Run all category searches at once for a given stock.
@@ -247,6 +251,13 @@ class SearchToolkit:
 
         Results are cached for 10 minutes to avoid redundant searches
         within the same analysis job.
+
+        Args:
+            time_budget: 可选的类目时间预算(秒)。类别是顺序执行的，
+                预算到期后不再发起新类目，返回已完成的部分结果而非
+                整体丢弃；None 表示不限(旧行为)。调用方
+                (discussion_service._background_search)用它在外层
+                硬超时前交回部分结果。
         """
         if not self.enabled:
             print("[SearchToolkit] Disabled via SEARCH_ENRICHMENT_ENABLED=false")
@@ -273,6 +284,16 @@ class SearchToolkit:
 
         # Run searches with rate limiting
         for cat_name, cat_config in all_categories.items():
+            # 类目时间预算：到点后不再发起新类目，返回已完成部分。
+            # 外层还有硬超时兜底预算到期时仍在途的最后一个类目。
+            if time_budget is not None and (time.time() - search_start) > time_budget:
+                logger.info(
+                    "Time budget %ss reached, returning partial results: "
+                    "%d/%d categories",
+                    time_budget, len(results), len(all_categories),
+                )
+                break
+
             query = cat_config["query"].format(name=name, symbol=symbol)
             max_results = cat_config.get("max_results", 3)
 

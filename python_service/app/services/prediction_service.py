@@ -137,6 +137,95 @@ class PredictionService:
             session.close()
 
     @classmethod
+    async def _update_brain_fitness(cls, window: int = 50):
+        """Refresh EvolveR gene fitness from recent prediction accuracy.
+
+        Attribution follows PredictionRecord.role:
+        - role IS NULL (or non-string): the pipeline-consensus prediction —
+          aggregate the mean accuracy over the window and write it into every
+          genome via BrainManager.apply_global_fitness (pipeline-wide signal,
+          backwards compatible with legacy rows predating the role column).
+        - role set (e.g. "Technical Analyst"): aggregate the mean accuracy per
+          role and write it only into that expert's genome via
+          BrainManager.update_role_fitness — per-role attribution realising the
+          "hint analysis accuracy" evolution signal for individual genes.
+
+        Pure numeric refresh — no LLM calls, no evolution trigger. Failures
+        degrade to a warning and never break the accuracy loop.
+        """
+        try:
+            from app.services.brain_manager import brain_manager
+
+            session = session_factory()
+            try:
+                statement = (
+                    select(PredictionRecord)
+                    .where(PredictionRecord.status == "evaluated")
+                    .order_by(PredictionRecord.created_at.desc())
+                    .limit(window)
+                )
+                records = session.exec(statement).all()
+            finally:
+                session.close()
+
+            global_scores = []
+            role_scores = {}
+            for r in records:
+                score = r.accuracy_score
+                if score is None:
+                    continue
+                role = getattr(r, "role", None)
+                if isinstance(role, str) and role.strip():
+                    role_scores.setdefault(role.strip(), []).append(score)
+                else:
+                    global_scores.append(score)
+
+            result = None
+            if global_scores:
+                mean_score = sum(global_scores) / len(global_scores)
+                fitness = float(max(0.0, min(1.0, mean_score / 100.0)))
+                applied = brain_manager.apply_global_fitness(fitness)
+                updated = sum(1 for ok in applied.values() if ok)
+                logger.info(
+                    "Brain fitness refreshed from %d consensus predictions (window=%d): "
+                    "mean accuracy %.1f → fitness %.3f applied to %d genomes.",
+                    len(global_scores), window, mean_score, fitness, updated,
+                )
+                result = {
+                    "fitness": fitness,
+                    "samples": len(global_scores),
+                    "genomes_updated": updated,
+                    "roles": {},
+                }
+
+            role_results = {}
+            for role, scores in sorted(role_scores.items()):
+                mean_score = sum(scores) / len(scores)
+                fitness = float(max(0.0, min(1.0, mean_score / 100.0)))
+                if brain_manager.update_role_fitness(role, fitness):
+                    role_results[role] = {"fitness": fitness, "samples": len(scores)}
+                    logger.info(
+                        "Brain fitness for role '%s' refreshed from %d predictions: "
+                        "mean accuracy %.1f → fitness %.3f.",
+                        role, len(scores), mean_score, fitness,
+                    )
+                else:
+                    logger.debug(
+                        "Skipping fitness for role '%s': no matching genome.", role,
+                    )
+
+            if role_results:
+                if result is None:
+                    result = {"fitness": None, "samples": 0, "genomes_updated": 0, "roles": role_results}
+                else:
+                    result["roles"] = role_results
+
+            return result
+        except Exception as e:
+            logger.warning(f"Failed to refresh brain fitness from prediction accuracy: {e}")
+            return None
+
+    @classmethod
     async def run_accuracy_loop(cls, interval_seconds: int = 3600):
         """
         Background task to periodically evaluate pending predictions.
@@ -145,6 +234,9 @@ class PredictionService:
         while True:
             try:
                 await cls.evaluate_pending_predictions()
+                # Feed the rolling accuracy into EvolveR gene fitness (pure
+                # numeric update — never triggers LLM evolution).
+                await cls._update_brain_fitness()
             except Exception as e:
                 logger.error(f"Prediction Accuracy loop error: {e}")
             await asyncio.sleep(interval_seconds)

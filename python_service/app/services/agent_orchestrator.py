@@ -6,7 +6,12 @@ import time
 from typing import Optional, Any
 from datetime import datetime
 
-from .llm_gateway import llm_gateway, current_token_usage, get_max_output_tokens
+from .llm_gateway import (
+    llm_gateway,
+    current_token_usage,
+    get_max_output_tokens,
+    _flash_web_search_enabled,
+)
 from .expert_tools import (
     parse_tool_calls,
     has_tool_calls,
@@ -82,6 +87,48 @@ RECALL_TOOL_SCHEMA = {
 }
 
 
+# One-time nudge appended when a text-protocol model replies WITHOUT any
+# tool-call block while tools are enabled. MiniMax M3 (free) follows the text
+# tool protocol only probabilistically: it reads the tool docs, references real
+# tool names, but replies with "must verify via finance_query / business_query"
+# disclaimers instead of emitting a tool-call block — this reminder makes the
+# retry deterministic.
+TOOL_NUDGE_TEXT = (
+    "【系统强制提醒 / MANDATORY TOOL USE】工具调用已启用且你必须使用。"
+    "请立即严格按 TOOL CALL FORMAT 调用至少一个最相关的工具"
+    "（如 finance_query / business_query / news_search / financial_data）获取真实数据，"
+    "然后基于工具结果作答。"
+    "禁止在未调用任何工具的情况下，输出『需进一步核实/待核实/必须通过工具核实』之类的声明作为最终回答——"
+    "该行为视为违反协议。工具未返回的数据直接标注 N/A（数据缺失）。"
+)
+
+
+def _to_responses_tools(chat_tools: list, include_web_search: bool = False) -> list:
+    """Convert chat-completions tool schemas to the Responses API format.
+
+    Chat format nests the spec under {"type": "function", "function": {...}};
+    Responses flattens it to {"type": "function", "name": ..., "parameters": ...}.
+    When include_web_search is set (deepseek-v4-flash), the built-in server-side
+    web_search tool is appended so the model can search on its own.
+    """
+    tools = []
+    for t in chat_tools:
+        fn = t.get("function") if t.get("type") == "function" else None
+        if not fn:
+            continue
+        tools.append(
+            {
+                "type": "function",
+                "name": fn.get("name", ""),
+                "description": fn.get("description", ""),
+                "parameters": fn.get("parameters", {}),
+            }
+        )
+    if include_web_search:
+        tools.append({"type": "web_search"})
+    return tools
+
+
 class AgentOrchestrator:
     """AgentOrchestrator handles tool execution loop, reasoning accumulation,
     quality-gate checks, and recovery synthesis.
@@ -103,6 +150,7 @@ class AgentOrchestrator:
         cache_key: Optional[str] = None,
         prompt_version_id: Optional[str] = None,
         response_schema: Optional[Any] = None,
+        tools_enabled: bool = False,
     ) -> str:
         # Resolve model dynamically: fall back to deepseek if gemini is not available
         if model == "gemini-3.1-pro-preview" or model is None:
@@ -130,6 +178,15 @@ class AgentOrchestrator:
 
         current_prompt = prompt
         all_content_parts = []
+        # One-shot tool-use nudge state (see _maybe_nudge inside the loop).
+        # nudged guards the at-most-once budget; nudge_fallback keeps the
+        # pre-nudge response so it can be returned if the post-nudge round
+        # fails/returns nothing; tool_calls_issued records that the model
+        # emitted at least one tool call in this conversation — once it has,
+        # tool-free rounds are normal wrap-up and never nudged again.
+        nudged = False
+        tool_calls_issued = False
+        nudge_fallback = None
 
         for round_num in range(max_tool_rounds + 1):
             # Guard against prompt size explosion
@@ -165,8 +222,48 @@ class AgentOrchestrator:
             if not result:
                 break
 
+            # ── Tool-use compliance nudge (text protocol only) ──────────────
+            # MiniMax M3 (free) follows the text tool protocol only
+            # probabilistically: it reads the tool docs, references real tool
+            # names, but replies with "must verify via finance_query" style
+            # disclaimers instead of emitting a tool-call block. When tools
+            # are enabled and a round carries no tool call, don't accept the
+            # tool-free answer right away: echo the response back into the
+            # conversation (same ASSISTANT PARTIAL RESPONSE convention as the
+            # tool rounds below), append a one-time mandatory tool-use
+            # reminder, and continue the loop. The nudge consumes one loop
+            # iteration inside the existing range(max_tool_rounds + 1) cap, so
+            # the total iteration count never grows beyond it (cost: at most
+            # one extra LLM round per call).
+            def _maybe_nudge(response: str) -> bool:
+                nonlocal nudged, nudge_fallback, current_prompt
+                if not tools_enabled or nudged or tool_calls_issued or not response:
+                    return False
+                if round_num >= max_tool_rounds:
+                    # Final round is the force-completion round — accept.
+                    return False
+                nudged = True
+                nudge_fallback = response
+                logger.info(
+                    "  [ToolLoop] Round %d produced no tool call; sending one-time tool-use nudge",
+                    round_num + 1,
+                )
+                current_prompt = (
+                    current_prompt
+                    + "\n\n--- ASSISTANT PARTIAL RESPONSE ---\n"
+                    + response
+                    + "\n\n--- MANDATORY TOOL USE REMINDER ---\n"
+                    + TOOL_NUDGE_TEXT
+                    + "\n"
+                )
+                return True
+
             # Check for tool calls
             if not has_tool_calls(result):
+                if _maybe_nudge(result):
+                    continue
+                if nudged and not tool_calls_issued:
+                    logger.info("[ToolLoop] Model did not comply after nudge")
                 # No tool calls — final response
                 all_content_parts.append(result)
                 break
@@ -174,11 +271,19 @@ class AgentOrchestrator:
             # Parse tool calls
             tool_calls = parse_tool_calls(result)
             if not tool_calls:
-                # Has <tool_call> tag but couldn't parse — treat as final
+                # Has <tool_call> tag but couldn't parse — nudge once for a
+                # strict-format retry, otherwise treat as final
+                if _maybe_nudge(result):
+                    continue
+                if nudged and not tool_calls_issued:
+                    logger.info("[ToolLoop] Model did not comply after nudge")
                 all_content_parts.append(result)
                 break
 
             logger.info(f"  [ToolLoop] Round {round_num + 1}: {len(tool_calls)} tool call(s)")
+            # The model emitted a real tool call — from now on, tool-free
+            # rounds are normal wrap-up (never nudged again).
+            tool_calls_issued = True
 
             # Reset TokenGuard round budget for this batch
             token_guard.reset_round()
@@ -244,7 +349,7 @@ class AgentOrchestrator:
         return (
             "\n".join(all_content_parts)
             if all_content_parts
-            else result or ""
+            else result or nudge_fallback or ""
         )
 
     async def generate_with_native_tools(
@@ -357,7 +462,16 @@ class AgentOrchestrator:
         cache_key: Optional[str] = None,
         response_schema: Optional[Any] = None,
     ) -> str:
-        """Generate content using DeepSeek's native OpenAI-compatible function calling API."""
+        """Run the tool loop on the DeepSeek Responses API.
+
+        The entire loop uses client.responses.create (not chat completions):
+        project function tools are executed client-side round by round, and for
+        deepseek-v4-flash the built-in server-side web_search tool is attached
+        as well — the model searches on its own when needed (server-side
+        auto-continuation up to 10 rounds, response.web_search_call.* progress
+        events surfaced via on_chunk). The API is stateless, so the full input
+        item list is re-sent every round.
+        """
         if cache_key:
             today = datetime.now().strftime("%Y-%m-%d")
             safe_key = "".join(c if c.isalnum() else "_" for c in cache_key)
@@ -384,12 +498,12 @@ class AgentOrchestrator:
         }
         final_model = model_map.get(model, model)
 
-        tools = get_openai_tools(role=role)
-        tools = list(tools) + [RECALL_TOOL_SCHEMA]
-        messages = [
-            {"role": "system", "content": "You are a professional financial analyst expert."},
-            {"role": "user", "content": prompt},
-        ]
+        instructions = "You are a professional financial analyst expert."
+        tools = _to_responses_tools(
+            list(get_openai_tools(role=role)) + [RECALL_TOOL_SCHEMA],
+            include_web_search=_flash_web_search_enabled(final_model),
+        )
+        input_items = [{"role": "user", "content": prompt}]
 
         # ── Shared state for tool results (source of truth) ──────────────────
         # Full tool outputs are stored here keyed by tool_call_id; the LLM context
@@ -416,7 +530,7 @@ class AgentOrchestrator:
                     + "[SEARCH ENRICHMENT - truncated due to prompt size]\n"
                     + prompt[enrichment_end:]
                 )
-                messages[1]["content"] = prompt
+                input_items[0]["content"] = prompt
 
         final_content = ""  # The actual analysis from the final (no-tools) round
         tool_round_text = []  # Thinking text from tool-call rounds (fallback only)
@@ -429,7 +543,11 @@ class AgentOrchestrator:
                 logger.info("User stop signal detected (.stop file). Aborting tool loop...")
                 raise Exception("Analysis stopped by user.")
 
-            total_chars = sum(len(m.get("content") or "") for m in messages)
+            total_chars = 0
+            for m in input_items:
+                _c = m.get("content") or m.get("output") or ""
+                if isinstance(_c, str):
+                    total_chars += len(_c)
             total_tokens_est = len(str(total_chars).encode("utf-8")) // 3  # roughly
             logger.info(
                 f"  [ToolLoop] Prompt size: ~{total_tokens_est} tokens ({total_chars} chars)"
@@ -443,17 +561,17 @@ class AgentOrchestrator:
                 # Safety net: if the still-full recent tool results are very large,
                 # summarize them too (older rounds are already summarized in-loop).
                 total_tool_chars = sum(
-                    len(m.get("content", ""))
-                    for m in messages
-                    if m.get("role") == "tool"
+                    len(m.get("output", ""))
+                    for m in input_items
+                    if m.get("type") == "function_call_output"
                 )
                 _final_budget = int(os.getenv("TOOLLOOP_FINAL_TOOL_BUDGET", "30000"))
                 if total_tool_chars > _final_budget:
                     _safety_cap = 3000
-                    for m in messages:
-                        if m.get("role") == "tool" and len(m.get("content", "")) > _safety_cap:
-                            m["content"] = _summarize_tool_result(m["content"], _safety_cap)
-                messages.append(
+                    for m in input_items:
+                        if m.get("type") == "function_call_output" and len(m.get("output", "")) > _safety_cap:
+                            m["output"] = _summarize_tool_result(m["output"], _safety_cap)
+                input_items.append(
                     {
                         "role": "user",
                         "content": (
@@ -468,8 +586,8 @@ class AgentOrchestrator:
                     }
                 )
 
-            def _stream_with_tools():
-                """Blocking streaming call with native tool support."""
+            def _stream_round(with_tools: bool):
+                """One blocking Responses API streaming round — runs in a thread."""
                 # httpx 0.28+ HTTP/2 transport requires an event loop even for sync Client.
                 # asyncio.to_thread runs in a bare thread — inject a loop to prevent
                 # "no running event loop" RuntimeError.
@@ -480,13 +598,13 @@ class AgentOrchestrator:
                     client = llm_gateway.deepseek_client(api_key=deepseek_api_key)
                     kwargs = {
                         "model": final_model,
-                        "messages": messages,
+                        "instructions": instructions,
+                        "input": input_items,
                         "temperature": temperature,
-                        "max_tokens": 65536,
+                        "max_output_tokens": get_max_output_tokens(),
                         "stream": True,
-                        "stream_options": {"include_usage": True},
                     }
-                    if use_tools:
+                    if with_tools:
                         kwargs["tools"] = tools
                     else:
                         # Final synthesis round (no tools): enable reasoning mode
@@ -494,81 +612,105 @@ class AgentOrchestrator:
                         # The output budget is 65536 by default, so hidden thinking
                         # tokens no longer crowd out the visible report; any
                         # residual cutoff is repaired by the continuation pass below.
-                        kwargs["reasoning_effort"] = "max"
-                        kwargs["extra_body"] = {"thinking": {"type": "enabled"}}
+                        kwargs["reasoning"] = {"effort": "max"}
                         if response_schema:
-                            kwargs["response_format"] = {"type": "json_object"}
-                    kwargs["max_tokens"] = get_max_output_tokens()
+                            kwargs["text"] = {"format": {"type": "json_object"}}
 
-                    response = client.chat.completions.create(**kwargs)
+                    stream = client.responses.create(**kwargs)
 
                     content_parts = []
-                    reasoning_parts = []  # capture reasoning_content for thinking mode
-                    tool_calls_acc = []  # accumulated tool calls from streaming deltas
+                    reasoning_parts = []  # reasoning_text deltas (thinking mode)
+                    tool_calls_acc = []  # function calls completed this round
+                    round_output_items = []  # items to echo back next round
                     finish_reason = None
                     char_count = 0
 
-                    for chunk in response:
-                        if hasattr(chunk, "usage") and chunk.usage:
-                            usage_dict = {
-                                "promptTokens": getattr(chunk.usage, "prompt_tokens", 0),
-                                "candidatesTokens": getattr(
-                                    chunk.usage, "completion_tokens", 0
-                                ),
-                                "totalTokens": getattr(chunk.usage, "total_tokens", 0),
-                            }
-                            usage_ctx = current_token_usage.get()
-                            if usage_ctx is not None:
-                                usage_ctx["promptTokens"] += usage_dict["promptTokens"]
-                                usage_ctx["candidatesTokens"] += usage_dict[
-                                    "candidatesTokens"
-                                ]
-                                usage_ctx["totalTokens"] += usage_dict["totalTokens"]
+                    for event in stream:
+                        etype = getattr(event, "type", "") or ""
 
-                        if not chunk.choices:
-                            continue
-                        choice = chunk.choices[0]
-                        if choice.finish_reason:
-                            finish_reason = choice.finish_reason
-                        delta = choice.delta
-
-                        # Accumulate reasoning_content (thinking mode)
-                        reasoning_text = getattr(delta, "reasoning_content", None)
-                        if reasoning_text:
-                            reasoning_parts.append(reasoning_text)
-                            char_count += len(reasoning_text)
+                        if etype == "response.reasoning_text.delta":
+                            delta_text = getattr(event, "delta", "") or ""
+                            if not delta_text:
+                                continue
+                            reasoning_parts.append(delta_text)
+                            char_count += len(delta_text)
                             if on_chunk:
                                 on_chunk(char_count)
 
-                        # Accumulate content
-                        if delta.content:
-                            content_parts.append(delta.content)
-                            char_count += len(delta.content)
+                        elif etype == "response.output_text.delta":
+                            delta_text = getattr(event, "delta", "") or ""
+                            if not delta_text:
+                                continue
+                            content_parts.append(delta_text)
+                            char_count += len(delta_text)
                             if on_chunk:
                                 on_chunk(char_count)
 
-                        # Accumulate tool calls from streaming deltas
-                        if delta.tool_calls:
-                            for tc_delta in delta.tool_calls:
-                                idx = tc_delta.index
-                                while len(tool_calls_acc) <= idx:
-                                    tool_calls_acc.append(
-                                        {
-                                            "id": "",
-                                            "function": {"name": "", "arguments": ""},
-                                        }
+                        elif etype == "response.output_item.done":
+                            item = getattr(event, "item", None)
+                            itype = getattr(item, "type", "") or ""
+                            if itype == "function_call":
+                                call_id = (
+                                    getattr(item, "call_id", None)
+                                    or getattr(item, "id", None)
+                                    or ""
+                                )
+                                func_name = getattr(item, "name", "") or ""
+                                func_args = getattr(item, "arguments", "") or ""
+                                round_output_items.append(
+                                    {
+                                        "type": "function_call",
+                                        "call_id": call_id,
+                                        "name": func_name,
+                                        "arguments": func_args,
+                                    }
+                                )
+                                tool_calls_acc.append(
+                                    {
+                                        "id": call_id,
+                                        "function": {
+                                            "name": func_name,
+                                            "arguments": func_args,
+                                        },
+                                    }
+                                )
+                            elif itype == "web_search_call":
+                                # Echo back verbatim next round so the server
+                                # restores the built-in search results.
+                                ws_id = getattr(item, "id", None)
+                                if ws_id:
+                                    round_output_items.append(
+                                        {"type": "web_search_call", "id": ws_id}
                                     )
-                                if tc_delta.id:
-                                    tool_calls_acc[idx]["id"] = tc_delta.id
-                                if tc_delta.function:
-                                    if tc_delta.function.name:
-                                        tool_calls_acc[idx]["function"][
-                                            "name"
-                                        ] += tc_delta.function.name
-                                    if tc_delta.function.arguments:
-                                        tool_calls_acc[idx]["function"][
-                                            "arguments"
-                                        ] += tc_delta.function.arguments
+
+                        elif etype.startswith("response.web_search_call."):
+                            state = etype.rsplit(".", 1)[-1]
+                            if on_chunk:
+                                label = {
+                                    "in_progress": "发起内置联网搜索",
+                                    "searching": "内置联网搜索检索中",
+                                    "completed": "内置联网搜索完成",
+                                }.get(state, state)
+                                on_chunk(0, message=f"DeepSeek {label}...")
+
+                        elif etype in (
+                            "response.completed",
+                            "response.incomplete",
+                            "response.failed",
+                        ):
+                            resp = getattr(event, "response", None)
+                            usage = getattr(resp, "usage", None)
+                            if usage:
+                                usage_ctx = current_token_usage.get()
+                                if usage_ctx is not None:
+                                    usage_ctx["promptTokens"] += getattr(usage, "input_tokens", 0) or 0
+                                    usage_ctx["candidatesTokens"] += getattr(usage, "output_tokens", 0) or 0
+                                    usage_ctx["totalTokens"] += getattr(usage, "total_tokens", 0) or 0
+                            if etype == "response.incomplete":
+                                finish_reason = "length"
+                            elif etype == "response.failed":
+                                err = getattr(resp, "error", None)
+                                raise Exception(f"DeepSeek Responses API failed: {err}")
 
                     reasoning_content = (
                         "".join(reasoning_parts) if reasoning_parts else None
@@ -578,6 +720,7 @@ class AgentOrchestrator:
                         tool_calls_acc,
                         reasoning_content,
                         finish_reason,
+                        round_output_items,
                     )
                 finally:
                     _loop.close()
@@ -587,12 +730,17 @@ class AgentOrchestrator:
             # round from blocking for the old 360s while allowing SDK auto-retry.
             _round_timeout = int(os.getenv("LLM_ROUND_TIMEOUT", "150"))
             finish_reason = None
+            round_output_items = []
             try:
-                content, tool_calls_data, reasoning_content, finish_reason = (
-                    await asyncio.wait_for(
-                        asyncio.to_thread(_stream_with_tools),
-                        timeout=_round_timeout,
-                    )
+                (
+                    content,
+                    tool_calls_data,
+                    reasoning_content,
+                    finish_reason,
+                    round_output_items,
+                ) = await asyncio.wait_for(
+                    asyncio.to_thread(_stream_round, use_tools),
+                    timeout=_round_timeout,
                 )
             except asyncio.TimeoutError:
                 logger.info(
@@ -612,15 +760,19 @@ class AgentOrchestrator:
                 logger.info(
                     "  [ToolLoop] Final round timed out. Retrying with truncated context..."
                 )
-                for i, msg in enumerate(messages):
-                    if msg.get("role") == "tool" and len(msg.get("content", "")) > 1000:
-                        messages[i]["content"] = msg["content"][:1000] + "\n[truncated]"
+                for i, item in enumerate(input_items):
+                    if item.get("type") == "function_call_output" and len(item.get("output", "")) > 1000:
+                        input_items[i]["output"] = item["output"][:1000] + "\n[truncated]"
                 try:
-                    content, tool_calls_data, reasoning_content, finish_reason = (
-                        await asyncio.wait_for(
-                            asyncio.to_thread(_stream_with_tools),
-                            timeout=_round_timeout,
-                        )
+                    (
+                        content,
+                        tool_calls_data,
+                        reasoning_content,
+                        finish_reason,
+                        round_output_items,
+                    ) = await asyncio.wait_for(
+                        asyncio.to_thread(_stream_round, use_tools),
+                        timeout=_round_timeout,
                     )
                     if content:
                         final_content = content
@@ -629,13 +781,13 @@ class AgentOrchestrator:
                 break
             except Exception as e:
                 error_msg = str(e)
-                logger.error(f"DeepSeek Native Tool Error (round {round_num}): {error_msg}")
-                
+                logger.error(f"DeepSeek Responses Tool Error (round {round_num}): {error_msg}")
+
                 # Fail fast for fatal API errors
                 fatal_keywords = ["401", "402", "429", "authentication fails", "invalid api key", "insufficient balance"]
                 if any(k in error_msg.lower() for k in fatal_keywords):
                     raise e
-                
+
                 if use_tools:
                     # Error in tool round — continue to next round (may reach final round)
                     logger.info(
@@ -646,15 +798,19 @@ class AgentOrchestrator:
                 logger.info(
                     "  [ToolLoop] Final round failed. Retrying with truncated context..."
                 )
-                for i, msg in enumerate(messages):
-                    if msg.get("role") == "tool" and len(msg.get("content", "")) > 1000:
-                        messages[i]["content"] = msg["content"][:1000] + "\n[truncated]"
+                for i, item in enumerate(input_items):
+                    if item.get("type") == "function_call_output" and len(item.get("output", "")) > 1000:
+                        input_items[i]["output"] = item["output"][:1000] + "\n[truncated]"
                 try:
-                    content, tool_calls_data, reasoning_content, finish_reason = (
-                        await asyncio.wait_for(
-                            asyncio.to_thread(_stream_with_tools),
-                            timeout=_round_timeout,
-                        )
+                    (
+                        content,
+                        tool_calls_data,
+                        reasoning_content,
+                        finish_reason,
+                        round_output_items,
+                    ) = await asyncio.wait_for(
+                        asyncio.to_thread(_stream_round, use_tools),
+                        timeout=_round_timeout,
                     )
                     if content:
                         final_content = content
@@ -684,7 +840,8 @@ class AgentOrchestrator:
                         api_key=deepseek_api_key
                     ),
                     model=final_model,
-                    messages=messages,
+                    instructions=instructions,
+                    input_items=input_items,
                     partial=content,
                     temperature=temperature,
                 )
@@ -724,30 +881,15 @@ class AgentOrchestrator:
             if content and "DSML" not in content:
                 tool_round_text.append(content)
 
-            # Build assistant message with tool_calls for conversation history
-            assistant_msg = {
-                "role": "assistant",
-                "content": content or "",
-                "tool_calls": [
-                    {
-                        "id": tc["id"],
-                        "type": "function",
-                        "function": {
-                            "name": tc["function"]["name"],
-                            "arguments": tc["function"]["arguments"],
-                        },
-                    }
-                    for tc in tool_calls_data
-                ],
-            }
-            # DeepSeek v4 models use thinking mode by default — reasoning_content
-            # MUST be passed back in subsequent turns, even if empty, otherwise
-            # the API returns 400 "reasoning_content must be passed back".
-            if reasoning_content is not None:
-                assistant_msg["reasoning_content"] = reasoning_content
-            else:
-                assistant_msg["reasoning_content"] = ""
-            messages.append(assistant_msg)
+            # Echo this round's output back into the Responses input: visible
+            # text as an assistant message, then function_call / web_search_call
+            # items in stream order (web_search_call is echoed verbatim so the
+            # server restores the built-in search results). Reasoning text is
+            # not echoed — DeepSeek merges plain reasoning into the adjacent
+            # assistant message server-side.
+            if content:
+                input_items.append({"role": "assistant", "content": content})
+            input_items.extend(round_output_items)
 
             if on_chunk:
                 tool_names = [tc["function"]["name"] for tc in tool_calls_data]
@@ -804,18 +946,18 @@ class AgentOrchestrator:
 
             # Heartbeat: notify frontend of activity after tool execution
             if on_chunk:
-                on_chunk((round_num + 1) * (len(messages) + 500), message=f"{role or 'Agent'} (第 {round_num + 1} 轮工具调用完成，正在思考...)")
+                on_chunk((round_num + 1) * (len(input_items) + 500), message=f"{role or 'Agent'} (第 {round_num + 1} 轮工具调用完成，正在思考...)")
 
-            # Append results in order as role:tool messages
+            # Append results in order as function_call_output items
             _tool_fail_count = 0
             for i, result_or_exc in enumerate(tool_results):
                 if isinstance(result_or_exc, Exception):
                     tc_id = tool_calls_data[i]["id"]
-                    messages.append(
+                    input_items.append(
                         {
-                            "role": "tool",
-                            "tool_call_id": tc_id,
-                            "content": f"Tool execution error: {result_or_exc}",
+                            "type": "function_call_output",
+                            "call_id": tc_id,
+                            "output": f"Tool execution error: {result_or_exc}",
                         }
                     )
                     _tool_fail_count += 1
@@ -828,11 +970,11 @@ class AgentOrchestrator:
                     # and record which round it belongs to for windowed compression.
                     tool_result_store[tc_id] = obs_clean
                     tool_round_of_id[tc_id] = round_num
-                    messages.append(
+                    input_items.append(
                         {
-                            "role": "tool",
-                            "tool_call_id": tc_id,
-                            "content": obs_clean,
+                            "type": "function_call_output",
+                            "call_id": tc_id,
+                            "output": obs_clean,
                         }
                     )
 
@@ -849,21 +991,21 @@ class AgentOrchestrator:
             _cutoff = round_num - KEEP_RECENT_ROUNDS
             if _cutoff >= 0:
                 _saved = 0
-                for m in messages:
-                    if m.get("role") != "tool":
+                for m in input_items:
+                    if m.get("type") != "function_call_output":
                         continue
-                    tc_id = m.get("tool_call_id")
+                    tc_id = m.get("call_id")
                     if not tc_id or tc_id in compressed_ids:
                         continue
                     if tool_round_of_id.get(tc_id, round_num) > _cutoff:
                         continue
-                    full = tool_result_store.get(tc_id, m.get("content", ""))
+                    full = tool_result_store.get(tc_id, m.get("output", ""))
                     if len(full) <= TOOL_SUMMARY_CHARS + 120:
                         compressed_ids.add(tc_id)  # too small to bother; mark done
                         continue
                     summary = _summarize_tool_result(full, TOOL_SUMMARY_CHARS)
-                    _saved += len(m.get("content", "")) - len(summary)
-                    m["content"] = (
+                    _saved += len(m.get("output", "")) - len(summary)
+                    m["output"] = (
                         summary
                         + f"\n[↑ summarized · full result ref={tc_id} · call recall_tool_result to expand]"
                     )
@@ -943,13 +1085,14 @@ class AgentOrchestrator:
             return deduped
 
         async def _recovery_synthesis() -> str:
-            recovery_messages = [messages[0], messages[1]]
-            tool_summaries = []
-            for msg in messages:
-                if msg.get("role") == "tool":
-                    tool_summaries.append((msg.get("content", ""))[:500])
+            tool_summaries = [
+                (m.get("output", ""))[:500]
+                for m in input_items
+                if m.get("type") == "function_call_output"
+            ]
             if tool_summaries:
-                recovery_messages.append(
+                rec_input = [
+                    {"role": "user", "content": prompt},
                     {
                         "role": "user",
                         "content": (
@@ -959,21 +1102,22 @@ class AgentOrchestrator:
                             "expert analysis report NOW. 400+ words with specific data points, tables, and conclusions. "
                             "Do NOT output raw numbers, tool parameters, or planning text — write investor-facing prose."
                         ),
-                    }
-                )
+                    },
+                ]
             else:
-                recovery_messages.append(
+                rec_input = [
+                    {"role": "user", "content": prompt},
                     {
                         "role": "user",
                         "content": (
                             "Write your COMPLETE expert analysis report NOW based on the API data in the original prompt. "
                             "400+ words with specific data points and conclusions. Do NOT output raw numbers or tool parameters."
                         ),
-                    }
-                )
+                    },
+                ]
 
             def _recovery_call():
-                # Same event-loop fix as _stream_with_tools above
+                # Same event-loop fix as _stream_round above
                 import asyncio as _asyncio
                 _loop = _asyncio.new_event_loop()
                 _asyncio.set_event_loop(_loop)
@@ -981,19 +1125,19 @@ class AgentOrchestrator:
                     client = llm_gateway.deepseek_client(api_key=deepseek_api_key)
                     kwargs = {
                         "model": final_model,
-                        "messages": recovery_messages,
+                        "instructions": instructions,
+                        "input": rec_input,
                         "temperature": temperature,
-                        "max_tokens": 65536,
+                        "max_output_tokens": get_max_output_tokens(),
                         "stream": True,
                     }
                     if response_schema:
-                        kwargs["response_format"] = {"type": "json_object"}
-                    kwargs["max_tokens"] = get_max_output_tokens()
-                    resp = client.chat.completions.create(**kwargs)
+                        kwargs["text"] = {"format": {"type": "json_object"}}
+                    stream = client.responses.create(**kwargs)
                     parts = []
-                    for chunk in resp:
-                        if chunk.choices and chunk.choices[0].delta.content:
-                            parts.append(chunk.choices[0].delta.content)
+                    for event in stream:
+                        if getattr(event, "type", "") == "response.output_text.delta":
+                            parts.append(getattr(event, "delta", "") or "")
                     return "".join(parts)
                 finally:
                     _loop.close()
@@ -1031,8 +1175,8 @@ class AgentOrchestrator:
             logger.warning(
                 f"  [ToolLoop] WARNING: Final round produced only {len(final_content)} chars or invalid content. Retrying with tools..."
             )
-            messages.append({"role": "assistant", "content": final_content})
-            messages.append(
+            input_items.append({"role": "assistant", "content": final_content})
+            input_items.append(
                 {
                     "role": "user",
                     "content": (
@@ -1043,60 +1187,17 @@ class AgentOrchestrator:
                 }
             )
             try:
-
-                def _retry_with_tools():
-                    # Same event-loop fix as _stream_with_tools above
-                    import asyncio as _asyncio
-                    _loop = _asyncio.new_event_loop()
-                    _asyncio.set_event_loop(_loop)
-                    try:
-                        client = llm_gateway.deepseek_client(api_key=deepseek_api_key)
-                        kwargs = {
-                            "model": final_model,
-                            "messages": messages,
-                            "temperature": temperature,
-                            "max_tokens": 65536,
-                            "stream": True,
-                            "tools": tools,
-                        }
-                        kwargs["max_tokens"] = get_max_output_tokens()
-                        response = client.chat.completions.create(**kwargs)
-                        content_parts = []
-                        tool_calls_acc = []
-                        for chunk in response:
-                            if not chunk.choices:
-                                continue
-                            delta = chunk.choices[0].delta
-                            if delta.content:
-                                content_parts.append(delta.content)
-                        return "".join(content_parts), tool_calls_acc
-                    finally:
-                        _loop.close()
-
-                retry_content, retry_tool_calls = await asyncio.to_thread(
-                    _retry_with_tools
+                retry_content, retry_tool_calls, _, _, retry_output_items = (
+                    await asyncio.to_thread(_stream_round, True)
                 )
 
                 if retry_tool_calls:
                     logger.info(
                         f"  [ToolLoop] Retry: {len(retry_tool_calls)} computation tool call(s)"
                     )
-                    assistant_msg = {
-                        "role": "assistant",
-                        "content": retry_content or None,
-                        "tool_calls": [
-                            {
-                                "id": tc["id"],
-                                "type": "function",
-                                "function": {
-                                    "name": tc["function"]["name"],
-                                    "arguments": tc["function"]["arguments"],
-                                },
-                            }
-                            for tc in retry_tool_calls
-                        ],
-                    }
-                    messages.append(assistant_msg)
+                    if retry_content:
+                        input_items.append({"role": "assistant", "content": retry_content})
+                    input_items.extend(retry_output_items)
                     for tc_data in retry_tool_calls:
                         func_name = tc_data["function"]["name"]
                         try:
@@ -1118,22 +1219,22 @@ class AgentOrchestrator:
                             .replace("</tool_observation>", "")
                             .strip()
                         )
-                        messages.append(
+                        input_items.append(
                             {
-                                "role": "tool",
-                                "tool_call_id": tc_data["id"],
-                                "content": obs_clean,
+                                "type": "function_call_output",
+                                "call_id": tc_data["id"],
+                                "output": obs_clean,
                             }
                         )
                     # Final generation with tool results
-                    messages.append(
+                    input_items.append(
                         {
                             "role": "user",
                             "content": "Now write your COMPLETE expert analysis using the computation results above. 400+ words.",
                         }
                     )
-                    retry_content, _, _, _ = await asyncio.to_thread(
-                        _stream_with_tools
+                    retry_content, _, _, _, _ = await asyncio.to_thread(
+                        _stream_round, False
                     )
 
                 if retry_content and _is_valid_analysis(retry_content):
@@ -1199,25 +1300,18 @@ class AgentOrchestrator:
         self,
         client_factory,
         model: str,
-        messages: list,
+        instructions: str,
+        input_items: list,
         partial: str,
         temperature: float = 0.3,
     ) -> str:
-        """Repair a truncated final response (finish_reason == "length").
+        """Repair a truncated final response (response.incomplete).
 
-        Issues a follow-up completion with reasoning disabled (so hidden
-        thinking tokens cannot eat the output budget again), asking the model
-        to continue exactly where the visible answer was cut off.
+        Issues a follow-up Responses call with default reasoning (not max, so
+        hidden thinking tokens cannot eat the output budget again), asking the
+        model to continue exactly where the visible answer was cut off.
         """
-        # Rebuild history without reasoning_content: this continuation request
-        # runs with thinking disabled, and some relays reject reasoning_content
-        # echoes when thinking is off.
-        cont_messages = []
-        for m in messages:
-            m_copy = dict(m)
-            m_copy.pop("reasoning_content", None)
-            cont_messages.append(m_copy)
-        cont_messages += [
+        cont_input = list(input_items) + [
             {"role": "assistant", "content": partial},
             {
                 "role": "user",
@@ -1230,12 +1324,12 @@ class AgentOrchestrator:
         ]
         kwargs = {
             "model": model,
-            "messages": cont_messages,
+            "instructions": instructions,
+            "input": cont_input,
             "temperature": temperature,
-            "max_tokens": 65536,
+            "max_output_tokens": get_max_output_tokens(),
             "stream": True,
         }
-        kwargs["max_tokens"] = get_max_output_tokens()
 
         def _run():
             import asyncio as _asyncio
@@ -1244,17 +1338,15 @@ class AgentOrchestrator:
             _asyncio.set_event_loop(_loop)
             try:
                 client = client_factory()
-                resp = client.chat.completions.create(**kwargs)
+                stream = client.responses.create(**kwargs)
                 parts = []
                 finish_reason = None
-                for chunk in resp:
-                    if not chunk.choices:
-                        continue
-                    choice = chunk.choices[0]
-                    if choice.finish_reason:
-                        finish_reason = choice.finish_reason
-                    if choice.delta and choice.delta.content:
-                        parts.append(choice.delta.content)
+                for event in stream:
+                    etype = getattr(event, "type", "") or ""
+                    if etype == "response.output_text.delta":
+                        parts.append(getattr(event, "delta", "") or "")
+                    elif etype == "response.incomplete":
+                        finish_reason = "length"
                 return "".join(parts), finish_reason
             finally:
                 _loop.close()

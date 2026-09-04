@@ -16,6 +16,16 @@ Tools:
 import math
 from typing import Dict, Any, Optional
 
+from .valuation_config import (
+    EQUITY_RISK_PREMIUM,
+    BETA_FLOOR,
+    BETA_CEILING,
+    WACC_FLOOR_ABS,
+    WACC_FLOOR_MARGIN,
+    WACC_CEILING,
+    MIN_WACC_G_SPREAD,
+)
+
 
 def dcf_calculate(params: Dict[str, Any]) -> str:
     """
@@ -52,7 +62,7 @@ def dcf_calculate(params: Dict[str, Any]) -> str:
 
         # Override RF and ERP with robust defaults instead of trusting the LLM
         rf = real_rf
-        erp = 0.055  # Standard ERP
+        erp = EQUITY_RISK_PREMIUM  # single source of truth (valuation_config)
         beta = float(params.get("beta", 1.0)) # We could try fetching beta from yf here as well
         
         try:
@@ -83,26 +93,30 @@ def dcf_calculate(params: Dict[str, Any]) -> str:
         net_debt = float(params.get("net_debt", 0))
         currency = params.get("currency", "USD")
 
-        # Sanity Checks on CAPM inputs, WACC, and terminal growth
+        # Sanity Checks on CAPM inputs, WACC, and terminal growth.
+        # Bounds tightened per valuation policy: β∈[0.2, 3]（下限从 0 收紧）；
+        # WACC∈[max(Rf+2%, 5%), 20%]；g≤Rf（永续增长不得超无风险利率）；
+        # WACC−g≥2%（利差不足直接拒绝，绝不 clamp 硬算出爆炸的终值）。
         if rf is not None:
             rf_val = float(rf)
             if rf_val < 0.01 or rf_val > 0.15:
                 return _obs("DCF ERROR: Unreasonable risk-free rate: {:.2%}. Must be between 1% and 15%.".format(rf_val))
         if beta is not None:
             beta_val = float(beta)
-            if beta_val < 0.0 or beta_val > 3.0:
-                return _obs("DCF ERROR: Unreasonable beta: {}. Must be between 0.0 and 3.0.".format(beta_val))
+            if beta_val < BETA_FLOOR or beta_val > BETA_CEILING:
+                return _obs("DCF ERROR: Unreasonable beta: {}. Must be between {} and {}.".format(beta_val, BETA_FLOOR, BETA_CEILING))
         if erp is not None:
             erp_val = float(erp)
             if erp_val < 0.02 or erp_val > 0.12:
                 return _obs("DCF ERROR: Unreasonable Equity Risk Premium: {:.2%}. Must be between 2% and 12%.".format(erp_val))
-        if wacc < 0.02 or wacc > 0.25:
-            return _obs("DCF ERROR: Unreasonable WACC: {:.2%}. Must be between 2% and 25%.".format(wacc))
-        if terminal_growth < 0.0 or terminal_growth > 0.08:
-            return _obs("DCF ERROR: Unreasonable terminal growth rate: {:.2%}. Must be between 0% and 8%.".format(terminal_growth))
+        wacc_floor = max(float(rf) + WACC_FLOOR_MARGIN, WACC_FLOOR_ABS)
+        if wacc < wacc_floor or wacc > WACC_CEILING:
+            return _obs("DCF ERROR: Unreasonable WACC: {:.2%}. Must be between {:.1%} (max(Rf+2%, 5%)) and {:.0%}.".format(wacc, wacc_floor, WACC_CEILING))
+        if terminal_growth < 0.0 or terminal_growth > float(rf):
+            return _obs("DCF ERROR: Unreasonable terminal growth rate: {:.2%}. Must be between 0% and the risk-free rate ({:.2%}).".format(terminal_growth, float(rf)))
 
-        if wacc <= terminal_growth:
-            return _obs("DCF ERROR: WACC ({:.2%}) must be > terminal growth ({:.2%}). Model invalid.".format(wacc, terminal_growth))
+        if wacc - terminal_growth < MIN_WACC_G_SPREAD:
+            return _obs("DCF ERROR: WACC−g spread ({:.2%}) below the {:.0%} minimum — terminal value would explode; refusing to compute.".format(wacc - terminal_growth, MIN_WACC_G_SPREAD))
         if fcf_base <= 0:
             return _obs(f"DCF ERROR: FCF base must be positive. Got: {fcf_base}")
 

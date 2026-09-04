@@ -86,11 +86,15 @@ class CriticAgent:
 4. 评估分析的完整性（是否有重要视角被忽略）"""
 
         try:
+            # max_tokens 已移除：LLMGateway.generate_content 的签名不支持该参数
+            # （旧代码传入了它，每次调用都抛 TypeError
+            # "got an unexpected keyword argument 'max_tokens'"，被外层 except
+            # 吞掉后 critique 永远走降级分支）；输出长度由网关统一的
+            # _apply_max_tokens 策略控制。
             response = await llm_gateway.generate_content(
                 prompt=prompt,
                 model=model,
                 temperature=0.2,  # 低温度确保客观性
-                max_tokens=2000,
                 gemini_api_key=gemini_api_key,
                 deepseek_api_key=deepseek_api_key,
                 openrouter_api_key=openrouter_api_key

@@ -20,6 +20,21 @@ class SignalMonitorService:
         self.alert_repo = alert_repo
         self._running = False
 
+    @staticmethod
+    def _resolve_direction(alert: SearchAlert) -> bool:
+        """Resolve whether an alert is a short-side signal.
+
+        Explicit ``action`` wins: sell → short, buy → long. hold/watch and
+        legacy rows without an action keep the historical target<entry
+        geometry fallback so existing data keeps behaving as before.
+        """
+        action = (getattr(alert, "action", None) or "").strip().lower()
+        if action == "sell":
+            return True
+        if action == "buy":
+            return False
+        return bool(alert.target_price and alert.entry_price and alert.target_price < alert.entry_price)
+
     async def check_all_alerts(self):
         """Check all monitored alerts against current prices."""
         alerts = self.alert_repo.list_monitored()
@@ -51,7 +66,7 @@ class SignalMonitorService:
         """Evaluate whether the current price triggers any signal for this alert."""
         triggered_signals = []
 
-        is_short = alert.target_price < alert.entry_price if alert.target_price and alert.entry_price else False
+        is_short = self._resolve_direction(alert)
 
         # Check stop loss (highest priority)
         if alert.stop_loss and alert.stop_loss > 0:
@@ -62,7 +77,7 @@ class SignalMonitorService:
                     "emoji": "🚨",
                     "title": "止损触发",
                     "detail": f"当前价 {current_price:.2f} 已{'涨' if is_short else '跌'}破止损位 {alert.stop_loss:.2f}",
-                    "action": "建议立即执行止损清仓",
+                    "action": "建议立即执行止损平仓" if is_short else "建议立即执行止损清仓",
                     "urgency": "CRITICAL"
                 })
 
@@ -75,18 +90,18 @@ class SignalMonitorService:
                     "emoji": "🎯",
                     "title": "目标价达成",
                     "detail": f"当前价 {current_price:.2f} 已达目标价 {alert.target_price:.2f}",
-                    "action": "建议分批止盈退出",
+                    "action": "建议分批止盈平仓" if is_short else "建议分批止盈退出",
                     "urgency": "HIGH"
                 })
 
-        # Check entry zone (price enters the buy zone)
+        # Check entry zone (price enters the planned entry zone)
         if alert.entry_price and alert.entry_price > 0:
             if alert.entry_price * 0.99 <= current_price <= alert.entry_price * 1.01:
                 triggered_signals.append({
                     "type": "entry",
                     "emoji": "📍",
                     "title": "入场信号",
-                    "detail": f"当前价 {current_price:.2f} 进入买点区间 (锚定 {alert.entry_price:.2f})",
+                    "detail": f"当前价 {current_price:.2f} 进入{'做空' if is_short else '买点'}区间 (锚定 {alert.entry_price:.2f})",
                     "action": "可考虑按计划分批建仓",
                     "urgency": "MEDIUM"
                 })
@@ -165,15 +180,28 @@ class SignalMonitorService:
             })
             signal_elements.append({"tag": "hr"})
 
-        # Price context
-        is_short = alert.target_price < alert.entry_price if alert.target_price and alert.entry_price else False
+        # Price context — direction label reflects the explicit action when
+        # present (buy/sell/hold/watch) so notifications for hold/watch
+        # tracking signals are clearly distinguished from position-taking ones.
+        is_short = self._resolve_direction(alert)
+        action = (getattr(alert, "action", None) or "").strip().lower()
+        _ACTION_LABELS = {
+            "buy": "买入·多头",
+            "sell": "卖出·空头",
+            "hold": "持有·跟踪",
+            "watch": "观望·跟踪",
+        }
+        if action in _ACTION_LABELS:
+            direction_note = f" ({_ACTION_LABELS[action]})"
+        else:
+            direction_note = " (空头)" if is_short else " (多头)"
         if alert.entry_price and alert.entry_price > 0:
             change_from_entry = ((alert.entry_price - price) if is_short else (price - alert.entry_price)) / alert.entry_price * 100
         else:
             change_from_entry = 0.0
 
         risk_reward_info = (
-            f"**入场价**: {alert.entry_price:.2f} | **目标价**: {alert.target_price:.2f} | **止损价**: {alert.stop_loss:.2f} {'(空头)' if is_short else '(多头)'}\n"
+            f"**入场价**: {alert.entry_price:.2f} | **目标价**: {alert.target_price:.2f} | **止损价**: {alert.stop_loss:.2f}{direction_note}\n"
             f"**当前偏离入场价**: {change_from_entry:+.2f}%"
         )
 

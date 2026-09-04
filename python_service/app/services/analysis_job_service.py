@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import asyncio
 import uuid
 import logging
@@ -12,10 +13,79 @@ from ..db.repositories.job_repo import JobRepository
 from ..decision.trading_fields_validator import TradingFieldsValidator
 from .market_snapshot_service import MarketSnapshotService
 from .lineage_service import apply_data_quality_review_gate
+from .signal_taxonomy import normalize_action
 from ..quant.polars_indicators import compute_indicator_frame
 from ..observability.failure_capture import capture_failure_incident
 
 PROGRESS_REDIS_PREFIX = "analysis_progress"
+
+
+def _repair_json_payload(payload: str) -> Optional[str]:
+    """Best-effort repair of JSON whose string values contain unescaped inner
+    double quotes (e.g. LLM writes ``"keyRisks": ["α报告"电子特气"核心论点失效"]``).
+
+    Strategy: single-pass state machine over the payload. Inside a string
+    literal, a ``"`` counts as the real terminator only when the next
+    non-whitespace character is a JSON structural character (``,`` ``}`` ``]``
+    ``:``) or end-of-input; otherwise it is an unescaped inner quote and gets
+    escaped to ``\\"``. Already-escaped sequences pass through untouched.
+
+    Returns the repaired payload, or None when nothing was changed (meaning the
+    original ``json.loads`` failure cannot be fixed by quote escaping alone).
+    """
+    out: list[str] = []
+    i = 0
+    n = len(payload)
+    in_string = False
+    changed = False
+    while i < n:
+        ch = payload[i]
+        if not in_string:
+            if ch == '"':
+                in_string = True
+            out.append(ch)
+            i += 1
+            continue
+        if ch == "\\":
+            # Keep escape pairs (e.g. \\" or \\\\) as-is.
+            out.append(ch)
+            if i + 1 < n:
+                out.append(payload[i + 1])
+                i += 2
+                continue
+            i += 1
+            continue
+        if ch == '"':
+            # Look ahead past whitespace: a structural char (or EOF) means the
+            # string really ends here; any other char means inner unescaped quote.
+            j = i + 1
+            while j < n and payload[j] in " \t\r\n":
+                j += 1
+            if j >= n or payload[j] in ",}]:":
+                in_string = False
+                out.append(ch)
+                i += 1
+                continue
+            out.append('\\"')
+            changed = True
+            i += 1
+            continue
+        out.append(ch)
+        i += 1
+    if not changed:
+        return None
+    return "".join(out)
+
+
+def _verdict_from_recommendation(recommendation: Optional[str]) -> str:
+    """Derive AnalysisRun.summary_verdict (buy/sell/hold/watch) from a free-form
+    recommendation string via the shared signal taxonomy.
+
+    Replaces the old exact-match mapping where only "Buy"/"Overweight"/
+    "Sell"/"Underweight" resolved directionally — "Strong Buy", "Strong Sell"
+    and Chinese ratings all silently fell through to "watch".
+    """
+    return normalize_action(recommendation)
 
 
 def _build_fundamentals(snapshot: Dict[str, Any]) -> Dict[str, Any]:
@@ -238,6 +308,11 @@ class AnalysisJobService:
         import re
         if not re.match(r"^[A-Za-z0-9.\-_\u4e00-\u9fa5]+$", symbol) or not re.match(r"^[A-Za-z0-9.\-_\u4e00-\u9fa5]+$", market):
             raise ValueError("Invalid symbol or market format. Must be alphanumeric or Chinese.")
+
+        # Strip frontend composite suffix ("KLAC.US-Share" → "KLAC") — the
+        # market is already carried by the separate market parameter, and
+        # downstream providers expect the bare symbol.
+        symbol = re.sub(r"\.(A-Share|HK-Share|US-Share)$", "", symbol, flags=re.IGNORECASE)
 
         # Deduplicate: if same symbol+market already has a running/queued job within 60s, reuse it
         existing = self.job_repo.find_recent_running(symbol, market, within_seconds=60)
@@ -647,13 +722,11 @@ class AnalysisJobService:
                 
                 # 5. Create Analysis Run and Update Job
                 with self.job_repo.session_factory() as session:
-                    # Derive verdict from structured extraction
+                    # Derive verdict from structured extraction via the shared
+                    # taxonomy (Strong Buy / 中文评级 / Underweight all resolve
+                    # consistently instead of falling through to "watch").
                     rec = result.get("recommendation", structured.get("recommendation", "Hold"))
-                    if rec in ("Buy",): verdict = "buy"
-                    elif rec in ("Overweight",): verdict = "buy"
-                    elif rec in ("Sell",): verdict = "sell"
-                    elif rec in ("Underweight",): verdict = "sell"
-                    else: verdict = "watch"
+                    verdict = _verdict_from_recommendation(rec)
                     
                     run_score = float(structured.get("score", 70.0))
                     
@@ -674,7 +747,6 @@ class AnalysisJobService:
                     try:
                         target_price_str = structured.get("tradingPlan", {}).get("targetPrice")
                         if target_price_str:
-                            import re
                             match = re.search(r"[\d.]+", str(target_price_str))
                             if match:
                                 tp = float(match.group())
@@ -689,6 +761,32 @@ class AnalysisJobService:
                                     )
                                     session.add(pred)
                                     session.commit()
+                        # Per-expert prediction records: every expert that quantified
+                        # its own price target gets a role-attributed PredictionRecord,
+                        # feeding the per-role accuracy loop → Gene.fitness
+                        # (PredictionService._update_brain_fitness). The consensus
+                        # record above stays role=None for legacy compatibility.
+                        try:
+                            cp_all = float(quote.get("price") or snapshot.get("price", 0.0) or 0.0)
+                            if cp_all > 0:
+                                role_targets = self._extract_role_target_prices(discussion_messages, cp_all)
+                                for expert_role, expert_tp in role_targets.items():
+                                    session.add(PredictionRecord(
+                                        job_id=job_id,
+                                        symbol=symbol,
+                                        market=market,
+                                        role=expert_role,
+                                        target_price=expert_tp,
+                                        current_price_at_prediction=cp_all,
+                                    ))
+                                if role_targets:
+                                    session.commit()
+                                    logger.info(
+                                        f"Saved {len(role_targets)} role-attributed predictions for job {job_id}: "
+                                        f"{sorted(role_targets)}"
+                                    )
+                        except Exception as role_e:
+                            logger.warning(f"Failed to save role-attributed PredictionRecords: {role_e}")
                     except Exception as e:
                         logger.warning(f"Failed to save PredictionRecord: {e}")
                     
@@ -708,6 +806,25 @@ class AnalysisJobService:
                         db_job.finished_at = utc_now()
                         session.add(db_job)
                         session.commit()
+
+                # 6. Feed the Professional Reviewer's structured audit markers
+                # ([🟡 Rf_STALE], [🔴 WACC_BLACKBOX], ...) back into EvolveR so the
+                # reviewer genome evolves from production feedback. Fire-and-forget
+                # daemon thread: never blocks/delays the pipeline; all failures
+                # degrade to warnings inside reviewer_feedback_service.
+                try:
+                    from .reviewer_feedback_service import feed_reviewer_feedback_to_brain_async
+                    feed_reviewer_feedback_to_brain_async(
+                        job_id,
+                        symbol,
+                        market,
+                        discussion_messages,
+                        as_of=result.get("as_of_date"),
+                    )
+                except Exception as hook_err:
+                    logger.warning(
+                        f"[AnalysisJobService] Reviewer feedback hook failed (non-fatal): {hook_err}"
+                    )
     
             except asyncio.CancelledError:
                 self.job_repo.update_status(job_id, "cancelled")
@@ -875,6 +992,58 @@ class AnalysisJobService:
         
         logger.info(f"Partial results saved for job {job_id} (status: {'failed' if error_msg else 'completed'}): {len(valid_messages)} expert messages")
 
+    # Quantified price-target patterns inside free-form expert prose. Chief
+    # Strategist is excluded at extraction time: its structured targetPrice is
+    # already persisted as the pipeline-consensus record (role=None).
+    _ROLE_TARGET_PATTERNS = (
+        re.compile(r"目标价[位格]?\s*(?:约为|约|至|为|[:：])?\s*([0-9]+(?:\.[0-9]+)?)"),
+        re.compile(r"target\s*price[^0-9\n]{0,24}?([0-9]+(?:\.[0-9]+)?)", re.IGNORECASE),
+    )
+
+    @staticmethod
+    def _extract_role_target_prices(
+        discussion_messages: List[Dict[str, Any]], current_price: float
+    ) -> Dict[str, float]:
+        """Extract one target price per expert role from discussion messages.
+
+        Each expert that quantified a price target in its analysis gets a
+        role-attributed PredictionRecord, so PredictionService can later write
+        that expert's rolling accuracy into its Gene.fitness (per-role
+        evolution signal). A later message from the same role overrides
+        earlier rounds — final stance wins. Only plausible prices (0.1x–10x
+        of the current price) are kept so random figures or percentages in
+        the prose never pollute the accuracy loop.
+        """
+        if not current_price or current_price <= 0:
+            return {}
+        targets: Dict[str, float] = {}
+        for msg in discussion_messages:
+            role = msg.get("role")
+            if not isinstance(role, str) or not role.strip():
+                continue
+            role = role.strip()
+            if role in ("System", "Chief Strategist"):
+                continue
+            content = msg.get("content", "")
+            if isinstance(content, dict):
+                content = json.dumps(content, ensure_ascii=False)
+            elif not isinstance(content, str):
+                content = str(content)
+            if not content:
+                continue
+            for pattern in AnalysisJobService._ROLE_TARGET_PATTERNS:
+                matches = pattern.findall(content)
+                if not matches:
+                    continue
+                try:
+                    tp = float(matches[-1])  # final mention = final stance
+                except ValueError:
+                    continue
+                if tp > 0 and 0.1 <= tp / current_price <= 10.0:
+                    targets[role] = tp
+                break  # first pattern family that matches wins
+        return targets
+
     @staticmethod
     def _extract_summary(discussion_messages: List[Dict[str, Any]]) -> str:
         """Extract a short summary from the Chief Strategist (last) message."""
@@ -929,59 +1098,109 @@ class AnalysisJobService:
         # Populate technicalAnalysis and fundamentalAnalysis from expert messages
         if technical_content:
             if isinstance(technical_content, dict):
-                import json
                 technical_content = json.dumps(technical_content, ensure_ascii=False)
             elif not isinstance(technical_content, str):
                 technical_content = str(technical_content)
             fields["technicalAnalysis"] = technical_content[:2000]
         if fundamental_content:
             if isinstance(fundamental_content, dict):
-                import json
                 fundamental_content = json.dumps(fundamental_content, ensure_ascii=False)
             elif not isinstance(fundamental_content, str):
                 fundamental_content = str(fundamental_content)
             fields["fundamentalAnalysis"] = fundamental_content[:2000]
         
         if not chief_content:
+            # Fallback contract: even without a Chief Strategist message the
+            # frontend must receive sentiment/recommendation defaults instead of
+            # fabricating values (see job_81c2b179 post-mortem).
+            fields.setdefault("sentiment", "Neutral")
+            fields.setdefault("recommendation", "Hold")
+            fields.setdefault("keyRisks", [])
+            fields.setdefault("tradingPlan", {"action": "watch", "strategy": "分析完成，未获取首席策略师输出"})
             return fields
-        
+
         # --- Structured JSON parsing (CRITICAL) ---
-        json_match = re.search(r'<structured_data>\s*(\{.*?\})\s*</structured_data>', chief_content, re.DOTALL)
-        if json_match:
+        # Non-greedy blocks first (multiple blocks → try each in order), then a
+        # greedy pass as fallback for payloads whose string values contain
+        # literal '}' braces (the non-greedy regex would truncate mid-value).
+        candidates = re.findall(r'<structured_data>\s*(\{.*?\})\s*</structured_data>', chief_content, re.DOTALL)
+        greedy = re.search(r'<structured_data>\s*(\{.*\})\s*</structured_data>', chief_content, re.DOTALL)
+        if greedy and greedy.group(1) not in candidates:
+            candidates.append(greedy.group(1))
+
+        parsed = None
+        last_error: Optional[Exception] = None
+        for payload in candidates:
             try:
-                import json
-                parsed = json.loads(json_match.group(1))
-                fields["sentiment"] = parsed.get("sentiment", "Neutral")
-                fields["recommendation"] = parsed.get("recommendation", "Hold")
-                
-                tp = parsed.get("targetPrice")
-                sl = parsed.get("stopLossPrice")
-                trading_plan = {}
-                if tp is not None:
-                    trading_plan["targetPrice"] = str(tp)
-                if sl is not None:
-                    trading_plan["stopLoss"] = str(sl)
-                
-                trading_plan["strategy"] = "基于多智能体决策"
-                if "confidence" in parsed:
-                    trading_plan["strategy"] += f" (信心指数: {parsed['confidence']}%)"
-                if trading_plan:
-                    fields["tradingPlan"] = trading_plan
-                    
-                fields["keyRisks"] = parsed.get("keyRisks", [])
-                if parsed.get("catalysts"):
-                    fields["keyOpportunities"] = parsed.get("catalysts")
-                    
-                # Return early to skip fragile regex if we got the core fields
-                if fields.get("sentiment") and fields.get("tradingPlan"):
-                    return fields
-            except Exception as e:
-                logger.warning(f"[AnalysisJobService] Failed to parse <structured_data> JSON: {e}")
-                fields["tradingPlan"] = {"strategy": "分析完成，但结构化JSON提取失败"}
+                parsed = json.loads(payload)
+                break
+            except json.JSONDecodeError as exc:
+                last_error = exc
+                # One repair retry for unescaped inner double quotes in string
+                # values (LLM quoting artifacts like job_81c2b179's keyRisks).
+                repaired = _repair_json_payload(payload)
+                if repaired is None:
+                    continue
+                try:
+                    parsed = json.loads(repaired)
+                    logger.info("[AnalysisJobService] Repaired malformed <structured_data> JSON (escaped inner double quotes)")
+                    break
+                except json.JSONDecodeError as exc2:
+                    last_error = exc2
+
+        if isinstance(parsed, dict):
+            fields["sentiment"] = parsed.get("sentiment") or "Neutral"
+            fields["recommendation"] = parsed.get("recommendation") or "Hold"
+
+            trading_plan: Dict[str, Any] = {}
+            # action: explicit structured field > derived from recommendation > watch
+            raw_action = parsed.get("action")
+            if isinstance(raw_action, str) and raw_action.strip():
+                trading_plan["action"] = normalize_action(raw_action)
+            else:
+                trading_plan["action"] = normalize_action(fields["recommendation"])
+
+            tp = parsed.get("targetPrice")
+            sl = parsed.get("stopLossPrice")
+            if tp is not None:
+                # str() keeps the existing tradingPlan convention; range strings
+                # like "27.5-30.0" (multi-target sector tasks) pass through as-is.
+                trading_plan["targetPrice"] = str(tp)
+            if sl is not None:
+                trading_plan["stopLoss"] = str(sl)
+
+            entry_price = parsed.get("entryPrice")
+            entry_low = parsed.get("entryLow")
+            entry_high = parsed.get("entryHigh")
+            if entry_price is not None:
+                trading_plan["entryPrice"] = str(entry_price)
+            if entry_low is not None:
+                trading_plan["entryLow"] = str(entry_low)
+            if entry_high is not None:
+                trading_plan["entryHigh"] = str(entry_high)
+
+            trading_plan["strategy"] = "基于多智能体决策"
+            if "confidence" in parsed:
+                trading_plan["strategy"] += f" (信心指数: {parsed['confidence']}%)"
+            fields["tradingPlan"] = trading_plan
+
+            fields["keyRisks"] = parsed.get("keyRisks") or []
+            if parsed.get("catalysts"):
+                fields["keyOpportunities"] = parsed.get("catalysts")
+            return fields
+
+        # Fallback: unparseable / missing JSON block must never yield absent
+        # sentiment/recommendation — the frontend used to fabricate entry/target
+        # prices when these were None (job_81c2b179 lost a Sell signal this way).
+        if candidates:
+            logger.warning(f"[AnalysisJobService] Failed to parse <structured_data> JSON: {last_error}")
+            fields["tradingPlan"] = {"action": "watch", "strategy": "分析完成，但结构化JSON提取失败"}
         else:
             logger.warning("[AnalysisJobService] No <structured_data> JSON block found in LLM output")
-            fields["tradingPlan"] = {"strategy": "分析完成，未生成结构化数据"}
-            
+            fields["tradingPlan"] = {"action": "watch", "strategy": "分析完成，未生成结构化数据"}
+        fields["sentiment"] = "Neutral"
+        fields["recommendation"] = "Hold"
+        fields["keyRisks"] = []
         return fields
 
     def update_job_progress(self, job_id: str, stage: str, percent: int, round: Optional[int] = None, total_rounds: Optional[int] = None, message: Optional[str] = None, count: Optional[int] = None, error_type: Optional[str] = None):

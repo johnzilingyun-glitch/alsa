@@ -5,11 +5,40 @@ import ast
 import asyncio
 import markdown2
 from datetime import datetime
-from typing import List, Any, Dict
+from typing import List, Any, Dict, Optional
 from .llm_gateway import llm_gateway, current_token_usage
+from .signal_taxonomy import normalize_action
+from .data_providers.a_stock_direct import _get_cn_risk_free_rate
+from .valuation_config import (
+    EQUITY_RISK_PREMIUM,
+    DEFAULT_COST_OF_DEBT,
+    CN_RISK_FREE_FALLBACK,
+    US_RISK_FREE_DEFAULT,
+    HK_RISK_FREE_DEFAULT,
+    BETA_FLOOR,
+    BETA_CEILING,
+    WACC_FLOOR_MARGIN,
+    WACC_FLOOR_ABS,
+    MIN_WACC_G_SPREAD,
+)
 from ..logging import get_logger
 
 logger = get_logger(__name__)
+
+# Report UI data keeps the BUY/SELL/HOLD display convention; the taxonomy's
+# watch degrades to HOLD for display (same behavior as the previous inline
+# mapping, which also folded WATCH/NEUTRAL into HOLD).
+_ACTION_DISPLAY = {"buy": "BUY", "sell": "SELL", "hold": "HOLD", "watch": "HOLD"}
+
+# ── DCF sanity bounds (β / WACC / g guardrails for _compute_valuation) ──
+# 单一定义点位于 valuation_config.py：provider 侧 β 护栏/WACC 估算、本渲染层
+# DCF、computation_tools 校验边界四方同源（模块属性别名保留，测试仍可
+# patch rgs._VALUATION_*）。
+_VALUATION_BETA_FLOOR = BETA_FLOOR                # β 合理下限（CAPM 输入防护）
+_VALUATION_BETA_CEILING = BETA_CEILING           # β 合理上限
+_VALUATION_WACC_FLOOR_MARGIN = WACC_FLOOR_MARGIN  # WACC 下限 = max(Rf + 2%, 5%)
+_VALUATION_WACC_FLOOR_ABS = WACC_FLOOR_ABS
+_VALUATION_MIN_SPREAD = MIN_WACC_G_SPREAD        # WACC − g 最小利差，不足则拒绝 DCF
 
 
 class ReportSchemaValidationError(ValueError):
@@ -231,18 +260,23 @@ class ReportGeneratorService:
 
         # Compute WACC/DCF valuation from snapshot; only override the LLM-derived
         # wacc_breakdown if the computation produces a valid WACC value.
+        # 综合目标价（scenarios 概率加权，与渲染层期望价同口径）供 DCF 偏离度守卫使用
         valuation = self._compute_valuation(snapshot, {
             "price": quote.get("price"),
             "market": market,
             "symbol": symbol,
             "currency": currency,
+            "ref_target_price": self._scenario_expected_price(data.get("scenarios")),
         })
         if valuation and valuation.get("wacc"):
             data["wacc_breakdown"] = valuation
             # Backfill computable valuation metrics into the fundamentals table
             # (β and WACC are derivable even when the provider returned neither).
             if fundamentals.get("贝塔系数 (β)") == "N/A" and valuation.get("beta") is not None:
-                fundamentals["贝塔系数 (β)"] = f"{round(valuation['beta'], 2)}"
+                _beta = valuation["beta"]
+                # _compute_valuation returns display-formatted strings ("1.10"),
+                # so round only when numeric — round(str) raises TypeError.
+                fundamentals["贝塔系数 (β)"] = f"{round(_beta, 2)}" if isinstance(_beta, (int, float)) else str(_beta)
             if fundamentals.get("WACC (估算)") == "N/A" and valuation.get("wacc") is not None:
                 fundamentals["WACC (估算)"] = str(valuation["wacc"])  # already formatted like '7.77%'
 
@@ -873,16 +907,12 @@ Now extract from the following discussion:
                 return False
             return any(val.strip().startswith(prefix) for prefix in thinking_indicators)
 
-        # Normalize recommendation
-        rec_raw = str(ui_data.get("recommendation", "")).strip().upper()
-        if rec_raw in ("BUY", "STRONG BUY", "买入", "增持", "OVERWEIGHT", "长多"):
-            ui_data["recommendation"] = "BUY"
-        elif rec_raw in ("SELL", "STRONG SELL", "REDUCE", "AVOID", "卖出", "减持", "看空", "避险"):
-            ui_data["recommendation"] = "SELL"
-        elif rec_raw in ("HOLD", "WATCH", "NEUTRAL", "中性", "观望"):
-            ui_data["recommendation"] = "HOLD"
-        elif rec_raw not in ("BUY", "HOLD", "SELL", "STRONG BUY", "STRONG SELL", "WATCH"):
-            ui_data["recommendation"] = "HOLD"
+        # Normalize recommendation via the shared signal taxonomy so every
+        # consumer (analysis verdict mapping, report UI data) agrees on
+        # Strong Buy / Underweight / 中文评级 etc. Output keeps the BUY/SELL/HOLD
+        # display convention (watch degrades to HOLD for display purposes).
+        rec_raw = str(ui_data.get("recommendation", "")).strip()
+        ui_data["recommendation"] = _ACTION_DISPLAY.get(normalize_action(rec_raw), "HOLD")
 
         # Fix consensus fields if they contain raw markdown documents
         cons = ui_data.get("consensus_vs_non_consensus")
@@ -2951,11 +2981,55 @@ CONTENT:
 
         parts.append("</svg>")
 
+    @staticmethod
+    def _scenario_expected_price(scenarios) -> Optional[float]:
+        """Probability-weighted target price from Bull/Base/Bear scenarios.
+
+        Mirrors the renderer's expected-return math so the DCF deviation
+        guard compares against the same blended target the report shows.
+        """
+        if not isinstance(scenarios, list) or not scenarios:
+            return None
+        exp_price = 0.0
+        tot_prob = 0.0
+        try:
+            for s in scenarios:
+                if not isinstance(s, dict):
+                    continue
+                p_str = str(s.get("probability", "0")).replace("%", "").strip()
+                prob = float(p_str) if p_str else 0.0
+                t_str = (str(s.get("targetPrice", "0"))
+                         .replace("元", "").replace("HKD", "").replace("USD", "")
+                         .replace("¥", "").replace("CNY", "").strip())
+                if "-" in t_str:
+                    parts = t_str.split("-")
+                    t_val = (float(parts[0]) + float(parts[1])) / 2.0
+                else:
+                    t_val = float(t_str) if t_str else 0.0
+                exp_price += t_val * (prob / 100.0)
+                tot_prob += prob
+            if tot_prob > 0 and exp_price > 0:
+                if abs(tot_prob - 100) > 1:
+                    exp_price = exp_price / (tot_prob / 100.0)
+                return exp_price
+        except (TypeError, ValueError):
+            return None
+        return None
+
     def _compute_valuation(self, snapshot: dict, info: dict) -> dict:
         """Compute WACC and DCF target price from snapshot fundamentals.
 
+        合理性边界（触发条件 → 行为）：
+          β 输入 <0.2 或 >3.0        → 钳制到 [0.2, 3.0]，记入 sanity_warnings
+          Rf                         → 优先 snapshot 实时 rf（provider 同源），缺省用市场默认并标注来源
+          WACC < max(Rf+2%, 5%)      → 钳制到下限并标注"WACC 低于合理性下限，已钳制"
+          g                          → min(5%默认, Rf, WACC−2%)；WACC−2% ≤ 0 时拒绝 DCF
+          WACC − g < 2%（防御守卫）    → 拒绝输出 DCF（dcf_skip_reason），绝不用 clamp 硬算出爆炸值
+          DCF vs 综合目标价偏离 >2 倍  → deviation_warning 警示字段随估值输出渲染
+
         Returns dict with keys: rf, beta, erp, kd, tc, d_v, e_v, wacc,
-        source, sensitivity, dcf_target.
+        source, sensitivity, sanity_warnings, and optionally dcf_target /
+        dcf_skip_reason / deviation_warning.
         Returns empty dict if critical inputs are missing.
         """
         if not isinstance(snapshot, dict):
@@ -2974,28 +3048,67 @@ CONTENT:
                         return val
             return None
 
-        # Risk-free rate
+        sanity_warnings: List[str] = []
+
+        # Risk-free rate — prefer the provider's real-time rf (financials.rf,
+        # written by a_stock_direct next to its own WACC estimate) so both
+        # layers share one source. A-Share fallback renders the LIVE China
+        # 10Y yield (same provider function, TTL-cached) instead of a stale
+        # hardcoded constant; US/HK use market-benchmark defaults.
         rf_val = _get("riskFreeRate", "rf")
         if rf_val is not None and isinstance(rf_val, (int, float)):
             rf = rf_val / 100 if rf_val > 1 else rf_val
+            rf_label = "provider 实时"
         else:
             market = info.get("market", "US-Share")
             if market in ("US-Share", "us"):
-                rf = 0.043  # ~4.3% US 10Y mid-2026
+                rf = US_RISK_FREE_DEFAULT
+                rf_label = "市场基准默认"
             elif market in ("HK-Share", "hk"):
-                rf = 0.035  # ~3.5% HK
+                rf = HK_RISK_FREE_DEFAULT
+                rf_label = "市场基准默认"
             else:
-                rf = 0.0173  # ~1.73% CN 10Y mid-2026
+                # A-Share：直取 provider 的实时中债 10Y（TTL 缓存）；网络失败
+                # 时函数内部回退配置兑底值，此处再防御一次取值合理性。
+                try:
+                    rf = float(_get_cn_risk_free_rate())
+                    rf_label = "provider 实时（渲染层直取）"
+                except Exception:
+                    rf = CN_RISK_FREE_FALLBACK
+                    rf_label = "市场基准默认"
+                if not (isinstance(rf, float) and 0 < rf < 0.10):
+                    rf = CN_RISK_FREE_FALLBACK
+                    rf_label = "市场基准默认"
 
-        # Beta
+        # Beta — clamp to a sane equity-beta range before CAPM. The provider
+        # already applies Blume shrinkage; this is defense-in-depth for stale
+        # caches or snapshots from other providers.
         beta_val = _get("beta")
         if beta_val is not None and isinstance(beta_val, (int, float)) and beta_val > 0:
-            beta = beta_val
+            beta = float(beta_val)
         else:
             beta = 1.1  # default equity beta
+        if beta < _VALUATION_BETA_FLOOR:
+            sanity_warnings.append(
+                f"输入 β={beta:.2f} 低于合理下限，已钳制为 {_VALUATION_BETA_FLOOR:.1f}")
+            beta = _VALUATION_BETA_FLOOR
+        elif beta > _VALUATION_BETA_CEILING:
+            sanity_warnings.append(
+                f"输入 β={beta:.2f} 高于合理上限，已钳制为 {_VALUATION_BETA_CEILING:.1f}")
+            beta = _VALUATION_BETA_CEILING
 
-        # ERP (equity risk premium)
-        erp = 0.045  # 4.5%
+        # β provenance disclosure (provider-side Blume adjustment / confidence)
+        beta_raw_val = _get("beta_raw")
+        beta_note = ""
+        if (isinstance(beta_raw_val, (int, float))
+                and abs(float(beta_raw_val) - beta) >= 0.005):
+            beta_note = f"原始回归 {float(beta_raw_val):.2f}，经 Blume 调整与下限保护"
+        if _get("beta_low_confidence"):
+            beta_note = (beta_note + "，低置信") if beta_note else "低置信（回归质量不足）"
+
+        # ERP (equity risk premium) — single definition point shared with the
+        # provider-side WACC estimate (data_providers/a_stock_direct).
+        erp = EQUITY_RISK_PREMIUM
 
         # Ke = Rf + beta * ERP
         ke = rf + beta * erp
@@ -3005,7 +3118,7 @@ CONTENT:
         if kd_val is not None and isinstance(kd_val, (int, float)):
             kd = kd_val / 100 if kd_val > 1 else kd_val
         else:
-            kd = 0.05  # default 5%
+            kd = DEFAULT_COST_OF_DEBT  # 4%：与 provider 侧 WACC 估算同源（valuation_config）
 
         # Tax rate
         tc_val = _get("taxRate", "tc")
@@ -3040,8 +3153,15 @@ CONTENT:
             d_v = 0.3
             e_v = 0.7
 
-        # WACC
-        wacc = e_v * ke + d_v * kd * (1 - tc)
+        # WACC — floored to a commercially sane level: a discount rate below
+        # max(Rf + 2%, 5%) makes the Gordon terminal value explode.
+        wacc_raw = e_v * ke + d_v * kd * (1 - tc)
+        wacc = wacc_raw
+        wacc_floor = max(rf + _VALUATION_WACC_FLOOR_MARGIN, _VALUATION_WACC_FLOOR_ABS)
+        if wacc < wacc_floor:
+            sanity_warnings.append(
+                f"计算 WACC={wacc_raw*100:.2f}% 低于合理性下限 {wacc_floor*100:.1f}%，已钳制")
+            wacc = wacc_floor
 
         # DCF target price
         fcf = _get("freeCashflow")
@@ -3052,27 +3172,51 @@ CONTENT:
                 fcf = ocf - abs(capex) if ocf > 0 else None
 
         dcf_target = None
+        dcf_skip_reason = None
+        g = None
         if fcf is not None and isinstance(fcf, (int, float)) and fcf > 0 and wacc > 0:
-            g = 0.05  # default perpetual growth rate 5%
-            if wacc <= g:
-                g = min(wacc * 0.5, 0.03)
-            try:
-                intrinsic_value = fcf * (1 + g) / (wacc - g)
-            except ZeroDivisionError:
-                intrinsic_value = None
-            if intrinsic_value is not None:
-                shares = _get("sharesOutstanding", "shares", "impliedShares")
-                price = q.get("price") or info.get("price")
-                if shares is not None and isinstance(shares, (int, float)) and shares > 0:
-                    dcf_target = intrinsic_value / shares
-                elif market_cap is not None and price is not None and isinstance(price, (int, float)) and price > 0:
-                    dcf_target = intrinsic_value / market_cap * price
-                if dcf_target is not None:
-                    dcf_target = round(dcf_target, 2)
+            # Perpetual growth must respect: the long-run nominal cap (5%),
+            # Rf (nominal growth anchor) and a minimum WACC−g spread of 2%.
+            g_ceiling = wacc - _VALUATION_MIN_SPREAD
+            if g_ceiling <= 0:
+                dcf_skip_reason = "输入参数不满足 DCF 合理性约束（WACC-g 利差不足），已跳过 DCF 估值"
+            else:
+                g = min(0.05, rf, g_ceiling)
+                if wacc - g < _VALUATION_MIN_SPREAD:
+                    # Defensive: unreachable while g ≤ wacc − spread, but never
+                    # clamp-override into an exploding Gordon terminal value.
+                    dcf_skip_reason = "输入参数不满足 DCF 合理性约束（WACC-g 利差不足），已跳过 DCF 估值"
+                    g = None
+                else:
+                    try:
+                        intrinsic_value = fcf * (1 + g) / (wacc - g)
+                    except ZeroDivisionError:
+                        intrinsic_value = None
+                    if intrinsic_value is not None:
+                        shares = _get("sharesOutstanding", "shares", "impliedShares")
+                        price = q.get("price") or info.get("price")
+                        if shares is not None and isinstance(shares, (int, float)) and shares > 0:
+                            dcf_target = intrinsic_value / shares
+                        elif market_cap is not None and price is not None and isinstance(price, (int, float)) and price > 0:
+                            dcf_target = intrinsic_value / market_cap * price
+                        if dcf_target is not None:
+                            dcf_target = round(dcf_target, 2)
+
+        # Deviation guard: DCF target vs the report's probability-weighted
+        # target price (scenarios) — flag >2x divergence instead of silently
+        # publishing an exploding DCF number next to a sane blended target.
+        deviation_warning = None
+        ref_target = info.get("ref_target_price")
+        if dcf_target is not None and isinstance(ref_target, (int, float)) and ref_target > 0:
+            ratio = dcf_target / float(ref_target)
+            if ratio > 2 or ratio < 0.5:
+                deviation_warning = (
+                    f"⚠ DCF 估值 {dcf_target:.2f} 与综合目标价 {ref_target:.2f} 偏离超 2 倍"
+                    f"（{ratio:.1f}x），请核查参数假设")
 
         source_parts = [
-            f"Rf={rf*100:.1f}% (市场基准默认)",
-            f"β={beta:.2f}",
+            f"Rf={rf*100:.1f}% ({rf_label})",
+            f"β={beta:.2f}" + (f"（{beta_note}）" if beta_note else ""),
             f"ERP={erp*100:.1f}%",
             f"Ke=Rf+β×ERP={ke*100:.1f}%",
             f"Kd={kd*100:.1f}%",
@@ -3081,6 +3225,17 @@ CONTENT:
             f"E/V={e_v*100:.0f}%",
             f"WACC=E/V×Ke+D/V×Kd×(1-Tc)={wacc*100:.2f}%",
         ]
+        if g is not None:
+            source_parts.append(f"g={g*100:.2f}% (≤min(5%, Rf, WACC-2%))")
+        # 口径披露：本表为报告层独立复算，与数据源快照的 provider WACC 估算
+        # （时点/资本结构口径可能不同）并列披露，两套数值永不静默混用。
+        wacc_basis = "口径：本表为报告层独立复算 WACC"
+        provider_wacc = _get("wacc")
+        if isinstance(provider_wacc, (int, float)):
+            pw = provider_wacc / 100 if provider_wacc > 1 else float(provider_wacc)
+            if 0 < pw < 0.5:
+                wacc_basis += f"；数据源快照 WACC 估算={pw*100:.2f}%（口径/时点可能不同）"
+        source_parts.append(wacc_basis)
 
         result: dict = {
             "rf": f"{rf*100:.2f}%",
@@ -3093,8 +3248,13 @@ CONTENT:
             "wacc": f"{wacc*100:.2f}%",
             "source": "; ".join(source_parts),
             "sensitivity": "",
+            "sanity_warnings": sanity_warnings,
         }
 
+        if dcf_skip_reason:
+            result["dcf_skip_reason"] = dcf_skip_reason
+        if deviation_warning:
+            result["deviation_warning"] = deviation_warning
         if dcf_target is not None:
             currency = info.get("currency", "CNY")
             result["dcf_target"] = f"{dcf_target} {currency}"
@@ -3242,7 +3402,24 @@ CONTENT:
         wacc_data = d.get("wacc_breakdown") or {}
         wacc_table_html = ""
         if wacc_data and isinstance(wacc_data, dict) and wacc_data.get("wacc"):
+            # 显著警示框（不依赖 Reviewer 文本兜底）：β/WACC 极端值、DCF 拒绝、
+            # DCF 与综合目标价偏离 >2x —— 估值模块自身在报告内强制显著提示。
+            _val_alerts = [str(w) for w in (wacc_data.get("sanity_warnings") or [])]
+            if wacc_data.get("dcf_skip_reason"):
+                _val_alerts.append(str(wacc_data["dcf_skip_reason"]))
+            if wacc_data.get("deviation_warning"):
+                _val_alerts.append(str(wacc_data["deviation_warning"]))
+            _val_alert_html = ""
+            if _val_alerts:
+                _val_alert_items = "".join(f"<li>{esc(a)}</li>" for a in _val_alerts)
+                _val_alert_html = (
+                    '<div class="valuation-alert-box" role="alert">'
+                    '<div class="valuation-alert-title">⚠ 估值合理性警示</div>'
+                    f'<ul>{_val_alert_items}</ul>'
+                    '</div>'
+                )
             wacc_table_html = f'''
+            {_val_alert_html}
             <table class="wacc-table">
                 <thead>
                     <tr>
@@ -3271,7 +3448,9 @@ CONTENT:
                         <td colspan="8" class="wacc-source"><strong>WACC 参数来源与逻辑：</strong> {wacc_data.get("source", "未披露")}</td>
                     </tr>
                     {"<tr><td colspan='8' class='wacc-source'><strong>敏感性分析：</strong></td></tr><tr><td colspan='8' class='wacc-source'>" + markdown2.markdown(self._format_sensitivity_table(wacc_data.get("sensitivity", "")), extras=["tables"]) + "</td></tr>" if wacc_data.get("sensitivity") else ""}
-                    {"<tr><td colspan='8' class='wacc-source'><strong>DCF 每股目标价：</strong> " + esc(str(wacc_data.get("dcf_target", "N/A"))) + "</td></tr>" if wacc_data.get("dcf_target") else ""}
+                    {"<tr><td colspan='8' class='wacc-source'><strong>DCF 每股目标价：</strong> " + esc(str(wacc_data.get("dcf_target", "N/A"))) + (" <span style='color:#ef4444; font-weight:600;'>" + esc(str(wacc_data.get("deviation_warning"))) + "</span>" if wacc_data.get("deviation_warning") else "") + "</td></tr>" if wacc_data.get("dcf_target") else ""}
+                    {"<tr><td colspan='8' class='wacc-source' style='color:#ef4444;'><strong>" + esc(str(wacc_data.get("dcf_skip_reason"))) + "</strong></td></tr>" if wacc_data.get("dcf_skip_reason") else ""}
+                    {"<tr><td colspan='8' class='wacc-source' style='color:#b45309;'><strong>合理性警示：</strong> " + esc("；".join(wacc_data.get("sanity_warnings") or [])) + "</td></tr>" if wacc_data.get("sanity_warnings") else ""}
                 </tbody>
             </table>
             '''
@@ -4033,6 +4212,28 @@ CONTENT:
             font-size: 11px;
             padding: 12px !important;
         }}
+        .valuation-alert-box {{
+            margin: 0 0 14px 0;
+            padding: 12px 16px;
+            border: 1.5px solid #ef4444;
+            border-left: 5px solid #ef4444;
+            border-radius: 8px;
+            background: rgba(239, 68, 68, 0.08);
+        }}
+        .valuation-alert-title {{
+            font-size: 14px;
+            font-weight: 800;
+            color: #ef4444;
+            margin-bottom: 6px;
+        }}
+        .valuation-alert-box ul {{
+            margin: 0;
+            padding-left: 18px;
+            font-size: 13px;
+            font-weight: 600;
+            color: #b91c1c;
+        }}
+        .valuation-alert-box li {{ margin-bottom: 4px; }}
         
         /* Comps */
         .comps-wrapper {{

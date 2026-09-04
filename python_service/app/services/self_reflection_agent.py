@@ -69,11 +69,13 @@ class SelfReflectionAgent:
 3. improved_analysis应保留原分析的核心观点，修正明显问题"""
 
         try:
+            # max_tokens 已移除：LLMGateway.generate_content 的签名不支持该参数
+            # （与 critic_agent 同类 bug——传入即抛 TypeError 被外层 except 吞掉，
+            # 反思永远走降级分支）；输出长度由网关统一的 _apply_max_tokens 控制。
             response = await llm_gateway.generate_content(
                 prompt=prompt,
                 model=model,
                 temperature=0.3,
-                max_tokens=1500,
                 gemini_api_key=gemini_api_key,
                 deepseek_api_key=deepseek_api_key,
                 openrouter_api_key=openrouter_api_key

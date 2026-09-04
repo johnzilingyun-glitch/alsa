@@ -112,6 +112,7 @@ class SerenityGraphService(SectorAnalysisService):
                 on_progress=report_progress,
                 job_id=state["job_id"],
                 config=state["config"],
+                market="sector",       # sector flow — avoid misleading "{keyword}.us" default (aligns with sector_analysis_service)
                 verification_mode=verification_mode
             )
             return {"discussion": discussion_messages}

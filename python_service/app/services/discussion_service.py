@@ -16,6 +16,19 @@ from ..logging import get_logger
 
 logger = get_logger(__name__)
 
+# ── 后台搜索时序常量（修复 serenity 单轮拓扑 search_results 恒空）──
+# 节点级等待上限：单轮拓扑(如 serenity_alpha)只有一个节点，节点对
+# search_task.done() 的检查发生在后台搜索产出之前，search_results 恒为空。
+# 每个节点最多等这么久（覆盖 _background_search 的 12s 类目预算 + 返回
+# 路径开销）；超时用空结果继续，多轮拓扑后续轮仍会再取（行为不回归）。
+_NODE_SEARCH_WAIT_SECONDS = 15.0
+# 类目预算：batch_search 顺序执行 12 个类目、每类目间还有限速延迟
+# (默认 0.5s)，旧的 15s 总超时必然到期并把已完成类目整体丢弃（日志两次
+# "Timed out after 15s"）。预算到期后停止发起新类目、返回已完成部分。
+_SEARCH_CATEGORY_BUDGET_SECONDS = 12.0
+# 外层硬超时：兜底预算到期时仍在途的最后一个类目。
+_SEARCH_HARD_TIMEOUT_SECONDS = 18.0
+
 
 def _extract_price(text: str) -> Optional[float]:
     """从搜索文本中提取首个价格数字 (支持 元/W, 元/Wh, 元/吨 等)。"""
@@ -384,6 +397,17 @@ class DiscussionService:
         # The most reliable signal: company name is just the stock code itself
         # (e.g. name="03986" for symbol="03986"), meaning the provider couldn't
         # resolve it to an actual company. Combined with null price → abort.
+        #
+        # Sector/keyword exemption: sector flows pass the keyword as BOTH
+        # symbol and name by design (e.g. run_discussion("化肥", "化肥",
+        # {"type": "sector", ...})), and their lightweight snapshots never carry
+        # price / data_quality — the unidentifiable signals below would ALWAYS
+        # fire and kill every sector job before any expert runs. The check
+        # below therefore only applies to stock analysis.
+        is_sector_flow = (
+            snapshot.get("type") == "sector"
+            or level in ("sector", "serenity_alpha")
+        )
         resolved_name = snapshot.get("name", symbol) or symbol
         stock_name_matches_symbol = (resolved_name.strip().lower() == symbol.strip().lower())
         has_price = snapshot.get("price") is not None
@@ -412,6 +436,10 @@ class DiscussionService:
 
         if not is_unidentifiable:
             is_unidentifiable = (bool(blocking_errors) and not has_price and dq_score < 0.3)
+
+        if is_sector_flow:
+            # Sector/keyword analyses are exempt from the stock-identity check.
+            is_unidentifiable = False
 
         if is_unidentifiable:
             logger.warning(
@@ -479,6 +507,15 @@ class DiscussionService:
             async def node_func(state: AgentState):
                 # 优化 4 持续: 在每一轮检查搜索是否完成
                 nonlocal search_results
+                if not search_results and not search_task.done():
+                    # 修复 serenity 单轮拓扑时序：单轮拓扑(如 serenity_alpha)
+                    # 只有一个节点，若不在此等待，search_task.done() 的检查
+                    # 永远发生在后台搜索产出之前 → search_results 恒为空。
+                    # 有上限地等一轮；超时用空结果继续，不阻塞主流程
+                    # （多轮拓扑的后续轮仍会再取，既有行为不回归）。
+                    await asyncio.wait(
+                        [search_task], timeout=_NODE_SEARCH_WAIT_SECONDS
+                    )
                 if search_task.done() and not search_results:
                     try:
                         search_results = search_task.result()
@@ -1122,6 +1159,15 @@ class DiscussionService:
         # Gemini models have native Google Search grounding enabled via tools config
         has_search_tools = ("gemini" in model.lower())
         use_native_tools = "deepseek" in model.lower()
+        # 文本工具协议：Gemini 走 llm_gateway 原生接地、DeepSeek 走
+        # agent_orchestrator 内的原生函数调用，其余模型（MiniMax/OpenRouter
+        # 全系）进入 generate_with_tools 的【文本】工具循环。文本循环完全
+        # 依赖 prompt 内的工具清单 + 调用格式；此前 tool_descriptions 只在
+        # has_search_tools and not use_native_tools 时生成（实际只有 Gemini
+        # 拿到、而 Gemini 不进文本循环），导致 MiniMax 第 0 轮无 tool_call
+        # 标签、循环空转退出（日志 [ToolLoop] Round 恒为 0）。本修复对
+        # 所有文本循环模型补齐注入。
+        use_text_tool_protocol = not has_search_tools and not use_native_tools
         
         # 5.5 Get pre-search enrichment for this expert role
         search_enrichment = {}
@@ -1157,7 +1203,7 @@ class DiscussionService:
                 total_len = total_len - old_len + len(processed_history[k])
 
         # 6. Assemble Prompt (with search capability flag)
-        prompt = self._assemble_prompt(role, symbol, name, snapshot, processed_history, template, brain_context, language, macro_data, commodity_data, peer_data, audit_data=audit_data, has_search_tools=has_search_tools, search_enrichment=search_enrichment, use_native_tools=use_native_tools, macro_indicators=macro_indicators, sentiment_data=sentiment_data, market=market, macro_regime_text=macro_regime_text)
+        prompt = self._assemble_prompt(role, symbol, name, snapshot, processed_history, template, brain_context, language, macro_data, commodity_data, peer_data, audit_data=audit_data, has_search_tools=has_search_tools, search_enrichment=search_enrichment, use_native_tools=use_native_tools, use_text_tool_protocol=use_text_tool_protocol, macro_indicators=macro_indicators, sentiment_data=sentiment_data, market=market, macro_regime_text=macro_regime_text)
 
         # Inject agent memory context if available
         if memory_context:
@@ -1211,7 +1257,11 @@ class DiscussionService:
             
             # Other models — use tool-calling loop (web_search, news_search, knowledge_search)
             try:
-                content = await agent_orchestrator.generate_with_tools(prompt, model=model, role=role, max_tool_rounds=effective_max_rounds, on_chunk=_on_chunk, gemini_api_key=config.get("geminiApiKey") if config else None, deepseek_api_key=config.get("deepseekApiKey") if config else None, openrouter_api_key=config.get("openrouterApiKey") if config else None, cache_key=cache_key, prompt_version_id=pv_id, response_schema=response_schema)
+                # tools_enabled: 仅文本协议模型(MiniMax/OpenRouter 全系)为 True，
+                # 使 agent_orchestrator 在首轮无 tool_call 时发送一次性强制提醒
+                # （nudge）；DeepSeek 在 generate_with_tools 内部转发原生 FC，
+                # 不受该参数影响。
+                content = await agent_orchestrator.generate_with_tools(prompt, model=model, role=role, max_tool_rounds=effective_max_rounds, on_chunk=_on_chunk, gemini_api_key=config.get("geminiApiKey") if config else None, deepseek_api_key=config.get("deepseekApiKey") if config else None, openrouter_api_key=config.get("openrouterApiKey") if config else None, cache_key=cache_key, prompt_version_id=pv_id, response_schema=response_schema, tools_enabled=use_text_tool_protocol)
             except Exception as e:
                 error_msg = str(e)
                 if "402" in error_msg or "Insufficient Balance" in error_msg:
@@ -1290,7 +1340,7 @@ class DiscussionService:
             print(f"Failed to summarize expert {role}: {e}")
             return text[:800] + "... [truncated]"
 
-    def _assemble_prompt(self, role: str, symbol: str, name: str, snapshot: Dict[str, Any], history: Dict[str, Any], template: str, brain_ctx: Dict[str, Any], language: str, macro_data: Dict[str, Any] = None, commodity_data: Dict[str, Any] = None, peer_data: Dict[str, Any] = None, audit_data: Dict[str, Any] = None, has_search_tools: bool = False, search_enrichment: Dict[str, Any] = None, use_native_tools: bool = False, macro_indicators: Dict[str, Any] = None, sentiment_data: Dict[str, Any] = None, market: str = "us", macro_regime_text: str = "") -> str:
+    def _assemble_prompt(self, role: str, symbol: str, name: str, snapshot: Dict[str, Any], history: Dict[str, Any], template: str, brain_ctx: Dict[str, Any], language: str, macro_data: Dict[str, Any] = None, commodity_data: Dict[str, Any] = None, peer_data: Dict[str, Any] = None, audit_data: Dict[str, Any] = None, has_search_tools: bool = False, search_enrichment: Dict[str, Any] = None, use_native_tools: bool = False, use_text_tool_protocol: bool = False, macro_indicators: Dict[str, Any] = None, sentiment_data: Dict[str, Any] = None, market: str = "us", macro_regime_text: str = "") -> str:
         import os
         from jinja2 import Environment, FileSystemLoader
 
@@ -1360,7 +1410,12 @@ class DiscussionService:
             enrichment_text = search_toolkit.format_enrichment(search_enrichment, language=language)
 
         tool_descriptions = ""
-        if has_search_tools and not use_native_tools:
+        # 文本协议工具文档注入条件（修复 2026-09-01 工具链路从未启用）：
+        # - DeepSeek(use_native_tools=True)：走原生函数调用，不注入（行为不变）
+        # - Gemini(has_search_tools=True)：仍注入既有文档，prompt 结构不回归（行为不变）
+        # - 其余模型(use_text_tool_protocol=True，MiniMax/OpenRouter 全系)：
+        #   走文本工具循环，必须注入工具清单 + 调用格式（本修复新增）
+        if use_text_tool_protocol or (has_search_tools and not use_native_tools):
             tool_descriptions = format_tool_descriptions(role=role, language=language)
 
         quarterly_history = financials.get("quarterlyHistory", [])
@@ -1414,6 +1469,7 @@ class DiscussionService:
             "market": market,
             "has_search_tools": has_search_tools,
             "use_native_tools": use_native_tools,
+            "use_text_tool_protocol": use_text_tool_protocol,
             "enrichment_text": enrichment_text,
             "tool_descriptions": tool_descriptions,
             "current_date": datetime.now().strftime('%Y-%m-%d'),
@@ -1481,18 +1537,23 @@ class DiscussionService:
         
         优化 4: 搜索后台化
         - 在讨论进行中异步执行
-        - 超时改短 (15s 而非 30s)，更快地回到讨论
+        - 12s 类目预算 + 18s 硬超时: batch_search 顺序执行 12 个类目且带
+          限速延迟, 旧的 15s 总超时必然到期并把已完成类目整体丢弃;
+          现在预算到期即返回已完成类目(部分结果), 硬超时只兜底在途类目
         - 失败时使用空结果继续
         """
         try:
             search_results = await asyncio.wait_for(
-                search_toolkit.batch_search(symbol, name, snapshot),
-                timeout=15.0  # 改短: 15s 而非 30s
+                search_toolkit.batch_search(
+                    symbol, name, snapshot,
+                    time_budget=_SEARCH_CATEGORY_BUDGET_SECONDS,
+                ),
+                timeout=_SEARCH_HARD_TIMEOUT_SECONDS,
             )
             print(f"[BackgroundSearch] Completed successfully for {symbol}")
             return search_results
         except asyncio.TimeoutError:
-            print(f"[BackgroundSearch] Timed out after 15s for {symbol}, using empty results")
+            print(f"[BackgroundSearch] Timed out after {_SEARCH_HARD_TIMEOUT_SECONDS}s for {symbol}, using empty results")
             return {}
         except Exception as e:
             print(f"[BackgroundSearch] Failed for {symbol}: {e}")

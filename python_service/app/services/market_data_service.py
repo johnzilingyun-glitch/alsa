@@ -61,6 +61,28 @@ class MarketDataService:
             "000905.SS": "中证500",
             "000016.SS": "上证50",
         }
+        # yfinance 限流兑底：大宗商品新浪/腾讯直连行情映射。
+        # （yfinance 对本服务器 IP 限流为常态；新浪 hf_* 外盘期货、fx_* 汇率
+        #   与腾讯 us* 国际指数直连稳定，与 _fetch_indices_tencent 同源模式）
+        self.COMMODITY_FALLBACK_SINA = {
+            "GC=F": ("hf_GC", "future"),       # COMEX 黄金: 0=现价 7=昨结 13=名称
+            "CL=F": ("hf_CL", "future"),       # WTI 原油
+            "USDCNY=X": ("fx_susdcny", "fx"),  # 在岸美元/人民币: 7=现价 3=昨收 9=名称
+        }
+        self.COMMODITY_FALLBACK_TENCENT = {
+            "^VIX": "usVIX",  # 标普500波动率指数: 1=名称 3=现价 4=昨收
+        }
+        # yfinance 限流兑底：大宗商品新浪/腾讯直连行情映射。
+        # （yfinance 对本服务器 IP 限流为常态；新浪 hf_* 外盘期货、fx_* 汇率
+        #   与腾讯 us* 国际指数直连稳定，与 _fetch_indices_tencent 同源模式）
+        self.COMMODITY_FALLBACK_SINA = {
+            "GC=F": ("hf_GC", "future"),       # COMEX 黄金: 0=现价 7=昨结 13=名称
+            "CL=F": ("hf_CL", "future"),       # WTI 原油
+            "USDCNY=X": ("fx_susdcny", "fx"),  # 在岸美元/人民币: 7=现价 3=昨收 9=名称
+        }
+        self.COMMODITY_FALLBACK_TENCENT = {
+            "^VIX": "usVIX",  # 标普500波动率指数: 1=名称 3=现价 4=昨收
+        }
 
     async def resolve_symbol(self, query: str, market: Optional[str] = None) -> List[Dict[str, Any]]:
         """
@@ -319,6 +341,81 @@ class MarketDataService:
             
         return results
 
+    def _fetch_commodity_fallbacks(self, symbols: List[str]) -> Dict[str, Dict[str, Any]]:
+        """Sina/Tencent direct quotes for commodity symbols — yfinance 限流兑底."""
+        import urllib.request
+        out: Dict[str, Dict[str, Any]] = {}
+
+        sina_map = {s: self.COMMODITY_FALLBACK_SINA[s] for s in symbols if s in self.COMMODITY_FALLBACK_SINA}
+        if sina_map:
+            try:
+                codes = ",".join(code for code, _ in sina_map.values())
+                req = urllib.request.Request(
+                    f"https://hq.sinajs.cn/list={codes}",
+                    headers={"Referer": "https://finance.sina.com.cn", "User-Agent": "Mozilla/5.0"},
+                )
+                text = urllib.request.urlopen(req, timeout=6).read().decode("gbk")
+                for orig, (code, kind) in sina_map.items():
+                    m = re.search(rf'hq_str_{re.escape(code)}="([^"]*)"', text)
+                    if not m:
+                        continue
+                    parts = m.group(1).split(",")
+                    try:
+                        if kind == "future":
+                            price, prev, name = float(parts[0]), float(parts[7]), parts[13]
+                        else:
+                            price, prev, name = float(parts[7]), float(parts[3]), parts[9]
+                    except (ValueError, IndexError):
+                        continue
+                    if price > 0 and prev > 0:
+                        out[orig] = {
+                            "symbol": orig,
+                            "name": name or orig,
+                            "price": price,
+                            "change": round(price - prev, 4),
+                            "changePercent": round((price / prev - 1) * 100, 2),
+                            "previousClose": prev,
+                            "currency": "CNY" if kind == "fx" else "USD",
+                            "lastUpdated": f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} CST",
+                        }
+            except Exception as e:
+                logger.warning("Sina commodity fallback failed: %s", e)
+
+        qt_map = {s: self.COMMODITY_FALLBACK_TENCENT[s] for s in symbols if s in self.COMMODITY_FALLBACK_TENCENT}
+        if qt_map:
+            try:
+                codes = ",".join(qt_map.values())
+                req = urllib.request.Request(
+                    f"http://qt.gtimg.cn/q={codes}",
+                    headers={"User-Agent": "Mozilla/5.0"},
+                )
+                text = urllib.request.urlopen(req, timeout=6).read().decode("gbk")
+                for orig, code in qt_map.items():
+                    m = re.search(rf'v_{re.escape(code)}="([^"]*)"', text)
+                    if not m:
+                        continue
+                    parts = m.group(1).split("~")
+                    if len(parts) < 5:
+                        continue
+                    try:
+                        price, prev = float(parts[3]), float(parts[4])
+                    except ValueError:
+                        continue
+                    if price > 0 and prev > 0:
+                        out[orig] = {
+                            "symbol": orig,
+                            "name": parts[1] or orig,
+                            "price": price,
+                            "change": round(price - prev, 4),
+                            "changePercent": round((price / prev - 1) * 100, 2),
+                            "previousClose": prev,
+                            "currency": "USD",
+                            "lastUpdated": f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} CST",
+                        }
+            except Exception as e:
+                logger.warning("Tencent commodity fallback failed: %s", e)
+        return out
+
     async def get_commodities(self, symbols: List[str]) -> List[Dict[str, Any]]:
         """
         Fetch real-time commodity quotes and enrich each with a 30-day
@@ -331,6 +428,14 @@ class MarketDataService:
         returned and the TypeScript layer falls back to changePercent.
         """
         quotes = await self.get_quotes(symbols)
+
+        # yfinance 限流兑底：失败项尝试新浪/腾讯直连行情替换
+        failed_syms = [q.get("symbol") for q in quotes if q.get("error")]
+        if failed_syms:
+            loop = asyncio.get_event_loop()
+            fallbacks = await loop.run_in_executor(None, self._fetch_commodity_fallbacks, failed_syms)
+            if fallbacks:
+                quotes = [fallbacks.get(q.get("symbol"), q) if q.get("error") else q for q in quotes]
         loop = asyncio.get_event_loop()
 
         def _fetch_30d(sym: str) -> Optional[float]:

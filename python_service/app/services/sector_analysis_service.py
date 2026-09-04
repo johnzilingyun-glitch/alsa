@@ -23,6 +23,10 @@ class SectorAnalysisService:
     def __init__(self, job_repo):
         self.job_repo = job_repo
         self._running_tasks: Dict[str, asyncio.Task] = {}
+        # Strong refs to fire-and-forget progress tasks so the GC can never
+        # reap a pending update mid-flight (asyncio only keeps strong refs to
+        # scheduled tasks).
+        self._progress_tasks: set = set()
         # Store the main event loop so fire-and-forget progress updates
         # work correctly when called from thread contexts (on_chunk callbacks)
         try:
@@ -62,19 +66,46 @@ class SectorAnalysisService:
     def update_progress(self, job_id: str, stage: str, pct: int, **kwargs):
         """Synchronous wrapper — fire and forget redis update.
 
-        Thread-safe: detects whether we are in the main async context or a
-        worker thread and schedules the coroutine on the correct loop.
+        Thread-safe: schedules the coroutine on whichever loop is actually
+        usable.
+
+        Bug fix (progress stuck at {} / "coroutine was never awaited"): the
+        old implementation only scheduled the coroutine when the running loop
+        was *identical* to the loop captured in __init__. In the Celery path
+        (app/worker.py:run_sector_analysis_task) the service is constructed in
+        a sync task context — no running loop, so _main_loop is None — and the
+        job then runs on a fresh asyncio.run() loop. Both branches were
+        skipped, the coroutine object was dropped ("coroutine was never
+        awaited" warning), and job_progress:{job_id} was never written, so
+        get_progress() always returned {}.
         """
         coro = self.update_progress_async(job_id, stage, pct, **kwargs)
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:
             loop = None
-        if loop and loop is self._main_loop:
-            asyncio.create_task(coro)
-        elif self._main_loop is not None:
+
+        if loop is not None:
+            # Async context: schedule on the CURRENT loop. It is by definition
+            # the loop driving this job, regardless of which loop the service
+            # was constructed on, so no identity check against _main_loop.
+            task = asyncio.create_task(coro)
+            self._progress_tasks.add(task)
+            task.add_done_callback(self._progress_tasks.discard)
+        elif self._main_loop is not None and self._main_loop.is_running():
+            # Worker-thread context (e.g. on_chunk from a thread pool): hand
+            # off to the main loop. is_running() guards against scheduling on
+            # a loop that asyncio.run() already closed.
             asyncio.run_coroutine_threadsafe(coro, self._main_loop)
-        # else: no loop available at all — skip silently
+        else:
+            # No usable loop anywhere: close the coroutine explicitly so
+            # Python does not emit "coroutine was never awaited", and leave
+            # a breadcrumb in the logs for diagnosis.
+            coro.close()
+            logger.warning(
+                "[SectorAnalysis] update_progress dropped for job %s (stage=%s): no running event loop",
+                job_id, stage,
+            )
 
     async def update_progress_async(self, job_id: str, stage: str, pct: int, **kwargs):
         redis = await RedisManager.get_client()
@@ -140,6 +171,7 @@ class SectorAnalysisService:
                 on_progress=report_progress,
                 job_id=job_id,
                 config=config,
+                market="sector",       # sector flow — avoid misleading "{keyword}.us" default
                 verification_mode=verification_mode
             )
 

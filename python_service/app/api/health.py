@@ -33,6 +33,10 @@ def check_llm_gateway() -> Dict[str, Any]:
             providers.append("gemini")
         if os.getenv("DEEPSEEK_API_KEY"):
             providers.append("deepseek")
+        if os.getenv("OPENROUTER_API_KEY"):
+            providers.append("openrouter")
+        if os.getenv("DEFAULT_LLM_API_KEY"):
+            providers.append("default")
         
         if providers:
             return {"status": "healthy", "providers": providers}

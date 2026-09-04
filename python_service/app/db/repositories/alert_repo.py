@@ -7,7 +7,7 @@ class AlertRepository:
     def __init__(self, session_factory: Callable[[], Session]):
         self.session_factory = session_factory
 
-    def create(self, symbol: str, name: str, market: str, entry_price: float, target_price: float, stop_loss: float, currency: str = "CNY") -> SearchAlert:
+    def create(self, symbol: str, name: str, market: str, entry_price: float, target_price: float, stop_loss: float, currency: str = "CNY", action: Optional[str] = None) -> SearchAlert:
         with self.session_factory() as session:
             # Check if an active/triggered alert already exists for this symbol
             statement = select(SearchAlert).where(
@@ -18,11 +18,13 @@ class AlertRepository:
             existing = session.exec(statement).first()
             
             if existing:
-                # Update existing alert with new AI guidance
+                # Update existing alert with new AI guidance (action=None resets
+                # to direction inference, matching a fully refreshed plan)
                 existing.entry_price = entry_price
                 existing.target_price = target_price
                 existing.stop_loss = stop_loss
                 existing.currency = currency
+                existing.action = action
                 existing.status = "active"
                 existing.monitoring_enabled = True
                 existing.created_at = utc_now()
@@ -40,6 +42,7 @@ class AlertRepository:
                 target_price=target_price, 
                 stop_loss=stop_loss,
                 currency=currency,
+                action=action,
                 monitoring_enabled=True,
             )
             session.add(alert)

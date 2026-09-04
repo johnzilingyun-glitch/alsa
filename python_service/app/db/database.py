@@ -68,8 +68,24 @@ def _migrate_alert_notify_limit(eng):
     conn.commit()
     conn.close()
 
+def _migrate_alert_action(eng):
+    """Add action column (buy/sell/hold/watch) to searchalert so monitoring can
+    use explicit signal direction instead of guessing from target<entry."""
+    import sqlite3
+    db_path = str(eng.url).replace("sqlite:///", "")
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    cursor.execute("PRAGMA table_info(searchalert)")
+    existing = {row[1] for row in cursor.fetchall()}
+    if "action" not in existing:
+        cursor.execute("ALTER TABLE searchalert ADD COLUMN action VARCHAR")
+    conn.commit()
+    conn.close()
+
 def _migrate_predictionrecord(eng):
-    """Add missing columns to predictionrecord table (stop_loss, highest_price_reached, lowest_price_reached)."""
+    """Add missing columns to predictionrecord table (stop_loss, highest/
+lowest_price_reached, role — role carries per-expert prediction attribution
+for the accuracy loop's per-role Gene.fitness aggregation)."""
     if not is_sqlite:
         return
     import sqlite3
@@ -81,7 +97,7 @@ def _migrate_predictionrecord(eng):
         cur = conn.cursor()
         cur.execute("PRAGMA table_info(predictionrecord)")
         existing = {row[1] for row in cur.fetchall()}
-        for col, col_type in [("stop_loss", "REAL"), ("highest_price_reached", "REAL"), ("lowest_price_reached", "REAL")]:
+        for col, col_type in [("stop_loss", "REAL"), ("highest_price_reached", "REAL"), ("lowest_price_reached", "REAL"), ("role", "VARCHAR")]:
             if col not in existing:
                 cur.execute(f"ALTER TABLE predictionrecord ADD COLUMN {col} {col_type}")
         conn.commit()
@@ -102,6 +118,7 @@ def init_db():
         _migrate_user_last_login(engine)
         _migrate_login_history(engine)
         _migrate_alert_notify_limit(engine)
+        _migrate_alert_action(engine)
         _migrate_predictionrecord(engine)
 
 def get_session():

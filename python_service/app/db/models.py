@@ -123,6 +123,9 @@ class SearchAlert(SQLModel, table=True):
     target_price: float
     stop_loss: float
     currency: str = "CNY"
+    # Signal direction (buy/sell/hold/watch) — drives long/short monitoring
+    # semantics; legacy rows without it fall back to target<entry inference.
+    action: Optional[str] = None
     status: str = "active"  # active/triggered/closed
     triggered_at: Optional[datetime] = None
     created_at: datetime = Field(default_factory=utc_now)
@@ -158,6 +161,10 @@ class PredictionRecord(SQLModel, table=True):
     job_id: str = Field(index=True)
     symbol: str = Field(index=True)
     market: str = Field(index=True)
+    # 预测归属角色：None=整条多智能体管线的综合预测（兼容存量数据）；
+    # 非空=某位研讨专家（如 "Technical Analyst"）在讨论中给出的目标价，
+    # 供 PredictionService 准确率环按 role 聚合写入对应 Gene.fitness。
+    role: Optional[str] = None
     target_price: float
     stop_loss: Optional[float] = None
     time_horizon: str = "1_month"  # e.g., "1_month", "3_months"

@@ -10,7 +10,7 @@ from datetime import datetime, date
 from typing import Optional, Dict, Any
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from ..utils.responses import success_response, error_response
 from ..db.redis_client import RedisManager
 
@@ -26,13 +26,29 @@ SECTOR_REPORTS_DIR = os.getenv("SECTOR_REPORTS_DIR", os.path.join(_PROJECT_ROOT,
 _scan_jobs: Dict[str, Dict[str, Any]] = {}
 _scan_tasks: Dict[str, asyncio.Task] = {}
 
+# Per-job update locks: serialize the Redis read-modify-write cycle below.
+# Race fix (scan stuck in "running" forever): scan completion used to fire
+# FOUR concurrent fire-and-forget updates, each doing GET → merge → SET on the
+# same `scan_job:{job_id}` key. Interleaved GETs all observed the same stale
+# snapshot, so the last SET won and silently dropped fields written by the
+# other tasks — get_scan_status then served a job dict missing
+# status/result/sectors and SectorScanner.tsx (which switches UI state on
+# job.status === 'completed') never detected the completed state. All
+# scan-job writers live in this process (asyncio tasks on the API loop), so an
+# in-process lock fully serializes them; locks are created lazily inside the
+# running loop (Python ≥3.10 asyncio primitives bind to the loop on first
+# use, never at construction).
+_scan_job_update_locks: Dict[str, asyncio.Lock] = {}
+
 async def _update_scan_job_redis(job_id: str, **kwargs):
     redis = await RedisManager.get_client()
     key = f"scan_job:{job_id}"
-    data = await redis.get(key)
-    job = json.loads(data) if data else {}
-    job.update(kwargs)
-    await redis.set(key, json.dumps(job), ex=86400)
+    lock = _scan_job_update_locks.setdefault(job_id, asyncio.Lock())
+    async with lock:
+        data = await redis.get(key)
+        job = json.loads(data) if data else {}
+        job.update(kwargs)
+        await redis.set(key, json.dumps(job), ex=86400)
 
 async def _get_scan_job_redis(job_id: str):
     redis = await RedisManager.get_client()
@@ -52,7 +68,10 @@ class SectorScanRequest(BaseModel):
 
 
 class SectorAnalyzeRequest(BaseModel):
-    sector_name: str
+    # pattern=\S uses search semantics: the name must contain at least one
+    # non-whitespace char, so " 化肥 " stays valid while pure whitespace
+    # (" ", "\t") is rejected. min_length=1 alone lets " " through.
+    sector_name: str = Field(..., min_length=1, pattern=r"\S")
     model: Optional[str] = None
     date: Optional[str] = None
     force: Optional[bool] = False
@@ -64,7 +83,9 @@ class SectorAnalyzeRequest(BaseModel):
 
 
 class SerenityAnalyzeRequest(BaseModel):
-    sector_name: Optional[str] = None
+    # None keeps the "A股市场" default inside the handler; only empty strings
+    # and pure-whitespace strings are rejected (same \S pattern as above).
+    sector_name: Optional[str] = Field(None, min_length=1, pattern=r"\S")
     model: Optional[str] = None
     date: Optional[str] = None
     force: Optional[bool] = False
@@ -79,16 +100,25 @@ def _resolve_model(requested: Optional[str] = None) -> str:
     if requested:
         return requested
     
-    # Fallback based on available API keys
+    # Fallback based on available API keys. Provider ordering mirrors
+    # llm_gateway._generate_content_inner: for non-gemini models OpenRouter is
+    # tried FIRST, so an OpenRouter key wins the fallback chain and resolves to
+    # the same default model as LLMGateway.default_model (DEFAULT_LLM_MODEL env).
     has_gemini = bool(os.getenv("GEMINI_API_KEY"))
     has_deepseek = bool(os.getenv("DEEPSEEK_API_KEY"))
+    has_openrouter = bool(os.getenv("OPENROUTER_API_KEY"))
     
-    if has_gemini:
+    if has_openrouter:
+        # `or` (not getenv default): a present-but-empty DEFAULT_LLM_MODEL must
+        # fall back to the builtin default instead of resolving to "" (empty
+        # model name would fail every provider after the job has started).
+        return os.getenv("DEFAULT_LLM_MODEL") or "minimax/minimax-m3:free"
+    elif has_gemini:
         return os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
     elif has_deepseek:
         return os.getenv("DEEPSEEK_MODEL", "deepseek-v4-pro")
     else:
-        raise ValueError("请在配置中添加大模型 API Key（Gemini 或 DeepSeek）")
+        raise ValueError("请在配置中添加大模型 API Key（OpenRouter、Gemini 或 DeepSeek）")
 
 
 def _sanitize_for_json(obj):
@@ -172,14 +202,18 @@ async def start_scan(req: SectorScanRequest):
                     })
 
     job_id = f"scan_{uuid.uuid4().hex[:8]}"
-    asyncio.create_task(_update_scan_job_redis(job_id, 
+    # Await the initial full-state write (was fire-and-forget) so the job
+    # record is durably in Redis BEFORE _run_scan's progress updates can
+    # interleave with it — the per-job lock keeps them lossless, and awaiting
+    # guarantees a well-defined baseline document for every later merge.
+    await _update_scan_job_redis(job_id,
         status="running",
         progress="正在扫描A股市场板块轮动...",
         result=None,
         sectors=[],
         error=None,
         created_at=datetime.now().isoformat()
-    ))
+    )
 
     task = asyncio.create_task(_run_scan(
         job_id, model, target_date, 
@@ -210,8 +244,9 @@ async def cancel_scan(job_id: str):
     if task and not task.done():
         task.cancel()
         if job_id in _scan_jobs:
-            asyncio.create_task(_update_scan_job_redis(job_id, status="cancelled"))
-            asyncio.create_task(_update_scan_job_redis(job_id, error="已手动取消"))
+            # Single atomic write (was two concurrent racing tasks that could
+            # drop the status field when interleaved).
+            await _update_scan_job_redis(job_id, status="cancelled", error="已手动取消")
         return success_response({"status": "cancelled"})
     return error_response("NOT_FOUND", "Running scan job not found or already completed")
 
@@ -242,25 +277,53 @@ Market: A-Share (中国A股)
 
         asyncio.create_task(_update_scan_job_redis(job_id, progress="正在搜索和分析市场数据..."))
 
-        use_tools = "deepseek" in model.lower()
+        # 与讨论路径(discussion_service._call_expert)一致的能力判定：
+        # - Gemini: llm_gateway 内部自动附加 google_search 原生接地
+        # - DeepSeek: agent_orchestrator 内部走原生函数调用
+        # - 其余模型(MiniMax/OpenRouter 全系): generate_with_tools 的
+        #   【文本】工具循环。旧门控 use_tools = "deepseek" in model.lower()
+        #   使 MiniMax 走无工具的 generate_content，而上方 SYSTEM DIRECTIVE
+        #   却要求 MUST web_search；且文本循环模型必须在 context 中注入
+        #   文本协议工具文档，否则模型无从发起工具调用（修复 2026-09-01）。
+        model_lower = (model or "").lower()
+        is_gemini = "gemini" in model_lower
+        is_deepseek = "deepseek" in model_lower
+        use_text_tool_protocol = not is_gemini and not is_deepseek
+
+        if use_text_tool_protocol:
+            from ..services.expert_tools import format_tool_descriptions
+            context += (
+                "\n\n--- [MANDATORY] SEARCH TOOL STATUS ---\n"
+                "✅ **搜索工具状态: 工具调用已启用**\n"
+                "使用规则：\n"
+                "1. **主动使用工具**: 当需要实时数据时，必须使用工具获取数据，严禁猜测。\n"
+                "2. **禁止伪造**: 如果工具返回无结果，标注 'UNKNOWN'，绝不编造。\n\n"
+                + format_tool_descriptions(role=None, language="zh-CN")
+            )
 
         # Stream progress callback: update in-memory job data with char count
         # so the frontend polling sees live progress and never times out while AI is active
         def _on_chunk(count, message=None):
-            if message:
-                asyncio.create_task(_update_scan_job_redis(job_id, progress=message))
-            else:
-                asyncio.create_task(_update_scan_job_redis(job_id, progress=f"AI 正在生成分析内容... ({count:,} chars)"))
-            asyncio.create_task(_update_scan_job_redis(job_id, content_count=count))
+            # ONE Redis write per chunk carrying BOTH progress and content_count.
+            # Previously these were two concurrent fire-and-forget
+            # read-modify-write tasks on the same key and one of the two fields
+            # was regularly lost to the race; the per-job update lock now
+            # serializes any remaining concurrent writers as well.
+            progress = message or f"AI 正在生成分析内容... ({count:,} chars)"
+            asyncio.create_task(_update_scan_job_redis(job_id, progress=progress, content_count=count))
 
         # No hard timeout — let the model run as long as it is producing output.
         # The frontend uses activity-based timeout (300s of zero progress change).
-        if use_tools:
+        if use_text_tool_protocol or is_deepseek:
+            # tools_enabled: 仅文本协议模型(MiniMax/OpenRouter 全系)为 True，
+            # 使 agent_orchestrator 在首轮无 tool_call 时发送一次性强制提醒
+            # （nudge）；DeepSeek 走内部原生 FC，不受该参数影响。
             scan_result = await agent_orchestrator.generate_with_tools(
                 context, model=model, max_tool_rounds=20,
                 on_chunk=_on_chunk,
                 gemini_api_key=gemini_api_key, deepseek_api_key=deepseek_api_key,
-                openrouter_api_key=openrouter_api_key
+                openrouter_api_key=openrouter_api_key,
+                tools_enabled=use_text_tool_protocol
             )
         else:
             scan_result = await llm_gateway.generate_content(
@@ -271,17 +334,22 @@ Market: A-Share (中国A股)
             )
 
         if not scan_result:
-            asyncio.create_task(_update_scan_job_redis(job_id, status="failed"))
-            asyncio.create_task(_update_scan_job_redis(job_id, error="扫描返回空结果"))
+            # Single atomic write of the full failed state (was two racing tasks).
+            await _update_scan_job_redis(job_id, status="failed", error="扫描返回空结果")
             return
 
         # Extract sectors from the 7-column recommendation table
         sectors = _extract_sectors(scan_result)
 
-        asyncio.create_task(_update_scan_job_redis(job_id, status="completed"))
-        asyncio.create_task(_update_scan_job_redis(job_id, result=scan_result))
-        asyncio.create_task(_update_scan_job_redis(job_id, sectors=sectors))
-        asyncio.create_task(_update_scan_job_redis(job_id, progress="扫描完成"))
+        # Single atomic write of the FULL completed state (status + result +
+        # sectors + progress in ONE payload). The old code fired four
+        # concurrent read-modify-write tasks on the same key; interleaved reads
+        # meant the last writer dropped fields written by the others, leaving
+        # the polled job without status/result/sectors. Awaiting (instead of
+        # fire-and-forget) guarantees the completed state is durable in Redis
+        # before SQLite persistence / task exit, so the frontend poller sees
+        # "completed" immediately on its next poll.
+        await _update_scan_job_redis(job_id, status="completed", result=scan_result, sectors=sectors, progress="扫描完成")
 
         # Save to SQLite database
         from ..db.database import session_factory
@@ -317,10 +385,13 @@ Market: A-Share (中国A股)
             session.commit()
 
     except Exception as e:
-        import traceback
-        traceback.print_exc()
-        asyncio.create_task(_update_scan_job_redis(job_id, status="failed"))
-        asyncio.create_task(_update_scan_job_redis(job_id, error=str(e)))
+        logger.exception(f"[SectorScan] Job {job_id} failed")
+        try:
+            # Single atomic write of the full failed state (was two racing tasks).
+            await _update_scan_job_redis(job_id, status="failed", error=str(e))
+        except Exception as redis_err:
+            # Redis being down must not mask the original failure in the logs.
+            logger.error(f"[SectorScan] Failed to persist failed status for {job_id}: {redis_err}")
 
 
 def _extract_sectors(scan_result: str) -> list:

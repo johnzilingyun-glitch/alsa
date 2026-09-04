@@ -14,8 +14,13 @@ class AlertCreate(BaseModel):
     target_price: float
     stop_loss: float
     currency: Optional[str] = "CNY"
+    # Signal direction: buy/sell/hold/watch (optional for backward compat;
+    # legacy/manual alerts keep direction inference on the monitor side).
+    action: Optional[str] = None
 
 router = APIRouter(prefix="/alerts", tags=["alerts"])
+
+_VALID_ACTIONS = {"buy", "sell", "hold", "watch"}
 
 def get_repo():
     try:
@@ -26,6 +31,9 @@ def get_repo():
 
 @router.post("/", status_code=201)
 async def create_alert(payload: AlertCreate, repo: AlertRepository = Depends(get_repo)):
+    action = payload.action.strip().lower() if payload.action else None
+    if action and action not in _VALID_ACTIONS:
+        raise HTTPException(400, "action must be one of: buy, sell, hold, watch")
     return repo.create(
         payload.symbol, 
         payload.name, 
@@ -33,7 +41,8 @@ async def create_alert(payload: AlertCreate, repo: AlertRepository = Depends(get
         payload.entry_price, 
         payload.target_price, 
         payload.stop_loss,
-        payload.currency
+        payload.currency,
+        action=action,
     )
 
 @router.get("/")

@@ -4,6 +4,7 @@ import asyncio
 import datetime
 import logging
 import pandas as pd
+import akshare as ak
 from ..services.market_data_service import market_data_service
 from ..services.data_providers import data_router
 from ..services.search_service import search_service
@@ -254,7 +255,8 @@ async def get_market_dashboard(market: str = "A-Share") -> Dict[str, Any]:
     needs_northbound = market == "A-Share"
 
     indices_coro = market_data_service.get_indices(market)
-    commodities_coro = market_data_service.get_quotes(["GC=F", "CL=F", "USDCNY=X", "^VIX", "^TNX"])
+    # 与 /market/commodities 同口径：get_commodities 带限流兑底与 change30d 增强
+    commodities_coro = market_data_service.get_commodities(["GC=F", "CL=F", "USDCNY=X", "^VIX", "^TNX"])
     news_coro = market_data_service.get_news(market)
 
     sector_coro = _fetch_sector_flow_data() if needs_sectors else asyncio.sleep(0)

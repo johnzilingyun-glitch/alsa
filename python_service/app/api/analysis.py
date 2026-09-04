@@ -3,7 +3,7 @@ import re
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import Response
 from pydantic import BaseModel
-from typing import Optional, Dict, Any
+from typing import Literal, Optional, Dict, Any
 from ..services.analysis_job_service import AnalysisJobService
 from ..utils.responses import success_response, error_response
 from ..db.database import session_factory
@@ -15,7 +15,13 @@ logger = get_logger(__name__)
 class AnalysisJobCreate(BaseModel):
     symbol: str
     market: str
-    analysis_level: str = "standard"
+    # Stock-task levels only (mirrors frontend AnalysisLevel type and the
+    # AnalysisJob.analysis_level ORM comment). Sector levels ("sector" /
+    # "serenity_alpha") enter via /api/sector/* endpoints and never through
+    # this model — an unconstrained str would let a stock job accidentally
+    # trigger discussion_service's sector exemption (skipping the
+    # unidentifiable-stock early abort).
+    analysis_level: Literal["quick", "standard", "deep"] = "standard"
     requested_model: Optional[str] = None
     config: Optional[Dict[str, Any]] = None
     verification_mode: str = "quick"  # Modes: 'extreme', 'quick', 'quality'
@@ -424,9 +430,15 @@ async def get_analysis_settings():
     """Get general analysis settings including available LLM models."""
     from ..services.llm_gateway import llm_gateway
     
-    default_model = getattr(llm_gateway, "default_model", "deepseek-v4-pro")
+    default_model = getattr(llm_gateway, "default_model", "minimax/minimax-m3:free")
     
     available_models = [
+        {
+            "id": "minimax/minimax-m3:free",
+            "name": "MiniMax M3 (Free)",
+            "description": "MiniMax M3 via OpenRouter (free tier) — project default",
+            "status": "available"
+        },
         {
             "id": "deepseek-v4-pro",
             "name": "DeepSeek V4 Pro",

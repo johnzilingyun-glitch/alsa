@@ -91,7 +91,7 @@ router.post('/analysis/jobs', async (req, res) => {
       market,
       status: 'queued',
       promptVersion: promptVersion || 'v1',
-      model: model || fullConfig.model || 'deepseek-v4-pro',
+      model: model || fullConfig.model || 'minimax/minimax-m3:free',
       config: safeConfig,
       outputPayload: {}
     });

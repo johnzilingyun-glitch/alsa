@@ -372,7 +372,7 @@ async function tryOpenRouter(prompt: string, log: LogFn, requestedModel?: string
     return null;
   }
 
-  const model = requestedModel || 'deepseek-v4-pro';
+  const model = requestedModel || 'minimax/minimax-m3:free';
 
   try {
     log('gateway_openrouter_attempt', { model });
@@ -443,7 +443,7 @@ async function tryDefault(prompt: string, log: LogFn, requestedModel?: string): 
     log('gateway_default_unavailable', { reason: 'no_base_url' });
     return null;
   }
-  const model = requestedModel || process.env.DEFAULT_LLM_MODEL || 'deepseek-v4-pro';
+  const model = requestedModel || process.env.DEFAULT_LLM_MODEL || 'minimax/minimax-m3:free';
 
   try {
     log('gateway_default_attempt', { model, baseUrl });
@@ -523,7 +523,7 @@ export function getPreferredProvider(requestedModel: string, config?: { geminiAp
 
 /** Default model from env — used when user has not explicitly selected a model */
 export function getDefaultModel(): string {
-  return process.env.DEFAULT_LLM_MODEL || 'deepseek-v4-pro';
+  return process.env.DEFAULT_LLM_MODEL || 'minimax/minimax-m3:free';
 }
 
 /**

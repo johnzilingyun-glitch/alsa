@@ -64,6 +64,7 @@ router.post('/llm/models', async (_req, res) => {
   ];
 
   const CURATED_OPENROUTER_IDS = new Set([
+    'minimax/minimax-m3:free',
     'anthropic/claude-3.5-sonnet',
     'openai/gpt-4o',
     'google/gemini-2.0-flash-001',
@@ -101,6 +102,7 @@ router.post('/llm/models', async (_req, res) => {
     }
   } catch {
     openrouterModels = [
+      { id: 'minimax/minimax-m3:free', name: 'MiniMax M3 (Free)', description: 'MiniMax M3 via OpenRouter (free tier)', status: 'available' },
       { id: 'anthropic/claude-3.5-sonnet', name: 'Anthropic: Claude 3.5 Sonnet', description: 'Claude 3.5 Sonnet via OpenRouter', status: 'available' },
       { id: 'openai/gpt-4o', name: 'OpenAI: GPT-4o', description: 'GPT-4o via OpenRouter', status: 'available' },
       { id: 'google/gemini-2.0-flash-001', name: 'Google: Gemini 2.0 Flash', description: 'Gemini 2.0 Flash via OpenRouter', status: 'available' },

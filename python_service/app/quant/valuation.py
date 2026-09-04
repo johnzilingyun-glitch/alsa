@@ -12,6 +12,12 @@ import logging
 from dataclasses import dataclass, field
 from typing import Dict, List, Tuple
 
+from app.services.valuation_config import (
+    WACC_FLOOR_ABS,
+    WACC_CEILING,
+    MIN_WACC_G_SPREAD,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -40,6 +46,9 @@ class ValuationReport:
     recommendation: str = "Hold"
     upside_pct: float = 0.0
     downside_pct: float = 0.0
+    # 合理性标记：记录被拒绝/触发护栏的估值方法及原因（如 DCF 利差不足），
+    # 供下游渲染层做显著警示，绝不让 clamp 硬算出的极端值静默通过。
+    sanity_flags: List[str] = field(default_factory=list)
 
     def compute_derived(self):
         """Compute derived metrics from methods."""
@@ -88,6 +97,7 @@ class ValuationReport:
             "confidence_interval": self.confidence_interval,
             "recommendation": self.recommendation,
             "upside_pct": round(self.upside_pct, 2),
+            "sanity_flags": list(self.sanity_flags),
             "methods": [
                 {
                     "method": m.method,
@@ -132,13 +142,33 @@ class ValuationEngine:
         Returns:
             ValuationResult with fair value per share
         """
-        if wacc <= terminal_growth:
+        if wacc - terminal_growth < MIN_WACC_G_SPREAD:
+            # 利差不足（含 wacc≤g）：拒绝输出 DCF，不 clamp 硬算爆炸终值。
             return ValuationResult(
                 method="DCF",
                 fair_value=0,
                 confidence=0.1,
                 weight=0,
-                assumptions={"error": "WACC must be > terminal growth"},
+                assumptions={
+                    "error": (
+                        f"WACC−g spread {wacc - terminal_growth:.2%} below the "
+                        f"{MIN_WACC_G_SPREAD:.0%} minimum — DCF rejected"
+                    ),
+                },
+            )
+        if wacc < WACC_FLOOR_ABS or wacc > WACC_CEILING:
+            # WACC 超出商用合理区间 [5%, 20%]：拒绝（与 computation_tools 同源边界）。
+            return ValuationResult(
+                method="DCF",
+                fair_value=0,
+                confidence=0.1,
+                weight=0,
+                assumptions={
+                    "error": (
+                        f"WACC {wacc:.2%} outside [{WACC_FLOOR_ABS:.0%}, "
+                        f"{WACC_CEILING:.0%}] — DCF rejected"
+                    ),
+                },
             )
 
         # Project FCF for each year
@@ -318,19 +348,32 @@ class ValuationEngine:
         earnings_growth_pct: float = None,
         ebitda: float = None,
         ev_ebitda_multiple: float = None,
+        rf: float = None,
     ) -> ValuationReport:
         """
         Compute probability-weighted target price from multiple valuation methods.
-        
-        Only runs methods where sufficient data is provided.
+
+        Only runs methods where sufficient data is provided. ``rf``（可选）用于
+        永续增长约束 g≤Rf；被护栏拒绝的方法不进入加权，其原因记录在
+        ``report.sanity_flags`` 供下游显著警示。
         """
         report = ValuationReport(symbol=symbol, current_price=current_price)
 
         # DCF
         if fcf_base and growth_rates and shares_outstanding:
-            result = self.dcf_valuation(fcf_base, growth_rates, terminal_growth, wacc, shares_outstanding, net_debt)
-            if result.fair_value > 0:
-                report.methods.append(result)
+            if rf is not None and terminal_growth > rf:
+                # 永续增长超无风险利率（名义长期增长锚）：拒绝 DCF。
+                report.sanity_flags.append(
+                    f"DCF rejected: terminal growth {terminal_growth:.2%} exceeds "
+                    f"risk-free rate {rf:.2%}"
+                )
+            else:
+                result = self.dcf_valuation(fcf_base, growth_rates, terminal_growth, wacc, shares_outstanding, net_debt)
+                error = result.assumptions.get("error")
+                if error:
+                    report.sanity_flags.append(f"DCF rejected: {error}")
+                elif result.fair_value > 0:
+                    report.methods.append(result)
 
         # Relative PE
         if target_pe and eps and peer_avg_pe and earnings_growth_pct:

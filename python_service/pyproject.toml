@@ -44,6 +44,9 @@ dependencies = [
     # a-stock-data skill (skills/a-stock-data) runtime deps
     "mootdx>=0.11.7",
     "stockstats>=0.6.8",
+    # app/api/market.py sector flow / northbound / LHB use akshare's
+    # EastMoney datacenter endpoints (datacenter-web.eastmoney.com)
+    "akshare>=1.18",
 ]
 
 [project.scripts]

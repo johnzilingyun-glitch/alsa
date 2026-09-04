@@ -170,8 +170,17 @@ def detect_market(symbol: str) -> MarketType:
       - 6-digit numeric, or suffixed .SH/.SZ/.SS → A-Share
       - Suffixed .HK, or 4-5 digit numeric → HK-Share
       - Alpha only (2-5 chars), or ^prefix (indices) → US-Share
+
+    Frontend/gateway composite IDs (e.g. "KLAC.US-Share", "01888.HK-Share")
+    are normalized by stripping the market suffix before detection.
     """
     s = symbol.strip().upper()
+
+    # Strip canonical market suffixes appended by the frontend/gateway.
+    for msfx in (".A-SHARE", ".HK-SHARE", ".US-SHARE"):
+        if s.endswith(msfx):
+            s = s[: -len(msfx)]
+            break
 
     # Explicit suffix detection
     if s.endswith((".SH", ".SS", ".SZ")):

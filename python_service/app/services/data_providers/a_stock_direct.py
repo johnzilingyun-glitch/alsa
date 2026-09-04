@@ -21,6 +21,13 @@ from typing import Dict, Any, Optional, List
 from datetime import datetime
 
 import requests
+try:
+    # Browser-impersonating HTTP client. EastMoney applies connection-level
+    # anti-scraping that closes connections (RemoteDisconnected) whose TLS
+    # handshake matches the stock `requests` fingerprint.
+    from curl_cffi import requests as _cffi_requests
+except ImportError:
+    _cffi_requests = None
 import pandas as pd
 
 from .base import DataProvider, QuoteData, normalize_ohlcv
@@ -28,6 +35,40 @@ from .base import DataProvider, QuoteData, normalize_ohlcv
 logger = logging.getLogger(__name__)
 
 UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
+
+# ── Valuation constants (single source of truth: app/services/valuation_config) ──
+# ERP/β 护栏等假设收敛到 valuation_config 唯一定义点，此处 re-export 供
+# report_generator_service / computation_tools / tests 同源引用，两套 WACC
+# 估算（provider 侧与渲染层）口径永不分裂。
+from ..valuation_config import (  # noqa: F401  (re-export, consumed by renderer/tests)
+    EQUITY_RISK_PREMIUM,
+    DEFAULT_COST_OF_DEBT,
+    CN_RISK_FREE_FALLBACK,
+    BETA_BLOME_REG_WEIGHT,
+    BETA_FLOOR,
+    BETA_CEILING,
+    BETA_MIN_ALIGNED_OBS,
+    BETA_MIN_CORR,
+    industry_beta_prior,
+)
+
+
+def _eastmoney_get(url: str, params: dict, timeout: int = 10) -> dict:
+    """GET an EastMoney endpoint with a browser TLS fingerprint.
+
+    EastMoney closes the connection without a response (RemoteDisconnected)
+    when the TLS handshake matches the stock `requests` library signature;
+    curl_cffi impersonating Chrome passes. Plain `requests` is kept as the
+    fallback for environments without curl_cffi.
+    """
+    if _cffi_requests is not None:
+        r = _cffi_requests.get(
+            url, params=params, headers={"User-Agent": UA},
+            timeout=timeout, impersonate="chrome",
+        )
+        return r.json()
+    r = requests.get(url, params=params, headers={"User-Agent": UA}, timeout=timeout)
+    return r.json()
 DATACENTER_URL = "https://datacenter-web.eastmoney.com/api/data/v1/get"
 # 同花顺 (Tonghuashun/THS) financial summary — domestic source, used as
 # primary to reduce reliance on EastMoney (rate-limit / block risk).
@@ -101,7 +142,12 @@ def _to_float_safe(x) -> Optional[float]:
 
 
 def _get_prefix(code: str) -> str:
-    """Code → market prefix (sh/sz/bj/hk)."""
+    """Code → market prefix (sh/sz/bj/hk/us)."""
+    # US tickers are pure alpha (AAPL, NVDA). Must be checked BEFORE the
+    # len==5 HK rule — 5-letter US tickers (GOOGL) would otherwise be
+    # misrouted to the HK prefix.
+    if code.isalpha():
+        return "us"
     if len(code) == 5:
         return "hk"
     if code.startswith(("6", "9")):
@@ -115,6 +161,15 @@ def _get_prefix(code: str) -> str:
 def _clean_symbol(symbol: str) -> str:
     """Normalize various symbol formats to pure code."""
     s = symbol.strip().upper()
+    # Strip frontend composite market suffixes first: "KLAC.US-SHARE" → "KLAC",
+    # "600519.A-SHARE" → "600519", "1888.HK-SHARE" → "1888.HK" (fed into the
+    # HK branch below so zero-padding still applies).
+    if s.endswith(".HK-SHARE"):
+        s = s[: -len(".HK-SHARE")] + ".HK"
+    elif s.endswith(".A-SHARE"):
+        s = s[: -len(".A-SHARE")]
+    elif s.endswith(".US-SHARE"):
+        s = s[: -len(".US-SHARE")]
     if s.endswith(".HK") or s.startswith("HK"):
         s = s.replace(".HK", "").replace("HK", "")
         # Remove any leading zeros then zero-pad to 5 for Tencent
@@ -789,41 +844,116 @@ def _safe_float(val: Any) -> Optional[float]:
 
 
 # ── Extended-metrics helpers (Part B: β / ROIC / WACC / buyback / coal) ──
-def _compute_beta(stock_df, bench_df):
-    """Beta of a stock vs benchmark, from aligned daily close returns."""
-    if stock_df is None or bench_df is None:
-        return None
-    if getattr(stock_df, "empty", True) or getattr(bench_df, "empty", True):
-        return None
-    try:
-        s = stock_df[["date", "close"]].copy()
-        b = bench_df[["date", "close"]].copy()
-        s["date"] = s["date"].astype(str).str[:10]
-        b["date"] = b["date"].astype(str).str[:10]
-        s["ret"] = s["close"].pct_change()
-        b["ret"] = b["close"].pct_change()
-        m = s.merge(b, on="date", suffixes=("_s", "_b")).dropna(subset=["ret_s", "ret_b"])
-        if len(m) < 30:
-            return None
-        cov = m["ret_s"].cov(m["ret_b"])
-        var = m["ret_b"].var()
-        if not var:
-            return None
-        return float(cov / var)
-    except Exception:
-        return None
+# 负β拒绝的数值容差：|β回归| ≤ 1e-9 视为零（正交/相关性塌陷场景的浮点噪声，
+# 如 -1e-17）——那不是有意义的负相关，走低置信先验回退而非拒绝。
+_BETA_NEG_EPSILON = 1e-9
+
+
+def _apply_beta_guardrails(beta_reg: Optional[float], industry: Optional[str] = None) -> Dict[str, Any]:
+    """Blume shrinkage + sanity bounds applied to a raw regression beta.
+
+    边界规则（判断对象为回归 β 本身而非 Blume 后值：Blume 会把极端回归值拉
+    回界内，对调整后值判界则几乎永远不会触发回退）：
+      beta_reg is None              → beta=行业中位数先验，low_confidence=True
+      beta_reg < -1e-9（负 beta）    → beta=None + rejected=True（拒绝入库）
+      |beta_reg| ≤ 1e-9（数值零）    → 同 0 处理 → β<0.2 → 行业先验回退
+      0 ≤ beta_reg < 0.2 或 > 3      → beta=行业中位数先验，low_confidence=True
+      其余正常回归值                  → Blume 调整 0.67×β+0.33（必然落在界内）
+    beta_raw（回归原值 round 2）始终保留供透明披露；prior 记录回退来源。
+    """
+    prior_val = industry_beta_prior(industry)
+    prior_label = f"industry:{industry}" if industry else "market"
+    if beta_reg is None:
+        return {"beta": prior_val, "beta_raw": None, "low_confidence": True,
+                "rejected": False, "prior": prior_label}
+    # 数值零附近的浮点噪声（如正交序列回归出 -1e-17）归一为 0.0：
+    # 那是相关性塌陷，不是有意义的负 β，不应触发拒绝入库。
+    if abs(float(beta_reg)) <= _BETA_NEG_EPSILON:
+        beta_reg = 0.0
+    beta_raw = round(float(beta_reg), 2)
+    if beta_reg < 0:
+        # 负 beta（权益资产与市场长期负相关，CAPM 下无意义）一律拒绝入库。
+        return {"beta": None, "beta_raw": beta_raw, "low_confidence": True,
+                "rejected": True, "prior": prior_label}
+    if beta_reg < BETA_FLOOR or beta_reg > BETA_CEILING:
+        # 极端回归值（|β|<0.2 或 >3）无统计意义，回退行业先验而非采信异常值。
+        return {"beta": prior_val, "beta_raw": beta_raw, "low_confidence": True,
+                "rejected": False, "prior": prior_label}
+    blume = BETA_BLOME_REG_WEIGHT * float(beta_reg) + (1 - BETA_BLOME_REG_WEIGHT)
+    return {"beta": round(blume, 2), "beta_raw": beta_raw, "low_confidence": False,
+            "rejected": False, "prior": None}
+
+
+def _compute_beta(stock_df, bench_df, industry: Optional[str] = None) -> Dict[str, Any]:
+    """Beta of a stock vs benchmark (OLS slope on aligned returns), then
+    Blume-adjusted and guard-railed.
+
+    回归质量门槛：对齐收益观测点 < BETA_MIN_ALIGNED_OBS，或对齐收益相关性
+    |corr| < BETA_MIN_CORR（R² 不足、回归无统计意义，如大市值白马与沪深300
+    相关性塌陷的场景）→ 拒绝采信回归 β，回退行业中位数先验并标记低置信。
+
+    调用方应传入 ≥3 年周线（或 2 年以上日线）K 线；返回
+    {"beta": 采用值或 None（负回归 β 拒绝入库）, "beta_raw": 回归原值,
+     "low_confidence": bool, "rejected": bool, "prior": 回退来源}。
+    """
+    beta_reg: Optional[float] = None
+    corr: Optional[float] = None
+    if stock_df is not None and bench_df is not None and not (
+        getattr(stock_df, "empty", True) or getattr(bench_df, "empty", True)
+    ):
+        try:
+            s = stock_df[["date", "close"]].copy()
+            b = bench_df[["date", "close"]].copy()
+            s["date"] = s["date"].astype(str).str[:10]
+            b["date"] = b["date"].astype(str).str[:10]
+            s["ret"] = s["close"].pct_change()
+            b["ret"] = b["close"].pct_change()
+            m = s.merge(b, on="date", suffixes=("_s", "_b")).dropna(subset=["ret_s", "ret_b"])
+            if len(m) >= BETA_MIN_ALIGNED_OBS:
+                cov = m["ret_s"].cov(m["ret_b"])
+                var = m["ret_b"].var()
+                if var:
+                    beta_reg = float(cov / var)
+                    corr = float(m["ret_s"].corr(m["ret_b"]))
+        except Exception:
+            beta_reg = None
+    info = _apply_beta_guardrails(beta_reg, industry=industry)
+    if beta_reg is not None and corr is not None and abs(corr) < BETA_MIN_CORR:
+        info["low_confidence"] = True
+    return info
+
+
+# 10 分钟 TTL 缓存：渲染层 Rf 实时化后每份报告都会取值，不能逐次打
+# EastMoney；provider 侧 WACC 估算（executor 内同步调用）同样受益。
+_Rf_CACHE_TTL_SECONDS = 600.0
+_rf_cache: "Dict[str, float]" = {"ts": 0.0, "value": 0.0}
 
 
 def _get_cn_risk_free_rate() -> float:
     """China 10Y treasury yield (decimal) as risk-free rate. Best-effort;
-    falls back to 2.0% if no stable free endpoint. WACC is labeled 估算."""
+    falls back to CN_RISK_FREE_FALLBACK if no stable free endpoint. Cached
+    for 10 minutes so the report renderer can source Rf in real time
+    without hammering EastMoney. WACC is labeled 估算."""
+    import time as _time
+    now = _time.time()
+    if _rf_cache["ts"] > 0 and now - _rf_cache["ts"] < _Rf_CACHE_TTL_SECONDS:
+        return _rf_cache["value"]
+    value: Optional[float] = None
     try:
         rows = _eastmoney_datacenter("RPT_BOND_CHINA_GOV10Y", columns="ALL", page_size=1)
         if rows and rows[0].get("YIELD") is not None:
-            return float(rows[0]["YIELD"]) / 100.0
+            value = float(rows[0]["YIELD"]) / 100.0
     except Exception:
-        pass
-    return 0.02
+        value = None
+    if value is not None:
+        # 仅在拿到真实值时刷新缓存：网络故障期间沿用上次成功值（若有），
+        # 从未成功过则不缓存兑底值、下次重试（避免把 2% 兑底钉死 10 分钟）。
+        _rf_cache["ts"] = now
+        _rf_cache["value"] = value
+        return value
+    if _rf_cache["ts"] > 0:
+        return _rf_cache["value"]
+    return CN_RISK_FREE_FALLBACK
 
 
 async def _fetch_buyback(code: str) -> Optional[Dict[str, Any]]:
@@ -878,6 +1008,9 @@ class AStockDirectProvider(DataProvider):
     def name(self) -> str:
         return "a-stock-direct"
 
+    # EastMoney US market secid prefixes: 105=NASDAQ, 106=NYSE, 107=AMEX.
+    US_SECID_PREFIXES = ("105", "106", "107")
+
     async def get_history(
         self, symbol: str, period: str = "3mo", interval: str = "1d"
     ) -> pd.DataFrame:
@@ -902,6 +1035,16 @@ class AStockDirectProvider(DataProvider):
         }
         klt = interval_map.get(interval, "101")
 
+        # US tickers: Tencent kline has no usable US history (returns at most a
+        # couple of sparse rows), so go straight to EastMoney push2his which
+        # carries full US daily history.
+        if code.isalpha():
+            df = await self._fetch_eastmoney_us_kline(code, klt, limit, period)
+            if not df.empty:
+                return df
+            logger.warning(f"[{self.name}] All kline sources failed for {code}")
+            return pd.DataFrame()
+
         # Domestic-source priority: Tencent first (accessible & reliable),
         # EastMoney as fallback (push2his is geo-blocked from non-China IPs).
         df = await self._fetch_tencent_kline(code, period, interval)
@@ -914,6 +1057,75 @@ class AStockDirectProvider(DataProvider):
             return df
 
         logger.warning(f"[{self.name}] All kline sources failed for {code}")
+        return pd.DataFrame()
+
+    async def _fetch_eastmoney_us_kline(
+        self, code: str, klt: str, limit: int, period: str
+    ) -> pd.DataFrame:
+        """Fetch US-stock K-line history from EastMoney push2his.
+
+        push2delay (used for A-shares) returns empty klines for US symbols,
+        while push2his carries full US daily history. The exchange prefix is
+        not known upfront, so probe 105 (NASDAQ) → 106 (NYSE) → 107 (AMEX);
+        a wrong prefix returns rc=100 with data=null (cheap to detect).
+        K-line rows are CSV: date,open,close,high,low,volume,amount.
+        """
+        url = "https://push2his.eastmoney.com/api/qt/stock/kline/get"
+        loop = asyncio.get_event_loop()
+
+        for mkt in self.US_SECID_PREFIXES:
+            params = {
+                "secid": f"{mkt}.{code}",
+                "fields1": "f1,f2,f3,f4,f5,f6",
+                "fields2": "f51,f52,f53,f54,f55,f56,f57",
+                "klt": klt,
+                "fqt": "1",
+                "end": "20500101",
+                "lmt": str(limit),
+            }
+            # EastMoney applies connection-level anti-scraping against the
+            # requests TLS fingerprint (RemoteDisconnected). One retry with a
+            # short backoff rides out most transient drops.
+            for attempt in (1, 2):
+                try:
+                    def _fetch():
+                        return _eastmoney_get(url, params, timeout=10)
+
+                    d = await loop.run_in_executor(None, _fetch)
+                    data = d.get("data") or {}
+                    if not isinstance(data, dict):
+                        break  # wrong exchange prefix — try next, no retry
+                    klines = data.get("klines") or []
+                    if not klines:
+                        break
+
+                    rows = []
+                    for line in klines:
+                        parts = line.split(",")
+                        if len(parts) >= 7:
+                            rows.append({
+                                "date": parts[0],
+                                "open": float(parts[1]),
+                                "close": float(parts[2]),
+                                "high": float(parts[3]),
+                                "low": float(parts[4]),
+                                "volume": float(parts[5]),
+                                "amount": float(parts[6]),
+                            })
+
+                    df = pd.DataFrame(rows)
+                    logger.info(
+                        f"[{self.name}] EastMoney US kline: {len(df)} bars for {code} "
+                        f"(secid={mkt}.{code}, period={period})"
+                    )
+                    return normalize_ohlcv(df)
+                except Exception as e:
+                    logger.warning(
+                        f"[{self.name}] EastMoney US kline failed for {mkt}.{code} "
+                        f"(attempt {attempt}): {type(e).__name__}: {e}"
+                    )
+                    if attempt < 2:
+                        await asyncio.sleep(0.8)
         return pd.DataFrame()
 
     async def _fetch_eastmoney_kline(
@@ -934,8 +1146,7 @@ class AStockDirectProvider(DataProvider):
         loop = asyncio.get_event_loop()
         try:
             def _fetch():
-                r = requests.get(url, params=params, headers={"User-Agent": UA}, timeout=8)
-                return r.json()
+                return _eastmoney_get(url, params, timeout=8)
 
             d = await loop.run_in_executor(None, _fetch)
             klines = d.get("data", {}).get("klines", [])
@@ -1019,7 +1230,14 @@ class AStockDirectProvider(DataProvider):
                 return json.loads(json_str)
 
             d = await loop.run_in_executor(None, _fetch)
-            stock_data = d.get("data", {}).get(qt_symbol, {})
+            # Tencent returns "data": [] (a list) on param errors — e.g. wrong
+            # market prefix — so guard the type before dict access.
+            data_node = d.get("data") or {}
+            if not isinstance(data_node, dict):
+                return pd.DataFrame()
+            stock_data = data_node.get(qt_symbol, {})
+            if not isinstance(stock_data, dict):
+                return pd.DataFrame()
 
             if is_min:
                 klines = stock_data.get(kline_type, [])
@@ -1069,6 +1287,7 @@ class AStockDirectProvider(DataProvider):
         prefix = _get_prefix(code)
         qt_symbol = f"{prefix}{code}"
         is_hk = (prefix == "hk")
+        is_us = (prefix == "us")
 
         def _safe_float(v: str) -> Optional[float]:
             """Safely parse a string to float, returning None on failure."""
@@ -1105,7 +1324,9 @@ class AStockDirectProvider(DataProvider):
                 change=_safe_float(vals[31]) or 0,
                 change_pct=_safe_float(vals[32]) or 0,
                 volume=_safe_float(vals[36]) or 0,
-                amount=(_safe_float(vals[37]) or 0) * 10000,  # 万→元
+                # Amount unit differs by market: A-share vals[37] is 万元
+                # (×10000 → 元); US vals[37] is already raw USD turnover.
+                amount=(_safe_float(vals[37]) or 0) * (1 if is_us else 10000),
                 market_cap=(_safe_float(vals[44]) or 0) * 1e8 if _safe_float(vals[44]) else None,  # 亿→元
                 pe_ttm=_safe_float(vals[39]),
                 # PB index differs: A-share PB at vals[46]; HK puts pinyin there instead.
@@ -1329,7 +1550,10 @@ class AStockDirectProvider(DataProvider):
         # ── HK/US fast path (Tencent + EastMoney HK; yfinance-free) ──────
         if code and (not code.isdigit() or len(code) == 5):
             try:
-                tq = await fetch_tencent_quote([symbol])
+                # Pass the cleaned code (not the raw symbol) — the raw symbol
+                # may carry a frontend market suffix like ".US-Share" which
+                # fetch_tencent_quote cannot parse.
+                tq = await fetch_tencent_quote([code])
                 if tq:
                     q = tq[0]
                     result.update({
@@ -1341,7 +1565,7 @@ class AStockDirectProvider(DataProvider):
                         "turnoverPct": q.get("change_pct"),
                     })
                     if len(code) == 5:  # HK — add financials from EastMoney
-                        hk = await fetch_hk_financials(symbol, periods=16)
+                        hk = await fetch_hk_financials(code, periods=16)
                         if hk:
                             r = hk[0]
                             result.update({
@@ -1480,24 +1704,32 @@ class AStockDirectProvider(DataProvider):
                                 ic = ta - r["END_CASH"]
                                 if ic > 0:
                                     result["roic"] = round(r["PRETAX_PROFIT"] * 0.75 / ic * 100.0, 2)
-                            # 52-week high/low (for 股价百分位) + beta (vs HSI)
-                            # from the 1y Tencent K-line — one fetch, two metrics.
+                            # 52-week high/low (for 股价百分位) — 1y 日线；
+                            # β vs HSI — 3y 周线（与 A 股 5y 周线同口径：
+                            # 1y 日线窗口欠采样区制漂移且日频噪声大，
+                            # 3 年周线 ≈ 156 个对齐收益点 ≥ 回归质量门槛）。
                             try:
                                 kdf = await self._fetch_tencent_kline(code, period="1y", interval="1d")
                                 if kdf is not None and len(kdf) > 20:
                                     result["fiftyTwoWeekHigh"] = float(kdf["high"].max())
                                     result["fiftyTwoWeekLow"] = float(kdf["low"].min())
-                                if kdf is not None and len(kdf) > 60 and result.get("beta") is None:
-                                    bench = await self._fetch_tencent_kline("HSI", period="1y", interval="1d", prefix_override="hk")
-                                    if bench is not None and len(bench) > 60:
-                                        try:
-                                            beta = _compute_beta(kdf, bench)
-                                            if beta is not None:
-                                                result["beta"] = round(float(beta), 3)
-                                        except Exception:
-                                            pass
                             except Exception as e2:
-                                logger.debug(f"[a-stock-direct] 52w/beta failed for {code}: {e2}")
+                                logger.debug(f"[a-stock-direct] 52w failed for {code}: {e2}")
+                            if result.get("beta") is None:
+                                try:
+                                    _sk = await self._fetch_tencent_kline(code, period="3y", interval="1wk")
+                                    _bk = await self._fetch_tencent_kline("HSI", period="3y", interval="1wk", prefix_override="hk")
+                                    _beta = _compute_beta(_sk, _bk, industry=result.get("industry"))
+                                    result["beta_raw"] = _beta["beta_raw"]
+                                    result["beta_low_confidence"] = _beta["low_confidence"]
+                                    if _beta.get("rejected"):
+                                        # 负回归 β：拒绝入库（不写 result["beta"]），
+                                        # 下游 CAPM 回退各自默认值。
+                                        result["beta_rejected"] = True
+                                    else:
+                                        result["beta"] = _beta["beta"]
+                                except Exception as e2:
+                                    logger.debug(f"[a-stock-direct] beta failed for {code}: {e2}")
                     return result
             except Exception as e:
                 logger.warning(f"[a-stock-direct] HK/US summary failed for {symbol}: {e}")
@@ -1736,13 +1968,23 @@ class AStockDirectProvider(DataProvider):
             logger.warning(f"[{self.name}] Dividend history failed for {code}: {e}")
 
         # 6. Extended metrics (β / ROIC / WACC / buyback / coal) — Part B
-        # 6a. Beta vs CSI300 (computed from daily returns; Tencent kline, overseas-accessible)
+        # 6a. Beta vs CSI300 — 5y weekly bars (~260 aligned weekly returns).
+        # Rationale: Tencent ifzq fqkline caps one request at 640 bars, so a
+        # "5y daily" call silently truncates to ~2.6y; weekly bars cover the
+        # full 5y cycle in a single request. The old 1y daily window
+        # under-sampled regime shifts and produced collapsed raw betas for
+        # mega-cap names (e.g. raw β=0.10 for 600887 job_6c9d3280).
         try:
-            _sk = await self._fetch_tencent_kline(code, period="1y", interval="1d")
-            _bk = await self._fetch_tencent_kline("000300", period="1y", interval="1d", prefix_override="sh")
-            _beta = _compute_beta(_sk, _bk)
-            if _beta is not None:
-                result["beta"] = round(_beta, 2)
+            _sk = await self._fetch_tencent_kline(code, period="5y", interval="1wk")
+            _bk = await self._fetch_tencent_kline("000300", period="5y", interval="1wk", prefix_override="sh")
+            _beta = _compute_beta(_sk, _bk, industry=result.get("industry"))
+            result["beta_raw"] = _beta["beta_raw"]
+            result["beta_low_confidence"] = _beta["low_confidence"]
+            if _beta.get("rejected"):
+                # 负回归 β：拒绝入库（不写 result["beta"]），下游 CAPM 回退默认值。
+                result["beta_rejected"] = True
+            else:
+                result["beta"] = _beta["beta"]
         except Exception as e:
             logger.debug(f"[{self.name}] Beta failed for {code}: {type(e).__name__}")
 
@@ -1762,9 +2004,10 @@ class AStockDirectProvider(DataProvider):
                     if _ic:
                         result["roic"] = round(_nopat / _ic * 100, 2)  # percent
                     _rf = await loop.run_in_executor(None, _get_cn_risk_free_rate)
+                    result["rf"] = round(_rf, 4)  # 实时 Rf 入库 → 报告渲染层 DCF 与 provider WACC 同源
                     _beta_v = result.get("beta") or 1.0
-                    _re = _rf + _beta_v * 0.055  # 股权风险溢价假设 5.5%
-                    _rd = 0.04
+                    _re = _rf + _beta_v * EQUITY_RISK_PREMIUM  # 股权风险溢价：单一常量（渲染层同源引用）
+                    _rd = DEFAULT_COST_OF_DEBT  # Kd 默认：单一配置源（渲染层同源）
                     _eq = (_ta or 0) - (_tl or 0)
                     _v = _eq + (_tl or 0)
                     if _v:

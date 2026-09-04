@@ -71,11 +71,15 @@ def show():
         else:
             click.echo(f"{k}: {v}")
 
-@config.command()
+@config.command("set")
 @click.argument("key")
 @click.argument("value")
-def set(key, value):
+def config_set(key, value):
     """Set a configuration value."""
+    # 函数名不能叫 set：@config.command 装饰后模块级名字会被绑定为
+    # Command 对象，遮蔽 builtins.set —— run_market_scan_then_sector 里的
+    # `seen = set()` 曾因此实际调用 <Command set>()（解析 sys.argv 并
+    # 抛 UsageError/SystemExit）。命令名仍为 "set"，CLI 接口不变。
     cfg = load_config()
     cfg[key] = value
     save_config(cfg)
@@ -293,9 +297,12 @@ async def run_sector_flow(sector_name, output_path, model):
 
     service = SectorAnalysisService(job_repo)
 
-    # Use model from CLI option or config
+    # Use model from CLI option or config; fall back to DEFAULT_LLM_MODEL
+    # (same pattern as the stock flow above — without this, OpenRouter-only
+    # deployments with no model in ~/.alsa_config.json fall through to None,
+    # which disables explicit model routing for the whole sector flow).
     cfg = load_config()
-    final_model = model or cfg.get("model") or cfg.get("gemini_model")
+    final_model = model or cfg.get("model") or cfg.get("gemini_model") or os.getenv("DEFAULT_LLM_MODEL", "deepseek-v4-pro")
     if is_deprecated_model(final_model):
         final_model = None
 
@@ -360,6 +367,7 @@ async def run_sector_flow(sector_name, output_path, model):
 async def run_market_scan_then_sector(output_path, model):
     """Step 1: Scan market for promising sectors. Step 2: User picks one. Step 3: Deep sector analysis."""
     from app.services.llm_gateway import llm_gateway
+    from app.services.agent_orchestrator import agent_orchestrator
     from app.prompting.runtime import prompt_runtime
 
     cfg = load_config()
@@ -402,9 +410,38 @@ Market: A-Share (中国A股)
     # Run with tool-calling (web_search enabled)
     click.echo("正在搜索和分析...")
     try:
-        use_tools = "deepseek" in final_model.lower()
-        if use_tools:
-            scan_result = await llm_gateway.generate_with_tools(context, model=final_model, max_tool_rounds=20)
+        # 与 API 扫描路径(app.api.sector)一致的能力判定：
+        # - Gemini: llm_gateway.generate_content 内部自动附加 google_search 原生接地
+        # - DeepSeek: agent_orchestrator.generate_with_tools 内部走原生函数调用
+        # - 其余模型(MiniMax/OpenRouter 全系): generate_with_tools 的【文本】工具
+        #   循环，须在 context 注入文本协议工具文档并传 tools_enabled=True。
+        # 旧门控 use_tools = "deepseek" in final_model.lower() 使 MiniMax 走无工具的
+        # generate_content，而 SYSTEM DIRECTIVE 却要求 MUST web_search；且
+        # llm_gateway 上不存在 generate_with_tools（必然 AttributeError）。
+        model_lower = (final_model or "").lower()
+        is_gemini = "gemini" in model_lower
+        is_deepseek = "deepseek" in model_lower
+        use_text_tool_protocol = not is_gemini and not is_deepseek
+
+        if use_text_tool_protocol:
+            from app.services.expert_tools import format_tool_descriptions
+            context += (
+                "\n\n--- [MANDATORY] SEARCH TOOL STATUS ---\n"
+                "✅ **搜索工具状态: 工具调用已启用**\n"
+                "使用规则：\n"
+                "1. **主动使用工具**: 当需要实时数据时，必须使用工具获取数据，严禁猜测。\n"
+                "2. **禁止伪造**: 如果工具返回无结果，标注 'UNKNOWN'，绝不编造。\n\n"
+                + format_tool_descriptions(role=None, language="zh-CN")
+            )
+
+        if use_text_tool_protocol or is_deepseek:
+            # tools_enabled: 仅文本协议模型(MiniMax/OpenRouter 全系)为 True，
+            # 使 agent_orchestrator 在首轮无 tool_call 时发送一次性强制提醒
+            # （nudge）；DeepSeek 走内部原生 FC，不受该参数影响。
+            scan_result = await agent_orchestrator.generate_with_tools(
+                context, model=final_model, max_tool_rounds=20,
+                tools_enabled=use_text_tool_protocol,
+            )
         else:
             scan_result = await llm_gateway.generate_content(context, model=final_model)
     except Exception as e:

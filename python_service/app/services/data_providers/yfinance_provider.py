@@ -21,6 +21,15 @@ def _normalize_yf_symbol(symbol: str) -> str:
     """Convert to yfinance-compatible ticker format."""
     s = symbol.strip().upper()
 
+    # Strip frontend composite market suffixes: "KLAC.US-SHARE" → "KLAC",
+    # "01888.HK-SHARE" → "01888.HK", "600519.A-SHARE" → "600519".
+    if s.endswith(".HK-SHARE"):
+        s = s[: -len(".HK-SHARE")] + ".HK"
+    elif s.endswith(".A-SHARE"):
+        s = s[: -len(".A-SHARE")]
+    elif s.endswith(".US-SHARE"):
+        s = s[: -len(".US-SHARE")]
+
     # Already in yfinance format
     if "." in s or s.startswith("^") or "=" in s:
         # Handle A-share if accidentally routed here

@@ -38,6 +38,7 @@
 
 **CRITICAL**: 你必须使用 `financial_data` 工具获取每只候选股票的真实财务数据，禁止凭记忆编造数据。
 **CRITICAL**: 你必须使用 `web_search` 搜索最新的研报评级和目标价。
+**CRITICAL**: 禁止只声明不调用——严禁输出"必须使用 financial_data 工具核实"之类的免责声明而不实际发起工具调用；该行为视为违反协议。工具未返回的数据标注 N/A（数据缺失）。若首轮响应未发起任何工具调用，系统会强制提醒你调用工具。
 
 
 **MANDATORY OUTPUT SECTIONS**:

@@ -71,8 +71,12 @@ Every conclusion must include: evidence, confidence (HIGH/MEDIUM/LOW), risks, mi
 4. **CIO Dashboard (MANDATORY)**: 报告第一段必须包含一页纸 CIO 决策面板（Markdown表格格式）。必须包含：【核心定调、因子雷达、多空共识差、一句话决断】（若你的角色模板已规定该面板，请以角色模板为准）。
 5. **结构化数据尾注 (CRITICAL)**: 在报告的最末尾，你必须附加一段包含 `<structured_data>` 标签的 JSON 数据，供系统提取交易计划。格式必须如下：
    <structured_data>
-   {"sentiment": "Bullish/Bearish/Neutral", "recommendation": "Strong Buy/Buy/Hold/Underweight/Sell", "targetPrice": 123.45, "stopLossPrice": 110.0, "confidence": 85, "keyRisks": ["risk1", "risk2"]}
+   {"sentiment": "Bullish/Bearish/Neutral", "recommendation": "Strong Buy/Buy/Hold/Underweight/Sell", "action": "BUY/SELL/HOLD/WATCH", "targetPrice": 123.45, "entryPrice": 122.0, "stopLossPrice": 110.0, "confidence": 85, "keyRisks": ["risk1", "risk2"]}
    </structured_data>
+   字段说明：
+   - `action`（必填）: 交易方向信号。BUY=做多建仓；SELL=卖出/做空信号；HOLD=持有不动；WATCH=观望，暂不建仓。
+   - `entryPrice`（入场价）: 建议入场价位（数字）。若只能给出区间，改用 `"entryLow": 120.0, "entryHigh": 125.0`；无法给出明确入场价时填 null，并在报告正文中说明原因。
+   - 其余字段含义不变。注意：JSON 字符串值内部如含双引号必须转义为 `\"`（如 keyRisks 条目中引用原文时）。
 {% else %}
 1. **Final Output Rule**: Your output MUST be 100% professional analysis for investors. NO tool plans ('I will now call...'), internal reasoning, meta-descriptions of tool results, or transitional phrases.
 2. **Lively Formatting**: Mandatory use of standard Markdown. To make the report more engaging, it is recommended to use Emoji numbers (e.g., 1️⃣, 2️⃣) for main section headers.
@@ -80,8 +84,12 @@ Every conclusion must include: evidence, confidence (HIGH/MEDIUM/LOW), risks, mi
 4. **CIO Dashboard (MANDATORY)**: The first paragraph of your report MUST contain a 1-pager CIO Dashboard (Markdown table). It MUST include: [Core Thesis, Factor Radar, Consensus vs Alpha Gap, One-sentence Verdict].
 5. **Structured Data Footer (CRITICAL)**: At the very end of your report, you MUST append a JSON object wrapped in `<structured_data>` tags for system parsing. Exact format:
    <structured_data>
-   {"sentiment": "Bullish/Bearish/Neutral", "recommendation": "Strong Buy/Buy/Hold/Underweight/Sell", "targetPrice": 123.45, "stopLossPrice": 110.0, "confidence": 85, "keyRisks": ["risk1", "risk2"]}
+   {"sentiment": "Bullish/Bearish/Neutral", "recommendation": "Strong Buy/Buy/Hold/Underweight/Sell", "action": "BUY/SELL/HOLD/WATCH", "targetPrice": 123.45, "entryPrice": 122.0, "stopLossPrice": 110.0, "confidence": 85, "keyRisks": ["risk1", "risk2"]}
    </structured_data>
+   Field notes:
+   - `action` (REQUIRED): directional trading signal. BUY=go long / open a position; SELL=sell or short signal; HOLD=keep the current position; WATCH=stand aside, do not open a position yet.
+   - `entryPrice` (entry level): suggested entry price as a number. If only a range is defensible, use `"entryLow": 120.0, "entryHigh": 125.0` instead; if no clear entry price is possible, use null and explain why in the report body.
+   - Other fields keep their existing meanings. NOTE: double quotes inside JSON string values MUST be escaped as `\"` (e.g. quoted wording inside keyRisks entries).
 {% endif %}
 {% endif %}
 
@@ -439,7 +447,11 @@ The [API DATA / MARKET SNAPSHOT] above comes from real-time APIs and is the **co
 {% endif %}
 
 --- [MANDATORY] SEARCH TOOL STATUS ---
-{% if has_search_tools %}
+{# 文本工具循环模型(MiniMax/OpenRouter 全系, use_text_tool_protocol)与
+   Gemini(has_search_tools)都需要此节; DeepSeek 走原生函数调用不需要。
+   修复前: 仅 has_search_tools 时渲染, 文本循环模型拿不到工具清单,
+   agent_orchestrator 的文本工具循环第 0 轮无 tool_call 标签而空转退出。 #}
+{% if has_search_tools or use_text_tool_protocol %}
 {% if use_native_tools %}
 ✅ **搜索工具状态: 原生函数调用已启用 (Native Function Calling)**
 你拥有系统原生提供的搜索工具（请参考 Function List）。

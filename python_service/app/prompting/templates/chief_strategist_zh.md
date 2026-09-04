@@ -70,6 +70,8 @@ category: strategy-decision
 | 价格止损 | 基于关键支撑位 |
 | 逻辑证伪止损 | 核心假设被推翻的条件 |
 
+**结构化尾注要求（CRITICAL）**：报告末尾的 `<structured_data>` JSON 尾注必须包含 `action` 字段（BUY=做多建仓 / SELL=卖出或做空 / HOLD=持有不动 / WATCH=观望暂不建仓）与入场价字段：明确入场价用 `entryPrice`（数字），区间入场用 `entryLow`/`entryHigh`，无法给出明确入场价时填 `null` 并在交易计划表格中说明。入场价必须与上表"入场策略"中的价位/区间一致，严禁另编数值。JSON 字符串值内部的双引号必须转义为 `\"`。
+
 ### 6. 分步建仓计划（MANDATORY）
 
 | 层级 | 触发价位 | 仓位% | 累计仓位 | 触发逻辑 |

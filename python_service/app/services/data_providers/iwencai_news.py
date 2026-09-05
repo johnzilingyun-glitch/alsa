@@ -7,6 +7,7 @@ API: https://openapi.iwencai.com/v1/comprehensive/search
 
 import os
 import secrets
+import time
 import logging
 from typing import Dict, Any
 
@@ -17,9 +18,14 @@ logger = logging.getLogger(__name__)
 IWENCAI_BASE_URL = os.getenv("IWENCAI_BASE_URL", "https://openapi.iwencai.com")
 IWENCAI_API_KEY = os.getenv("IWENCAI_API_KEY", "")
 
-# Circuit breaker: once we get a 401 "quota exhausted" response,
-# skip further comprehensive/search calls for this process lifetime.
-_iwencai_quota_exhausted = False
+# Circuit breaker: per-channel 401 "quota exhausted" cooldown.
+# 2026-09: was process-lifetime (boolean); now TTL-backed so transient 401s
+# don't permanently disable Iwencai for a long-running process. Also per-channel
+# because the Iwencai API has separate quotas per channel — when news hits 401,
+# announcement + report channels can still serve requests.
+_quota_exhausted_until: Dict[str, float] = {}  # channel -> epoch seconds
+# Default cooldown: 30 minutes. Tunable via IWENCAI_QUOTA_COOLDOWN_SECONDS.
+_IWENCAI_QUOTA_COOLDOWN_SECONDS = int(os.getenv("IWENCAI_QUOTA_COOLDOWN_SECONDS", "1800"))
 
 # Known quota-exhausted messages from the Iwencai API.
 _QUOTA_EXHAUSTED_KEYWORDS = ("次数已用完", "quota", "rate limit", "insufficient balance")
@@ -43,6 +49,22 @@ def _generate_trace_id() -> str:
     return secrets.token_hex(32)
 
 
+def _is_quota_breaker_open(channel: str) -> bool:
+    """Returns True if the quota circuit breaker is currently tripped for `channel`.
+
+    Per-channel isolation: news tripping does NOT block announcement/report.
+    """
+    expiry = _quota_exhausted_until.get(channel, 0.0)
+    if expiry <= 0:
+        return False
+    if time.time() >= expiry:
+        # Cooldown expired — auto-reset
+        logger.info(f"[iwencai-{channel}] Quota cooldown expired, resetting.")
+        _quota_exhausted_until.pop(channel, None)
+        return False
+    return True
+
+
 async def _iwencai_search(query: str, channel: str = "news", retry: bool = False) -> Dict[str, Any]:
     """
     Core search function for Iwencai OpenAPI.
@@ -54,10 +76,8 @@ async def _iwencai_search(query: str, channel: str = "news", retry: bool = False
 
     Returns the raw API response (transparent passthrough per gateway spec).
     """
-    global _iwencai_quota_exhausted
-
-    # Fast-path skip when quota is known to be exhausted.
-    if _iwencai_quota_exhausted:
+    # Fast-path skip when this channel's breaker is tripped.
+    if _is_quota_breaker_open(channel):
         return {"error": "quota_exhausted", "status_code": 401, "data": []}
 
     api_key = IWENCAI_API_KEY or os.getenv("IWENCAI_API_KEY", "")
@@ -92,14 +112,14 @@ async def _iwencai_search(query: str, channel: str = "news", retry: bool = False
         body = e.response.text
         logger.warning("[iwencai-%s] HTTP %s for query '%s'", channel, status, query)
 
-        # Detect quota exhaustion — flip circuit breaker so all subsequent
-        # calls skip the API entirely and go straight to the fallback.
+        # Detect quota exhaustion — trip per-channel breaker so subsequent calls
+        # on the same channel skip the API until cooldown expires (TTL-backed, 2026-09).
         if _is_quota_error(status, body):
-            _iwencai_quota_exhausted = True
+            _quota_exhausted_until[channel] = time.time() + _IWENCAI_QUOTA_COOLDOWN_SECONDS
             logger.warning(
-                "[iwencai] Quota exhausted for channel '%s' — "
-                "disabling iwencai news/announcement/report for this session.",
-                channel,
+                "[iwencai-%s] Quota exhausted — disabling for %ds. "
+                "(Other channels unaffected.)",
+                channel, _IWENCAI_QUOTA_COOLDOWN_SECONDS,
             )
             return {"error": "quota_exhausted", "status_code": 401, "data": []}
 

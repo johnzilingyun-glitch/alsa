@@ -150,10 +150,25 @@ class THSProvider:
             resp = await self._run_sync(ths.block_constituents, link_code)
             return self._to_list(resp)
 
-    async def get_market_data_block(self, link_code: str, query_key: str = "基础数据") -> Dict:
-        with THS() as ths:
-            resp = await self._run_sync(ths.market_data_block, link_code, query_key)
-            return self._to_records(resp)
+    async def get_market_data_block(self, link_code: Union[str, List[str]], query_key: str = "基础数据") -> Dict:
+        # thsdk.market_data_block accepts str | list[str] (see query_configs.MARKET_DATA_BLOCK_QUERY_CONFIG
+        # + market_queries.MarketQueryAPIMixin.market_data_block which declares block_code: Any).
+        # The previous signature lied; batch lookups for all 90 SW industries in one shot
+        # cuts thsdk connection overhead from 180 round-trips (~90s, guest mac pool exhausts)
+        # to 2 round-trips (~1s).
+        codes: Union[str, list] = link_code
+        try:
+            with THS() as ths:
+                resp = await self._run_sync(ths.market_data_block, codes, query_key)
+                return self._to_records(resp)
+        except Exception as e:
+            # 批量调用任何阶段（连接、序列化、解析）抛错都返回空 dict
+            # 而不是让异常向上冒泡到 caller；caller 必须靠
+            # `if not result.get('data'): ...` 处理空结果。这种"软失败"
+            # 让 sector-scan 在 thsdk 不稳定时仍能降级到老路径（web_search），
+            # 而不是整个扫描任务挂掉。
+            logger.warning(f"ths_provider.get_market_data_block({len(codes) if isinstance(codes, list) else 1} codes, '{query_key}') failed: {e}")
+            return {"data": [], "columns": [], "_error": str(e)}
 
     async def wencai_nlp(self, query: str) -> Dict:
         with THS() as ths:
